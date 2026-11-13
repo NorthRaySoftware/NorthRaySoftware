@@ -1,43 +1,43 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-13T04:10:46Z",
+  "generatedUtc": "2026-11-13T04:38:05Z",
   "apps": [
     {
       "id": "launcher",
       "name": "NorthRay Launcher",
-      "version": "0.6.0",
-      "file": "NorthRayLauncher-Setup-0.6.0.exe",
-      "url": "downloads/NorthRayLauncher-Setup-0.6.0.exe",
-      "size": 1189903,
-      "sha256": "ab0d76d1ad059104cb05a105af162a3e17c9e23e36fa58d286a5a147ba87f118"
+      "version": "0.7.0",
+      "file": "NorthRayLauncher-Setup-0.7.0.exe",
+      "url": "downloads/NorthRayLauncher-Setup-0.7.0.exe",
+      "size": 1190544,
+      "sha256": "bf9d94e8788853a7578f1d28086921ed0499e5d80778ce924bbb5a13efd0ba5c"
     },
     {
       "id": "writing-studio",
       "name": "NorthRay Writing Studio",
-      "version": "0.6.0",
-      "file": "WritingStudio-Setup-0.6.0.exe",
-      "url": "downloads/WritingStudio-Setup-0.6.0.exe",
-      "size": 5342597,
-      "sha256": "33567e855cf9133315223dca84a612268f7bad842031a64235e3bfa65daa8964"
+      "version": "0.7.0",
+      "file": "WritingStudio-Setup-0.7.0.exe",
+      "url": "downloads/WritingStudio-Setup-0.7.0.exe",
+      "size": 5355207,
+      "sha256": "1e02b95480dd684ef0329982926517c416d6477c92ca39208aad8290aa439e7f"
     },
     {
       "id": "cj-radio",
       "name": "CJ Radio",
-      "version": "0.6.0",
-      "file": "CJRadio-Setup-0.6.0.exe",
-      "url": "downloads/CJRadio-Setup-0.6.0.exe",
-      "size": 1447077,
-      "sha256": "79bde7c67269ad78cc2f6f24ee3a7b48a0cd2db5588375cc67c0cb32444fb48b"
+      "version": "0.7.0",
+      "file": "CJRadio-Setup-0.7.0.exe",
+      "url": "downloads/CJRadio-Setup-0.7.0.exe",
+      "size": 1446814,
+      "sha256": "0a169d96a1d1a1a9742f6453e883d5941a63926868376fb6e3e223cdf5f2c4bc"
     },
     {
       "id": "cj-philip-community",
       "name": "CJ Philip Community",
-      "version": "0.6.0",
-      "file": "CJPhilipCommunity-Setup-0.6.0.exe",
-      "url": "downloads/CJPhilipCommunity-Setup-0.6.0.exe",
-      "size": 1206695,
-      "sha256": "f2ebca06eeba4ab08cc279d9bea12f603e22028627b556e55e5b57e02bc0c3e0"
+      "version": "0.7.0",
+      "file": "CJPhilipCommunity-Setup-0.7.0.exe",
+      "url": "downloads/CJPhilipCommunity-Setup-0.7.0.exe",
+      "size": 1045134,
+      "sha256": "d766305d71e4b5cb62eef60e88f361bf0d6f13a961572cb44c11e4f3b8908aca"
     }
   ]
 }
