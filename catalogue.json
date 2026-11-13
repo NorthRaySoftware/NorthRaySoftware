@@ -1,43 +1,43 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-13T19:42:24Z",
+  "generatedUtc": "2026-11-13T19:55:36Z",
   "apps": [
     {
       "id": "launcher",
       "name": "NorthRay Launcher",
-      "version": "0.13.0",
-      "file": "NorthRayLauncher-Setup-0.13.0.exe",
-      "url": "downloads/NorthRayLauncher-Setup-0.13.0.exe",
-      "size": 1194406,
-      "sha256": "ead391ff798c7165181f0e35616b963cc5d7d4c8dfc5093fcae357f7af67fbac"
+      "version": "0.14.0",
+      "file": "NorthRayLauncher-Setup-0.14.0.exe",
+      "url": "downloads/NorthRayLauncher-Setup-0.14.0.exe",
+      "size": 1194910,
+      "sha256": "a363e686129473d1aa499225079d5fb47b44e31a90cbbd1d024579774476d7c3"
     },
     {
       "id": "writing-studio",
       "name": "NorthRay Writing Studio",
-      "version": "0.13.0",
-      "file": "WritingStudio-Setup-0.13.0.exe",
-      "url": "downloads/WritingStudio-Setup-0.13.0.exe",
-      "size": 7969492,
-      "sha256": "6b2f8fdd21d7aa9732fa5b8ec03eeaa2655d7cd730945274f2c7b0e4bb2a8ef0"
+      "version": "0.14.0",
+      "file": "WritingStudio-Setup-0.14.0.exe",
+      "url": "downloads/WritingStudio-Setup-0.14.0.exe",
+      "size": 8023735,
+      "sha256": "1f20a5a9682280e881876ff65e80db209afa04b89a5a34139a413531c5325514"
     },
     {
       "id": "cj-radio",
       "name": "CJ Radio",
-      "version": "0.13.0",
-      "file": "CJRadio-Setup-0.13.0.exe",
-      "url": "downloads/CJRadio-Setup-0.13.0.exe",
-      "size": 1450976,
-      "sha256": "0e6a463841b2c8e0febb482f1ee81632bfea0239ae558fe251c0fe1426dac5b9"
+      "version": "0.14.0",
+      "file": "CJRadio-Setup-0.14.0.exe",
+      "url": "downloads/CJRadio-Setup-0.14.0.exe",
+      "size": 1451234,
+      "sha256": "1b85139810362290b55288950ebb0c6ca3481585554c4627a0908b68e7616ed4"
     },
     {
       "id": "cj-philip-community",
       "name": "CJ Philip Community",
-      "version": "0.13.0",
-      "file": "CJPhilipCommunity-Setup-0.13.0.exe",
-      "url": "downloads/CJPhilipCommunity-Setup-0.13.0.exe",
-      "size": 1049058,
-      "sha256": "2e681a84de95b43a5a3d3495fc5dfe8c2450f7f442d889c60097f1724ccc9137"
+      "version": "0.14.0",
+      "file": "CJPhilipCommunity-Setup-0.14.0.exe",
+      "url": "downloads/CJPhilipCommunity-Setup-0.14.0.exe",
+      "size": 1049627,
+      "sha256": "8d3f13eaf0e5296b6cd1fb863c651ec37439973f87ba2914bec9260a7760347b"
     }
   ]
 }
