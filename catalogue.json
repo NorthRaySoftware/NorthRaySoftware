@@ -1,7 +1,7 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-13T02:47:50Z",
+  "generatedUtc": "2026-11-13T03:32:01Z",
   "apps": [
     {
       "id": "launcher",
@@ -9,8 +9,8 @@
       "version": "0.4.0",
       "file": "NorthRayLauncher-Setup-0.4.0.exe",
       "url": "downloads/NorthRayLauncher-Setup-0.4.0.exe",
-      "size": 1178940,
-      "sha256": "1f653964ce93120fea77e4bab4db4aa4e9504bf59319a7024f0bbb04b6b42d57"
+      "size": 1188348,
+      "sha256": "961a2799c9f806c5b7be3940b4fa8ffec6ec0fdda9844dcf51ece332196a1a46"
     },
     {
       "id": "writing-studio",
@@ -18,8 +18,8 @@
       "version": "0.4.0",
       "file": "WritingStudio-Setup-0.4.0.exe",
       "url": "downloads/WritingStudio-Setup-0.4.0.exe",
-      "size": 1777618,
-      "sha256": "a5cf9dfb83aab3dfaf5e1734e988581187482b77b5ddb081af9c59b93f4af1bb"
+      "size": 1851061,
+      "sha256": "8a593e2efac186420c8cca51df62ad8f90a42c5a76733858b5cd06e1cee1eb29"
     },
     {
       "id": "cj-radio",
@@ -27,8 +27,8 @@
       "version": "0.4.0",
       "file": "CJRadio-Setup-0.4.0.exe",
       "url": "downloads/CJRadio-Setup-0.4.0.exe",
-      "size": 1428329,
-      "sha256": "b541612142c7c918d8ca9b4ac778c1fefc97379d1874509f7281ac69ef3038f5"
+      "size": 1444461,
+      "sha256": "2ac2bcba6f671c99bc72036b762808e36ad44c65cb548401f9e61db3099fbf92"
     },
     {
       "id": "cj-philip-community",
@@ -36,8 +36,8 @@
       "version": "0.4.0",
       "file": "CJPhilipCommunity-Setup-0.4.0.exe",
       "url": "downloads/CJPhilipCommunity-Setup-0.4.0.exe",
-      "size": 1184619,
-      "sha256": "f01d7ca16d3adaf5d670941d60f010456044157fc161106e58cef685460ed55b"
+      "size": 1204987,
+      "sha256": "985dcf55ee428097d5249e3006ca9e0e148d4277c299fb2fd58ab5f3b448316c"
     }
   ]
 }
