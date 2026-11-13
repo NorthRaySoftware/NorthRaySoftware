@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="t">
+  <title id="t">NorthRay Software</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B1426"/>
+      <stop offset="1" stop-color="#14233A"/>
+    </linearGradient>
+    <!-- Aurora curtains: bright at the lower edge, fading upward, as real ones do -->
+    <linearGradient id="a1" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#7CF5B0"/>
+      <stop offset="0.55" stop-color="#2FC6A0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#2FC6A0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="a2" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#5FE0D0"/>
+      <stop offset="0.6" stop-color="#3A8FD8" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#3A8FD8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="a3" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#B58BF0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#7A5BD6" stop-opacity="0"/>
+    </linearGradient>
+    <!-- the rays: fine vertical streaks that make it read as aurora, not hills -->
+    <pattern id="rays" width="7" height="128" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="2.2" height="128" fill="#FFFFFF" opacity="0.22"/>
+      <rect x="4" y="0" width="1" height="128" fill="#FFFFFF" opacity="0.12"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.75" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="raymask"><rect width="128" height="110" fill="url(#fade)"/></mask>
+    <clipPath id="tile"><rect width="128" height="128" rx="26"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="128" height="128" fill="url(#sky)"/>
+    <!-- three curtains, each a band with a gently folded lower edge -->
+    <path d="M-6 74 C 18 58, 34 80, 58 64 S 98 46, 134 58 L 134 8 C 98 0, 70 18, 44 12 S 6 4, -6 14 Z" fill="url(#a3)"/>
+    <path d="M-6 86 C 20 70, 40 92, 66 76 S 104 60, 134 72 L 134 26 C 100 16, 74 36, 48 28 S 8 20, -6 30 Z" fill="url(#a2)"/>
+    <path d="M-6 96 C 22 82, 44 102, 70 88 S 108 74, 134 86 L 134 46 C 104 36, 78 54, 52 46 S 10 38, -6 48 Z" fill="url(#a1)"/>
+    <g mask="url(#raymask)" style="mix-blend-mode:screen">
+      <path d="M-6 96 C 22 82, 44 102, 70 88 S 108 74, 134 86 L 134 8 L -6 8 Z" fill="url(#rays)"/>
+    </g>
+    <!-- the north star: one clear ray -->
+    <path d="M92 18 L94 26 L102 28 L94 30 L92 38 L90 30 L82 28 L90 26 Z" fill="#F4F7FF"/>
+    <!-- horizon -->
+    <path d="M0 108 C 30 100, 52 104, 74 100 S 110 98, 128 102 L128 128 L0 128 Z" fill="#070D19"/>
+  </g>
+</svg>
