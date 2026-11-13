@@ -1,0 +1,41 @@
+---
+import Base from '../layouts/Base.astro';
+import { brand } from '../lib/metadata.js';
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const b = brand();
+---
+<Base title="About | NorthRay Software" description="About NorthRay Software." current="about/">
+  <h1>About NorthRay Software</h1>
+  <p class="lede">{b.developer} is an independent software project making creative applications, starting with writing and publishing.</p>
+  <div style="max-width:720px">
+    <p>It's built around a simple belief: good software should be accessible to everyone, not just those who can afford it.
+      Financial circumstances shouldn't decide whether someone can create, learn or express themselves.</p>
+    <p>So the aim is useful, dependable desktop software that people genuinely enjoy using: thoughtfully designed, reliable,
+      and capable of standing alongside established commercial alternatives, without unnecessary complications, artificial restrictions or expensive subscriptions.</p>
+    <blockquote class="pull">We would rather release one application we're proud of than ten that barely work.</blockquote>
+    <p>The current application is <a href={`${base}writing-studio/`}>NorthRay Writing Studio</a>, a writing and publishing studio for authors.
+      <a href={`${base}download/#launcher`}>NorthRay Launcher</a> installs and updates it, and the apps that follow.</p>
+    <h2>Free by philosophy</h2>
+    <p>Our aim is to make NorthRay applications free to use, without subscriptions, paywalls or deliberately restricted features.
+      If a feature makes the software better, the intention is for everyone to benefit from it.</p>
+    <p>{b.developer} isn't built around investors or growth targets. Development, distribution and maintenance do have real costs, so we'll explore
+      sustainable ways of supporting the project, without compromising the accessibility of the core applications, and explain them openly.</p>
+    <h2>Your work belongs to you</h2>
+    <p>Wherever practical, the apps keep your work on your own computer, work offline, and import and export established formats.
+      Your writing, artwork and projects belong to you, and you shouldn't feel trapped inside an app or dependent on a constant internet connection.</p>
+    <h2>Growing at our own pace</h2>
+    <p>Software development is an ongoing process and mistakes are inevitable; what matters is acknowledging them and improving.
+      Feedback, ideas and constructive criticism are welcome: the people who use the software should help shape its future.
+      We're starting small, and we're comfortable with that.</p>
+  </div>
+
+  <section id="cj-philip" class="relationship" aria-labelledby="rel-title">
+    <h2 id="rel-title">{b.developer} and CJ Philip</h2>
+    <p style="max-width:720px">CJ Philip is a Scottish author, artist and broadcaster, and a creative partner of {b.developer}; the two are
+      separate identities. CJ Philip Community, with his own apps such as CJ Radio (the home of The CJ Philip Show), is an optional
+      download inside NorthRay Launcher. His books, artwork and programmes are his own.</p>
+  </section>
+
+  <p class="kicker">Questions</p>
+  <p><a href={`${base}contact/`}>Get in touch</a>.</p>
+</Base>

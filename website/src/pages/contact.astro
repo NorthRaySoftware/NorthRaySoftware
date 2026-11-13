@@ -1,0 +1,15 @@
+---
+import Base from '../layouts/Base.astro';
+import { brand } from '../lib/metadata.js';
+const b = brand();
+---
+<Base title="Contact | NorthRay Software" description="Contact NorthRay Software." current="contact/">
+  <h1>Contact</h1>
+  <p class="lede">Questions, bug reports, ideas: email is the way to reach {b.developer}.</p>
+  <div class="contact-card">
+    <p class="kicker" style="margin:0 0 6px">Email</p>
+    <a href={`mailto:${b.contactEmail}`}>{b.contactEmail}</a>
+    <p class="small muted" style="margin:14px 0 0">When reporting a problem, it helps to include the app's name and version (in its
+      About box or in NorthRay Launcher) and what you were doing when it happened. Please don't send passwords or other private details.</p>
+  </div>
+</Base>

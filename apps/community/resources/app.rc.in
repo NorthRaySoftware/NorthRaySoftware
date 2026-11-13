@@ -1,0 +1,31 @@
+#include <windows.h>
+#include "resource.h"
+
+IDI_APP ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/cj-community.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "@CMAKE_CURRENT_SOURCE_DIR@/resources/app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @CJ_VERSION_COMMAS@
+PRODUCTVERSION @CJ_VERSION_COMMAS@
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080904b0"
+    BEGIN
+      VALUE "CompanyName", "@CJ_DEVELOPER@"
+      VALUE "LegalCopyright", "@CJ_DEVELOPER@ project"
+      VALUE "FileDescription", "CJ Philip Community"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "ProductName", "CJ Philip Community"
+      VALUE "ProductVersion", "@PROJECT_VERSION@"
+      VALUE "InternalName", "CJPhilipCommunity"
+      VALUE "OriginalFilename", "CJPhilipCommunity.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0809, 1200
+  END
+END

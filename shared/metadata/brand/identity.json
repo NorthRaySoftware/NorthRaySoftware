@@ -1,0 +1,9 @@
+{
+  "comment": "THE central setting for the software's development and publishing identity, separate from CJ Philip's creator identity. Change the name here only: the build (window credits, Windows file details), the installers and the website all read it. It's a project identity, not a list of people: never add invented names, staff or history.",
+  "developer": "NorthRay Software",
+  "developerLine": "Developed by the NorthRay Software project",
+  "communityName": "CJ Philip Community",
+  "logo": "brand/northray-logo.svg",
+  "contactEmail": "NorthRaySoftware@protonmail.com",
+  "launcherName": "NorthRay Launcher"
+}

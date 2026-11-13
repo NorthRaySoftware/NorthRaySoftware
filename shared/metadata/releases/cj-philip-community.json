@@ -1,0 +1,138 @@
+{
+  "releases": [
+    {
+      "version": "0.18.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Release candidate for version 1.0."
+      ]
+    },
+    {
+      "version": "0.17.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release, with a screenshot in NorthRay Launcher."
+      ]
+    },
+    {
+      "version": "0.16.2",
+      "date": "2026-11-13",
+      "notes": [
+        "Fixed: CJ Philip Community closed straight away on PCs where an earlier version had saved its theme setting. It now reads the old and new forms.",
+        "If it ever does hit an error it can't recover from, it says what went wrong and saves a short report, instead of closing without a word."
+      ]
+    },
+    {
+      "version": "0.16.1",
+      "date": "2026-11-13",
+      "notes": [
+        "CJ Philip Community is now the home of the CJ Philip apps: it installs, updates, opens and uninstalls CJ Radio itself, using the same catalogue and download checks as NorthRay Launcher.",
+        "An installed app always opens from its card. Before, an available update turned the card into a link to NorthRay Launcher instead of opening the app.",
+        "A progress bar and Cancel while an app downloads and installs; Check for updates on the page."
+      ]
+    },
+    {
+      "version": "0.16.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.15.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.14.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.13.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.12.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.11.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.10.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release alongside the Writing Studio's typesetting."
+      ]
+    },
+    {
+      "version": "0.8.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release alongside the Writing Studio's artwork library."
+      ]
+    },
+    {
+      "version": "0.7.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Rebuilt as a small launcher for the CJ Philip apps, starting with CJ Radio. Each app shows whether it's installed, running or has an update, with one button to open, show, update or get it.",
+        "Getting or updating an app goes through NorthRay Launcher; new CJ apps appear on their own as they're released.",
+        "The announcements, events, friends, messages and profile pages (and their demonstration content) have been removed.",
+        "Theme switch (as Windows, light or dark) and a link to NorthRay Launcher in the footer.",
+        "No scroll bars: the faint bar that showed while scrolling is gone too."
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release alongside the Writing Studio's Word import."
+      ]
+    },
+    {
+      "version": "0.5.2",
+      "date": "2026-11-13",
+      "notes": [
+        "Smoother animations: eased page changes, status messages that fade in and out, and softer hover effects."
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Subtle animations, and hidden scroll bars."
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-11-13",
+      "notes": [
+        "First release as a separate, optional app: announcements, what's on CJ Radio, events and links to NorthRay apps.",
+        "Installing and updating apps moves to NorthRay Launcher."
+      ]
+    }
+  ]
+}

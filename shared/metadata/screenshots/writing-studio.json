@@ -1,0 +1,10 @@
+{
+  "screenshots": [
+    { "file": "writing-studio/library.png", "caption": "The author library: worlds, series and books on a bookshelf." },
+    { "file": "writing-studio/plan.png", "caption": "Planning: every chapter as a card, with status, viewpoint and word targets." },
+    { "file": "writing-studio/world.png", "caption": "Worldbuilding: the world's bible of characters, places, groups and lore." },
+    { "file": "writing-studio/review.png", "caption": "Review: what changed since a snapshot, word by word." },
+    { "file": "writing-studio/typeset.png", "caption": "Typesetting: the book laid out as printed pages." },
+    { "file": "writing-studio/publish.png", "caption": "Publishing: a pre-flight check, spine width and print files for each edition." }
+  ]
+}

@@ -1,0 +1,10 @@
+build/
+website/node_modules/
+website/dist/
+website/.astro/
+website/src/styles/tokens.css
+*.user
+.vs/
+apps/studio/editor/node_modules/
+website/public/downloads/
+website/public/catalogue.json

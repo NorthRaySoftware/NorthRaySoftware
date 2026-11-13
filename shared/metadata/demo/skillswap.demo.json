@@ -1,0 +1,63 @@
+{
+  "demo": true,
+  "comment": "Demonstration listings. These creators and services are examples, not real people or real offers.",
+  "creators": [
+    {
+      "id": "demo-maya", "name": "Maya R.", "handle": "maya.draws", "accent": "#2F6B5A",
+      "bio": "I draw mostly in pencil and ink, and I've been teaching friends to sketch for a few years. I like working with complete beginners best.",
+      "skills": ["Pencil drawing", "Ink", "Character sketches"],
+      "availability": "Weekday evenings and Sunday afternoons (UK time)"
+    },
+    {
+      "id": "demo-tom", "name": "Tom Okafor", "handle": "tomwrites", "accent": "#4A5A8C",
+      "bio": "Fantasy writer, two self-published novellas so far. Happy to read your opening chapter and tell you honestly what's working.",
+      "skills": ["Fantasy fiction", "Story structure", "Editing"],
+      "availability": "Replies within two days"
+    },
+    {
+      "id": "demo-priya", "name": "Priya S.", "handle": "pixelpriya", "accent": "#8C4A6A",
+      "bio": "Digital painter and hobby game developer. I make small pixel-art games and paint character portraits on an iPad.",
+      "skills": ["Digital painting", "Pixel art", "Godot"],
+      "availability": "Commissions open, two slots at a time"
+    }
+  ],
+  "offerings": [
+    {
+      "id": "demo-o1", "creator": "demo-maya", "kind": "workshop", "category": "drawing", "pricing": "free",
+      "title": "Drawing hands without panicking",
+      "description": "A relaxed hour in a small group. We'll break hands into simple shapes and draw a lot of bad ones on purpose.",
+      "durationMinutes": 60, "format": "Group, online (up to 8 people)"
+    },
+    {
+      "id": "demo-o2", "creator": "demo-maya", "kind": "lesson", "category": "drawing", "pricing": "pay-what-you-can", "pricePence": 500,
+      "title": "One-to-one sketch feedback",
+      "description": "Send me a few sketches beforehand and we'll go through them together, then try one or two quick exercises.",
+      "durationMinutes": 45, "format": "One-to-one, online"
+    },
+    {
+      "id": "demo-o3", "creator": "demo-tom", "kind": "lesson", "category": "writing", "pricing": "fixed", "pricePence": 1200,
+      "title": "Opening chapter critique",
+      "description": "Written notes on your first 3,000 words, then a 30-minute call to talk them through.",
+      "durationMinutes": 30, "format": "Written notes and a call"
+    },
+    {
+      "id": "demo-o4", "creator": "demo-tom", "kind": "tutorial", "category": "writing", "pricing": "free",
+      "title": "Planning a short story in an evening",
+      "description": "A 25-minute recorded walkthrough of how I plan a short story, with the worksheet I use.",
+      "durationMinutes": 25, "format": "Recorded"
+    },
+    {
+      "id": "demo-o5", "creator": "demo-priya", "kind": "commission", "category": "drawing", "pricing": "fixed", "pricePence": 3500,
+      "title": "Character portrait, bust, digital",
+      "description": "A painted head-and-shoulders portrait of your character with a simple background.",
+      "deliveryDays": 14, "slotsOpen": 2,
+      "conditions": "Personal use only; ask about commercial use. One sketch revision and one colour revision included. I keep the right to show it in my portfolio unless you'd rather I didn't."
+    },
+    {
+      "id": "demo-o6", "creator": "demo-priya", "kind": "workshop", "category": "games", "pricing": "pay-what-you-can",
+      "title": "Your first pixel-art sprite",
+      "description": "We'll make a 32 by 32 character and give it a two-frame walk cycle. No experience needed.",
+      "durationMinutes": 90, "format": "Group, online (up to 12 people)"
+    }
+  ]
+}

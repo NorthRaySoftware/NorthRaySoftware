@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "id": "writing-studio",
+  "name": "NorthRay Writing Studio",
+  "tagline": "A writing and publishing studio for authors: worlds, series and books, through to finished editions.",
+  "description": "NorthRay Writing Studio is a desktop app for writing and publishing books. It organises your work as worlds, series and books, and each book as parts, chapters and scenes, written in a calm, page-like editor that saves as you type, keeps earlier versions, and takes comments on the text. Pictures live in an artwork library, with crops and print-resolution checks that never touch the originals. Existing books can be imported from EPUB, Word, OpenDocument, HTML, Markdown and plain text, with PDF import as an experiment. Each book has a planning board, and each world keeps a bible of its characters, places and lore, showing where each appears in the books. Books are typeset into finished pages and previewed as an ebook on different devices, then exported as a print-ready PDF (PDF/X-1a) and an EPUB, after a pre-flight check that also gives the spine width for the cover. Everything stays on your PC; no account or subscription is needed.",
+  "features": [
+    "Author Library: worlds, series and books, with standalone and independent books",
+    "Manuscript editor: parts, chapters and scenes, semantic paragraph styles, scene breaks, pictures and spell-check",
+    "Saves as you type, keeps earlier versions of every chapter and scene, and a Trash you can restore from",
+    "Artwork library: crop, size and align pictures without changing the originals, with print-resolution checks for your trim size",
+    "Import from EPUB, Word (.docx), OpenDocument (.odt), HTML, Markdown and text; PDF import is experimental",
+    "Reading order and chronological order for every series; drag and drop to organise",
+    "Typesetting: justified, hyphenated pages with running heads and page numbers, shown as spreads, and exported as a PDF",
+    "Worldbuilding: a bible of characters, places, groups, things, lore and events for each world, with relationships and the chapters each appears in",
+    "Planning board: every chapter and scene as a card with its status, synopsis, viewpoint character, who appears in it, and word targets",
+    "Review: compare any chapter with earlier versions or whole-book snapshots, check names against the world's bible, and track daily writing goals",
+    "Comments: notes pinned to words in the text, resolved when they're dealt with, and listed for the whole book in Review",
+    "Ebook preview on a phone, an e-reader and a tablet, with the reader's own text size, font and page colour",
+    "Publishing: paperback, hardback, large-print and ebook editions with their own ISBNs; print-ready PDF/X-1a and EPUB 3 export, a pre-flight checklist, and spine and cover measurements"
+  ],
+  "category": "Writing and publishing",
+  "status": "preview",
+  "version": "0.18.0",
+  "accent": "#2D4A6E",
+  "artwork": {
+    "fallbackStyle": "sketchbook",
+    "banner": "",
+    "icon": "icons/writing-studio.png",
+    "screenshots": []
+  },
+  "credits": {
+    "developer": "",
+    "publisher": "",
+    "associatedCreator": "",
+    "comment": "Empty developer and publisher mean the central identity in brand/identity.json."
+  },
+  "launch": {
+    "executable": "WritingStudio.exe",
+    "canOpenInsideLauncher": false,
+    "keepsRunningWithoutLauncher": true
+  },
+  "website": {
+    "slug": "writing-studio"
+  },
+  "installer": {
+    "file": "WritingStudio-Setup",
+    "name": "NorthRay Writing Studio"
+  }
+}

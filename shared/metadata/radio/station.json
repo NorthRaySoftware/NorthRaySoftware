@@ -1,0 +1,22 @@
+{
+  "comment": "Where CJ Radio finds its broadcast server (AzuraCast, optional), its schedule calendar, and its Twitch, YouTube and Discord links. Call-ins only show while CJ Radio is live.",
+  "name": "CJ Radio",
+  "nowPlayingUrl": "",
+  "streamUrl": "",
+  "recordingsUrl": "",
+  "recordingsGithub": "calebjphilip08-sudo/The-CJ-Philip-Show",
+  "twitchUrl": "https://www.twitch.tv/cjphilip",
+  "youtubeUrl": "https://www.youtube.com/@CJPReviewsAndWriting/live",
+  "calendar": {
+    "comment": "The schedule comes from this Google Calendar. icsUrl is its public iCal address (the calendar must be set to public, with full event details). subscribeUrl is what 'Add to my calendar' opens.",
+    "icsUrl": "https://calendar.google.com/calendar/ical/e312ae1fbac2ce2da739937a3b81dc15d7ec636b889d0cf7180bcb4780f00cbc%40group.calendar.google.com/public/basic.ics",
+    "subscribeUrl": "https://calendar.google.com/calendar/u/0?cid=ZTMxMmFlMWZiYWMyY2UyZGE3Mzk5MzdhM2I4MWRjMTVkN2VjNjM2Yjg4OWQwY2Y3MTgwYmNiNDc4MGYwMGNiY0Bncm91cC5jYWxlbmRhci5nb29nbGUuY29t"
+  },
+  "pollSeconds": 15,
+  "callIn": {
+    "enabled": true,
+    "guestUrl": "https://discord.gg/ZGEqtZjPcj",
+    "notice": "",
+    "minimumAge": 16
+  }
+}

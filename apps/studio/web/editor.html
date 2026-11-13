@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://objects.nrstudio.localhost; font-src 'self'">
+<title>Manuscript</title>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<div id="bar" role="toolbar" aria-label="Formatting">
+  <select id="style" aria-label="Paragraph style" title="Paragraph style"></select>
+  <span class="sep"></span>
+  <button id="b" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+  <button id="i" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+  <button id="u" title="Underline (Ctrl+U)" aria-label="Underline"><u>U</u></button>
+  <button id="sc" title="Small capitals (Ctrl+Shift+K)" aria-label="Small capitals" class="sc-btn">Sc</button>
+  <span class="sep"></span>
+  <button id="break" title="Scene break (Ctrl+Enter)" aria-label="Scene break">&#x2042;</button>
+  <button id="quote" title="Block quote" aria-label="Block quote">&#x201C;</button>
+  <button id="ul" title="Bulleted list" aria-label="Bulleted list">&#x2022;</button>
+  <button id="ol" title="Numbered list" aria-label="Numbered list">1.</button>
+  <button id="img" title="Insert a picture" aria-label="Insert a picture">&#x25A3;</button>
+  <button id="comment" title="Comment on the selected words (Ctrl+Alt+M)" aria-label="Comment">&#x270E;</button>
+  <span class="sep"></span>
+  <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">&#x21B6;</button>
+  <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo">&#x21B7;</button>
+  <span class="grow"></span>
+  <button id="prev" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter">&#x2039;</button>
+  <button id="next" title="Next chapter (Ctrl+Down)" aria-label="Next chapter">&#x203A;</button>
+  <span class="sep"></span>
+  <span id="count" aria-live="polite"></span>
+  <span id="saved" aria-live="polite"></span>
+</div>
+<div id="scroller">
+  <article>
+    <h1 id="title"></h1>
+    <div id="page"></div>
+  </article>
+</div>
+<script src="editor.js"></script>
+</body>
+</html>

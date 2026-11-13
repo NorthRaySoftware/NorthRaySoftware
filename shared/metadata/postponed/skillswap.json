@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "skillswap",
+  "name": "SkillSwap",
+  "tagline": "Lessons, commissions and help from creative people in the community.",
+  "description": "SkillSwap is a place for creative people to teach and sell their skills. Artists can offer free drawing lessons, low-cost tutoring and affordable commissions, and the same goes for writing, music, programming, animation and more. Free lessons are listed alongside paid ones, not tucked away behind them.",
+  "features": [
+    "Creator pages with portfolio, services, prices and availability",
+    "Free, pay-what-you-can and fixed-price lessons",
+    "One-to-one tutoring, group workshops and recorded tutorials",
+    "Artwork commissions with examples, prices and delivery estimates",
+    "Categories that grow beyond drawing: writing, music, code, video and games"
+  ],
+  "category": "Learning and services",
+  "status": "preview",
+  "version": "0.3.0",
+  "accent": "#2F6B5A",
+  "artwork": {
+    "fallbackStyle": "sketchbook",
+    "banner": "",
+    "icon": "",
+    "screenshots": []
+  },
+  "credits": {
+    "developer": "",
+    "publisher": "",
+    "associatedCreator": "",
+    "comment": "Empty developer and publisher mean the central identity in brand/identity.json."
+  },
+  "launch": {
+    "executable": "SkillSwap.exe",
+    "canOpenInsideLauncher": true,
+    "keepsRunningWithoutLauncher": true
+  },
+  "website": {
+    "slug": "skillswap"
+  }
+}

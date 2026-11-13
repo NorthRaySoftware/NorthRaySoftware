@@ -1,0 +1,42 @@
+{
+  "version": "0.18.0",
+  "builtUtc": "2026-11-13T22:51:19Z",
+  "installers": [
+    {
+      "id": "launcher",
+      "name": "NorthRay Launcher",
+      "version": "0.18.0",
+      "file": "NorthRayLauncher-Setup-0.18.0.exe",
+      "url": "downloads/NorthRayLauncher-Setup-0.18.0.exe",
+      "size": 1726438,
+      "sha256": "d143ab4a11dd9b64ecf45daf15cfef2e37c52cbd2118ad5c06598cf5f4bc252e"
+    },
+    {
+      "id": "writing-studio",
+      "name": "NorthRay Writing Studio",
+      "version": "0.18.0",
+      "file": "WritingStudio-Setup-0.18.0.exe",
+      "url": "downloads/WritingStudio-Setup-0.18.0.exe",
+      "size": 8162301,
+      "sha256": "1338ad099cfbc357461cdaf79fcb73b3d51d6b86c99f9a98c741ca606d67fde0"
+    },
+    {
+      "id": "cj-radio",
+      "name": "CJ Radio",
+      "version": "0.18.0",
+      "file": "CJRadio-Setup-0.18.0.exe",
+      "url": "downloads/CJRadio-Setup-0.18.0.exe",
+      "size": 1963183,
+      "sha256": "235a0c55ad43bf4141238050fe51c209c890c53977f9de2c787589add63ee174"
+    },
+    {
+      "id": "cj-philip-community",
+      "name": "CJ Philip Community",
+      "version": "0.18.0",
+      "file": "CJPhilipCommunity-Setup-0.18.0.exe",
+      "url": "downloads/CJPhilipCommunity-Setup-0.18.0.exe",
+      "size": 1622215,
+      "sha256": "8216f9d6dc225b958e752a16eeba269858f77c436f38f2cd351684c7a9d87a11"
+    }
+  ]
+}

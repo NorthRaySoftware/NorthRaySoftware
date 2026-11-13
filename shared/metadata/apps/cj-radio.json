@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "cj-radio",
+  "name": "CJ Radio",
+  "tagline": "CJ Philip's own radio app: The CJ Philip Show, live and usually on Saturdays.",
+  "description": "CJ Radio is CJ Philip's own radio app and the home of The CJ Philip Show: conversations, guests, listener questions and the occasional special. Saturday is the regular broadcast day, with extra shows announced now and then. When nothing is on, you can still check the schedule and catch up on recordings.",
+  "features": [
+    "Listen live through the Twitch player, with a sound-only option",
+    "The schedule of confirmed shows, in your own time zone",
+    "Recordings to catch up on",
+    "Call in on Discord during live shows (16 and over)",
+    "CJ's own tools for running the show, on his PC",
+    "Installed, updated and opened from CJ Philip Community"
+  ],
+  "category": "Broadcasting",
+  "status": "preview",
+  "version": "0.18.0",
+  "accent": "#B4442C",
+  "artwork": {
+    "fallbackStyle": "broadcast",
+    "banner": "",
+    "icon": "icons/cj-radio.png",
+    "screenshots": []
+  },
+  "credits": {
+    "developer": "",
+    "publisher": "",
+    "associatedCreator": "CJ Philip",
+    "comment": "Empty developer and publisher mean the central identity in brand/identity.json."
+  },
+  "launch": {
+    "executable": "CJRadio.exe",
+    "canOpenInsideLauncher": false,
+    "keepsRunningWithoutLauncher": true
+  },
+  "website": {
+    "slug": "cj-radio"
+  },
+  "installer": {
+    "file": "CJRadio-Setup",
+    "name": "CJ Radio"
+  }
+}

@@ -1,0 +1,103 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadApps, statusLabel, release, releaseNotes, formatSize, brand, screenshots } from '../lib/metadata.js';
+
+export function getStaticPaths() {
+  return loadApps().map((a) => ({ params: { slug: a.website?.slug ?? a.id }, props: { app: a } }));
+}
+const { app } = Astro.props;
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const rel = release();
+const inst = rel?.installers.find((i) => i.id === app.id);
+const notes = releaseNotes(app.id);
+const b = brand();
+const shots = screenshots(app.id);
+const current = app.id === 'writing-studio' ? 'writing-studio/' : 'apps/';
+
+// The Writing Studio's plan, stated plainly: what's built and what isn't.
+const milestones = [
+  ['Author Library: worlds, series, books', true],
+  ['Manuscript editor: parts, chapters, scenes, versions', true],
+  ['Import: EPUB, Word, OpenDocument, HTML, Markdown, text (PDF experimental)', true],
+  ['Artwork and illustration control', true],
+  ['Professional typesetting', true],
+  ['Print and ebook previews', true],
+  ['EPUB and print-ready PDF export (first version)', true],
+  ['Worldbuilding: characters, places, lore and where they appear', true],
+  ['Planning board: synopses, status, viewpoint, word targets', true],
+  ['Review: changes, snapshots, name checks, writing goals', true],
+  ['Comments on the text', true],
+];
+---
+<Base title={`${app.name} | NorthRay Software`} description={app.tagline} current={current}>
+  <section class="app-hero night" style={`--app: ${app.accent ?? 'var(--aurora-teal)'}`}>
+    <img src={`${base}icons/${app.id}.png`} alt="" />
+    <div>
+      <p class="kicker" style="margin:0 0 6px">{app.category}</p>
+      <h1>{app.name}</h1>
+      <p>{app.tagline}</p>
+      <p class="small" style="margin-top:8px">
+        {b.developer}{app.credits?.associatedCreator ? ` · in association with ${app.credits.associatedCreator}` : ''}{' · '}<span class="tag">{statusLabel[app.status]}</span>
+      </p>
+      <div class="actions">
+        {inst
+          ? <>
+              <a class="button primary" href={`${base}download/#launcher`}>Get it with NorthRay Launcher</a>
+              <a class="button" href={`${base}download/#${app.id}`}>Download the app on its own</a>
+            </>
+          : <span class="button disabled">No download yet</span>}
+      </div>
+    </div>
+  </section>
+
+  {shots.length > 0 && (
+    <>
+      <h2>Screenshots</h2>
+      <ul class="shots">
+        {shots.map((s) => (
+          <li><figure>
+            <a href={s.url}><img src={s.url} alt={s.caption} loading="lazy" /></a>
+            <figcaption>{s.caption}</figcaption>
+          </figure></li>
+        ))}
+      </ul>
+    </>
+  )}
+
+  <div class="columns">
+    <div>
+      <h2>About</h2>
+      <p>{app.description}</p>
+      {app.id === 'writing-studio' && (
+        <>
+          <h2>What's in it</h2>
+          <ul class="status-grid">
+            {milestones.map(([m, done]) => <li class={done ? 'done' : 'next'}><b>{done ? 'Included' : 'Planned'}</b>{m}</li>)}
+          </ul>
+        </>
+      )}
+      <h2>Features</h2>
+      <ul class="features">
+        {app.features.map((f) => <li>{f}</li>)}
+      </ul>
+    </div>
+    <div>
+      <h2>What's new</h2>
+      {notes.length === 0 && <p class="muted">No release notes yet.</p>}
+      {notes.slice(0, 4).map((n) => (
+        <div class="release">
+          <h3>Version {n.version} <span class="small muted" style="font-weight:400">· {n.date}</span></h3>
+          <ul>{n.notes.map((x) => <li>{x}</li>)}</ul>
+        </div>
+      ))}
+      <dl class="facts">
+        <div><dt>Publisher</dt><dd>{b.developer}</dd></div>
+        {app.credits?.associatedCreator && <div><dt>In association with</dt><dd>{app.credits.associatedCreator}</dd></div>}
+        <div><dt>Version</dt><dd>{inst ? inst.version : app.version}</dd></div>
+        {inst && <div><dt>Download</dt><dd>{formatSize(inst.size)}</dd></div>}
+        <div><dt>Requires</dt><dd>Windows 10 or 11, 64-bit</dd></div>
+        <div><dt>Account</dt><dd>Not needed</dd></div>
+      </dl>
+    </div>
+  </div>
+</Base>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' https://player.twitch.tv; frame-src https://player.twitch.tv https://*.twitch.tv; style-src 'unsafe-inline'; img-src 'self' data:">
+<title>CJ Radio: Twitch player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+  #player, #player iframe { width: 100%; height: 100%; border: 0; display: block; }
+  #note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+          color: #ddd; font: 15px "Segoe UI", sans-serif; text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="note">The Twitch player couldn't load. Check your internet connection, then press F5 in CJ Radio.</div>
+<!-- Twitch's official embed script. The player is shown in full with its own controls. -->
+<script src="https://player.twitch.tv/js/embed/v1.js"></script>
+<script src="twitch.js"></script>
+</body>
+</html>

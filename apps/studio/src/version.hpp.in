@@ -1,0 +1,3 @@
+#pragma once
+#define CJ_VERSION_WSTR L"@PROJECT_VERSION@"
+#define CJ_VERSION_STR "@PROJECT_VERSION@"

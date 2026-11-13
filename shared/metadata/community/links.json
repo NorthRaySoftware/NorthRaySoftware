@@ -1,0 +1,5 @@
+{
+  "comment": "Where NorthRay Launcher reads the app catalogue, and where apps send people to download. Hosted on GitHub Pages.",
+  "catalogueUrl": "https://northraysoftware.github.io/NorthRaySoftware/catalogue.json",
+  "downloadPage": "https://northraysoftware.github.io/NorthRaySoftware/download/"
+}

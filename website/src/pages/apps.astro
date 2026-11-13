@@ -1,0 +1,30 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadApps, statusLabel, release } from '../lib/metadata.js';
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const apps = loadApps();
+const rel = release();
+const size = (id) => rel?.installers.find((i) => i.id === id);
+---
+<Base title="Applications | NorthRay Software" description="NorthRay Launcher and NorthRay Writing Studio." current="apps/">
+  <h1>Applications</h1>
+  <p class="lede">Every app installs, updates and runs on its own. NorthRay Launcher is the easy way to manage them but it's never required.</p>
+  <ul class="catalogue">
+    {apps.map((a) => (
+      <li style={`--app: ${a.accent ?? 'var(--accent)'}`}>
+        <span class="icon"><img src={`${base}icons/${a.id}.png`} alt="" /></span>
+        <div>
+          <h3>{a.name} <span class="tag">{statusLabel[a.status]}</span></h3>
+          <p>{a.tagline}</p>
+          {size(a.id) && <p class="small">Version {size(a.id).version}</p>}
+        </div>
+        <div class="links">
+          <a class="button" href={`${base}${a.website?.slug ?? a.id}/`}>Details</a>
+          {size(a.id) && <a class="button primary" href={`${base}download/#${a.id}`}>Download</a>}
+        </div>
+      </li>
+    ))}
+  </ul>
+  <p class="aside small muted">CJ Philip Community, with apps associated with author and broadcaster CJ Philip, is an optional
+    download inside NorthRay Launcher. <a href={`${base}about/#cj-philip`}>More about CJ Philip</a>.</p>
+</Base>

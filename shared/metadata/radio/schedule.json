@@ -1,0 +1,14 @@
+{
+  "comment": "The real CJ Radio schedule. Empty until a programme is actually confirmed. Times are UK wall-clock (Europe/London).",
+  "series": [
+    {
+      "id": "cj-philip-show",
+      "title": "The CJ Philip Show",
+      "presenter": "CJ Philip",
+      "category": "Talk",
+      "defaultUkTime": "19:00",
+      "defaultDurationMinutes": 120
+    }
+  ],
+  "programmes": []
+}

@@ -1,0 +1,63 @@
+---
+import Base from '../layouts/Base.astro';
+import { loadApps, cjPhilipApps, release, formatSize } from '../lib/metadata.js';
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const rel = release();
+const apps = Object.fromEntries(loadApps().map((a) => [a.id, a]));
+const launcher = rel?.installers.find((i) => i.id === 'launcher');
+// CJ Philip's apps aren't offered here: they're an optional download inside NorthRay Launcher.
+const cjIds = new Set(cjPhilipApps().map((a) => a.id));
+const others = rel?.installers.filter((i) => i.id !== 'launcher' && !cjIds.has(i.id)) ?? [];
+const built = rel ? new Date(rel.builtUtc).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }) : '';
+---
+<Base title="Downloads | NorthRay Software" description="Download NorthRay Launcher and NorthRay Writing Studio for Windows." current="download/">
+  <h1>Downloads</h1>
+  {rel ? (
+    <>
+      <p class="lede">Version {rel.version}, released {built}. Start with NorthRay Launcher, or download any app on its own.</p>
+
+      <section class="night dl-hero" id="launcher" aria-labelledby="dl-launcher">
+        <div>
+          <h2 id="dl-launcher">NorthRay Launcher</h2>
+          <p>Installs, updates and opens NorthRay apps, and checks each download against its published checksum before running it.</p>
+          {launcher && <p class="small" style="margin-top:8px">{launcher.file} · {formatSize(launcher.size)}</p>}
+        </div>
+        {launcher && <a class="button primary" href={`${base}downloads/${launcher.file}`} download>Download NorthRay Launcher</a>}
+      </section>
+      {launcher && <details class="small muted" style="margin-top:10px"><summary>SHA-256 checksum</summary><code>{launcher.sha256}</code></details>}
+
+      <h2>Individual apps</h2>
+      <ul class="downloads">
+        {others.map((i) => (
+          <li id={i.id} class="download">
+            <img src={`${base}icons/${i.id}.png`} alt="" />
+            <div>
+              <h3>{i.name}</h3>
+              <p>{apps[i.id]?.tagline}</p>
+              <p class="meta">{i.file} · {formatSize(i.size)}</p>
+            </div>
+            <a class="button" href={`${base}downloads/${i.file}`} download>Download</a>
+            <details>
+              <summary>SHA-256 checksum</summary>
+              <code>{i.sha256}</code>
+            </details>
+          </li>
+        ))}
+      </ul>
+
+      <h2>Before you install</h2>
+      <ul class="notes">
+        <li><strong>Windows 10 or 11, 64-bit.</strong> The Writing Studio uses Microsoft Edge WebView2, which comes with Windows.</li>
+        <li><strong>No administrator permission or account needed.</strong> Everything installs for your Windows account only.</li>
+        <li><strong>Free to use.</strong> No subscriptions, paywalls or deliberately restricted features, and no account to create.</li>
+        <li><strong>CJ Philip Community</strong>, with apps associated with CJ Philip, is an optional download inside NorthRay Launcher.</li>
+        <li><strong>Windows may warn you.</strong> The installers aren't code-signed yet, so SmartScreen may say "Windows protected your PC".
+          Choose <em>More info</em>, then <em>Run anyway</em>, only if you downloaded the file from this page. You can check it against the SHA-256 checksum.</li>
+        <li><strong>Uninstalling:</strong> use NorthRay Launcher, or Windows Settings, Apps, Installed apps.
+          Your settings and libraries are kept.</li>
+      </ul>
+    </>
+  ) : (
+    <p class="note">There's no download yet: the installers haven't been built for this copy of the site.</p>
+  )}
+</Base>

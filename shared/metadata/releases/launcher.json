@@ -1,0 +1,134 @@
+{
+  "releases": [
+    {
+      "version": "0.18.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Release candidate for version 1.0."
+      ]
+    },
+    {
+      "version": "0.17.0",
+      "date": "2026-11-13",
+      "notes": [
+        "A new look: the sidebar and banners are a night sky lit by the aurora.",
+        "The Library opens with a banner showing what's installed and ready to update, and a \"What's new\" row with the latest notes from each app.",
+        "App pages have screenshots. Click one to see it full-size, and use the arrow keys or the buttons to go through them.",
+        "A short welcome the first time the Launcher opens: choose where apps are installed and whether updates install by themselves.",
+        "CJ Philip Community is marked as an optional download."
+      ]
+    },
+    {
+      "version": "0.16.2",
+      "date": "2026-11-13",
+      "notes": [
+        "Settings and the saved catalogue are read more carefully, and an unrecoverable error now shows a message with a saved report."
+      ]
+    },
+    {
+      "version": "0.16.1",
+      "date": "2026-11-13",
+      "notes": [
+        "CJ Radio is no longer listed here: it's installed, updated and opened from CJ Philip Community, which NorthRay Launcher still installs."
+      ]
+    },
+    {
+      "version": "0.16.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.15.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.14.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.13.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.12.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.11.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.10.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release alongside the Writing Studio's typesetting."
+      ]
+    },
+    {
+      "version": "0.8.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release alongside the Writing Studio's artwork library."
+      ]
+    },
+    {
+      "version": "0.7.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Maintenance release: CJ Philip Community now opens NorthRay Launcher to get or update CJ apps.",
+        "No scroll bars: the faint bar that showed while scrolling is gone too."
+      ]
+    },
+    {
+      "version": "0.5.2",
+      "date": "2026-11-13",
+      "notes": [
+        "Smoother animations: eased page changes, status messages that fade in and out, and softer hover effects.",
+        "Download progress bars glide smoothly, and app rows lift on hover."
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-11-13",
+      "notes": [
+        "Reads the app catalogue from the NorthRay website.",
+        "Subtle animations, and hidden scroll bars."
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-11-13",
+      "notes": [
+        "NorthRay Launcher replaces the CJ Community launcher as the central app manager.",
+        "Downloads apps over HTTPS with a progress bar, checks each installer's size and SHA-256, then installs it silently.",
+        "Update detection, Update all, and optional automatic updates (off by default).",
+        "Choose where new apps are installed; apps installed elsewhere are still found.",
+        "Takes over installs from the older CJ Community setup."
+      ]
+    }
+  ]
+}

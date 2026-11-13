@@ -1,0 +1,153 @@
+/* ProseMirror base styles (MIT, prosemirror-view) */
+.ProseMirror {
+  position: relative;
+}
+
+.ProseMirror {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0; /* the above doesn't seem to work in Edge */
+}
+
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+
+.ProseMirror li {
+  position: relative;
+}
+
+.ProseMirror-hideselection *::selection { background: transparent; }
+.ProseMirror-hideselection *::-moz-selection { background: transparent; }
+.ProseMirror-hideselection { caret-color: transparent; }
+
+/* See https://github.com/ProseMirror/prosemirror/issues/1421#issuecomment-1759320191 */
+.ProseMirror [draggable][contenteditable=false] { user-select: text }
+
+.ProseMirror-selectednode {
+  outline: 2px solid #8cf;
+}
+
+/* Make sure li selections wrap around markers */
+
+li.ProseMirror-selectednode {
+  outline: none;
+}
+
+li.ProseMirror-selectednode:after {
+  content: "";
+  position: absolute;
+  left: -32px;
+  right: -2px; top: -2px; bottom: -2px;
+  border: 2px solid #8cf;
+  pointer-events: none;
+}
+
+/* Protect against generic img rules */
+
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+}
+
+/* The Writing Studio's editor: a calm page, styled by meaning (Body, Epigraph...)
+   rather than by fonts and sizes. Matches the app's palette. */
+:root {
+  --paper: #F3EFE6; --page: #FBF9F4; --ink: #1E1D1A; --muted: #5E5A50; --faint: #8C8778; --rule: #D6D0C2;
+  --accent: #2D4A6E; --sel: rgba(45, 74, 110, .18); --bar: #EFEAE0;
+  --serif: "Cambria", "Georgia", "Times New Roman", serif;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --paper: #18181A; --page: #202023; --ink: #ECE8DE; --muted: #A9A498; --faint: #76726A; --rule: #34333A;
+  --accent: #8FB0D9; --sel: rgba(143, 176, 217, .25); --bar: #1C1C1F;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
+body { display: flex; flex-direction: column; font: 14px/1.4 var(--ui); overflow: hidden; }
+
+/* Toolbar */
+#bar { display: flex; align-items: center; gap: 2px; padding: 6px 14px; background: var(--bar); border-bottom: 1px solid var(--rule); flex: none; }
+#bar button, #bar select { font: inherit; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 4px;
+  height: 30px; min-width: 32px; padding: 0 8px; cursor: default; transition: background-color .15s ease, border-color .15s ease; }
+#bar select { border-color: var(--rule); background: var(--page); min-width: 170px; }
+#bar button:hover { background: var(--page); border-color: var(--rule); }
+#bar button[aria-pressed="true"] { background: var(--page); border-color: var(--accent); color: var(--accent); }
+#bar button:focus-visible, #bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sc-btn { font-variant: small-caps; }
+.sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; }
+.grow { flex: 1; }
+#count { color: var(--muted); margin-right: 14px; font-variant-numeric: tabular-nums; }
+#saved { color: var(--faint); min-width: 72px; text-align: right; transition: color .3s ease; }
+#saved[data-state="saving"] { color: var(--muted); }
+#saved[data-state="failed"] { color: #b4442c; }
+
+/* The page. Scroll bars stay hidden; the wheel and keys still scroll. */
+#scroller { flex: 1; overflow-y: auto; scrollbar-width: none; scroll-behavior: smooth; }
+#scroller::-webkit-scrollbar { display: none; }
+article { max-width: 44rem; margin: 36px auto 120px; background: var(--page); border: 1px solid var(--rule); border-radius: 3px;
+  padding: 64px 72px 96px; box-shadow: 0 1px 2px rgba(0, 0, 0, .04); animation: page-in .3s ease-out both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { article { animation: none; } #scroller { scroll-behavior: auto; } }
+#title { font: 600 1.6rem/1.25 var(--serif); text-align: center; margin: 0 0 2.4rem; color: var(--ink); }
+#title:empty { display: none; }
+
+.ProseMirror { outline: none; font: 1.12rem/1.65 var(--serif); hyphens: auto; word-wrap: break-word; white-space: pre-wrap; caret-color: var(--accent); }
+.ProseMirror ::selection { background: var(--sel); }
+.ProseMirror p { margin: 0; text-indent: 1.5em; }
+.ProseMirror > p:first-child, .ProseMirror h1 + p, .ProseMirror h2 + p, .ProseMirror h3 + p, .ProseMirror .scene-break + p,
+.ProseMirror blockquote + p, .ProseMirror figure + p, .ProseMirror p.s-first { text-indent: 0; }
+.ProseMirror p.s-centered { text-align: center; text-indent: 0; }
+.ProseMirror p.s-epigraph { font-style: italic; margin: 0 3em; text-indent: 0; }
+.ProseMirror p.s-attribution { text-align: right; margin: .3em 3em 1.4em; text-indent: 0; font-size: .92em; color: var(--muted); }
+.ProseMirror p.s-verse { text-indent: 0; margin-left: 2.5em; }
+.ProseMirror p.s-letter { text-indent: 0; margin: 0 2em .5em; }
+.ProseMirror p.s-note { text-indent: 0; font-size: .9em; color: var(--muted); margin: .6em 0; }
+.ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { font-family: var(--serif); font-weight: 600; margin: 1.6em 0 .7em; line-height: 1.3; }
+.ProseMirror h1 { font-size: 1.45em; text-align: center; } .ProseMirror h2 { font-size: 1.2em; } .ProseMirror h3 { font-size: 1.05em; font-style: italic; }
+.ProseMirror blockquote { margin: 1em 2.2em; }
+.ProseMirror blockquote p { text-indent: 0; }
+.ProseMirror ul, .ProseMirror ol { margin: .6em 0; padding-left: 2em; }
+.ProseMirror li p { text-indent: 0; }
+.ProseMirror .scene-break { text-align: center; color: var(--muted); margin: 1.2em 0; letter-spacing: .3em; user-select: none; }
+.ProseMirror .scene-break.ProseMirror-selectednode { color: var(--accent); }
+.ProseMirror figure { margin: 1.4em 0; text-align: center; }
+.ProseMirror figure .frame { overflow: hidden; margin: 0 auto; max-width: 100%; line-height: 0; border-radius: 2px; }
+.ProseMirror figure[data-align="left"] .frame { margin-left: 0; }
+.ProseMirror figure[data-align="right"] .frame { margin-right: 0; }
+.ProseMirror figure[data-align="left"] figcaption { text-align: left; }
+.ProseMirror figure[data-align="right"] figcaption { text-align: right; }
+.ProseMirror figure .frame img { display: block; max-width: none; }
+.ProseMirror figure.ProseMirror-selectednode .frame { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ProseMirror figcaption { font-size: .88em; color: var(--muted); margin-top: .4em; }
+.ProseMirror .sc { font-variant: small-caps; letter-spacing: .02em; }
+.ProseMirror a { color: var(--accent); }
+.ProseMirror code { font-family: Consolas, monospace; font-size: .9em; }
+.ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; }
+.ProseMirror-gapcursor:after { content: ""; display: block; position: absolute; top: -2px; width: 20px; border-top: 1px solid var(--ink); animation: blink 1.1s steps(2, start) infinite; }
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+@keyframes blink { to { visibility: hidden; } }
+@media (max-width: 760px) { article { padding: 40px 28px 80px; margin: 16px 12px 80px; } }
+
+/* An empty chapter's prompt. It floats, so the caret stays at the start of the line. */
+.ProseMirror p.placeholder::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none;
+  color: var(--faint); font-style: italic; text-indent: 0; }
+
+/* No scroll bars anywhere in the editor (lists, captions, the page). */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+/* A selected picture: only the accent outline round the picture itself. */
+.ProseMirror figure.ProseMirror-selectednode { outline: none; }
+.ProseMirror figure, .ProseMirror figure * { user-select: none; }
+
+/* Comments: a soft highlight (overlapping ones look deeper); the one being read is stronger.
+   Resolved ones keep their place in the text but aren't shown. */
+.cm-open { background: color-mix(in srgb, #E8B44A 24%, transparent); border-bottom: 1px solid color-mix(in srgb, #C98A12 55%, transparent); }
+.cm-active { background: color-mix(in srgb, #E8B44A 50%, transparent); }
+#bar button:disabled { opacity: .4; pointer-events: none; }

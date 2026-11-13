@@ -1,0 +1,38 @@
+/* The ebook preview: a device, its screen, and one chapter flowed into pages. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--desk, #DCD7CC); font-family: "Segoe UI", system-ui, sans-serif; }
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+body.dark { --desk: #121214; }
+#stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+#device { position: relative; flex: none; transform-origin: center center; box-shadow: 0 18px 50px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.2); }
+#screen { position: absolute; overflow: hidden; background: var(--page); color: var(--ink); }
+#reading { position: absolute; overflow: hidden; }
+#flow { height: 100%; column-fill: auto; transition: transform .22s ease; }
+body.instant #flow { transition: none; }
+#status { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; font-size: 11px; opacity: .6; padding: 0 var(--margin); height: 30px; align-items: center; font-family: "Segoe UI", system-ui, sans-serif; }
+
+/* Devices: screen size in CSS pixels, frame around it. */
+#device[data-device="phone"] { width: 390px; height: 820px; border-radius: 52px; background: #1a1a1c; }
+#device[data-device="phone"] #screen { left: 12px; top: 12px; right: 12px; bottom: 12px; border-radius: 42px; }
+#device[data-device="phone"] { --margin: 22px; --top: 54px; --size: 17px; }
+#device[data-device="ereader"] { width: 640px; height: 900px; border-radius: 22px; background: #2b2b2d; }
+#device[data-device="ereader"] #screen { left: 26px; top: 26px; right: 26px; bottom: 74px; border-radius: 3px; }
+#device[data-device="ereader"] { --margin: 34px; --top: 34px; --size: 19px; }
+#device[data-device="tablet"] { width: 860px; height: 1150px; border-radius: 34px; background: #d4d4d8; }
+#device[data-device="tablet"] #screen { left: 20px; top: 20px; right: 20px; bottom: 20px; border-radius: 16px; }
+#device[data-device="tablet"] { --margin: 64px; --top: 56px; --size: 19px; }
+body.dark #device[data-device="tablet"] { background: #3a3a3e; }
+
+/* Themes. E-ink shows grey, never colour. */
+#screen { --page: #ffffff; --ink: #1b1a18; }
+body[data-theme="sepia"] #screen { --page: #f4ecd8; --ink: #3b2f20; }
+body[data-theme="night"] #screen { --page: #141414; --ink: #c9c5bd; }
+#device[data-device="ereader"] #screen { --page: #f2f0ea; --ink: #111; }
+body[data-theme="night"] #device[data-device="ereader"] #screen { --page: #111; --ink: #e8e6e0; }
+#device[data-device="ereader"] img { filter: grayscale(1) contrast(1.05); }
+body[data-theme="night"] img { opacity: .9; }
+
+/* The book's text. */
+#flow { font-size: calc(var(--size) * var(--scale, 1)); line-height: 1.45; }
+#flow p, #flow li { font-family: var(--book-font); }
+#flow h1, #flow h2, #flow h3, #flow h4 { font-family: var(--book-font); }

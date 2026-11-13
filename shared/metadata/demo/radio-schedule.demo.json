@@ -1,0 +1,40 @@
+{
+  "demo": true,
+  "comment": "Demonstration schedule. Dates are relative to today so the examples never go stale. None of these programmes are real.",
+  "programmes": [
+    {
+      "id": "demo-cjps-1",
+      "title": "The CJ Philip Show",
+      "description": "Catching up on the week, a few listener questions, and some news about the next Alvora chapter.",
+      "presenter": "CJ Philip",
+      "category": "Talk",
+      "kind": "regular-saturday",
+      "status": "confirmed",
+      "relative": { "weekday": 6, "weeksAhead": 0, "ukTime": "19:00" },
+      "durationMinutes": 120
+    },
+    {
+      "id": "demo-btp-1",
+      "title": "Between the Pages",
+      "description": "An hour on reading habits and the books that stuck with us this year.",
+      "presenter": "CJ Philip",
+      "category": "Books",
+      "kind": "additional",
+      "status": "cancelled",
+      "note": "Moved to a later date. A new time will be announced.",
+      "relative": { "weekday": 3, "weeksAhead": 1, "ukTime": "20:00" },
+      "durationMinutes": 60
+    },
+    {
+      "id": "demo-openmic-1",
+      "title": "The Open Mic",
+      "description": "Three community guests share short pieces of writing and talk about how they made them.",
+      "presenter": "CJ Philip",
+      "category": "Guests",
+      "kind": "regular-saturday",
+      "status": "confirmed",
+      "relative": { "weekday": 6, "weeksAhead": 2, "ukTime": "18:30" },
+      "durationMinutes": 90
+    }
+  ]
+}

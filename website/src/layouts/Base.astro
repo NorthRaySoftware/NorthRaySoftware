@@ -1,0 +1,53 @@
+---
+import '../styles/northray.css';
+import { brand } from '../lib/metadata.js';
+const { title = 'NorthRay Software', description = '', current = '' } = Astro.props;
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const b = brand();
+const nav = [
+  ['', 'Home'],
+  ['apps/', 'Applications'],
+  ['writing-studio/', 'Writing Studio'],
+  ['download/', 'Downloads'],
+  ['about/', 'About'],
+  ['contact/', 'Contact'],
+];
+---
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" href={`${base}brand/northray-mark.svg`} type="image/svg+xml" />
+    <!-- Preview: keep search engines out until there's a public launch. -->
+    <meta name="robots" content="noindex" />
+  </head>
+  <body style={`--stars: url(${base}brand/stars.svg)`}>
+    <div class="aurora-line" aria-hidden="true"></div>
+    <header class="site-header">
+      <a class="wordmark" href={base}>
+        <img src={`${base}brand/northray-mark.svg`} alt="" width="34" height="34" />
+        <span><b>NorthRay</b> Software</span>
+      </a>
+      <nav aria-label="Main">
+        {nav.map(([href, label]) => (
+          <a href={`${base}${href}`} aria-current={current === href ? 'page' : undefined}>{label}</a>
+        ))}
+      </nav>
+    </header>
+    <main><slot /></main>
+    <footer class="site-footer">
+      <div>
+        <p><b>{b.developer}</b>. {b.developerLine}.</p>
+        <p>Quality without the price tag: free to use, with no accounts, subscriptions or adverts.</p>
+      </div>
+      <div class="footer-links">
+        <a href={`${base}about/`}>About</a>
+        <a href={`${base}contact/`}>Contact</a>
+        <a href={`${base}download/`}>Downloads</a>
+      </div>
+    </footer>
+  </body>
+</html>

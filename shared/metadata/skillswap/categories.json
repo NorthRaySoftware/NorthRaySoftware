@@ -1,0 +1,12 @@
+{
+  "comment": "SkillSwap categories. Add new ones here; the app and website pick them up.",
+  "categories": [
+    {"id": "drawing", "name": "Drawing and painting"},
+    {"id": "writing", "name": "Writing"},
+    {"id": "music", "name": "Music"},
+    {"id": "programming", "name": "Programming"},
+    {"id": "animation", "name": "Animation"},
+    {"id": "video", "name": "Video editing"},
+    {"id": "games", "name": "Game development"}
+  ]
+}

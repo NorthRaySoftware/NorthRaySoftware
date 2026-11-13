@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34557D"/><stop offset="1" stop-color="#1F3553"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <!-- open book: two pages meeting at a spine -->
+  <path d="M128 78 C 104 64, 72 60, 44 66 L 44 186 C 72 180, 104 184, 128 198 Z" fill="#F4F1EA"/>
+  <path d="M128 78 C 152 64, 184 60, 212 66 L 212 186 C 184 180, 152 184, 128 198 Z" fill="#E6E0D3"/>
+  <g stroke="#9AA6B6" stroke-width="5" stroke-linecap="round" opacity="0.8">
+    <path d="M62 96 C 80 92, 98 94, 112 100"/><path d="M62 118 C 80 114, 98 116, 112 122"/><path d="M62 140 C 80 136, 98 138, 112 144"/>
+    <path d="M144 100 C 158 94, 176 92, 194 96"/><path d="M144 122 C 158 116, 176 114, 194 118"/>
+  </g>
+  <!-- ribbon bookmark falling from the spine -->
+  <path d="M164 60 L 186 60 L 186 132 L 175 120 L 164 132 Z" fill="#C9A35A"/>
+</svg>
