@@ -1,5 +1,6 @@
 # NorthRay Browser: a desktop web browser with creative tools, on Microsoft's
 # WebView2 engine. Built like the other NorthRay apps (MinGW static, or MSVC).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")  # a new version reconfigures
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" NRB_VERSION)
 string(STRIP "${NRB_VERSION}" NRB_VERSION)
 string(REPLACE "." "," NRB_VERSION_COMMAS "${NRB_VERSION}.0")

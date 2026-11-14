@@ -98,6 +98,15 @@ private:
 
     // Drawing
     void drawTabStrip(const cjui::Rect& r);
+    // The tab strip is also the title bar: Windows' caption is removed, and
+    // minimise, maximise and close are drawn at its right end.
+    void drawCaptionButtons(const cjui::Rect& strip);
+    LRESULT hitTestFrame(HWND h, LPARAM lp);
+    float frameBorder() const;          // the sizing border inside the top edge, in DIPs
+    bool maximized() const;
+    cjui::Rect maxButton_{};             // where maximise is, for Windows 11's snap layouts
+    bool maxHover_ = false, maxPressed_ = false, trackingNc_ = false;
+    bool activeWindow_ = true;
     void drawTab(const nrb::Tab& t, const cjui::Rect& r, bool active);
     void drawToolbar(const cjui::Rect& r);
     void toolButton(const std::string& id, const cjui::Rect& r, int icon, bool enabled, std::function<void()> act,

@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.1.1",
+      "date": "2026-11-14",
+      "notes": [
+        "The tabs are now the title bar: Windows' separate title bar is gone, and minimise, maximise and close sit at the right of the tab strip.",
+        "Drag the empty part of the tab strip to move the window, double-click it to maximise, or right-click it for the window menu. On Windows 11, hover over maximise for the snap layouts."
+      ]
+    },
+    {
       "version": "0.1.0",
       "date": "2026-11-14",
       "notes": [

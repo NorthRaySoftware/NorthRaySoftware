@@ -29,6 +29,8 @@ constexpr float kToolbarH = 48;
 constexpr float kStatusH = 28;
 constexpr float kTabTop = 8;
 constexpr float kNewTabW = 36;
+constexpr float kCaptionW = 46;  // each of minimise, maximise and close
+constexpr float kDragMin = 44;   // empty strip always left for dragging the window
 constexpr UINT_PTR kSpinTimer = 1, kShutdownTimer = 2;
 constexpr UINT WM_APP_ENGINE_EXITED = WM_APP + 10;
 constexpr ULONG_PTR kCopyDataOpen = 0x4E524231;  // "NRB1": addresses from a second launch
@@ -99,6 +101,8 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     spec.show = show;
     spec.style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;   // never paint over the page
     if (!createWindow(spec)) return false;
+    // Recalculate the frame now that we handle WM_NCCALCSIZE: the caption goes, the tabs take its place.
+    SetWindowPos(hwnd(), nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
     edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(edit_, addressProc, 1, 0);
@@ -590,8 +594,95 @@ bool BrowserWindow::preTranslate(MSG& msg) {
 
 // ---------------------------------------------------------------- messages
 
+bool BrowserWindow::maximized() const { return IsZoomed(hwnd()) != FALSE; }
+
+float BrowserWindow::frameBorder() const {
+    const UINT dpi = GetDpiForWindow(hwnd());
+    const int px = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    return (float)px / gfx_.dpiScale();
+}
+
+// Where the pointer is, as Windows asks: the strip's empty space moves the window,
+// its top edge resizes it, and maximise is reported as such (Windows 11 shows its
+// snap layouts there). Everything else is ordinary client area, handled by cjui.
+LRESULT BrowserWindow::hitTestFrame(HWND h, LPARAM lp) {
+    POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+    ScreenToClient(h, &pt);
+    const float s = gfx_.dpiScale();
+    const float x = pt.x / s, y = pt.y / s;
+    RECT rc;
+    GetClientRect(h, &rc);
+    const float W = rc.right / s;
+    if (!maximized() && y < frameBorder()) {
+        const float corner = frameBorder() * 2;
+        if (x < corner) return HTTOPLEFT;
+        if (x > W - corner) return HTTOPRIGHT;
+        return HTTOP;
+    }
+    if (y >= kStripH) return HTCLIENT;
+    if (maxButton_.contains(x, y)) return HTMAXBUTTON;
+    if (!hitAt(x, y).empty()) return HTCLIENT;   // a tab, new tab, minimise or close
+    return HTCAPTION;
+}
+
 LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     switch (msg) {
+        case WM_NCCALCSIZE:
+            if (wp && !fullscreen_) {
+                // Keep Windows' sizing borders on the left, right and bottom; take the caption.
+                auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+                const LONG top = p->rgrc[0].top;
+                DefWindowProcW(hwnd(), msg, wp, lp);
+                // Maximised, the window hangs over the screen edge by its border: keep that much off the top.
+                p->rgrc[0].top = maximized() ? top + (LONG)std::lround(frameBorder() * gfx_.dpiScale()) : top;
+                handled = true;
+                return 0;
+            }
+            break;
+        case WM_NCHITTEST:
+            if (!fullscreen_) {
+                const LRESULT r = DefWindowProcW(hwnd(), msg, wp, lp);
+                handled = true;
+                if (r != HTCLIENT) return r;   // the side and bottom borders
+                return hitTestFrame(hwnd(), lp);
+            }
+            break;
+        case WM_NCMOUSEMOVE: {
+            const bool over = wp == HTMAXBUTTON;
+            if (over != maxHover_) { maxHover_ = over; invalidate(); }
+            if (!trackingNc_) {
+                TRACKMOUSEEVENT t{sizeof t, TME_LEAVE | TME_NONCLIENT, hwnd(), 0};
+                trackingNc_ = TrackMouseEvent(&t) != FALSE;
+            }
+            break;
+        }
+        case WM_NCMOUSELEAVE:
+            trackingNc_ = false;
+            if (maxHover_ || maxPressed_) { maxHover_ = maxPressed_ = false; invalidate(); }
+            break;
+        case WM_NCLBUTTONDOWN:
+        case WM_NCLBUTTONDBLCLK:
+            if (wp == HTMAXBUTTON) {
+                maxPressed_ = true;
+                invalidate();
+                handled = true;   // not Windows' own (it would draw an old-style button)
+                return 0;
+            }
+            break;
+        case WM_NCLBUTTONUP:
+            if (wp == HTMAXBUTTON) {
+                if (maxPressed_) ShowWindow(hwnd(), maximized() ? SW_RESTORE : SW_MAXIMIZE);
+                maxPressed_ = false;
+                invalidate();
+                handled = true;
+                return 0;
+            }
+            maxPressed_ = false;
+            break;
+        case WM_ACTIVATE:
+            activeWindow_ = LOWORD(wp) != WA_INACTIVE;
+            invalidate();
+            break;
         case WM_COMMAND:
             if ((HWND)lp == edit_ && edit_) {
                 const int code = HIWORD(wp);
@@ -722,6 +813,7 @@ bool BrowserWindow::onMouseDown(float x, float y) {
 }
 
 void BrowserWindow::onMouseMove(float x, float, bool leftDown) {
+    if (maxHover_) { maxHover_ = false; invalidate(); }
     if (!dragTab_ || !leftDown) return;
     if (!dragging_ && std::abs(x - dragStartX_) < 6) return;
     dragging_ = true;
@@ -912,7 +1004,8 @@ void BrowserWindow::drawTabStrip(const Rect& r) {
     nr::nightSky(gfx_, r, 0, 0.75f, 5);
     nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
     const auto& tabs = model_.tabs();
-    const float x0 = r.x + 8, avail = r.w - 16 - kNewTabW - 8;
+    const float buttons = kCaptionW * 3;
+    const float x0 = r.x + 8, avail = r.w - 16 - kNewTabW - 8 - buttons - kDragMin;
     const float w = tabs.empty() ? 0 : std::clamp(avail / (float)tabs.size(), 40.0f, 232.0f);
     float x = x0;
     const int active = model_.activeId();
@@ -924,7 +1017,7 @@ void BrowserWindow::drawTabStrip(const Rect& r) {
             gfx_.line(x, tr.y + 9, x, tr.bottom() - 9, nr::kNightInk.withAlpha(0.14f));
         drawTab(tabs[i], tr, tabs[i].id == active);
         x += w;
-        if (x > r.right() - kNewTabW - 16) break;   // the rest are reachable with Ctrl+Tab (overflow comes in 0.2)
+        if (x > r.right() - buttons - kDragMin - kNewTabW - 16) break;   // the rest are reachable with Ctrl+Tab (overflow comes in 0.2)
     }
     // New tab
     const Rect nb{x + 6, r.y + kTabTop + 3, 28, 28};
@@ -935,6 +1028,53 @@ void BrowserWindow::drawTabStrip(const Rect& r) {
     gfx_.line(cx - 6, cy, cx + 6, cy, nr::kNightInk.withAlpha(0.85f), 1.6f);
     gfx_.line(cx, cy - 6, cx, cy + 6, nr::kNightInk.withAlpha(0.85f), 1.6f);
     if (focused("tb:newtab")) focusRing(nb);
+    drawCaptionButtons(r);
+}
+
+// Minimise, maximise (or restore) and close, in the night of the strip.
+void BrowserWindow::drawCaptionButtons(const Rect& strip) {
+    const float h = std::min(strip.h - 8, 36.0f);
+    const float top = strip.y;
+    const Color glyph = nr::kNightInk.withAlpha(activeWindow_ ? 0.92f : 0.5f);
+    const float x0 = strip.right() - kCaptionW * 3;
+    auto box = [&](int i) { return Rect{x0 + kCaptionW * i, top, kCaptionW, h}; };
+    const float px = 1.0f / gfx_.dpiScale();   // one physical pixel
+    auto snap = [&](float v) { return std::floor(v * gfx_.dpiScale()) / gfx_.dpiScale() + px / 2; };
+
+    // Minimise
+    const Rect mn = box(0);
+    addHit("cap:min", mn, [this] { ShowWindow(hwnd(), SW_MINIMIZE); }, false);
+    if (float hv = hoverAmount("cap:min"); hv > 0.01f) gfx_.fill(mn, nr::kNightInk.withAlpha((pressed("cap:min") ? 0.16f : 0.10f) * hv));
+    {
+        const float cx = mn.x + mn.w / 2, cy = snap(mn.y + mn.h / 2);
+        gfx_.line(cx - 5, cy, cx + 5, cy, glyph, 1.0f);
+    }
+    // Maximise / restore: hit-tested by Windows (HTMAXBUTTON), so Windows 11 can show snap layouts.
+    maxButton_ = box(1);
+    {
+        const Rect& mx = maxButton_;
+        const float hv = anim("cap:max#hover", maxHover_ ? 1.0f : 0.0f, 18.0f);
+        if (hv > 0.01f) gfx_.fill(mx, nr::kNightInk.withAlpha((maxPressed_ ? 0.16f : 0.10f) * hv));
+        const float cx = snap(mx.x + mx.w / 2), cy = snap(mx.y + mx.h / 2);
+        if (maximized()) {
+            gfx_.strokeRounded({cx - 5, cy - 3, 8, 8}, 1, glyph, 1.0f);
+            gfx_.line(cx - 3, cy - 5, cx + 4, cy - 5, glyph, 1.0f);
+            gfx_.line(cx + 5, cy - 4, cx + 5, cy + 3, glyph, 1.0f);
+        } else {
+            gfx_.strokeRounded({cx - 5, cy - 5, 10, 10}, 1, glyph, 1.0f);
+        }
+    }
+    // Close: Windows' red on hover.
+    const Rect cl = box(2);
+    addHit("cap:close", cl, [this] { PostMessageW(hwnd(), WM_CLOSE, 0, 0); }, false);
+    {
+        const float hv = hoverAmount("cap:close");
+        if (hv > 0.01f) gfx_.fill(cl, Color{0.769f, 0.169f, 0.110f, 1}.withAlpha(hv * (pressed("cap:close") ? 0.85f : 1.0f)));
+        const float cx = cl.x + cl.w / 2, cy = cl.y + cl.h / 2;
+        const Color g = glyph.mix(Color{1, 1, 1, 1}, hv);
+        gfx_.line(cx - 5, cy - 5, cx + 5, cy + 5, g, 1.1f);
+        gfx_.line(cx + 5, cy - 5, cx - 5, cy + 5, g, 1.1f);
+    }
 }
 
 void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {

@@ -55,6 +55,7 @@ NorthRay Browser follows the Launcher (0.17+), not the older `docs/DESIGN.md` (w
 3 px look). The tokens are `shared/metadata/brand/tokens.json`; the palette and night sky now live in
 `libs/cjui/northray.*`, and the Launcher draws from the same code.
 
+- **Title bar = tab strip** (0.1.1): Windows' caption is removed (`WM_NCCALCSIZE` keeps the side and bottom sizing borders, takes the caption; maximised, the top keeps the border's height so nothing hangs off the screen). `WM_NCHITTEST`: the top edge resizes, the strip's empty space is `HTCAPTION` (drag, double-click, window menu, Aero snap), maximise is `HTMAXBUTTON` so Windows 11 shows snap layouts (its clicks are handled in `WM_NCLBUTTONDOWN/UP`, never by Windows, which would draw an old button). Minimise and close are ordinary cjui hits. At least 44 DIPs of strip are always left empty to drag by. Wine without a virtual desktop shows the client offset by the old caption; `wine explorer /desktop=...` shows it correctly.
 - **Tab strip**: the night sky with the aurora band, like the Launcher's sidebar. The active tab is the toolbar's colour,
   joined to it. Site icons, a spinner while loading, a small NorthRay tile on the start page.
 - **Toolbar**: back, forward, reload/stop, home, the address bar (a borderless native edit control in a drawn 8 px frame,
