@@ -1332,6 +1332,34 @@ static void testCovers() {
     sp.layout = "picture";
     sp.picturePath = "/nonexistent/picture.png";
     CHECK(!cover::render(sp, appFolder("fonts"), 400, 640).ok);
+    // A print cover: back, spine and front, with bleed; a PDF with the trim marked.
+    {
+        cover::Spec ps;
+        ps.title = "The Glass Harbour";
+        ps.author = "Ada Example";
+        ps.series = "Book One of the Tides";
+        cover::Wrap wp;
+        wp.trimW = 5;
+        wp.trimH = 8;
+        wp.spine = 0.6;
+        wp.dpi = 80;
+        wp.backText = "A harbour master keeps a ledger of every ship.\n\nOne night a ship comes in that isn't in it.";
+        const auto png = cover::renderWrap(ps, wp, appFolder("fonts"), false);
+        CHECK(png.ok && png.width == 868 && png.height == 660 && png.spineText);
+        if (std::getenv("COVER_DUMP")) {
+            cover::Wrap big = wp;
+            big.dpi = 150;
+            if (std::getenv("COVER_PICTURE")) { ps.layout = "picture"; ps.picturePath = std::getenv("COVER_PICTURE"); }
+            std::ofstream(std::string(std::getenv("COVER_DUMP")) + "/wrap.png", std::ios::binary) << cover::renderWrap(ps, big, appFolder("fonts"), false).png;
+            ps.layout = "classic";
+            ps.picturePath.clear();
+        }
+        const auto pdf = cover::renderWrap(ps, wp, appFolder("fonts"), true);
+        CHECK(pdf.ok && pdf.pdf.rfind("%PDF-1.4", 0) == 0 && pdf.pdf.find("/TrimBox [9.000 9.000 ") != std::string::npos);
+        CHECK(pdf.pdf.find("/MediaBox [0 0 781.200 594.000]") != std::string::npos);
+        wp.spine = 0.1;   // too thin for words
+        CHECK(!cover::renderWrap(ps, wp, appFolder("fonts"), false).spineText);
+    }
     // Kept as JSON.
     sp.background = "#102030";
     const cover::Spec back = cover::fromJson(cover::toJson(sp));

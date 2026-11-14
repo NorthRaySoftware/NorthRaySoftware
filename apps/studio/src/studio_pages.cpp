@@ -91,7 +91,12 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Publishing && lib_ && lib_->book(pb_.book)) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        const bool designing = cv_.open && cv_.book == pb_.book;
+        if (cv_.open && (cv_.book != pb_.book || focus_.kind != Focus::Cover)) {   // left by another way: put away
+            saveCoverDesign();
+            if (!cv_.preview.empty()) { gfx_.forgetImage(cv_.preview); DeleteFileW(cv_.preview.c_str()); }
+            cv_ = {};
+        }
+        const bool designing = cv_.open;
         if (designing) drawCoverDesigner(pageRect_);
         else drawPublishPage(pageRect_);
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
@@ -1273,6 +1278,11 @@ void StudioApp::drawPanel(const Rect& r) {
             y = panelImage(c, y, L"Cover", b->coverBlob, [this] { chooseImage(Focus::Book, focus_.id, 0); }, [this] {
                 Book n = *lib_->book(focus_.id); n.coverBlob.clear(); lib_->updateBook(n);
             }, false);
+            linkText("panel:designcover", c.x + 7, y - 6, L"Design a cover\u2026", [this, bid = b->id] {
+                openPublishing(bid);
+                openCoverDesigner();
+            });
+            y += 30;
             // A novel or a comic script: comics get Page, Panel, Dialogue, Caption and SFX in Writing,
             // and the comic script layout in Typesetting.
             panelChoice("panel:format", c, y, L"Format", isComic(b->id) ? L"Comic script" : L"Novel or prose", [this] {

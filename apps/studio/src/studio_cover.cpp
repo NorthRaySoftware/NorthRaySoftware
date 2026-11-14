@@ -71,6 +71,8 @@ void StudioApp::openCoverDesigner() {
     cv_ = {};
     cv_.open = true;
     cv_.book = b->id;
+    cv_.edition = pb_.edition;
+    if (const Edition* e = lib_->edition(pb_.edition)) cv_.print = e->print();
     const std::string saved = lib_->setting("cover-design:" + b->id);
     if (!saved.empty()) {
         cv_.spec = cover::fromJson(saved);
@@ -88,6 +90,7 @@ void StudioApp::openCoverDesigner() {
             }
         cv_.spec.fontId = typeset::designFromJson(lib_->setting("typeset:" + b->id)).font;
     }
+    if (cv_.spec.backText.empty()) cv_.spec.backText = b->synopsis;   // the blurb, to start with
     pb_.scroll = 0;
     setFocus({Focus::Cover, b->id, {}});
     renderCoverPreview();
@@ -107,10 +110,40 @@ void StudioApp::closeCoverDesigner() {
 
 static std::string fontsFolderOf(const std::wstring& exeDir) { return narrow(exeDir + L"\\fonts"); }
 
+bool StudioApp::coverWrap(cover::Wrap& wp) const {
+    const Edition* e = lib_->edition(cv_.edition);
+    if (!e || !e->print() || !pb_.result || !pb_.result->ok || pb_.edition != cv_.edition) return false;
+    const auto& bk = *pb_.result;
+    const int pages = (int)bk.pages.size() + ((int)bk.pages.size() % 2);   // printed on both sides
+    wp.trimW = bk.width / 72;
+    wp.trimH = bk.height / 72;
+    wp.spine = studio::publish::spineInches(pages, e->paper == "cream" ? studio::publish::Paper::Cream : studio::publish::Paper::White);
+    wp.bleed = 0.125;
+    wp.backText = cv_.spec.backText;
+    return true;
+}
+
 void StudioApp::renderCoverPreview() {
     cover::Spec s = cv_.spec;
     s.picturePath = cv_.pictureBlob.empty() ? std::string() : lib_->blobPath(cv_.pictureBlob);
-    const auto r = cover::render(s, fontsFolderOf(exeDir()), 500, 800);
+    struct Shown { bool ok = false; std::string error, png; };
+    Shown shown;
+    if (cv_.print) {
+        cover::Wrap wp;
+        if (!coverWrap(wp)) {
+            if (!cv_.preview.empty()) { gfx_.forgetImage(cv_.preview); DeleteFileW(cv_.preview.c_str()); cv_.preview.clear(); }
+            cv_.error = "Setting the edition's pages first: the spine's width depends on how many there are.";
+            invalidate();
+            return;
+        }
+        wp.dpi = std::max(40, (int)(900 / (wp.trimW * 2 + wp.spine + 0.25)));   // about 900 pixels across
+        const auto wr = cover::renderWrap(s, wp, fontsFolderOf(exeDir()), false);
+        shown = {wr.ok, wr.error, wr.png};
+    } else {
+        const auto fr = cover::render(s, fontsFolderOf(exeDir()), 500, 800);
+        shown = {fr.ok, fr.error, fr.png};
+    }
+    const auto& r = shown;
     if (!cv_.preview.empty()) {
         gfx_.forgetImage(cv_.preview);
         DeleteFileW(cv_.preview.c_str());
@@ -153,6 +186,43 @@ void StudioApp::chooseCoverPicture() {
     if (!cv_.error.empty()) { cv_.pictureBlob.clear(); flash(L"That file couldn't be read as a picture.", 6); renderCoverPreview(); }
 }
 
+void StudioApp::saveCoverDesign() {
+    cover::Spec keep = cv_.spec;
+    keep.picturePath = cv_.pictureBlob;   // the blob, so it still works if the library moves
+    lib_->setSetting("cover-design:" + cv_.book, cover::toJson(keep));
+}
+
+void StudioApp::exportPrintCover() {
+    commitFields();
+    const Book* b = lib_->book(cv_.book);
+    const Edition* e = lib_->edition(cv_.edition);
+    cover::Wrap wp;
+    if (!b || !e || !coverWrap(wp)) { flash(L"The edition's pages aren't set yet. Try again in a moment.", 6); return; }
+    const std::wstring path = askSavePath(L"PDF", L"*.pdf", L"pdf", w(b->title) + L" - " + w(studio::publish::editionLabel(*e)) + L" - cover",
+                                          L"Export the print cover");
+    if (path.empty()) return;
+    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    cover::Spec s = cv_.spec;
+    s.picturePath = cv_.pictureBlob.empty() ? std::string() : lib_->blobPath(cv_.pictureBlob);
+    wp.dpi = 300;
+    const auto r = cover::renderWrap(s, wp, fontsFolderOf(exeDir()), true);
+    if (!r.ok) { cjui::messageBox(hwnd(), w(r.error), L"Print cover", MB_OK | MB_ICONWARNING); return; }
+    std::ofstream out(path.c_str(), std::ios::binary);
+    out << r.pdf;
+    if (!out) { cjui::messageBox(hwnd(), L"Couldn't save the cover there.", L"Print cover", MB_OK | MB_ICONWARNING); return; }
+    out.close();
+    saveCoverDesign();
+    wchar_t size[96];
+    swprintf(size, 96, L"%.3f \u00D7 %.3f in", wp.trimW * 2 + wp.spine + 2 * wp.bleed, wp.trimH + 2 * wp.bleed);
+    std::wstring msg = L"Saved the print cover: " + std::wstring(size) + L" with bleed, at 300 pixels per inch, spine " +
+                       [&] { wchar_t s2[32]; swprintf(s2, 32, L"%.3f in", wp.spine); return std::wstring(s2); }() + L".\n\n";
+    msg += r.spineText ? L"The spine has the title and author on it. " : L"The spine is too narrow for words, so it's left plain. ";
+    msg += L"The white space on the back is for the ISBN barcode your printer adds.\n\nBefore uploading, check the measurements against your "
+           L"printer's own cover template for this book.";
+    if (e->kind == "hardback") msg += L" A hardback's case cover wraps around boards, so it's larger: use the printer's case template.";
+    cjui::messageBox(hwnd(), msg, L"Print cover", MB_OK | MB_ICONINFORMATION);
+}
+
 void StudioApp::useDesignedCover() {
     commitFields();
     const Book* b = lib_->book(cv_.book);
@@ -167,9 +237,7 @@ void StudioApp::useDesignedCover() {
     Book n = *b;
     n.coverBlob = hash;
     lib_->updateBook(n);
-    cover::Spec keep = cv_.spec;
-    keep.picturePath = cv_.pictureBlob;   // the blob, so it still works if the library moves
-    lib_->setSetting("cover-design:" + b->id, cover::toJson(keep));
+    saveCoverDesign();
     closeCoverDesigner();
     editionChanged();   // the checks look at the cover again
     flash(L"The new cover is the book's cover (1600 × 2560 pixels). Change it any time with “Design a cover”.", 7);
@@ -183,13 +251,23 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
     const float cw = std::min(r.w - pad * 2, 820.0f);
     const Rect m{r.x + pad, r.y + 26 - pb_.scroll, cw, 0};
     const Book* b = lib_->book(cv_.book);
-    float y = m.y + pageHeader(m, L"PUBLISHING · EBOOK COVER", L"Design a cover",
-                               L"A cover for ebook stores, from the book's title and author. Choose a layout and colours, add a picture "
-                               L"if you like, and change the words on the right.");
+    float y = m.y + pageHeader(m, cv_.print ? L"PUBLISHING \u00B7 PRINT COVER" : L"PUBLISHING \u00B7 EBOOK COVER",
+                               cv_.print ? L"Design the print cover" : L"Design a cover",
+                               cv_.print ? L"The whole cover for the printer: back, spine and front, at this edition's size, with bleed. Choose a "
+                                           L"layout and colours, add a picture if you like, and change the words and the blurb on the right."
+                                         : L"A cover for ebook stores, from the book's title and author. Choose a layout and colours, add a picture "
+                                           L"if you like, and change the words on the right.");
     (void)b;
-    // The preview on the left, choices on the right.
-    const float pw = std::min(300.0f, cw * 0.42f), ph = pw * 1.6f;
-    const Rect pr{m.x, y, pw, ph};
+    // An ebook cover: the preview on the left, choices on the right. A print cover is wide: it goes above them.
+    Rect pr;
+    if (cv_.print) {
+        cover::Wrap wp;
+        const float aspect = coverWrap(wp) ? (float)((wp.trimH + 0.25) / (wp.trimW * 2 + wp.spine + 0.25)) : 0.7f;
+        pr = {m.x, y, cw, cw * aspect};
+    } else {
+        const float pw = std::min(300.0f, cw * 0.42f);
+        pr = {m.x, y, pw, pw * 1.6f};
+    }
     gfx_.fillRounded({pr.x + 3, pr.y + 5, pr.w, pr.h}, 3, pal_.ink.withAlpha(0.12f));
     if (cv_.preview.empty() || !gfx_.drawImage(cv_.preview, pr, true)) {
         gfx_.fill(pr, pal_.sunken);
@@ -198,8 +276,23 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
     }
     gfx_.stroke(pr, pal_.rule, 1);
 
-    const float cx = pr.right() + 32, cwid = m.right() - cx;
-    float cy = y;
+    const float cx = cv_.print ? m.x : pr.right() + 32, cwid = m.right() - cx;
+    float cy = cv_.print ? pr.bottom() + 28 : y;
+    if (cv_.print && !cv_.preview.empty()) {
+        cover::Wrap wp;
+        if (coverWrap(wp)) {
+            // Where the trim and the spine are.
+            const float k = pr.w / (float)(wp.trimW * 2 + wp.spine + 0.25), bl = 0.125f * k;
+            gfx_.stroke({pr.x + bl, pr.y + bl, pr.w - 2 * bl, pr.h - 2 * bl}, cjui::Color{1, 1, 1, 0.55f}, 1);
+            const float s0 = pr.x + bl + (float)wp.trimW * k, s1 = s0 + (float)wp.spine * k;
+            gfx_.line(s0, pr.y, s0, pr.bottom(), cjui::Color{1, 1, 1, 0.45f}, 1);
+            gfx_.line(s1, pr.y, s1, pr.bottom(), cjui::Color{1, 1, 1, 0.45f}, 1);
+            wchar_t note[160];
+            swprintf(note, 160, L"Back  \u00B7  spine %.3f in  \u00B7  front. %.3f \u00D7 %.3f in with bleed; the fine line is where it's trimmed.",
+                     wp.spine, wp.trimW * 2 + wp.spine + 0.25, wp.trimH + 0.25);
+            gfx_.text(note, {pr.x, pr.bottom() + 6, pr.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+        }
+    }
     auto label = [&](const std::wstring& t) {
         gfx_.text(t, {cx, cy, cwid, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         cy += 24;
@@ -307,7 +400,23 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
         cy += 48;
     }
     // Done.
-    {
+    if (cv_.print) {
+        const std::wstring ex = L"Export the print cover (PDF)\u2026";
+        const float ew = gfx_.measureWidth(ex, Font::BodyStrong) + 36;
+        cover::Wrap wp;
+        if (coverWrap(wp)) button("cv:export", {cx, cy, ew, 36}, ex, [this] { exportPrintCover(); }, true);
+        else disabledButton({cx, cy, ew, 36}, ex);
+        const std::wstring front = L"Use the front as the ebook cover";
+        const float fw = gfx_.measureWidth(front, Font::Body) + 30;
+        button("cv:usefront", {cx + ew + 10, cy, fw, 36}, front, [this] { useDesignedCover(); }, false);
+        const float cw2 = gfx_.measureWidth(L"Close", Font::Body) + 30;
+        button("cv:cancel", {cx + ew + fw + 20, cy, cw2, 36}, L"Close", [this] { saveCoverDesign(); closeCoverDesigner(); }, false);
+        cy += 52;
+        gfx_.text(L"300 pixels per inch, with 0.125 in bleed. The white space on the back is left for the ISBN barcode your printer adds. "
+                  L"Check the measurements against your printer's cover template before you upload it.",
+                  {cx, cy, cwid, 40}, Font::Small, pal_.inkFaint);
+        cy += 44;
+    } else {
         const std::wstring use = L"Use as the book's cover";
         const float uw = gfx_.measureWidth(use, Font::BodyStrong) + 36;
         button("cv:use", {cx, cy, uw, 36}, use, [this] { useDesignedCover(); }, true);
@@ -340,6 +449,7 @@ void StudioApp::drawCoverPanel(const Rect& r) {
     y = panelField(c, y, L"Subtitle (blank: none)", FSubtitle);
     y = panelField(c, y, L"Author", FAuthor);
     y = panelField(c, y, L"Series line (blank: none)", FDescription);
+    if (cv_.print) y = panelField(c, y, L"Back cover (the blurb)", FSynopsis, 170);
     y += gfx_.text(L"These are only for the cover. The book's own details don't change.", {c.x, y, c.w, 60}, Font::Small, pal_.inkFaint) + 14;
     panelHeading(c, y, L"GOOD COVERS", false);
     y += gfx_.text(L"Covers are seen as small thumbnails first. Check the title can be read at the size of a stamp: a short title "

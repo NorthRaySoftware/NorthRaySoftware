@@ -75,6 +75,11 @@ void StudioApp::openPublishing(const Id& bookId) {
 
 void StudioApp::chooseEdition(const Id& editionId) {
     commitFields();
+    if (cv_.open) {   // the cover designer belongs to the edition it was opened for
+        saveCoverDesign();
+        if (!cv_.preview.empty()) { gfx_.forgetImage(cv_.preview); DeleteFileW(cv_.preview.c_str()); }
+        cv_ = {};
+    }
     pb_.edition = editionId;
     if (lib_->edition(editionId)) lib_->setSetting("publish-edition:" + pb_.book, editionId);
     setFocus({Focus::Edition, editionId, {}});
@@ -121,6 +126,7 @@ void StudioApp::editionTypesetFinished(int generation, ts::Book* book) {
     if (generation == pb_.generation) {
         pb_.result = b;
         refreshChecks();
+        if (cv_.open && cv_.print) renderCoverPreview();   // the spine width is known now
     }
     if (pb_.again) startEditionTypeset();
     invalidate();
@@ -330,6 +336,8 @@ void StudioApp::drawPublishSidebar(const Rect& r) {
     y += 18;
     gfx_.text(L"ALSO", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 24;
+    linkText("side:pb:cover", tx0, y, cur && cur->print() ? L"Design the print cover" : L"Design the ebook cover", [this] { openCoverDesigner(); });
+    y += 26;
     linkText("side:pb:typeset", tx0, y, L"Change the book's print design", [this] { openTypesetting(pb_.book); });
     y += 26;
     linkText("side:pb:preview", tx0, y, L"Read it as an ebook", [this] { openPreview(pb_.book); });
@@ -461,7 +469,10 @@ void StudioApp::drawPublishPage(const Rect& r) {
                     : L"The spine is an estimate from the page count and paper. Before the cover is finished, check it against your printer's "
                       L"own cover template, which also places the barcode." +
                           std::wstring(pages < 100 ? L" At this length the spine is too narrow for text." : L"");
-            y += gfx_.text(note, {m.x, y, cw, 60}, Font::Small, pal_.inkFaint) + 26;
+            y += gfx_.text(note, {m.x, y, cw, 60}, Font::Small, pal_.inkFaint) + 12;
+            const std::wstring dl = L"Design the print cover\u2026";
+            button("pb:printcover", {m.x, y, gfx_.measureWidth(dl, Font::Small) + 28, 30}, dl, [this] { openCoverDesigner(); }, false);
+            y += 30 + 26;
         }
     } else {
         // ---- 2. The ebook's cover and look.

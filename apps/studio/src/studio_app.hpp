@@ -312,6 +312,9 @@ private:
     void renderCoverPreview();
     void chooseCoverPicture();
     void useDesignedCover();
+    void exportPrintCover();
+    void saveCoverDesign();
+    bool coverWrap(studio::cover::Wrap& out) const;   // a print edition's measurements (false until its pages are set)
     void drawCoverDesigner(const Rect& r);
     void drawCoverPanel(const Rect& r);
     // Typesetting (studio_typeset.cpp)
@@ -549,6 +552,8 @@ private:
         std::wstring preview;     // the preview picture's file
         int serial = 0;
         std::string error;
+        bool print = false;       // a print edition's cover: back, spine and front
+        Id edition;
     } cv_;
     // The picture selected in the editor, and dragging its crop.
     struct PictureSel {

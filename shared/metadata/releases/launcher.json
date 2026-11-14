@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.31.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.30.0: the cover designer makes print covers too (back, spine and front, as a print-ready PDF), and it's easier to find."
+      ]
+    },
+    {
       "version": "0.30.0",
       "date": "2026-11-14",
       "notes": [

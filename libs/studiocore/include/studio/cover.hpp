@@ -19,6 +19,7 @@ struct Spec {
     double focusY = 0.5;                // which part of a picture taller than the space shows: 0 top, 1 bottom
     std::string fontId = "crimson-text";
     bool titleCaps = true;              // the title in capitals
+    std::string backText;               // print covers: the blurb on the back
 };
 
 struct Layout { const char* id; const char* label; const char* description; };
@@ -37,6 +38,26 @@ struct Result {
 
 // Draws the cover. `fontsFolder` holds fonts/<fontId>/*-Regular.ttf and the rest.
 Result render(const Spec& spec, const std::string& fontsFolder, int width = 1600, int height = 2560);
+
+// A print cover: back, spine and front in one piece, with bleed all round, for a printer.
+struct Wrap {
+    double trimW = 6, trimH = 9;   // inches, one page
+    double spine = 0.5;            // inches
+    double bleed = 0.125;          // inches, each outside edge
+    int dpi = 300;
+    std::string backText;          // the blurb on the back
+    bool backItalic = false;
+    bool spineText = true;         // the title and author on the spine, when it's 0.25 in or wider
+    bool barcodeArea = true;       // a white space on the back for the printer's ISBN barcode
+};
+struct WrapResult {
+    bool ok = false;
+    std::string error;
+    std::string pdf, png;          // the PDF (pdf = true), or a PNG to look at
+    int width = 0, height = 0;     // pixels
+    bool spineText = false;        // the spine had room for its words
+};
+WrapResult renderWrap(const Spec& spec, const Wrap& wrap, const std::string& fontsFolder, bool pdf);
 
 // A spec as JSON (kept with the book, so the cover can be changed later) and back.
 std::string toJson(const Spec& spec);

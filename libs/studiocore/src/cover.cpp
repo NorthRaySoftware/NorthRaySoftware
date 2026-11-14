@@ -56,11 +56,10 @@ Colour parse(const std::string& hex, Colour fallback) {
     return {(double)(v >> 16 & 255), (double)(v >> 8 & 255), (double)(v & 255)};
 }
 
-double luminance(const Colour& c) { return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255.0; }
 
 struct Canvas {
     int w = 0, h = 0;
-    std::vector<double> px;   // RGB, 0..255
+    std::vector<std::uint8_t> px;   // RGB
     void fill(int x0, int y0, int x1, int y1, Colour c, double a = 1) {
         x0 = std::max(0, x0); y0 = std::max(0, y0); x1 = std::min(w, x1); y1 = std::min(h, y1);
         for (int y = y0; y < y1; ++y)
@@ -68,8 +67,10 @@ struct Canvas {
     }
     void blend(int x, int y, Colour c, double a) {
         if (x < 0 || y < 0 || x >= w || y >= h || a <= 0) return;
-        double* p = &px[((size_t)y * w + x) * 3];
-        p[0] += (c.r - p[0]) * a; p[1] += (c.g - p[1]) * a; p[2] += (c.b - p[2]) * a;
+        std::uint8_t* p = &px[((size_t)y * w + x) * 3];
+        p[0] = (std::uint8_t)std::lround(p[0] + (c.r - p[0]) * a);
+        p[1] = (std::uint8_t)std::lround(p[1] + (c.g - p[1]) * a);
+        p[2] = (std::uint8_t)std::lround(p[2] + (c.b - p[2]) * a);
     }
     // A rectangle's outline `t` pixels thick.
     void frame(int x0, int y0, int x1, int y1, int t, Colour c, double a = 1) {
@@ -116,8 +117,8 @@ bool drawPicture(Canvas& cv, const std::string& path, int bx, int by, int bw, in
                 }
             const int tx = bx + x, ty = by + y;
             if (tx < 0 || ty < 0 || tx >= cv.w || ty >= cv.h) continue;
-            double* q = &cv.px[((size_t)ty * cv.w + tx) * 3];
-            for (int c = 0; c < 3; ++c) q[c] = sum[c] / cnt;
+            std::uint8_t* q = &cv.px[((size_t)ty * cv.w + tx) * 3];
+            for (int c = 0; c < 3; ++c) q[c] = (std::uint8_t)std::lround(sum[c] / cnt);
         }
     }
     stbi_image_free(d);
@@ -174,6 +175,24 @@ struct Writer {
         }
     }
 
+    // Body text in lines no wider than `maxW` (paragraphs kept; an empty line between them).
+    std::vector<std::string> wrap(int face, const std::string& text, float size, float maxW) {
+        std::vector<std::string> out;
+        std::istringstream paras(text);
+        for (std::string para; std::getline(paras, para);) {
+            if (para.find_first_not_of(" \t\r") == std::string::npos) { if (!out.empty() && !out.back().empty()) out.push_back(""); continue; }
+            std::istringstream in(para);
+            std::string cur;
+            for (std::string w; in >> w;) {
+                const std::string next = cur.empty() ? w : cur + " " + w;
+                if (!cur.empty() && width(face, next, size, 0) > maxW) { out.push_back(cur); cur = w; }
+                else cur = next;
+            }
+            if (!cur.empty()) out.push_back(cur);
+        }
+        return out;
+    }
+
     // Words wrapped into at most `maxLines` lines no wider than `maxW`, at the largest size from `maxSize`
     // down to `minSize` that fits. Lines are balanced (no long line over a lone word).
     std::vector<std::string> fit(int face, const std::string& text, float maxW, float maxSize, float minSize, int maxLines, double tracking,
@@ -224,20 +243,27 @@ struct Writer {
 
 }  // namespace
 
-Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
-    Result r;
-    if (W < 200 || H < 300) { r.error = "The cover is too small to draw."; return r; }
+namespace {
+
+Canvas blank(int W, int H, const Colour& bg) {
     Canvas cv;
     cv.w = W;
     cv.h = H;
-    const Colour bg = parse(sp.background, {107, 45, 60}), ink = parse(sp.ink, {244, 235, 221}), accent = parse(sp.accent, {217, 178, 107});
-    cv.px.assign((size_t)W * H * 3, 0);
-    for (size_t i = 0; i < (size_t)W * H; ++i) { cv.px[i * 3] = bg.r; cv.px[i * 3 + 1] = bg.g; cv.px[i * 3 + 2] = bg.b; }
+    cv.px.resize((size_t)W * H * 3);
+    for (size_t i = 0; i < (size_t)W * H; ++i) {
+        cv.px[i * 3] = (std::uint8_t)bg.r; cv.px[i * 3 + 1] = (std::uint8_t)bg.g; cv.px[i * 3 + 2] = (std::uint8_t)bg.b;
+    }
+    return cv;
+}
 
+// The front cover, filling the canvas.
+bool drawFront(Canvas& cv, const Spec& sp, const std::string& fontsFolder, Result& r) {
+    const int W = cv.w, H = cv.h;
+    const Colour bg = parse(sp.background, {107, 45, 60}), ink = parse(sp.ink, {244, 235, 221}), accent = parse(sp.accent, {217, 178, 107});
     Writer wr{cv, {}, "en"};
     if (!openFamily(fontsFolder, sp.fontId.empty() ? "crimson-text" : sp.fontId, wr.fam) && !openFamily(fontsFolder, "crimson-text", wr.fam)) {
         r.error = "The cover's typeface couldn't be opened.";
-        return r;
+        return false;
     }
     Fonts::get().useFallbacks(fontsFolder + "/symbols");
     const int reg = wr.fam.regular, ital = wr.fam.pick(false, true), bold = wr.fam.pick(true, false);
@@ -265,7 +291,7 @@ Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
     };
 
     if (layout == "picture") {
-        if (picture && !drawPicture(cv, sp.picturePath, 0, 0, W, H, sp.focusY)) { r.error = "The picture couldn't be read."; return r; }
+        if (picture && !drawPicture(cv, sp.picturePath, 0, 0, W, H, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
         // Shade the top and bottom with the background colour so the words read on any picture.
         cv.shade(0, (int)(H * 0.46), bg, 0.82, 0.0);
         cv.shade((int)(H * 0.70), H, bg, 0.0, 0.88);
@@ -276,7 +302,7 @@ Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
     } else if (layout == "band") {
         const int bandTop = (int)(H * 0.62);
         if (picture) {
-            if (!drawPicture(cv, sp.picturePath, 0, 0, W, bandTop, sp.focusY)) { r.error = "The picture couldn't be read."; return r; }
+            if (!drawPicture(cv, sp.picturePath, 0, 0, W, bandTop, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
         } else {
             const Colour deeper{bg.r * 0.7, bg.g * 0.7, bg.b * 0.7};
             cv.shade(0, bandTop, deeper, 1.0, 0.0);
@@ -300,7 +326,7 @@ Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
         if (picture) {
             // A picture, if given, sits in a window under the title.
             const int px0 = (int)(220 * u), pw = W - 2 * px0, py0 = (int)(H * 0.47), ph = (int)(H * 0.30);
-            if (!drawPicture(cv, sp.picturePath, px0, py0, pw, ph, sp.focusY)) { r.error = "The picture couldn't be read."; return r; }
+            if (!drawPicture(cv, sp.picturePath, px0, py0, pw, ph, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
             cv.frame(px0 - (int)(6 * u), py0 - (int)(6 * u), px0 + pw + (int)(6 * u), py0 + ph + (int)(6 * u), (int)(4 * u), accent);
         }
         smallLine(upperCase(sp.series), reg, (float)(40 * u), 0.22, H * 0.12, accent);
@@ -309,11 +335,18 @@ Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
         if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(68 * u), 0.0, end + 190 * u, ink);
         smallLine(author, reg, (float)(76 * u), 0.2, H * 0.875, ink);
     }
+    return true;
+}
 
-    std::vector<std::uint8_t> rgb((size_t)W * H * 3);
-    for (size_t i = 0; i < rgb.size(); ++i) rgb[i] = (std::uint8_t)std::clamp((int)std::lround(cv.px[i]), 0, 255);
+}  // namespace
+
+Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
+    Result r;
+    if (W < 200 || H < 300) { r.error = "The cover is too small to draw."; return r; }
+    Canvas cv = blank(W, H, parse(sp.background, {107, 45, 60}));
+    if (!drawFront(cv, sp, fontsFolder, r)) return r;
     size_t len = 0;
-    if (void* png = tdefl_write_image_to_png_file_in_memory(rgb.data(), W, H, 3, &len)) {
+    if (void* png = tdefl_write_image_to_png_file_in_memory(cv.px.data(), W, H, 3, &len)) {
         r.png.assign(static_cast<const char*>(png), len);
         mz_free(png);
     }
@@ -321,14 +354,13 @@ Result render(const Spec& sp, const std::string& fontsFolder, int W, int H) {
     if (!r.ok) r.error = "The cover couldn't be written.";
     r.width = W;
     r.height = H;
-    (void)luminance;
     return r;
 }
 
 std::string toJson(const Spec& s) {
     return json{{"layout", s.layout}, {"title", s.title}, {"subtitle", s.subtitle}, {"author", s.author}, {"series", s.series},
                 {"background", s.background}, {"ink", s.ink}, {"accent", s.accent}, {"picture", s.picturePath}, {"focusY", s.focusY},
-                {"font", s.fontId}, {"titleCaps", s.titleCaps}}
+                {"font", s.fontId}, {"titleCaps", s.titleCaps}, {"back", s.backText}}
         .dump();
 }
 
@@ -348,7 +380,145 @@ Spec fromJson(const std::string& text) {
     s.focusY = j.value("focusY", s.focusY);
     s.fontId = j.value("font", s.fontId);
     s.titleCaps = j.value("titleCaps", s.titleCaps);
+    s.backText = j.value("back", s.backText);
     return s;
+}
+
+// ------------------------------------------------------------------ print covers
+
+namespace {
+
+std::string pdfNum(double v) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.3f", v);
+    return b;
+}
+
+// One page holding the picture, the size of the whole cover, with the trim marked (TrimBox).
+std::string coverPdf(const Canvas& cv, double wPt, double hPt, double bleedPt, const std::string& title) {
+    mz_ulong n = mz_compressBound((mz_ulong)cv.px.size());
+    std::string img(n, '\0');
+    if (mz_compress2(reinterpret_cast<unsigned char*>(img.data()), &n, cv.px.data(), (mz_ulong)cv.px.size(), 6) != MZ_OK) return {};
+    img.resize(n);
+    std::string safeTitle;
+    for (char c : title) { if (c == '(' || c == ')' || c == '\\') safeTitle += '\\'; if ((unsigned char)c >= 0x20 && (unsigned char)c < 0x7F) safeTitle += c; }
+    const std::string content = "q " + pdfNum(wPt) + " 0 0 " + pdfNum(hPt) + " 0 0 cm /Im0 Do Q\n";
+    std::vector<std::string> objs = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + pdfNum(wPt) + " " + pdfNum(hPt) + "] /BleedBox [0 0 " + pdfNum(wPt) + " " + pdfNum(hPt) +
+            "] /TrimBox [" + pdfNum(bleedPt) + " " + pdfNum(bleedPt) + " " + pdfNum(wPt - bleedPt) + " " + pdfNum(hPt - bleedPt) +
+            "] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+        "<< /Length " + std::to_string(content.size()) + " >>\nstream\n" + content + "endstream",
+        "<< /Type /XObject /Subtype /Image /Width " + std::to_string(cv.w) + " /Height " + std::to_string(cv.h) +
+            " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length " + std::to_string(img.size()) + " >>\nstream\n" + img +
+            "\nendstream",
+        "<< /Title (" + safeTitle + " - cover) /Producer (NorthRay Writing Studio) >>",
+    };
+    std::string out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    std::vector<size_t> at;
+    for (size_t i = 0; i < objs.size(); ++i) {
+        at.push_back(out.size());
+        out += std::to_string(i + 1) + " 0 obj\n" + objs[i] + "\nendobj\n";
+    }
+    const size_t xref = out.size();
+    out += "xref\n0 " + std::to_string(objs.size() + 1) + "\n0000000000 65535 f \n";
+    for (size_t a : at) {
+        char b[24];
+        std::snprintf(b, sizeof b, "%010zu 00000 n \n", a);
+        out += b;
+    }
+    out += "trailer\n<< /Size " + std::to_string(objs.size() + 1) + " /Root 1 0 R /Info 6 0 R >>\nstartxref\n" + std::to_string(xref) + "\n%%EOF\n";
+    return out;
+}
+
+}  // namespace
+
+WrapResult renderWrap(const Spec& sp, const Wrap& wp, const std::string& fontsFolder, bool pdf) {
+    WrapResult r;
+    if (wp.trimW < 2 || wp.trimH < 2 || wp.spine < 0 || wp.bleed < 0 || wp.dpi < 20 || wp.dpi > 600) { r.error = "The cover's measurements aren't right."; return r; }
+    const double d = wp.dpi;
+    const int bleed = (int)std::lround(wp.bleed * d), trimW = (int)std::lround(wp.trimW * d), trimH = (int)std::lround(wp.trimH * d);
+    const int spine = std::max(1, (int)std::lround(wp.spine * d));
+    const int W = 2 * (bleed + trimW) + spine, H = trimH + 2 * bleed;
+    const Colour bg = parse(sp.background, {107, 45, 60}), ink = parse(sp.ink, {244, 235, 221}), accent = parse(sp.accent, {217, 178, 107});
+    Canvas cv = blank(W, H, bg);
+
+    // The front: drawn on its own, then placed at the right (it runs into the bleed at the top, bottom and outside).
+    {
+        Canvas front = blank(trimW + bleed, H, bg);
+        Result fr;
+        if (!drawFront(front, sp, fontsFolder, fr)) { r.error = fr.error; return r; }
+        const int x0 = bleed + trimW + spine;
+        for (int y = 0; y < H; ++y) std::copy_n(&front.px[(size_t)y * front.w * 3], (size_t)front.w * 3, &cv.px[((size_t)y * W + x0) * 3]);
+    }
+    Writer wr{cv, {}, "en"};
+    openFamily(fontsFolder, sp.fontId.empty() ? "crimson-text" : sp.fontId, wr.fam);
+    const int reg = wr.fam.regular, ital = wr.fam.pick(false, true);
+
+    // The back: the blurb at the top, a rule, and the space printers put the barcode in.
+    {
+        const double inset = 0.6 * d;
+        const double x0 = bleed + inset, top = bleed + 0.85 * d, maxW = trimW - 2 * inset;
+        const float size = (float)(0.16 * d);
+        double y = top;
+        if (!sp.series.empty()) {
+            wr.line(reg, upperCase(sp.series), (float)(0.11 * d), 0.2, bleed + trimW / 2.0, bleed + 0.55 * d, accent);
+        }
+        for (const std::string& l : wr.wrap(ital >= 0 && wp.backItalic ? ital : reg, wp.backText, size, (float)maxW)) {
+            if (!l.empty()) wr.line(ital >= 0 && wp.backItalic ? ital : reg, l, size, 0, x0, y, ink, false);
+            y += size * (l.empty() ? 0.8 : 1.45);
+            if (y > H - bleed - 2.0 * d) break;   // never into the barcode's space
+        }
+        if (!wp.backText.empty()) cv.fill((int)(bleed + trimW / 2.0 - 0.4 * d), (int)(y + 0.15 * d), (int)(bleed + trimW / 2.0 + 0.4 * d), (int)(y + 0.15 * d + std::max(2.0, 0.012 * d)), accent);
+        if (wp.barcodeArea) {
+            // 2 x 1.2 in, white, 0.4 in in from the trim: left clear for the ISBN barcode the printer adds.
+            const int bw = (int)(2.0 * d), bh = (int)(1.2 * d);
+            const int bx = bleed + trimW - (int)(0.4 * d) - bw, by = bleed + trimH - (int)(0.4 * d) - bh;
+            cv.fill(bx, by, bx + bw, by + bh, {255, 255, 255});
+        }
+    }
+
+    // The spine: the title and author along it, reading from top to bottom, when there's room.
+    r.spineText = false;
+    if (wp.spineText && wp.spine >= 0.25 && reg >= 0) {
+        Canvas strip = blank(trimH, spine, bg);
+        Writer sw{strip, wr.fam, "en"};
+        const float size = (float)std::min(spine * 0.42, 0.28 * d);
+        const std::string t = sp.titleCaps ? upperCase(sp.title) : sp.title, a = upperCase(sp.author);
+        const double base = spine / 2.0 + size * 0.34;
+        const double gap = 0.35 * d;
+        const float tw = sw.width(reg, t, size, 0.08), aw = a.empty() ? 0 : sw.width(reg, a, size * 0.8f, 0.12);
+        if (tw + aw + gap < trimH - 0.8 * d) {
+            const double startX = (trimH - (tw + (aw > 0 ? aw + gap : 0))) / 2;
+            sw.line(reg, t, size, 0.08, startX, base, ink, false);
+            if (aw > 0) sw.line(reg, a, size * 0.8f, 0.12, startX + tw + gap, base, accent, false);
+            // Turned a quarter clockwise onto the cover.
+            const int sx0 = bleed + trimW;
+            for (int y = 0; y < strip.h; ++y)
+                for (int x = 0; x < strip.w; ++x) {
+                    const int tx = sx0 + (strip.h - 1 - y), ty = bleed + x;
+                    if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+                    std::copy_n(&strip.px[((size_t)y * strip.w + x) * 3], 3, &cv.px[((size_t)ty * W + tx) * 3]);
+                }
+            r.spineText = true;
+        }
+    }
+
+    r.width = W;
+    r.height = H;
+    if (pdf) {
+        r.pdf = coverPdf(cv, W * 72.0 / d, H * 72.0 / d, bleed * 72.0 / d, sp.title);
+        if (r.pdf.empty()) { r.error = "The cover PDF couldn't be written."; return r; }
+    } else {
+        size_t len = 0;
+        if (void* png = tdefl_write_image_to_png_file_in_memory(cv.px.data(), W, H, 3, &len)) {
+            r.png.assign(static_cast<const char*>(png), len);
+            mz_free(png);
+        }
+    }
+    r.ok = true;
+    return r;
 }
 
 }  // namespace studio::cover

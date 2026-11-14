@@ -1569,6 +1569,7 @@ void StudioApp::loadFields() {
         setFieldText(FSubtitle, cv_.spec.subtitle);
         setFieldText(FAuthor, cv_.spec.author);
         setFieldText(FDescription, cv_.spec.series);
+        setFieldText(FSynopsis, withCrLf(cv_.spec.backText));
     } else if (focus_.kind == Focus::Artwork) {
         if (const Artwork* a = lib_->artwork(focus_.id)) {
             setFieldText(FName, a->name);
@@ -1717,6 +1718,7 @@ void StudioApp::commitFields() {
             cv_.spec.subtitle = fieldText(FSubtitle);
             cv_.spec.author = fieldText(FAuthor);
             cv_.spec.series = fieldText(FDescription);
+            if (cv_.print) cv_.spec.backText = fieldText(FSynopsis);
             renderCoverPreview();
         }
     } else if (f.kind == Focus::Book) {
