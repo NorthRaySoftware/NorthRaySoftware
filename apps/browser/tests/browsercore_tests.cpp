@@ -1,12 +1,15 @@
 // Unit tests for NorthRay Browser's portable core. Dependency-free like the
 // other suites: run it, it prints each group and exits non-zero on failure.
+#include "nrb/blocker.hpp"
 #include "nrb/bookmarks.hpp"
+#include "nrb/downloads.hpp"
 #include "nrb/history.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
 #include "nrb/url.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -402,7 +405,77 @@ static void testHistory() {
     CHECK(h->clearSince(0) == 0);
 }
 
+static void testDownloads() {
+    std::string err;
+    auto s = DownloadStore::open(":memory:", err);
+    CHECK(s != nullptr);
+    if (!s) return;
+    Download d;
+    d.url = "https://example.com/files/report.pdf?x=1";
+    d.total = 12'000'000;
+    const auto id = s->add(d);
+    CHECK(id > 0 && s->all().size() == 1 && s->active() == 1);
+    CHECK_EQ(s->find(id)->name(), "report.pdf");   // no file yet: from the address
+    Download u = *s->find(id);
+    u.path = "C:\\Users\\Ada\\Downloads\\report (1).pdf";
+    u.received = 4'200'000;
+    u.estimatedEnd = 1000 + 3;
+    s->update(u);
+    CHECK_EQ(s->find(id)->name(), "report (1).pdf");
+    CHECK_EQ(downloadStatus(*s->find(id), 1000), "4.2 MB of 12 MB, 3 seconds left");
+    CHECK(std::abs(s->progress() - 0.35) < 0.001);
+    CHECK(!s->remove(id));                 // still going: not removed
+    u.state = DownloadState::Done;
+    u.received = u.total;
+    s->update(u);
+    CHECK_EQ(downloadStatus(*s->find(id), 1000), "Done, 12 MB");
+    CHECK(s->active() == 0 && s->find(id)->finished > 0 && s->progress() < 0);
+    Download e;
+    e.url = "https://example.com/big.iso";
+    const auto id2 = s->add(e);
+    CHECK(s->all().front().id == id2);     // newest first
+    CHECK_EQ(downloadStatus(*s->find(id2), 0), "0 bytes");
+    CHECK(s->clearFinished() == 1 && s->all().size() == 1);
+    CHECK_EQ(formatBytes(820'000), "820 KB");
+    CHECK_EQ(formatBytes(1'500'000'000), "1.5 GB");
+    // Running downloads from last time are stopped when the list opens again.
+    const std::string path = (std::filesystem::temp_directory_path() / "nrb-downloads-test.db").string();
+    std::filesystem::remove(path);
+    {
+        auto f = DownloadStore::open(path, err);
+        Download r;
+        r.url = "https://example.com/a.zip";
+        f->add(r);
+    }
+    {
+        auto f = DownloadStore::open(path, err);
+        CHECK(f && f->all().size() == 1 && f->all()[0].state == DownloadState::Failed && f->active() == 0);
+        if (f) CHECK_EQ(downloadStatus(f->all()[0], 0), "Failed: Stopped when the browser closed");
+    }
+    std::filesystem::remove(path);
+}
+
+static void testBlocker() {
+    CHECK_EQ(siteOf("news.bbc.co.uk"), "bbc.co.uk");
+    CHECK_EQ(siteOf("a.b.example.com"), "example.com");
+    CHECK_EQ(siteOf("example.com"), "example.com");
+    CHECK_EQ(siteOf("192.168.1.10"), "192.168.1.10");
+    CHECK_EQ(siteOf("localhost"), "localhost");
+    CHECK(isTrackerHost("stats.g.doubleclick.net") && isTrackerHost("doubleclick.net") && isTrackerHost("WWW.Google-Analytics.com"));
+    CHECK(!isTrackerHost("notdoubleclick.net") && !isTrackerHost("google.com") && !isTrackerHost("www.youtube.com"));
+    CHECK(isTrackerHost("adservice.google.com") && !isTrackerHost("mail.google.com"));
+    // Third-party only: a service's own site isn't broken.
+    CHECK(shouldBlock("https://www.googletagmanager.com/gtm.js?id=1", "https://www.bbc.co.uk/news"));
+    CHECK(!shouldBlock("https://www.hotjar.com/static/app.js", "https://www.hotjar.com/pricing"));
+    CHECK(!shouldBlock("https://cdn.example.com/app.js", "https://www.example.com/"));
+    CHECK(shouldBlock("https://c.amazon-adsystem.com/aax2/apstag.js", "https://example.org/"));
+    const auto f = blockerFilters();
+    CHECK(f.size() == trackerDomains().size() * 2 && f[0] == "*://doubleclick.net/*" && f[1] == "*://*.doubleclick.net/*");
+}
+
 int main() {
+    testDownloads();
+    testBlocker();
     testHistory();
     testBookmarks();
     testOmniboxAddresses();

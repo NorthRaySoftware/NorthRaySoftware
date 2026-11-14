@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.30.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Browser 0.4.0: a Downloads page and blocking of ads and trackers, with Google as the default search engine."
+      ]
+    },
+    {
       "version": "0.29.0",
       "date": "2026-11-14",
       "notes": [

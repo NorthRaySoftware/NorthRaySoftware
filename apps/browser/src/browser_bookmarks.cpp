@@ -437,6 +437,7 @@ void BrowserWindow::showBookmarksPage(std::int64_t folder, std::int64_t rename) 
     v->showStart = true;
     v->bookmarksPage = true;
     v->historyPage = false;
+    v->downloadsPage = false;
     v->error.reset();
     if (Tab* t = model_.find(target)) { t->title = "Bookmarks"; t->url = "northray://bookmarks"; }
     activateTab(target);

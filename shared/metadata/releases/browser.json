@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Downloads page (Ctrl+J, the menu, or the new button by the menu): every download with its progress and time left, Pause, Resume and Cancel while it runs, Open and Show in folder when it's done, and Download again if it failed. The list is kept between sessions; a tab closed mid-download finishes it first.",
+        "Ads and trackers are blocked: requests to about 120 well-known advertising, tracking and data-collection services are refused when they're on a different site from the page, so pages load faster and fewer companies follow you around. A site's own content is never blocked.",
+        "The shield in the address bar shows how many were blocked on the page, and turns blocking off for a site that doesn't work properly (or everywhere).",
+        "Google is the default search engine. If you chose another one yourself, it's kept.",
+        "History, Bookmarks and Downloads still open when web pages can't be shown."
+      ]
+    },
+    {
       "version": "0.3.3",
       "date": "2026-11-14",
       "notes": [

@@ -20,18 +20,25 @@ bool Settings::load(const std::wstring& path) {
     readOnly = version > kVersion;
     const int t = cj::valueOr(j, "theme", 0);
     theme = t == 1 ? Theme::Light : t == 2 ? Theme::Dark : Theme::System;
-    searchEngine = cj::valueOr(j, "searchEngine", "duckduckgo");
+    searchEngineChosen = cj::valueOr(j, "searchEngineChosen", false);
+    // An engine nobody chose is the default's (it was DuckDuckGo before 0.4.0).
+    searchEngine = searchEngineChosen ? cj::valueOr(j, "searchEngine", "google") : std::string("google");
     showBookmarksBar = cj::valueOr(j, "showBookmarksBar", true);
     savePasswords = cj::valueOr(j, "savePasswords", true);
     fillForms = cj::valueOr(j, "fillForms", true);
     verticalTabs = cj::valueOr(j, "verticalTabs", false);
+    blockTrackers = cj::valueOr(j, "blockTrackers", true);
+    blockerAllowed.clear();
+    if (j.contains("blockerAllowed") && j["blockerAllowed"].is_array())
+        for (const auto& s : j["blockerAllowed"]) if (s.is_string() && s.get<std::string>().size() < 256) blockerAllowed.push_back(s.get<std::string>());
     return true;
 }
 
 bool Settings::save(const std::wstring& path) const {
     if (readOnly) return false;
     nlohmann::json j = {{"version", kVersion}, {"theme", (int)theme}, {"searchEngine", searchEngine},
-                         {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}, {"verticalTabs", verticalTabs}};
+                         {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}, {"verticalTabs", verticalTabs},
+                         {"searchEngineChosen", searchEngineChosen}, {"blockTrackers", blockTrackers}, {"blockerAllowed", blockerAllowed}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

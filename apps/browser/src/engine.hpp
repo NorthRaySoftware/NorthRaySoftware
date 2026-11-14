@@ -20,10 +20,38 @@ struct ICoreWebView2;
 struct ICoreWebView2Controller;
 struct ICoreWebView2Environment;
 struct ICoreWebView2NewWindowRequestedEventArgs;
+struct ICoreWebView2DownloadOperation;
 
 namespace nrb {
 
 class Page;
+
+// A download the engine is doing, for the Downloads page. Lives as long as someone holds it; the
+// download itself belongs to the page that started it.
+class DownloadHandle {
+public:
+    enum State { Running, Paused, Done, Cancelled, Failed };
+    struct Info {
+        std::wstring url, path, mime;
+        std::int64_t received = 0, total = -1;
+        State state = Running;
+        std::wstring reason;            // why it failed, in words
+        std::int64_t estimatedEnd = 0;  // Unix seconds, 0 = unknown
+        bool canResume = false;
+    };
+    explicit DownloadHandle(ICoreWebView2DownloadOperation* op);
+    ~DownloadHandle();
+    Info info() const;
+    void cancel();
+    void pause();
+    void resume();
+    // Called when the bytes, time left or state change.
+    void onChanged(std::function<void()> fn) { *changed_ = std::move(fn); }
+
+private:
+    ComPtr<ICoreWebView2DownloadOperation> op_;
+    std::shared_ptr<std::function<void()>> changed_ = std::make_shared<std::function<void()>>();
+};
 
 struct EngineOptions {
     std::wstring userDataFolder;  // the engine's cache, cookies and site data (disposable browsing data)
@@ -65,6 +93,9 @@ struct PageEvents {
     std::function<void(int failure, const std::wstring& uri)> loadFailed;  // nrb::LoadFailure value
     std::function<void(const std::wstring& uri)> loaded;  // a main-frame page finished opening (for the history)
     std::function<void(const std::wstring& fileName)> downloadStarted;  // a link became a download
+    // The download itself (shown on the Downloads page instead of the engine's own list).
+    std::function<void(std::shared_ptr<DownloadHandle> download)> download;
+    std::function<void(int count)> blocked;            // ads and trackers blocked on this page so far
     std::function<void(const std::wstring& text)> statusText;  // a link under the pointer, or ""
     std::function<void(int w, int h, std::vector<unsigned char> rgba)> favicon;  // RGBA, empty when none
     std::function<void(bool on)> fullscreen;           // the page wants (or leaves) full screen
@@ -89,6 +120,10 @@ public:
         // fills it in next time. Off for private windows regardless.
         bool savePasswords = true;
         bool fillForms = true;
+        // Ads and trackers: request filters (the engine only asks about these), and whether a request
+        // from the page (its own address) is refused.
+        std::vector<std::wstring> blockFilters;
+        std::function<bool(const std::wstring& request, const std::wstring& page)> block;
     };
 
     Page(Engine& engine, HWND parent, Options options, PageEvents events);
@@ -148,6 +183,7 @@ private:
     int certFailure_ = 0;         // why the current navigation's certificate was refused
     std::uint64_t navId_ = 0;        // the latest main-frame navigation
     bool downloading_ = false;       // it turned into a download
+    int blocked_ = 0;                // requests refused on the page showing
     std::wstring navigatingTo_;   // the main-frame address being opened
     bool loading_ = false, canBack_ = false, canForward_ = false, visible_ = true, closed_ = false;
     RECT bounds_{};

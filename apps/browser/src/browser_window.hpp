@@ -6,6 +6,8 @@
 
 #include "engine.hpp"
 #include "nrb/bookmarks.hpp"
+#include "nrb/blocker.hpp"
+#include "nrb/downloads.hpp"
 #include "nrb/history.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
@@ -15,6 +17,7 @@
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -62,6 +65,8 @@ private:
         bool showStart = true;            // the NorthRay start page instead of a web page
         bool bookmarksPage = false;       // with showStart: the bookmarks page instead of the start page
         bool historyPage = false;         // with showStart: the history page
+        bool downloadsPage = false;       // with showStart: the downloads page
+        int blocked = 0;                  // ads and trackers blocked on the page showing
         std::int64_t visitId = 0;         // the history visit of the page showing (for its title)
         std::string visitUrl;
         std::optional<LoadErrorText> error;
@@ -219,6 +224,27 @@ private:
     void setPageSearchCue(const wchar_t* cue);
     std::wstring pageSearchCue_;
     std::unique_ptr<HistoryStore> history_;
+
+    // ---- Downloads (browser_downloads.cpp)
+    void openDownloadStore();
+    void downloadStarted(int tabId, std::shared_ptr<DownloadHandle> h);
+    void downloadChanged(std::int64_t id);
+    void showDownloadsPage();
+    void drawDownloadsPage(const cjui::Rect& r);
+    void drawDownloadsButton(const cjui::Rect& r);
+    void openDownloaded(std::int64_t id, bool folder);
+    bool tabHasDownloads(int tabId) const;
+    void releaseParkedPages();
+    std::unique_ptr<DownloadStore> downloads_;
+    struct LiveDownload { std::shared_ptr<DownloadHandle> handle; int tab = 0; };
+    std::map<std::int64_t, LiveDownload> live_;
+    std::vector<std::pair<int, std::unique_ptr<Page>>> parked_;   // closed tabs' pages, kept until their downloads finish
+    std::vector<std::int64_t> finishedDownloads_;   // let go of on the next timer (not inside their own callback)
+    bool downloadsSeen_ = false;                    // the toolbar button shows once there's been a download
+
+    // ---- Blocking ads and trackers
+    bool blockedOn(const std::wstring& pageUrl) const;
+    void blockerMenu(POINT screen);
 
     // ---- Tabs down the side (settings_.verticalTabs)
     void drawSideTabs(const cjui::Rect& r);

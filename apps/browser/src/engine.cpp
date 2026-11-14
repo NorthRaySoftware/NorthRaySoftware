@@ -4,6 +4,7 @@
 
 #include <wincodec.h>
 
+#include <ctime>
 #include <utility>
 
 namespace nrb {
@@ -302,6 +303,8 @@ void Page::wireEvents() {
             a->get_NavigationId(&nid);
             navId_ = nid;
             downloading_ = false;
+            blocked_ = 0;
+            if (events_.blocked) events_.blocked(0);
             loading_ = true;
             certFailure_ = 0;
             navigatingTo_ = u;
@@ -416,8 +419,8 @@ void Page::wireEvents() {
     web_->add_ProcessFailed(failed.get(), &t);
 
     if (auto w4 = web_.as<ICoreWebView2_4>()) {
-        // Downloads use the engine's own download list (the arrow it shows at the top right); the tab
-        // just says it started, and the navigation that led to it isn't reported as a failure.
+        // Downloads are shown on NorthRay's Downloads page, not the engine's own list; the navigation
+        // that led to one isn't reported as a failure.
         auto dl = makeHandler<ICoreWebView2DownloadStartingEventHandler, ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs*>(
             [this, live](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* a) -> HRESULT {
                 if (!live()) return S_OK;
@@ -427,10 +430,41 @@ void Page::wireEvents() {
                 if (SUCCEEDED(a->get_ResultFilePath(&path))) name = takeString(path);
                 const size_t slash = name.find_last_of(L"\\/");
                 if (slash != std::wstring::npos) name = name.substr(slash + 1);
+                ComPtr<ICoreWebView2DownloadOperation> op;
+                if (events_.download && SUCCEEDED(a->get_DownloadOperation(op.put())) && op) {
+                    a->put_Handled(TRUE);   // no engine download pop-up
+                    events_.download(std::make_shared<DownloadHandle>(op.get()));
+                }
                 if (events_.downloadStarted) events_.downloadStarted(name);
                 return S_OK;
             });
         w4->add_DownloadStarting(dl.get(), &t);
+    }
+
+    if (!options_.blockFilters.empty() && options_.block) {
+        // Ads and trackers: only requests to listed services reach the handler.
+        for (const std::wstring& f : options_.blockFilters) web_->AddWebResourceRequestedFilter(f.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+        auto req = makeHandler<ICoreWebView2WebResourceRequestedEventHandler, ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs*>(
+            [this, live](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* a) -> HRESULT {
+                if (!live() || !options_.block) return S_OK;
+                ComPtr<ICoreWebView2WebResourceRequest> r;
+                if (FAILED(a->get_Request(r.put())) || !r) return S_OK;
+                LPWSTR u = nullptr;
+                r->get_Uri(&u);
+                const std::wstring uri = takeString(u);
+                // The page it's for: the address being opened, or the one showing.
+                const std::wstring page = loading_ && !navigatingTo_.empty() ? navigatingTo_ : url_;
+                if (!options_.block(uri, page)) return S_OK;
+                ComPtr<ICoreWebView2WebResourceResponse> resp;
+                if (engine_.environment() &&
+                    SUCCEEDED(engine_.environment()->CreateWebResourceResponse(nullptr, 403, L"Blocked by NorthRay Browser", L"", resp.put())) && resp) {
+                    a->put_Response(resp.get());
+                    ++blocked_;
+                    if (events_.blocked) events_.blocked(blocked_);
+                }
+                return S_OK;
+            });
+        web_->add_WebResourceRequested(req.get(), &t);
     }
 
     if (auto w14 = web_.as<ICoreWebView2_14>()) {
@@ -613,5 +647,93 @@ void Page::clearSavedPasswords(bool forms, std::function<void(bool ok)> done) {
     });
     if (FAILED(p2->ClearBrowsingData(kinds, handler.get())) && done) done(false);
 }
+
+// ------------------------------------------------------------------ downloads
+
+DownloadHandle::DownloadHandle(ICoreWebView2DownloadOperation* op) : op_(ComPtr<ICoreWebView2DownloadOperation>::share(op)) {
+    if (!op_) return;
+    EventRegistrationToken t{};
+    // The handlers hold only a weak link back: the window drops a handle when the download is gone.
+    auto notify = [sink = changed_] { if (*sink) (*sink)(); };
+    auto bytes = makeHandler<ICoreWebView2BytesReceivedChangedEventHandler, ICoreWebView2DownloadOperation*, IUnknown*>(
+        [notify](ICoreWebView2DownloadOperation*, IUnknown*) -> HRESULT { notify(); return S_OK; });
+    op_->add_BytesReceivedChanged(bytes.get(), &t);
+    auto end = makeHandler<ICoreWebView2EstimatedEndTimeChangedEventHandler, ICoreWebView2DownloadOperation*, IUnknown*>(
+        [notify](ICoreWebView2DownloadOperation*, IUnknown*) -> HRESULT { notify(); return S_OK; });
+    op_->add_EstimatedEndTimeChanged(end.get(), &t);
+    auto state = makeHandler<ICoreWebView2StateChangedEventHandler, ICoreWebView2DownloadOperation*, IUnknown*>(
+        [notify](ICoreWebView2DownloadOperation*, IUnknown*) -> HRESULT { notify(); return S_OK; });
+    op_->add_StateChanged(state.get(), &t);
+}
+
+DownloadHandle::~DownloadHandle() { *changed_ = nullptr; }
+
+namespace {
+
+// "2026-11-14T15:40:12.123Z" as Unix seconds (0 if it can't be read).
+std::int64_t isoSeconds(const std::wstring& s) {
+    int Y = 0, M = 0, D = 0, h = 0, m = 0, sec = 0;
+    if (swscanf(s.c_str(), L"%d-%d-%dT%d:%d:%d", &Y, &M, &D, &h, &m, &sec) != 6) return 0;
+    std::tm tm{};
+    tm.tm_year = Y - 1900; tm.tm_mon = M - 1; tm.tm_mday = D; tm.tm_hour = h; tm.tm_min = m; tm.tm_sec = sec;
+    return (std::int64_t)_mkgmtime(&tm);
+}
+
+std::wstring interruptText(COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON r) {
+    switch (r) {
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_ACCESS_DENIED: return L"Windows didn't allow saving it there";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NO_SPACE: return L"The disk is full";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_NAME_TOO_LONG: return L"The file name is too long";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_TOO_LARGE: return L"The file is too large for the disk";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_MALICIOUS: return L"Windows found a virus in it and removed it";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_BLOCKED_BY_POLICY: return L"Blocked by a Windows setting";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_FILE_SECURITY_CHECK_FAILED: return L"Windows' security check failed";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_FAILED:
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_TIMEOUT:
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_DISCONNECTED: return L"The connection was lost";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NETWORK_SERVER_DOWN: return L"The site couldn't be reached";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_UNAUTHORIZED:
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_FORBIDDEN: return L"The site refused it";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_SERVER_BAD_CONTENT: return L"The site doesn't have the file any more";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_SHUTDOWN: return L"Stopped when the browser closed";
+        case COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_DOWNLOAD_PROCESS_CRASHED: return L"The browser engine stopped";
+        default: return L"It was interrupted";
+    }
+}
+
+}  // namespace
+
+DownloadHandle::Info DownloadHandle::info() const {
+    Info i;
+    if (!op_) return i;
+    LPWSTR s = nullptr;
+    if (SUCCEEDED(op_->get_Uri(&s))) i.url = takeString(s);
+    if (SUCCEEDED(op_->get_ResultFilePath(&s))) i.path = takeString(s);
+    if (SUCCEEDED(op_->get_MimeType(&s))) i.mime = takeString(s);
+    INT64 got = 0, total = -1;
+    op_->get_BytesReceived(&got);
+    op_->get_TotalBytesToReceive(&total);
+    i.received = got;
+    i.total = total > 0 ? total : -1;
+    if (SUCCEEDED(op_->get_EstimatedEndTime(&s))) i.estimatedEnd = isoSeconds(takeString(s));
+    BOOL can = FALSE;
+    op_->get_CanResume(&can);
+    i.canResume = can != FALSE;
+    COREWEBVIEW2_DOWNLOAD_STATE st = COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS;
+    op_->get_State(&st);
+    if (st == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED) i.state = Done;
+    else if (st == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED) {
+        COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON r = COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NONE;
+        op_->get_InterruptReason(&r);
+        if (r == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED) i.state = Paused;
+        else if (r == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED) i.state = Cancelled;
+        else { i.state = Failed; i.reason = interruptText(r); }
+    }
+    return i;
+}
+
+void DownloadHandle::cancel() { if (op_) op_->Cancel(); }
+void DownloadHandle::pause() { if (op_) op_->Pause(); }
+void DownloadHandle::resume() { if (op_) op_->Resume(); }
 
 }  // namespace nrb

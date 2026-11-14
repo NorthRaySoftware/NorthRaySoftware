@@ -50,13 +50,14 @@ void BrowserWindow::showHistoryPage() {
     for (TabView& v : views_)
         if (v.showStart && v.historyPage) target = v.id;
     if (!target)
-        if (TabView* a = activeView(); a && a->showStart && !a->bookmarksPage) target = a->id;
+        if (TabView* a = activeView(); a && a->showStart && !a->bookmarksPage && !a->downloadsPage) target = a->id;
     if (!target) target = newTab(L"", true, true);
     TabView* v = view(target);
     if (!v) return;
     if (v->bookmarksPage && v->id == model_.activeId()) finishRename(true);
     v->showStart = true;
     v->bookmarksPage = false;
+    v->downloadsPage = false;
     v->historyPage = true;
     v->error.reset();
     if (Tab* t = model_.find(target)) { t->title = "History"; t->url = "northray://history"; }
