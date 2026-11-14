@@ -7,6 +7,7 @@
 #include "resource.h"
 #include "search.hpp"
 #include "nrf/search.hpp"
+#include "nrf/art.hpp"
 #include "version.hpp"
 
 #include "cjui/northray.hpp"
@@ -22,6 +23,7 @@
 #include <cwctype>
 #include <functional>
 #include <set>
+#include <thread>
 
 namespace nrf {
 
@@ -43,14 +45,33 @@ constexpr UINT_PTR kSpinTimer = 1;
 constexpr UINT_PTR kRefreshTimer = 2;   // the folder changed: list it again after a moment
 constexpr UINT_PTR kSearchTimer = 3;    // typing in the search box: search once it pauses
 constexpr UINT WM_APP_CHANGED = WM_APP + 50;
+constexpr UINT WM_APP_PREVIEW = WM_APP + 51;   // lParam: TextPreview*
 
-enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes };
+// A text file's start, read on a worker for the preview pane.
+struct TextPreview {
+    std::wstring key;
+    std::wstring text;
+    bool truncated = false, notText = false;
+};
+
+bool isTextName(const std::wstring& name) {
+    static const wchar_t* exts[] = {L".txt", L".md", L".markdown", L".log", L".csv", L".tsv", L".json", L".xml", L".ini", L".cfg", L".conf",
+                                    L".yaml", L".yml", L".toml", L".html", L".htm", L".css", L".js", L".ts", L".py", L".c", L".cpp", L".h",
+                                    L".hpp", L".cs", L".java", L".lua", L".bat", L".cmd", L".ps1", L".sh", L".srt", L".vtt", L".fountain",
+                                    L".tex", L".nfo", L".gitignore", L".svg"};
+    const std::wstring e = extensionOf(name);
+    for (const wchar_t* x : exts)
+        if (e == x) return true;
+    return false;
+}
+
+enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes, IconPreview };
 
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
-    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
 };
 
 COLORREF toColorRef(Color c) {
@@ -729,6 +750,18 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             handled = true;
             return 0;
         }
+        case WM_APP_PREVIEW: {
+            auto* t = reinterpret_cast<TextPreview*>(lp);
+            if (t->key == previewKey_) {
+                previewText_ = std::move(t->text);
+                previewTruncated_ = t->truncated;
+                previewState_ = t->notText ? PreviewNotText : PreviewText;
+                invalidate();
+            }
+            delete t;
+            handled = true;
+            return 0;
+        }
         case WM_APP_THUMB: {
             auto* t = reinterpret_cast<ThumbResult*>(lp);
             if (thumbs_) {
@@ -776,6 +809,7 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 case VK_RIGHT: forward(); handled = true; return 0;
                 case VK_UP: up(); handled = true; return 0;
                 case 'D': beginEditingAddress(); handled = true; return 0;
+                case 'P': togglePreview(); handled = true; return 0;
                 default: break;
             }
             break;
@@ -930,6 +964,7 @@ void FilesWindow::showMenu() {
         MenuItem::sep(),
         MenuItem::item(L"New tab", CmdNewTab, L"Ctrl+T"),
         MenuItem::item(L"Two panes side by side", CmdTwoPanes, L"Ctrl+\\", true, twoPanes_),
+        MenuItem::item(L"Preview pane", CmdPreview, L"Alt+P", true, settings_.previewPane),
         MenuItem::sep(),
         MenuItem::item(L"Show hidden items", CmdHidden, {}, true, settings_.showHidden),
         MenuItem::item(L"Show protected operating system files", CmdProtected, {}, true, settings_.showProtected),
@@ -957,6 +992,7 @@ void FilesWindow::showMenu() {
         case CmdRefresh: refresh(); break;
         case CmdNewTab: newTab(here_); break;
         case CmdTwoPanes: setTwoPanes(!twoPanes_); break;
+        case CmdPreview: togglePreview(); break;
         case CmdHidden: toggleHidden(); break;
         case CmdProtected: toggleProtected(); break;
         case CmdThemeSystem: case CmdThemeLight: case CmdThemeDark:
@@ -1359,6 +1395,142 @@ void FilesWindow::drawTree(const Rect& r, float& y, float bottom) {
     }
     treeScroll_ = std::clamp(treeScroll_, 0.0f, std::max(0.0f, treeContent_ - area.h));
     y = area.bottom();
+}
+
+// ---------------------------------------------------------------- the preview pane
+
+void FilesWindow::togglePreview() {
+    settings_.previewPane = !settings_.previewPane;
+    settings_.save(settingsPath_);
+    RECT rc;
+    GetClientRect(hwnd(), &rc);
+    if (settings_.previewPane && (rc.right - rc.left) / gfx_.dpiScale() < kSidebarW + 760)
+        flash(L"The preview pane shows when the window is wider.", 5);
+    invalidate();
+}
+
+void FilesWindow::drawPreview(const Rect& r) {
+    gfx_.fill(r, pal_.surface.mix(pal_.paper, 0.35f));
+    gfx_.fill({r.x, r.y, 1, r.h}, pal_.rule);
+    const float pad = 20;
+    const float x = r.x + pad, w = r.w - pad * 2;
+    float y = r.y + 18;
+    const auto rows = here_.thisPC ? std::vector<std::size_t>{} : sel_.indices();
+    auto line = [&](const std::wstring& label, const std::wstring& value) {
+        if (value.empty()) return;
+        gfx_.text(label, {x, y, 84, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        const float h = gfx_.text(value, {x + 88, y, w - 88, 60}, Font::Small, pal_.ink, {Align::Left, true});
+        y += std::max(20.0f, h) + 6;
+    };
+    if (rows.empty()) {
+        previewKey_.clear();
+        gfx_.text(nameFor(here_), {x, y, w, 26}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+        y += 36;
+        gfx_.text(L"Select a file to preview it here.", {x, y, w, 40}, Font::Small, pal_.inkMuted, {Align::Left, true});
+        return;
+    }
+    if (rows.size() > 1) {
+        previewKey_.clear();
+        std::uint64_t bytes = 0;
+        std::size_t folders = 0;
+        for (std::size_t i : rows) {
+            if (shown_[i].folder()) ++folders;
+            else bytes += shown_[i].size;
+        }
+        gfx_.text(std::to_wstring(rows.size()) + L" items selected", {x, y, w, 26}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+        y += 40;
+        if (folders) line(L"Folders", std::to_wstring(folders));
+        if (rows.size() > folders) line(L"Files", std::to_wstring(rows.size() - folders) + L" (" + formatSize(bytes) + L")");
+        return;
+    }
+    const std::size_t row = rows[0];
+    const Entry& e = shown_[row];
+    const std::wstring path = rowPath(row);
+    const std::wstring key = path + L"|" + std::to_wstring(e.modified) + L"|" + std::to_wstring(e.size);
+
+    // The picture, the start of a text file, or the big icon.
+    const float boxH = std::min(r.h * 0.5f, w * 0.85f + 20);
+    const Rect box{x, y, w, boxH};
+    bool drawn = false, picture = false;
+    const bool canPicture = thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::hasPicture(e.name);
+    const Thumb* th = nullptr;
+    const int previewPx = w * gfx_.dpiScale() <= 256 ? 256 : 512;
+    if (canPicture) {
+        th = thumbs_->get(path, e.modified, e.size, previewPx);
+        if (th && th->w > 0 && th->h > 0) {
+            const float ds = gfx_.dpiScale();
+            const float s = std::min({box.w / th->w, box.h / th->h, 2.0f / ds});
+            const float pw = std::max(1.0f, th->w * s), ph = std::max(1.0f, th->h * s);
+            const Rect p{std::round(box.x + (box.w - pw) / 2), std::round(box.y + (box.h - ph) / 2), std::round(pw), std::round(ph)};
+            gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(), p, true);
+            gfx_.stroke({p.x - 0.5f, p.y - 0.5f, p.w + 1, p.h + 1}, pal_.rule, 1);
+            drawn = picture = true;
+        }
+    }
+    const bool textual = !picture && !e.folder() && !e.cloudOnly() && isTextName(e.name) && e.size > 0;
+    if (textual) {
+        if (key != previewKey_) {
+            previewKey_ = key;
+            previewState_ = PreviewLoading;
+            previewText_.clear();
+            HWND win = hwnd();
+            std::thread([win, key, path] {
+                auto* t = new TextPreview;
+                t->key = key;
+                HANDLE h = CreateFileW(extendedPath(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                       OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+                std::vector<unsigned char> buf(48 * 1024);
+                DWORD got = 0;
+                if (h != INVALID_HANDLE_VALUE) {
+                    if (!ReadFile(h, buf.data(), (DWORD)buf.size(), &got, nullptr)) got = 0;
+                    CloseHandle(h);
+                }
+                if (got == 0 || !art::looksLikeText(buf.data(), got)) t->notText = true;
+                else t->text = art::decodeText(buf.data(), got, 120, &t->truncated);
+                if (got == buf.size()) t->truncated = true;
+                if (!PostMessageW(win, WM_APP_PREVIEW, 0, reinterpret_cast<LPARAM>(t))) delete t;
+            }).detach();
+        }
+        if (previewState_ == PreviewText) {
+            gfx_.fillRounded(box, 8, pal_.paper);
+            gfx_.strokeRounded(box, 8, pal_.rule);
+            const Rect tr{box.x + 12, box.y + 10, box.w - 24, box.h - 20};
+            gfx_.pushClip(tr);
+            gfx_.text(previewText_.substr(0, 6000), tr, Font::Small, pal_.ink, {Align::Left, true});
+            gfx_.popClip();
+            drawn = true;
+        }
+    } else if (!picture) {
+        previewKey_.clear();
+    }
+    if (!drawn) {
+        drawIcon(e.icon, {box.x + (box.w - 64) / 2, box.y + (box.h - 64) / 2 - 10, 64, 64});
+        const bool waiting = (canPicture && !th && !thumbs_->failed(path, e.modified, e.size, previewPx)) || (textual && previewState_ == PreviewLoading);
+        if (waiting)
+            gfx_.text(L"Making a preview…", {box.x, box.y + box.h / 2 + 36, box.w, 20}, Font::Small, pal_.inkFaint, {Align::Center, false});
+        else if (canPicture)
+            gfx_.text(e.name.size() > 4 && Thumbnails::kindOf(e.name) == Thumbnails::PictureKind::Shell
+                          ? L"Windows has no picture for this file."
+                          : L"There's no picture in this file to show.",
+                      {box.x, box.y + box.h / 2 + 36, box.w, 40}, Font::Small, pal_.inkFaint, {Align::Center, true});
+    }
+    y += boxH + 18;
+
+    y += gfx_.text(e.name, {x, y, w, 60}, Font::Heading, pal_.ink, {Align::Left, true}) + 12;
+    line(L"Type", e.type);
+    if (!e.folder()) line(L"Size", formatSize(e.size));
+    line(L"Modified", dateText(e.modified));
+    if (here_.searching()) line(L"Folder", e.location.empty() ? here_.path : e.location);
+    if (e.cloudOnly()) line(L"Online only", L"Opening it downloads it.");
+    if (textual && previewState_ == PreviewText && previewTruncated_) line(L"", L"Only the start is shown.");
+    y += 8;
+    button("tb:preview:open", {x, y, 96, 34}, L"Open", [this, row] { open(row); }, true);
+    if (here_.searching())
+        button("tb:preview:where", {x + 106, y, 150, 34}, L"Open its folder", [this, row] {
+            if (row >= shown_.size()) return;
+            const std::wstring at = shown_[row].location, nm = shown_[row].name;
+            if (!at.empty()) go({false, at}, true, nm);
+        });
 }
 
 // ---------------------------------------------------------------- searching
@@ -1909,6 +2081,12 @@ void FilesWindow::navButton(const std::string& id, const Rect& r, int icon, bool
             gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
             gfx_.line(cx, cy - 6, cx, cy + 6, c, 1.4f);
             break;
+        case IconPreview:   // a pane at the right with a picture in it
+            gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
+            gfx_.line(cx + 2, cy - 6, cx + 2, cy + 6, c, 1.4f);
+            gfx_.fill({cx + 3.5f, cy - 3, 3, 3}, c);
+            gfx_.line(cx + 3.5f, cy + 2.5f, cx + 6.5f, cy + 2.5f, c, 1.2f);
+            break;
         default: break;
     }
     if (enabled && focused(id)) focusRing(r);
@@ -1929,7 +2107,13 @@ void FilesWindow::drawFrame(float W, float H) {
     drawToolbar({side, 0, W - side, kToolbarH});
     // The panes: one, or two side by side, each with its tabs along the top. The other pane is drawn
     // first with its own tab swapped in, then the active one (whose geometry the mouse and keys use).
-    const Rect area{side, kToolbarH, W - side, H - kToolbarH};
+    Rect area{side, kToolbarH, W - side, H - kToolbarH};
+    previewRect_ = {};
+    if (settings_.previewPane && area.w >= 760) {
+        const float pw = std::clamp(std::floor(area.w * 0.28f), 260.0f, 420.0f);
+        previewRect_ = {area.right() - pw, area.y, pw, area.h};
+        area.w -= pw;
+    }
     const bool two = twoPanes_ && area.w >= 700 && !tabs_[1].empty();
     if (two) {
         const float half = std::floor(area.w / 2);
@@ -1953,6 +2137,7 @@ void FilesWindow::drawFrame(float W, float H) {
         idPrefix_.clear();
     }
     if (two) gfx_.fill({paneRect_[1].x - 1, area.y, 1, area.h}, pal_.rule);
+    if (previewRect_.w > 0) drawPreview(previewRect_);
     if (side <= 0) drawStatusNote({side, kToolbarH, W - side, H - kToolbarH});
     // Dragging: what's being dragged, and where it would go.
     if (drag_.active) {
@@ -2075,8 +2260,10 @@ void FilesWindow::drawToolbar(const Rect& r) {
     navButton("tb:refresh", {x, by, bs, bs}, IconRefresh, true, [this] { refresh(); });
     x += bs + 10;
     const float right = r.right() - drawCaptionButtons(r, false) - 8;
-    const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs;
-    const float avail = panesX - 12 - x;
+    const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs, previewX = panesX - 2 - bs;
+    const float avail = previewX - 12 - x;
+    if (settings_.previewPane) gfx_.fillRounded({previewX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
+    navButton("tb:preview", {previewX, by, bs, bs}, IconPreview, true, [this] { togglePreview(); });
     const float searchW = avail >= 380 ? std::clamp(avail * 0.36f, 170.0f, 280.0f) : 0;   // a narrow window keeps the address
     drawAddress({x, by - 1, avail - (searchW > 0 ? searchW + 8 : 0), bs + 2});
     if (searchW > 0) drawSearchBox({x + avail - searchW, by - 1, searchW, bs + 2});
@@ -2341,7 +2528,7 @@ void FilesWindow::drawIcons(const Rect& r) {
             const Rect box{t.x + (t.w - boxW) / 2, t.y + 8, boxW, boxH};
             if (renaming_ && (int)i == renameRow_) renameRect_ = {t.x + 2, box.bottom() + 4, t.w - 4, 28};
             const Thumb* th = nullptr;
-            if (thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::isImage(e.name))
+            if (thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::hasPicture(e.name))
                 th = thumbs_->get(rowPath(i), e.modified, e.size, thumbPx);
             if (th && th->w > 0 && th->h > 0) {
                 // The picture itself, its shape kept, never enlarged past its own size.

@@ -25,6 +25,7 @@ struct Settings {
     std::vector<std::wstring> tabs[2];
     int activeTab[2] = {0, 0};
     bool twoPanes = false;
+    bool previewPane = false;     // the selected item shown beside the list (0.4)
     std::vector<std::wstring> pinned;   // folders pinned to the sidebar, in order
 
     bool load(const std::wstring& path);

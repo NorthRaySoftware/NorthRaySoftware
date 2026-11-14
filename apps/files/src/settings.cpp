@@ -38,6 +38,7 @@ bool Settings::load(const std::wstring& path) {
     activeTab[0] = std::clamp(cj::valueOr(j, "activeTab", 0), 0, 29);
     activeTab[1] = std::clamp(cj::valueOr(j, "activeTab2", 0), 0, 29);
     twoPanes = cj::valueOr(j, "twoPanes", false);
+    previewPane = cj::valueOr(j, "previewPane", false);
     return true;
 }
 
@@ -58,6 +59,7 @@ bool Settings::save(const std::wstring& path) const {
     j["activeTab"] = activeTab[0];
     j["activeTab2"] = activeTab[1];
     j["twoPanes"] = twoPanes;
+    j["previewPane"] = previewPane;
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

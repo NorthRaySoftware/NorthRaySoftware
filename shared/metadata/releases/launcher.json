@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.41.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Files 0.4.1: a preview pane, and pictures of Photoshop, Procreate and Krita files."
+      ]
+    },
+    {
       "version": "0.40.0",
       "date": "2026-11-14",
       "notes": [

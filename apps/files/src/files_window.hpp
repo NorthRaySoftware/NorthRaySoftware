@@ -168,6 +168,15 @@ private:
     void typeAhead(wchar_t c);
     std::wstring rowPath(std::size_t row) const;
 
+    // The preview pane (0.4)
+    void togglePreview();
+    void drawPreview(const cjui::Rect& r);
+    cjui::Rect previewRect_{};
+    enum PreviewState { PreviewNone, PreviewLoading, PreviewText, PreviewNotText };
+    PreviewState previewState_ = PreviewNone;
+    std::wstring previewKey_, previewText_;
+    bool previewTruncated_ = false;
+
     // Searching (0.4)
     void searchTyped();                     // the search box changed: narrow at once, search again after a moment
     void runSearch(const std::wstring& text, bool everywhere);

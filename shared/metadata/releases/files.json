@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.4.1",
+      "date": "2026-11-14",
+      "notes": [
+        "A preview pane (Alt+P, the toolbar button or the menu): the selected file's picture, or the start of a text file, with its type, size and date, and Open. Several selected: how many and their size.",
+        "Pictures of art files in Icons view and the preview pane: Photoshop (.psd and .psb, from the picture Photoshop saves with the file), Procreate, Krita (.kra) and OpenRaster (.ora).",
+        "Videos and PDFs show the picture Windows' own thumbnail handlers make, as in File Explorer, where Windows has one for that kind of file.",
+        "From search results, “Open its folder” in the preview pane goes to where a result is, with it selected."
+      ]
+    },
+    {
       "version": "0.4.0",
       "date": "2026-11-14",
       "notes": [

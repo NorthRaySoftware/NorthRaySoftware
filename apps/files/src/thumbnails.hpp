@@ -1,4 +1,4 @@
-// NorthRay Files: pictures of image files, for the Icons view.
+// NorthRay Files: pictures of files, for the Icons view and the preview pane.
 //
 // Decoded with Windows Imaging Component (Windows' own image codecs: JPEG, PNG,
 // GIF, BMP, TIFF, ICO, and WebP, HEIF or AVIF where their Windows codecs are
@@ -44,11 +44,19 @@ public:
 
     // Whether a name looks like a picture Windows can decode.
     static bool isImage(const std::wstring& name);
+    // What a picture of the file would come from (0.4): Windows' image codecs, Photoshop's own
+    // picture, the PNG inside a Procreate/Krita/OpenRaster file, or Windows' thumbnail handlers
+    // (videos, PDFs: only when Windows has a handler for them).
+    enum class PictureKind { None, Image, Photoshop, ZipArt, Shell };
+    static PictureKind kindOf(const std::wstring& name);
+    static bool hasPicture(const std::wstring& name) { return kindOf(name) != PictureKind::None; }
 
     // The picture, if it's ready (nullptr while it's being made, or when it
     // couldn't be). Asking for one that isn't ready queues it; the window gets
     // WM_APP_THUMB when it is. `px` is the size it'll be drawn at, in pixels.
     const Thumb* get(const std::wstring& path, std::uint64_t modified, std::uint64_t size, int px);
+    // Whether it was tried and no picture could be made.
+    bool failed(const std::wstring& path, std::uint64_t modified, std::uint64_t size, int px) const;
     void received(ThumbResult* r);   // on the UI thread, from WM_APP_THUMB
     void forgetQueue();              // a new folder: what was asked for no longer matters
     // Pictures dropped from memory since last asked: their drawing bitmaps can go too.

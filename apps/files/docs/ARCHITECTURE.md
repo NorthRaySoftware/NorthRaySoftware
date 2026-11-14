@@ -187,11 +187,21 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
   The index path itself needs real Windows to verify.
 - cjui menus with 13+ choices gained a type-to-search field and scrolling (used across the suite).
 
-## 7d. Next: previews and art thumbnails (0.4.x)
+## 7d. 0.4.1: preview pane and art pictures (done 14 November 2026)
 
-Already in the core (tested): `nrf/art.hpp` reads Photoshop's flattened picture (8/16-bit grey, RGB, CMYK; raw or RLE,
-box-averaged down) and its JPEG preview resource, and decodes text for previews. Still to do: the preview pane (Alt+P),
-Procreate/Krita/OpenRaster previews from their zips (miniz), and video/PDF pictures from Windows' own thumbnail handlers.
+- `Thumbnails::kindOf` picks the source: WIC for images; `nrf::art` for Photoshop (the JPEG preview resource for icon
+  sizes up to 256 px, else the flattened picture; whole files up to 1 GB are read only when that's needed); the PNG
+  inside Procreate (`QuickLook/Thumbnail.png`), Krita (`preview.png`/`mergedimage.png`) and OpenRaster zips via miniz
+  reading through a file-handle callback; and `IShellItemImageFactory` (`SIIGBF_THUMBNAILONLY`) for videos and PDFs.
+  The worker thread is now STA for the Shell's handlers.
+- The preview pane (settings `previewPane`, Alt+P, toolbar, menu) sits right of the panes when the content area is at
+  least 760 DIPs wide: picture (512 px requests), or the first 48 KB of a text file (worker, `WM_APP_PREVIEW`,
+  `art::looksLikeText`/`decodeText`, 120 lines), else the big icon with an honest note; then type, size, date, folder
+  (search) and Open / Open its folder.
+- Tested in Wine: PSD, Procreate, Krita pictures in Icons view and the pane, Markdown text, a broken PSD. Video/PDF
+  pictures depend on Windows' handlers and are untested here.
+
+## 7e. Next: 0.5, tags and colour labels, collections, gallery view
 
 ## (Earlier plan) 0.2, core file operations
 
