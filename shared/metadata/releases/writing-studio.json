@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.23.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Characters' names link by their first or last name on their own, or by runs that include one of them: for \"Snarf Jill Grave\", Snarf, Grave, Snarf Grave, Snarf Jill and Jill Grave all link, but Jill alone doesn't (a middle name is rarely used by itself). Names written in capitals (\"JACKSON!\") are found too."
+      ]
+    },
+    {
       "version": "0.23.0",
       "date": "2026-11-14",
       "notes": [

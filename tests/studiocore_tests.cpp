@@ -1213,7 +1213,8 @@ static void testWorldbuilding() {
         CHECK(ms.size() == 1 && ms[0].snippet.find("Maren walked") != std::string::npos);
         CHECK(lib->mentionsOf(*lib->entry(grey)).size() == 1 && lib->mentionsOf(*lib->entry(grey))[0].count == 1);  // "Grey Wanderer" once, not also "Wanderer"
         // A character's full name: its parts stand for them too; titles and joining words alone don't.
-        CHECK((nameParts("Maren Ada Holt") == std::vector<std::string>{"Maren", "Maren Ada", "Ada", "Ada Holt", "Holt", "Maren Holt"}));
+        CHECK((nameParts("Maren Ada Holt") == std::vector<std::string>{"Maren", "Maren Ada", "Ada Holt", "Holt", "Maren Holt"}));   // not "Ada" alone
+        CHECK((nameParts("Snarf Jill Grave") == std::vector<std::string>{"Snarf", "Snarf Jill", "Jill Grave", "Grave", "Snarf Grave"}));
         CHECK((nameParts("Captain Ivo of Brennick") == std::vector<std::string>{"Ivo", "Ivo of Brennick", "Brennick", "Ivo Brennick"}));
         CHECK(nameParts("Highcliff").empty() && (nameParts("the Grey") == std::vector<std::string>{"Grey"}));
         {
@@ -1222,6 +1223,14 @@ static void testWorldbuilding() {
             const Id tomas = lib->createEntry(world, {}, "character", "Tomas Holt");
             auto mt = lib->mentionsOf(*lib->entry(tomas));
             CHECK(mt.size() == 1 && mt[0].nodeId == ch2 && mt[0].count == 3);   // "Tomas Holt", "Holt", "Tomas"; not "holt"
+            {
+                const Id ch3 = lib->createNode(book, {}, NodeKind::Chapter, "Three");
+                lib->saveNodeContent(ch3, R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Jill came by. Snarf waved. GRAVE! Snarf Jill Grave bowed."}]}]})");
+                const Id snarf = lib->createEntry(world, {}, "character", "Snarf Jill Grave");
+                auto sm = lib->mentionsOf(*lib->entry(snarf));
+                CHECK(sm.size() == 1 && sm[0].count == 3);   // "Snarf", "GRAVE", the full name; not "Jill" alone
+                CHECK(lib->trashEntry(snarf) && lib->trashNode(ch3));
+            }
             const Id inn = lib->createEntry(world, {}, "place", "Blue Anchor");
             auto mi = lib->mentionsOf(*lib->entry(inn));
             CHECK(mi.empty());                                                   // places aren't split into parts

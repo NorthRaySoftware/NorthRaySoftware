@@ -513,9 +513,10 @@ let nameList = [];        // [{id, names: [...]}]
 let namePattern = null;   // one regular expression for all of them
 let nameIds = new Map();  // lower-cased name -> entry id
 let nameWords = new Set(); // every word of every name, lower-cased (echo hints leave them alone)
-// The parts of a character's full name that also stand for them: "Maren Ada Holt" gives
-// Maren, Ada, Holt, Maren Ada, Ada Holt and Maren Holt. Joining words and titles on
-// their own (of, van, Lady, Captain) aren't names; only capitalised words count.
+// The parts of a character's full name that also stand for them: the first name and the
+// last name on their own, and runs that include one of them. "Snarf Jill Grave" gives
+// Snarf, Grave, Snarf Jill, Jill Grave and Snarf Grave, but not Jill alone (a middle
+// name is rarely used by itself). Titles and joining words (Captain, of) don't count.
 const PARTICLES = new Set(["of", "the", "de", "da", "di", "du", "del", "della", "der", "den", "van", "von", "le", "la", "al", "el",
   "bin", "bint", "ibn", "ap", "mac", "y", "and"]);
 const TITLES = new Set(["mr", "mrs", "ms", "miss", "dr", "sir", "dame", "lord", "lady", "king", "queen", "prince", "princess",
@@ -525,10 +526,14 @@ function nameParts(full) {
   if (words.length < 2) return [];
   const isName = (w) => /^[\p{Lu}]/u.test(w) && !PARTICLES.has(w.toLocaleLowerCase()) && !TITLES.has(w.toLocaleLowerCase().replace(/\.$/, ""));
   const out = new Set();
+  const firstAt = words.findIndex(isName);
+  let lastAt = -1;
+  for (let i = words.length - 1; i >= 0; i--) if (isName(words[i])) { lastAt = i; break; }
   for (let a = 0; a < words.length; a++)
     for (let z = a; z < words.length; z++) {
       if (a === 0 && z === words.length - 1) continue;          // the full name itself
       if (!isName(words[a]) || !isName(words[z])) continue;      // starts and ends on a real name
+      if (a !== firstAt && z !== lastAt) continue;               // must include the first or the last name
       out.add(words.slice(a, z + 1).join(" "));
     }
   const named = words.filter(isName);
@@ -549,6 +554,7 @@ function setNames(list) {
     if (!nameIds.get(k).includes(id)) nameIds.get(k).push(id);
     for (const w of k.split(/[^\p{L}\p{N}'’]+/u)) if (w) nameWords.add(w);
     all.add(t);
+    all.add(t.toLocaleUpperCase());   // shouted: "JACKSON!"
   };
   for (const e of nameList) {
     for (const n of e.names || []) add(n, e.id);

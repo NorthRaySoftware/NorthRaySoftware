@@ -256,9 +256,10 @@ int countNames(const std::string& text, const std::vector<std::string>& namesIn,
 }
 }  // namespace
 
-// The parts of a character's full name that also stand for them ("Maren Ada Holt": Maren,
-// Ada, Holt, Maren Ada, Ada Holt, Maren Holt). Joining words and titles on their own don't
-// count, and a part must start with a capital (or a non-ASCII letter). Same rule as the editor's links.
+// The parts of a character's full name that also stand for them: the first and last names on
+// their own, and runs that include one of them ("Snarf Jill Grave": Snarf, Grave, Snarf Jill,
+// Jill Grave, Snarf Grave; not Jill alone). Joining words and titles don't count, and a part
+// must start with a capital (or a non-ASCII letter). Same rule as the editor's links.
 std::vector<std::string> nameParts(const std::string& full) {
     static const std::set<std::string> particles = {"of", "the", "de", "da", "di", "du", "del", "della", "der", "den", "van", "von", "le",
                                                     "la", "al", "el", "bin", "bint", "ibn", "ap", "mac", "y", "and"};
@@ -281,10 +282,13 @@ std::vector<std::string> nameParts(const std::string& full) {
         return (std::isupper(c) || c >= 0x80) && !particles.count(lower(w)) && !titles.count(lower(w));
     };
     auto add = [&](const std::string& s) { if (s.size() >= 2 && std::find(out.begin(), out.end(), s) == out.end()) out.push_back(s); };
+    size_t firstAt = words.size(), lastAt = words.size();
+    for (size_t i = 0; i < words.size(); ++i) if (isName(words[i])) { if (firstAt == words.size()) firstAt = i; lastAt = i; }
     for (size_t a = 0; a < words.size(); ++a)
         for (size_t z = a; z < words.size(); ++z) {
             if (a == 0 && z == words.size() - 1) continue;
             if (!isName(words[a]) || !isName(words[z])) continue;
+            if (a != firstAt && z != lastAt) continue;   // a middle name alone isn't used for the person
             std::string p;
             for (size_t k = a; k <= z; ++k) p += (k > a ? " " : "") + words[k];
             add(p);
@@ -304,6 +308,13 @@ std::vector<std::string> searchNames(const Entry& e) {
         const size_t given = n.size();
         for (size_t i = 0; i < given; ++i)
             for (auto& p : nameParts(n[i])) if (std::find(n.begin(), n.end(), p) == n.end()) n.push_back(p);
+    }
+    // Shouted: "JACKSON!" (ASCII letters upper-cased; others are left as they are).
+    const size_t plain = n.size();
+    for (size_t i = 0; i < plain; ++i) {
+        std::string up = n[i];
+        for (auto& c : up) c = (char)std::toupper((unsigned char)c);
+        if (up != n[i] && std::find(n.begin(), n.end(), up) == n.end()) n.push_back(up);
     }
     return n;
 }
