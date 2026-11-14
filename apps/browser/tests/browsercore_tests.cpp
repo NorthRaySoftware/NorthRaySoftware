@@ -9,6 +9,7 @@
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
 #include "nrb/url.hpp"
+#include "nrb/weather.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -513,7 +514,23 @@ static void testReferences() {
     CHECK(mc.size() == 2 && mc[0] == 0xC81E1E && mc[1] == 0x1428D2);
 }
 
+static void testWeather() {
+    const auto places = parsePlaces(R"({"results":[{"name":"Glasgow","latitude":55.86515,"longitude":-4.25763,"country":"United Kingdom","admin1":"Scotland"},
+        {"name":"Glasgow","latitude":37.0,"longitude":-85.9,"country":"United States","admin1":"Kentucky"},{"name":"","latitude":1,"longitude":2}]})");
+    CHECK(places.size() == 2 && places[0].label() == "Glasgow, Scotland, United Kingdom" && std::abs(places[1].latitude - 37.0) < 1e-9);
+    CHECK(parsePlaces("{}").empty() && parsePlaces("not json").empty());
+    CHECK_EQ(placeSearchUrl("Port Ellen"), "https://geocoding-api.open-meteo.com/v1/search?name=Port%20Ellen&count=6&language=en&format=json");
+    CHECK(forecastUrl(places[0]).find("latitude=55.865") != std::string::npos && forecastUrl(places[0]).find("&longitude=-4.2576&current=temperature_2m,weather_code") != std::string::npos);
+    const Weather w = parseForecast(R"({"current":{"time":"2026-11-14T15:45","interval":900,"temperature_2m":7.6,"weather_code":61,"wind_speed_10m":18.4,"is_day":1},
+        "daily":{"time":["2026-11-14"],"temperature_2m_max":[9.1],"temperature_2m_min":[3.2]}})");
+    CHECK(w.ok && w.code == 61 && w.words() == "Light rain" && std::abs(w.high - 9.1) < 1e-9 && std::abs(w.low - 3.2) < 1e-9 && w.day);
+    CHECK(!parseForecast(R"({"current":{}})").ok);
+    CHECK_EQ(temperatureText(7.6, false), "8\xC2\xB0" "C");
+    CHECK_EQ(temperatureText(10, true), "50\xC2\xB0" "F");
+}
+
 int main() {
+    testWeather();
     testReferences();
     testDownloads();
     testBlocker();

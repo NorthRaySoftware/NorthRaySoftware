@@ -17,8 +17,9 @@ add_library(browsercore STATIC
   core/src/downloads.cpp
   core/src/blocker.cpp
   core/src/references.cpp
+  core/src/weather.cpp
 )
-target_include_directories(browsercore PUBLIC core/include)
+target_include_directories(browsercore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 target_link_libraries(browsercore PUBLIC sqlite3)
 if(MSVC)
   target_compile_options(browsercore PRIVATE /W4 /utf-8)
@@ -58,7 +59,7 @@ add_executable(NorthRayBrowser WIN32
 )
 target_include_directories(NorthRayBrowser PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated
                            ${CMAKE_SOURCE_DIR}/libs/third_party ${NRB_WEBVIEW2})
-target_link_libraries(NorthRayBrowser PRIVATE browsercore cjui cjcore ole32 shell32 comctl32 comdlg32 dwmapi uuid windowscodecs urlmon shlwapi)
+target_link_libraries(NorthRayBrowser PRIVATE browsercore cjui cjcore ole32 shell32 comctl32 comdlg32 dwmapi uuid windowscodecs urlmon shlwapi winhttp)
 if(MSVC)
   target_compile_options(NorthRayBrowser PRIVATE /W4 /utf-8)
 else()

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.33.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Browser 0.6.0: a start page with your own picture, a clock, notes and the weather, and an offer to be the default browser."
+      ]
+    },
+    {
       "version": "0.32.0",
       "date": "2026-11-14",
       "notes": [

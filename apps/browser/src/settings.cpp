@@ -28,6 +28,15 @@ bool Settings::load(const std::wstring& path) {
     fillForms = cj::valueOr(j, "fillForms", true);
     verticalTabs = cj::valueOr(j, "verticalTabs", false);
     blockTrackers = cj::valueOr(j, "blockTrackers", true);
+    startBackground = cj::valueOr(j, "startBackground", std::string());
+    if (startBackground.find_first_of("\\/:") != std::string::npos) startBackground.clear();   // a name in the User folder only
+    showClock = cj::valueOr(j, "showClock", true);
+    showNotes = cj::valueOr(j, "showNotes", true);
+    weatherPlace = cj::valueOr(j, "weatherPlace", std::string());
+    weatherLat = cj::valueOr(j, "weatherLat", 0.0);
+    weatherLon = cj::valueOr(j, "weatherLon", 0.0);
+    fahrenheit = cj::valueOr(j, "fahrenheit", false);
+    defaultOffered = cj::valueOr(j, "defaultOffered", false);
     blockerAllowed.clear();
     if (j.contains("blockerAllowed") && j["blockerAllowed"].is_array())
         for (const auto& s : j["blockerAllowed"]) if (s.is_string() && s.get<std::string>().size() < 256) blockerAllowed.push_back(s.get<std::string>());
@@ -38,7 +47,9 @@ bool Settings::save(const std::wstring& path) const {
     if (readOnly) return false;
     nlohmann::json j = {{"version", kVersion}, {"theme", (int)theme}, {"searchEngine", searchEngine},
                          {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}, {"verticalTabs", verticalTabs},
-                         {"searchEngineChosen", searchEngineChosen}, {"blockTrackers", blockTrackers}, {"blockerAllowed", blockerAllowed}};
+                         {"searchEngineChosen", searchEngineChosen}, {"blockTrackers", blockTrackers}, {"blockerAllowed", blockerAllowed},
+                         {"startBackground", startBackground}, {"showClock", showClock}, {"showNotes", showNotes}, {"weatherPlace", weatherPlace},
+                         {"weatherLat", weatherLat}, {"weatherLon", weatherLon}, {"fahrenheit", fahrenheit}, {"defaultOffered", defaultOffered}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

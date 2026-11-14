@@ -48,7 +48,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
-    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour,
+    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault,
 };
 
 COLORREF toColorRef(Color c) {
@@ -128,6 +128,11 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     }
     pageSearch_ = makeEdit(L"Search bookmarks");
     renameEdit_ = makeEdit(nullptr);
+    notesEdit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
+    SendMessageW(notesEdit_, EM_SETLIMITTEXT, 64 * 1024, 0);
+    SendMessageW(notesEdit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Notes to yourself. They're kept on this computer."));
+    loadNotes();
+    SetTimer(hwnd(), 4, 15000, nullptr);   // the start page's clock (and weather, every half hour)
 
     applyTheme();
     newTab(L"", true, false);
@@ -182,6 +187,7 @@ void BrowserWindow::applyTheme() {
     applyPalette(nr::palette(dark));
     if (editBrush_) DeleteObject(editBrush_);
     editBrush_ = CreateSolidBrush(toColorRef(pal_.sunken));
+    if (notesBrush_) { DeleteObject(notesBrush_); notesBrush_ = nullptr; }
     for (TabView& v : views_)
         if (v.page) v.page->setBackground(toColorRef(pal_.paper));
     if (edit_) InvalidateRect(edit_, nullptr, TRUE);
@@ -796,6 +802,12 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             invalidate();
             break;
         case WM_COMMAND:
+            if (lp && (HWND)lp == notesEdit_) {
+                if (HIWORD(wp) == EN_CHANGE) SetTimer(hwnd(), 5, 1200, nullptr);   // saved after a pause
+                if (HIWORD(wp) == EN_KILLFOCUS) { saveNotes(); notesActive_ = false; invalidate(); }
+                handled = true;
+                return 0;
+            }
             if (lp && ((HWND)lp == startSearch_ || (HWND)lp == pageSearch_ || (HWND)lp == renameEdit_)) {
                 const int code = HIWORD(wp);
                 if ((HWND)lp == pageSearch_ && code == EN_CHANGE) {
@@ -839,6 +851,14 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             }
             break;
         case WM_CTLCOLOREDIT:
+            if ((HWND)lp == notesEdit_) {
+                HDC dc = (HDC)wp;
+                SetTextColor(dc, toColorRef(pal_.ink));
+                SetBkColor(dc, toColorRef(pal_.surface));
+                if (!notesBrush_) notesBrush_ = CreateSolidBrush(toColorRef(pal_.surface));
+                handled = true;
+                return (LRESULT)notesBrush_;
+            }
             if ((HWND)lp == edit_ || (HWND)lp == startSearch_ || (HWND)lp == pageSearch_ || (HWND)lp == renameEdit_) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
@@ -913,6 +933,10 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             handled = true;
             DestroyWindow(hwnd());
             return 0;
+        case WM_APP + 22:   // a fetch finished (browser_start.cpp)
+            handled = true;
+            fetched(reinterpret_cast<Fetch*>(lp));
+            return 0;
         case WM_APP + 21:   // a picture for a reference board arrived (browser_references.cpp)
             handled = true;
             pictureSaved(reinterpret_cast<PictureJob*>(lp));
@@ -926,6 +950,14 @@ void BrowserWindow::onTimer(UINT_PTR id) {
     if (id == kSpinTimer) {
         if (!anyLoading()) KillTimer(hwnd(), kSpinTimer);
         invalidate();
+    } else if (id == 4) {
+        if (TabView* v = activeView(); v && v->showStart && !v->bookmarksPage && !v->historyPage && !v->downloadsPage && !v->referencesPage) {
+            refreshWeather(false);
+            invalidate();
+        }
+    } else if (id == 5) {
+        KillTimer(hwnd(), 5);
+        saveNotes();
     } else if (id == kDownloadsTimer) {
         KillTimer(hwnd(), kDownloadsTimer);
         releaseParkedPages();
@@ -1038,6 +1070,7 @@ void BrowserWindow::showMenu() {
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
         MenuItem::sep(),
+        MenuItem::item(L"Make it the default browser\u2026", CmdDefault, {}, !isDefaultBrowser()),
         MenuItem::item(L"About NorthRay Browser", CmdAbout),
     };
 
@@ -1054,6 +1087,7 @@ void BrowserWindow::showMenu() {
     else if (cmd == CmdHistory) showHistoryPage();
     else if (cmd == CmdDownloads) showDownloadsPage();
     else if (cmd == CmdReferences) showReferencesPage();
+    else if (cmd == CmdDefault) makeDefaultBrowser();
     else if (cmd == CmdPickColour) startColourPick();
     else if (cmd == CmdBlock) {
         settings_.blockTrackers = !settings_.blockTrackers;
@@ -1265,7 +1299,7 @@ void BrowserWindow::drawFrame(float W, float H) {
         if (GetFocus() == edit_) SetFocus(hwnd());
         ShowWindow(edit_, SW_HIDE);
     }
-    if (!chrome) startSearchVisible_ = pageSearchVisible_ = renameVisible_ = false;
+    if (!chrome) startSearchVisible_ = pageSearchVisible_ = renameVisible_ = notesVisible_ = false;
     positionExtraEdits();
     updateNote();
 }

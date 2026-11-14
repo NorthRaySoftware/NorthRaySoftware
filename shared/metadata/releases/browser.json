@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.6.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Start page: your own background picture (Customise… › Background picture), a clock, and Notes to yourself, kept on this computer as you type.",
+        "Weather on the start page, if you want it: Customise… › Weather, type your town, choose it from the list. Today's temperature, high and low, from Open-Meteo (credited on the page); °C or °F. Nothing is fetched until you choose a place.",
+        "Make it the default browser: the start page asks once (and the menu has it). NorthRay registers itself with Windows, then opens Windows' Default apps page at it, where only you can make the choice."
+      ]
+    },
+    {
       "version": "0.5.0",
       "date": "2026-11-14",
       "notes": [

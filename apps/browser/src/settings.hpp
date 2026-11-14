@@ -21,6 +21,14 @@ struct Settings {
     bool verticalTabs = false;   // tabs listed down the left side instead of across the top
     bool blockTrackers = true;   // refuse requests to ad and tracking services from other sites
     std::vector<std::string> blockerAllowed;   // sites where they're not blocked ("example.com")
+    // The start page
+    std::string startBackground;   // a picture's file in the User folder ("" = the night sky)
+    bool showClock = true;
+    bool showNotes = true;
+    std::string weatherPlace;      // "" = no weather
+    double weatherLat = 0, weatherLon = 0;
+    bool fahrenheit = false;
+    bool defaultOffered = false;   // the start page has asked once about being the default browser
 
     // False if the file couldn't be read (the defaults are used). A file from a
     // newer version is read as far as it's understood and never overwritten

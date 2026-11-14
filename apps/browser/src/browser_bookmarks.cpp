@@ -600,6 +600,7 @@ void BrowserWindow::startRename(std::int64_t id) {
 }
 
 void BrowserWindow::finishRename(bool commit) {
+    if (weatherSetup_) { finishWeatherSetup(commit); return; }
     if (renamingBoard_) {   // a reference board's name
         const std::int64_t b = renamingBoard_;
         renamingBoard_ = 0;
@@ -697,7 +698,8 @@ void BrowserWindow::positionExtraEdits() {
     placeEdit(startSearch_, startSearchRect_, startSearchVisible_);
     placeEdit(pageSearch_, pageSearchRect_, pageSearchVisible_);
     placeEdit(renameEdit_, renameRect_, renameVisible_);
-    startSearchVisible_ = pageSearchVisible_ = renameVisible_ = false;   // each frame says again
+    placeEdit(notesEdit_, notesRect_, notesVisible_);
+    startSearchVisible_ = pageSearchVisible_ = renameVisible_ = notesVisible_ = false;   // each frame says again
 }
 
 // ---------------------------------------------------------------- passwords and forms

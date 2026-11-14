@@ -10,6 +10,7 @@
 #include "nrb/downloads.hpp"
 #include "nrb/history.hpp"
 #include "nrb/references.hpp"
+#include "nrb/weather.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
@@ -18,6 +19,7 @@
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -279,6 +281,28 @@ private:
     float sideScroll_ = 0, sideContentH_ = 0;
     cjui::Rect sideRect_{};
     bool drawingSide_ = false;   // drawTab: a row in the side list
+
+    // ---- Start page extras (browser_start.cpp): background, clock, weather, notes, default browser
+    struct Fetch;
+    void fetchText(const std::wstring& url, std::function<void(bool ok, const std::string& body)> done);
+    void fetched(Fetch* f);
+    void refreshWeather(bool force);
+    void startWeatherSetup();
+    void finishWeatherSetup(bool commit);
+    void customiseMenu(POINT screen);
+    void chooseStartBackground();
+    std::wstring userFolder() const;
+    void loadNotes();
+    void saveNotes();
+    bool isDefaultBrowser() const;
+    void makeDefaultBrowser();
+    HWND notesEdit_ = nullptr;
+    HBRUSH notesBrush_ = nullptr;
+    cjui::Rect notesRect_{};
+    bool notesVisible_ = false, notesActive_ = false;
+    Weather weather_;
+    std::int64_t weatherAt_ = 0;     // when it was fetched (Unix seconds)
+    bool weatherBusy_ = false, weatherSetup_ = false;
 
     // ---- Start page (browser_start.cpp)
     void drawStartTiles(const cjui::Rect& area, float& y);
