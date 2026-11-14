@@ -1367,6 +1367,55 @@ static void testCovers() {
 }
 
 // Tidying a world's bible: copies merged, a book's entries moved in, kinds suggested.
+static void testEntryPages() {
+    using namespace studio;
+    const std::string dir = tempLibrary("pages");
+    Id world, book, ada, ada2;
+    {
+        auto lib = openOk(dir);
+        world = lib->createWorld("Alvora");
+        book = lib->createBook("Shards", world);
+        ada = lib->createEntry(world, {}, "character", "Ada");
+        CHECK(lib->entryTemplate(world, "character").size() == 4);
+        CHECK(lib->entryTemplate(world, "character")[0] == "Appearance & personality");
+        Entry e = *lib->entry(ada);
+        e.setSection("Backstory & goals", "Raised by smiths.");
+        e.setSection("Odd habits", "Hums.");
+        e.gallery.push_back({"abc", "At sixteen"});
+        e.gallery.push_back({"def", ""});
+        e.setBookNote(book, "Hides the shard.");
+        CHECK(lib->updateEntry(e));
+        // A world's own template: reordered, one renamed away.
+        CHECK(lib->setEntryTemplate(world, "character", parseEntryTemplate("- Backstory & goals\n\nLooks\nBackstory & goals\n")));
+        CHECK(lib->entryTemplate(world, "character").size() == 2);
+        ada2 = lib->createEntry(world, {}, "character", "Ada Smith");
+        Entry f = *lib->entry(ada2);
+        f.setSection("Looks", "Tall.");
+        f.setBookNote(book, "Wakes in chapter 2.");
+        f.gallery.push_back({"abc", ""});
+        f.gallery.push_back({"ghi", ""});
+        lib->updateEntry(f);
+    }
+    {
+        auto lib = openOk(dir);   // read back from disk
+        const Entry* e = lib->entry(ada);
+        CHECK(e && e->section("Backstory & goals") == "Raised by smiths." && e->gallery.size() == 2 && e->gallery[0].caption == "At sixteen");
+        CHECK(e && e->bookNote(book) == "Hides the shard.");
+        const auto secs = lib->entrySections(*e);
+        // Template first (Backstory & goals, Looks), then the extra one it has.
+        CHECK(secs.size() == 3 && secs[0].first == "Backstory & goals" && secs[1].first == "Looks" && secs[2].first == "Odd habits");
+        CHECK(lib->setEntryTemplate(world, "character", defaultEntryTemplate("character")));
+        CHECK(lib->setting("entry-template:" + world + ":character").empty() && lib->entryTemplate(world, "character").size() == 4);
+        CHECK(lib->mergeEntries(ada, ada2));
+        const Entry* m = lib->entry(ada);
+        CHECK(m && m->section("Looks") == "Tall." && m->gallery.size() == 3);
+        CHECK(m && m->bookNote(book).find("Hides the shard.") != std::string::npos && m->bookNote(book).find("Wakes in chapter 2.") != std::string::npos);
+        Entry n = *m;
+        n.setBookNote(book, "");
+        CHECK(n.bookNotes.empty());
+    }
+}
+
 static void testBibleTidy() {
     using namespace studio;
     const std::string dir = tempLibrary("tidy");
@@ -1784,6 +1833,7 @@ int main() {
     testPublish();
     testCovers();
     testBibleTidy();
+    testEntryPages();
     testEbookHtml();
     testPdfLikeHeadings();
     testTypeset();

@@ -57,8 +57,11 @@ struct Focus {
 
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
-    FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen, FieldCount
+    FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen,
+    FSection, FBookNote, FTemplate, FieldCount
 };
+// The fields that take several lines.
+inline bool isMultiField(int f) { return f == FDescription || f == FNotes || f == FSynopsis || f == FSection || f == FBookNote || f == FTemplate; }
 
 struct Settings {
     std::string libraryFolder;
@@ -275,6 +278,11 @@ private:
     void addMembers();
     float drawCreatureTree(const Rect& m, float y);
     float drawKindSuggestions(const Rect& m, float y);
+    void addGalleryPictures();
+    void galleryMenu(size_t index);
+    void newEntryBoard();
+    void moveBoardToEntry(const std::string& boardId);
+    Id noteBookFor(const studio::Entry& e) const;
     void setKindOf(const Id& entry, const Id& parent);   // parent "" = a species of its own
     void addKindUnder(const Id& parent);
     void entryKindMenu(const Id& entry);
@@ -425,6 +433,7 @@ private:
     // Writing
     Workspace ws_ = Workspace::Library;
     Id writingBook_;               // the book open in the Writing workspace
+    int focusFieldSoon_ = -1;      // a field to put the cursor in once the panel has placed it
     Id currentNode_;               // the chapter/scene in the editor
     WebPane editor_;
     bool editorStarted_ = false;
@@ -522,6 +531,11 @@ private:
         std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
         std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)
+        std::string section;       // the page section being written in the panel
+        Id noteBook;               // whose notes the panel shows ("" = the book open in Writing, or the first)
+        bool editTemplate = false; // the panel edits the kind's page template
+        Id boardEntry;             // the board open belongs to this entry (back goes to it)
+        int picture = -1;          // the gallery picture selected on the entry's page
         std::vector<studio::Mention> mentions;
         Id mentionsFor;
         std::string mentionsKey;   // the names they were found for

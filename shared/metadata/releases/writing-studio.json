@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.32.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Entry pages in the world bible: each kind has its sections (a character: Appearance & personality, Backstory & goals, Abilities & powers, Age, birth & status). Written sections show on the page in full; the rest wait under “Still to write” — click one to write it in the panel.",
+        "Change the sections every page of a kind has (“Change the sections every Character page has…”): one per line, for the whole world. Writing already in a section you take out stays on the page.",
+        "Notes per book: what happens to an entry in each book, written for one book at a time and shown on its page under the book's name.",
+        "A gallery in every entry: add pictures of it (art, sketches, references), caption them, and choose which is the main picture.",
+        "Image boards inside entries: “+ New board” on an entry's page makes a board kept there, not in the sidebar. A board from the sidebar can be moved onto an entry's page from its panel (“Kept in”).",
+        "Merging two copies of an entry keeps both sets of sections, pictures and book notes."
+      ]
+    },
+    {
       "version": "0.31.0",
       "date": "2026-11-14",
       "notes": [

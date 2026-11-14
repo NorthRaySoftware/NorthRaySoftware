@@ -53,6 +53,7 @@ void StudioApp::newBoard() {
     wb_.item.clear();
     wb_.entry.clear();
     wb_.scroll = 0;
+    wb_.panelScroll = 0;
     setFocus({Focus::Board, id, {}});
     invalidate();
 }
@@ -128,6 +129,47 @@ void StudioApp::addBoardPictures() {
     invalidate();
 }
 
+// A board of an entry's own, opened straight away.
+void StudioApp::newEntryBoard() {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e) return;
+    commitFields();
+    json j = boardsData();
+    const std::string id = newBoardId();
+    const Id eid = e->id;
+    j["boards"].push_back({{"id", id}, {"name", e->name + " board"}, {"entry", eid}, {"items", json::array()}});
+    saveBoards(j);
+    wb_.board = id;
+    wb_.item.clear();
+    wb_.boardEntry = eid;
+    wb_.entry.clear();
+    wb_.scroll = 0;
+    wb_.panelScroll = 0;
+    setFocus({Focus::Board, id, {}});
+    invalidate();
+}
+
+// Which entry's page a board is kept in (or none: the bible's own boards in the sidebar).
+void StudioApp::moveBoardToEntry(const std::string& boardId) {
+    auto all = lib_->entriesOf(wb_.world, wb_.book);
+    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"The bible (its own board)", 1), cjui::MenuItem::sep()};
+    for (size_t i = 0; i < all.size() && i < 300; ++i)
+        menu.push_back(cjui::MenuItem::item(w(all[i]->name) + L"  (" + w(entryKindLabel(all[i]->kind)) + L")", (UINT)(10 + i)));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
+    if (!ch) return;
+    commitFields();
+    json j = boardsData();
+    for (auto& b : j["boards"])
+        if (b.value("id", "") == boardId) {
+            if (ch == 1) b.erase("entry"); else b["entry"] = all[ch - 10]->id;
+        }
+    saveBoards(j);
+    flash(ch == 1 ? std::wstring(L"The board is listed in the sidebar again.") : L"The board is now kept on " + w(all[ch - 10]->name) + L"'s page.", 5);
+    invalidate();
+}
+
 // ----------------------------------------------------------------- drawing
 
 void StudioApp::drawBoard(const Rect& r) {
@@ -141,7 +183,19 @@ void StudioApp::drawBoard(const Rect& r) {
     const float cw = r.w - pad * 2;
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
-    linkText("wb:boardback", m.x, y, L"‹ The bible", [this] { commitFields(); wb_.board.clear(); wb_.item.clear(); setFocus({}); invalidate(); });
+    {
+        // A board of an entry's goes back to its page.
+        const Entry* owner = lib_->entry(board->value("entry", ""));
+        if (owner && owner->deleted) owner = nullptr;
+        linkText("wb:boardback", m.x, y, owner ? L"‹ " + w(owner->name) : std::wstring(L"‹ The bible"), [this, oid = owner ? owner->id : Id{}] {
+            commitFields();
+            wb_.board.clear();
+            wb_.item.clear();
+            wb_.boardEntry.clear();
+            if (!oid.empty()) openEntry(oid); else setFocus({});
+            invalidate();
+        });
+    }
     y += 30;
     y += pageHeader({m.x, y, m.w, 0}, L"IMAGE BOARD", w(board->value("name", "Board")),
                     L"Drag pictures to arrange them, and their corner to resize them. Click one to caption it or tie it to an entry.");
@@ -278,6 +332,12 @@ void StudioApp::drawBoardPanel(const Rect& r) {
     } else if (board) {
         panelHeading(c, y, L"IMAGE BOARD", true);
         y = panelField(c, y, L"Name", FName);
+        {
+            const Entry* owner = lib_->entry(board->value("entry", ""));
+            if (owner && owner->deleted) owner = nullptr;
+            panelChoice("wb:bowner", c, y, L"Kept in", owner ? w(owner->name) + L"'s page" : std::wstring(L"The bible (its own board)"),
+                        [this] { moveBoardToEntry(wb_.board); });
+        }
         y += gfx_.text(std::to_wstring((*board)["items"].size()) + L" pictures. They're kept in the library and listed in Artwork, "
                        L"so removing one from the board doesn't delete it.",
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 14;

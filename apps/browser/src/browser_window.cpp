@@ -48,7 +48,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
-    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault,
+    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault, CmdPopout,
 };
 
 COLORREF toColorRef(Color c) {
@@ -179,6 +179,7 @@ void BrowserWindow::openFromCommandLine(const std::vector<std::wstring>& args) {
 void BrowserWindow::onDestroy() {
     KillTimer(hwnd(), kSpinTimer);
     KillTimer(hwnd(), kShutdownTimer);
+    popBackIn();
     views_.clear();
 }
 
@@ -226,6 +227,7 @@ int BrowserWindow::newTab(const std::wstring& url, bool activate, bool afterActi
 }
 
 void BrowserWindow::closeTab(int id) {
+    if (id == popTab_) popBackIn();
     TabView* v = view(id);
     if (!v) return;
     if (Tab* t = model_.find(id); t && v->page && !v->page->url().empty())
@@ -369,6 +371,7 @@ PageEvents BrowserWindow::eventsFor(int id) {
     e.download = [this, id](std::shared_ptr<DownloadHandle> h) { downloadStarted(id, std::move(h)); };
     e.savePicture = [this](const std::wstring& picture, const std::wstring& page, const std::wstring& title) { savePicture(picture, page, title); };
     e.pickColour = [this] { startColourPick(); };
+    e.popoutVideo = [this, id] { popOutVideo(id); };
     e.blocked = [this, id](int n) {
         if (TabView* v = view(id); v && v->blocked != n) {
             v->blocked = n;
@@ -627,6 +630,7 @@ bool BrowserWindow::shortcut(UINT vk, bool ctrl, bool shift, bool alt) {
             case VK_RIGHT: if (v && v->page) v->page->forward(); return true;
             case VK_HOME: goHome(); return true;
             case 'D': focusAddressBar(); return true;
+            case 'P': if (popTab_) popBackIn(); else if (v) popOutVideo(v->id); return true;
             default: return false;
         }
     }
@@ -1061,6 +1065,7 @@ void BrowserWindow::showMenu() {
         MenuItem::sep(),
         MenuItem::item(L"Print...", CmdPrint, L"Ctrl+P", hasPage),
         MenuItem::item(L"Full screen", CmdFullscreen, L"F11", true, fullscreen_),
+        MenuItem::item(L"Pop out the video", CmdPopout, L"Alt+P", hasPage || popTab_ != 0, popTab_ != 0),
         MenuItem::item(L"Developer tools", CmdDevTools, L"F12", hasPage),
         MenuItem::sep(),
         MenuItem::sub(L"Search engine", searchItems),
@@ -1108,6 +1113,7 @@ void BrowserWindow::showMenu() {
     else if (cmd == CmdPrint && hasPage) v->page->print();
     else if (cmd == CmdDevTools && hasPage) v->page->openDevTools();
     else if (cmd == CmdFullscreen) setFullscreen(!fullscreen_, false);
+    else if (cmd == CmdPopout) { if (popTab_) popBackIn(); else if (v) popOutVideo(v->id); }
     else if (cmd == CmdAbout) showAbout();
     else if (cmd >= CmdThemeSystem && cmd <= CmdThemeDark) {
         settings_.theme = (Theme)(cmd - CmdThemeSystem);
@@ -1132,6 +1138,7 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
     const std::vector<MenuItem> items = {
         MenuItem::item(L"Reload", CmdTabReload, {}, hasPage),
         MenuItem::item(L"Duplicate", CmdTabDuplicate, {}, hasPage),
+        MenuItem::item(popTab_ == id ? L"Put the video back" : L"Pop out the video", CmdPopout, {}, hasPage),
         MenuItem::sep(),
         MenuItem::item(L"Close tab", CmdTabClose, L"Ctrl+W"),
         MenuItem::item(L"Close other tabs", CmdTabCloseOthers, {}, model_.size() > 1),
@@ -1144,6 +1151,7 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
     if (cmd == CmdSideTabs) { setVerticalTabs(!settings_.verticalTabs); return; }
     if (cmd == CmdTabReload && hasPage) v->page->reload();
     else if (cmd == CmdTabDuplicate) duplicateTab(id);
+    else if (cmd == CmdPopout) popOutVideo(id);
     else if (cmd == CmdTabClose) closeTab(id);
     else if (cmd == CmdTabCloseOthers) closeOtherTabs(id);
     else if (cmd == CmdReopen) reopenClosedTab();
@@ -1275,6 +1283,7 @@ void BrowserWindow::drawFrame(float W, float H) {
     TabView* v = activeView();
     const bool ownPage = v && v->showStart && (v->bookmarksPage || v->historyPage || v->downloadsPage || v->referencesPage);
     if (pick_.on) drawColourPick(content);
+    else if (v && popTab_ && v->id == popTab_) drawPopoutPlaceholder(content);
     else if (engineFailed_ && !ownPage) drawEngineProblem(content);   // NorthRay's own pages work without the engine
     else if (v && v->error) drawErrorPage(content, *v);
     else if (v && v->showStart && v->bookmarksPage) drawBookmarksPage(content);
@@ -1310,7 +1319,7 @@ void BrowserWindow::placePages(const Rect& content) {
                   (LONG)std::lround(content.bottom() * s)};
     TabView* a = activeView();
     for (TabView& v : views_) {
-        if (!v.page) continue;
+        if (!v.page || v.id == popTab_) continue;   // in the pop-out
         const bool show = &v == a && !v.showStart && !v.error && !engineFailed_ && !pick_.on;
         if (show) v.page->setBounds(rc);
         v.page->show(show);

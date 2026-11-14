@@ -7,7 +7,14 @@
 #include <filesystem>
 #include <string>
 
+namespace studio { struct Entry; }
+
 namespace studio::detail {
+
+// An entry's page (sections, gallery, boards, per-book notes) as JSON text, and read back into it.
+std::string entryPageText(const Entry& e);
+void readEntryPage(Entry& e, const std::string& text);
+
 
 struct Stmt {
     sqlite3_stmt* s = nullptr;

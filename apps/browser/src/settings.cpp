@@ -37,6 +37,11 @@ bool Settings::load(const std::wstring& path) {
     weatherLon = cj::valueOr(j, "weatherLon", 0.0);
     fahrenheit = cj::valueOr(j, "fahrenheit", false);
     defaultOffered = cj::valueOr(j, "defaultOffered", false);
+    popX = cj::valueOr(j, "popX", 0);
+    popY = cj::valueOr(j, "popY", 0);
+    popW = cj::valueOr(j, "popW", 0);
+    popH = cj::valueOr(j, "popH", 0);
+    if (popW < 0 || popW > 20000 || popH < 0 || popH > 20000) popW = popH = 0;
     blockerAllowed.clear();
     if (j.contains("blockerAllowed") && j["blockerAllowed"].is_array())
         for (const auto& s : j["blockerAllowed"]) if (s.is_string() && s.get<std::string>().size() < 256) blockerAllowed.push_back(s.get<std::string>());
@@ -49,7 +54,8 @@ bool Settings::save(const std::wstring& path) const {
                          {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}, {"verticalTabs", verticalTabs},
                          {"searchEngineChosen", searchEngineChosen}, {"blockTrackers", blockTrackers}, {"blockerAllowed", blockerAllowed},
                          {"startBackground", startBackground}, {"showClock", showClock}, {"showNotes", showNotes}, {"weatherPlace", weatherPlace},
-                         {"weatherLat", weatherLat}, {"weatherLon", weatherLon}, {"fahrenheit", fahrenheit}, {"defaultOffered", defaultOffered}};
+                         {"weatherLat", weatherLat}, {"weatherLon", weatherLon}, {"fahrenheit", fahrenheit}, {"defaultOffered", defaultOffered},
+                         {"popX", popX}, {"popY", popY}, {"popW", popW}, {"popH", popH}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

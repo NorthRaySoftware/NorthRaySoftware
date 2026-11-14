@@ -1390,7 +1390,7 @@ bool StudioApp::preTranslate(const MSG& msg) {
     int current = -1;
     for (int f = 0; f < FieldCount; ++f) if (fields_[f] == msg.hwnd) current = f;
     if (current < 0) return false;
-    const bool multi = current == FDescription || current == FNotes || current == FSynopsis;
+    const bool multi = isMultiField(current);
     if (msg.wParam == VK_TAB) {
         // Visible fields in reading order: top to bottom, then left to right.
         std::vector<int> order;
@@ -1429,7 +1429,7 @@ bool StudioApp::preTranslate(const MSG& msg) {
 
 void StudioApp::createFields() {
     for (int f = 0; f < FieldCount; ++f) {
-        const bool multi = f == FDescription || f == FNotes || f == FSynopsis;
+        const bool multi = isMultiField(f);
         DWORD style = WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL | (f == FTarget ? ES_NUMBER : 0);
         if (multi) style = WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN;
         fields_[f] = CreateWindowExW(0, L"EDIT", L"", style, 0, 0, 10, 10, hwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -1454,7 +1454,7 @@ void StudioApp::layoutFont() {
 
 void StudioApp::placeField(Field f, const Rect& r) {
     const float s = gfx_.dpiScale();
-    const bool multi = f == FDescription || f == FNotes || f == FSynopsis;
+    const bool multi = isMultiField(f);
     // The text sits inside a drawn frame; the control itself is borderless.
     const RECT rc{(LONG)std::lround((r.x + 8) * s), (LONG)std::lround((r.y + (multi ? 6 : (r.h - 20) / 2)) * s),
                   (LONG)std::lround((r.right() - 6) * s), (LONG)std::lround((r.bottom() - (multi ? 6 : (r.h - 20) / 2)) * s)};
@@ -1564,6 +1564,10 @@ void StudioApp::loadFields() {
             setFieldText(FDescription, withCrLf(e->summary));
             setFieldText(FSynopsis, withCrLf(e->details));
             setFieldText(FNotes, withCrLf(e->notes));
+            setFieldText(FSection, withCrLf(e->section(wb_.section)));
+            setFieldText(FCaption, wb_.picture >= 0 && wb_.picture < (int)e->gallery.size() ? e->gallery[(size_t)wb_.picture].caption : std::string());
+            setFieldText(FBookNote, withCrLf(e->bookNote(noteBookFor(*e))));
+            setFieldText(FTemplate, withCrLf(entryTemplateText(lib_->entryTemplate(e->worldId, e->kind))));
         }
     } else if (focus_.kind == Focus::Edition) {
         if (const Edition* e = lib_->edition(focus_.id)) {
@@ -1673,6 +1677,13 @@ void StudioApp::commitFields() {
             n.summary = fieldText(FDescription);
             n.details = fieldText(FSynopsis);
             n.notes = fieldText(FNotes);
+            if (!wb_.section.empty()) n.setSection(wb_.section, fieldText(FSection));
+            if (wb_.picture >= 0 && wb_.picture < (int)n.gallery.size()) n.gallery[(size_t)wb_.picture].caption = fieldText(FCaption);
+            if (const Id nb = noteBookFor(*x); !nb.empty()) n.setBookNote(nb, fieldText(FBookNote));
+            if (wb_.editTemplate) {
+                const auto t = parseEntryTemplate(fieldText(FTemplate));
+                if (t != lib_->entryTemplate(x->worldId, x->kind)) lib_->setEntryTemplate(x->worldId, x->kind, t);
+            }
             ok = lib_->updateEntry(n);
         }
     } else if (f.kind == Focus::Edition) {

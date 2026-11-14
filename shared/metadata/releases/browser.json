@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.7.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Pop out the video (Alt+P, the menu, the tab's menu or a right-click on the page): the page's video moves into a small window that stays on top of your other apps, with its player's controls and adverts still working. Drag its bar to move it, its edges to resize it; it remembers where you put it.",
+        "The pop-out keeps going when an advert ends: its end screen stays, and when the page swaps in the programme's video (or a new player) the pop-out follows it.",
+        "Back to the tab (the bar's button, a double-click on the bar, or closing the pop-out) puts the page back where it was, still playing."
+      ]
+    },
+    {
       "version": "0.6.0",
       "date": "2026-11-14",
       "notes": [

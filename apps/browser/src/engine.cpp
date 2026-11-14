@@ -334,6 +334,7 @@ void Page::wireEvents() {
             loading_ = false;
             BOOL ok = TRUE;
             a->get_IsSuccess(&ok);
+            if (ok && popout_) setVideoPopout(true);   // a new document: its video fills the pop-out too
             if (ok && events_.loaded) {
                 LPWSTR src = nullptr;
                 web_->get_Source(&src);
@@ -480,6 +481,8 @@ void Page::wireEvents() {
                 };
                 if (!picture.empty() && events_.savePicture)
                     add(L"Save picture to a reference board", [this, picture, page] { events_.savePicture(picture, page, title_); });
+                if (events_.popoutVideo && (kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_VIDEO || kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_PAGE))
+                    add(popout_ ? L"Put the video back in its tab" : L"Pop out the video", [this] { events_.popoutVideo(); });
                 if (events_.pickColour && kind != COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_SELECTED_TEXT)
                     add(L"Pick a colour from the page", [this] { events_.pickColour(); });
                 if (at) {
@@ -656,6 +659,115 @@ void Page::print() {
 }
 
 void Page::openDevTools() { if (web_) web_->OpenDevToolsWindow(); }
+
+
+// The video pop-out, run in the page. Keeps the main video's player filling the page: every
+// 0.7 seconds it checks the player still holds the video playing, and if the page has replaced
+// it (an advert finished and the programme's player took over, an end screen, the next video)
+// it finds the new one. Leaving the player alone while no video is playing means an advert's
+// end screen stays put instead of the pop-out falling back to the whole page.
+const wchar_t* kPopoutScript = LR"JS((function(on){
+  var S='__nr_popout_style', P='__nr_pop', A='__nr_popa', V='__nr_popv', F='__nr_popf';
+  if (window.__nrPopTimer) { clearInterval(window.__nrPopTimer); window.__nrPopTimer = 0; }
+  function clear(){
+    [P,A,V,F].forEach(function(c){ document.querySelectorAll('.'+c).forEach(function(e){ e.classList.remove(c); }); });
+  }
+  clear();
+  var old = document.getElementById(S); if (old) old.remove();
+  window.__nrPopBox = null;
+  if (!on) { window.dispatchEvent(new Event('resize')); return 'off'; }
+  var st = document.createElement('style'); st.id = S;
+  st.textContent = 'html,body{overflow:hidden!important;scrollbar-width:none!important}'
+    + 'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important}'
+    + '.'+P+'{position:fixed!important;left:0!important;top:0!important;right:auto!important;bottom:auto!important;'
+    + 'width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;min-width:0!important;'
+    + 'margin:0!important;padding:0!important;z-index:2147483646!important;background:#000!important;transform:none!important;border-radius:0!important}'
+    + '.'+A+'{transform:none!important;filter:none!important;contain:none!important;will-change:auto!important;perspective:none!important}'
+    + '.'+F+'{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;transform:none!important}'
+    + '.'+V+'{position:absolute!important;left:0!important;top:0!important;width:100%!important;height:100%!important;object-fit:contain!important;'
+    + 'max-width:none!important;max-height:none!important;margin:0!important;transform:none!important}';
+  (document.head || document.documentElement).appendChild(st);
+  function playing(v){ return v && !v.paused && !v.ended && v.readyState > 2; }
+  function pick(){
+    var best = null, score = 0;
+    document.querySelectorAll('video').forEach(function(v){
+      var r = v.getBoundingClientRect();
+      var a = Math.max(r.width * r.height, (v.videoWidth * v.videoHeight) / 4, 1);
+      var s = a * (playing(v) ? 8 : 1) * (v.readyState > 0 ? 2 : 1);
+      if (s > score) { score = s; best = v; }
+    });
+    return best;
+  }
+  function apply(v){
+    clear();
+    window.__nrPopBox = null;
+    if (!v) return false;
+    var r = v.getBoundingClientRect(), box = v;
+    var vw = Math.max(1, r.width), vh = Math.max(1, r.height);
+    // The player: the outermost parent about the video's size (it holds the controls and adverts),
+    // never one with the page's other things in it.
+    for (var e = v.parentElement, n = 0; e && e !== document.body && e !== document.documentElement && n < 8; e = e.parentElement, n++) {
+      var q = e.getBoundingClientRect();
+      if (q.width > vw * 1.1 + 4 || q.height > vh * 1.1 + 4 || q.width < 2) break;
+      // Something beside the video (not over it, as the controls and adverts are): the page, not the player.
+      var outside = false;
+      for (var k = 0; k < e.children.length && !outside; k++) {
+        var c = e.children[k];
+        if (c.contains(v)) continue;
+        var cr = c.getBoundingClientRect();
+        if (cr.width * cr.height < 1) continue;
+        var ox = Math.min(cr.right, r.right) - Math.max(cr.left, r.left), oy = Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top);
+        if (ox <= 0 || oy <= 0 || (ox * oy) < cr.width * cr.height * 0.5) outside = true;
+      }
+      if (outside) break;
+      box = e;
+    }
+    // Everything between the player and the video stretches with it.
+    for (var f = v.parentElement; f && f !== box; f = f.parentElement) f.classList.add(F);
+    for (var a = box.parentElement; a && a !== document.documentElement; a = a.parentElement) a.classList.add(A);
+    box.classList.add(P);
+    if (box !== v) { v.classList.add(V); if (getComputedStyle(box).position === 'static') box.style.setProperty('position', 'fixed', 'important'); }
+    window.__nrPopBox = box;
+    window.__nrPopVideo = v;
+    window.dispatchEvent(new Event('resize'));
+    return true;
+  }
+  function tick(){
+    var box = window.__nrPopBox, cur = window.__nrPopVideo;
+    var ok = box && box.isConnected && cur && cur.isConnected && box.contains(cur);
+    var v = pick();
+    if (!v) return;                                   // nothing to show (an end screen): leave it
+    if (ok && (playing(cur) || !playing(v))) return;  // still showing the right one
+    if (ok && v === cur) return;
+    apply(v);
+  }
+  var had = apply(pick());
+  window.__nrPopTimer = setInterval(tick, 700);
+  return had ? 'video' : 'none';
+})(%ON%))JS";
+
+void Page::reparent(HWND parent) {
+    parent_ = parent;
+    if (controller_) {
+        controller_->put_ParentWindow(parent);
+        controller_->NotifyParentWindowPositionChanged();
+    }
+}
+
+void Page::setVideoPopout(bool on, std::function<void(bool hasVideo)> done) {
+    popout_ = on;
+    if (!web_) { if (done) done(false); return; }
+    std::wstring script = kPopoutScript;
+    script.replace(script.find(L"%ON%"), 4, on ? L"true" : L"false");
+    auto live = [alive = std::weak_ptr<bool>(alive_)] { auto a = alive.lock(); return a && *a; };
+    auto handler = makeHandler<ICoreWebView2ExecuteScriptCompletedHandler, HRESULT, LPCWSTR>(
+        [done, live](HRESULT hr, LPCWSTR result) -> HRESULT {
+            if (!live() || !done) return S_OK;
+            done(SUCCEEDED(hr) && result && std::wstring(result) == L"\"video\"");
+            return S_OK;
+        });
+    web_->ExecuteScript(script.c_str(), handler.get());
+}
 
 void Page::setBounds(const RECT& r) {
     if (memcmp(&r, &bounds_, sizeof r) == 0) return;

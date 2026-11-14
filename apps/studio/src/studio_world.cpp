@@ -6,8 +6,11 @@
 #include "studio_app.hpp"
 #include "cjui/menu.hpp"
 
+#include <shobjidl.h>
+
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <set>
@@ -297,6 +300,11 @@ void StudioApp::openEntry(const Id& id) {
     commitFields();
     wb_.board.clear();   // out of any image board
     wb_.item.clear();
+    if (wb_.entry != id) {
+        wb_.section.clear();
+        wb_.editTemplate = false;
+        wb_.picture = -1;
+    }
     wb_.entry = id;
     wb_.scroll = 0;
     wb_.mentionsFor.clear();   // looked up again
@@ -587,7 +595,10 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
     y += 24;
     {
         const json bj = boardsData();
+        int shown = 0;
         for (auto& bd : bj["boards"]) {
+            if (!bd.value("entry", "").empty()) continue;   // kept on an entry's page
+            ++shown;
             const std::string bid = bd.value("id", "");
             const std::string id = "side:wb:board:" + bid;
             const Rect rr{x, y, wd, 30};
@@ -597,6 +608,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                 wb_.item.clear();
                 wb_.entry.clear();
                 wb_.scroll = 0;
+                wb_.panelScroll = 0;
                 setFocus({Focus::Board, bid, {}});
                 invalidate();
             });
@@ -610,8 +622,8 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             if (focused(id)) focusRing(rr);
             y += 32;
         }
-        if (bj["boards"].empty()) {
-            y += gfx_.text(L"Pictures for this world: characters, maps, places, moods.", {tx0, y, cw, 40}, Font::Small, pal_.inkFaint) + 6;
+        if (!shown) {
+            y += gfx_.text(L"Pictures for this world: maps, places, moods. A character's own boards are on their page.", {tx0, y, cw, 40}, Font::Small, pal_.inkFaint) + 6;
         }
     }
     y += 20;
@@ -907,6 +919,188 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
         y = std::max(y, ty) + 26;
 
+        // The page's sections, from the kind's template: written ones in full, the rest as a row to start.
+        {
+            const auto secs = lib_->entrySections(*e);
+            std::vector<std::string> empty;
+            for (const auto& [title, text] : secs) {
+                if (text.empty()) { empty.push_back(title); continue; }
+                const std::string id = "wb:sec:" + title;
+                gfx_.text(upper(w(title)), {m.x, y, cw - 60, 18}, Font::Label, wb_.section == title ? pal_.ribbon : pal_.inkFaint, {Align::Left, false});
+                linkText(id, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y - 2, L"Edit", [this, title] {
+                    commitFields();
+                    wb_.section = title;
+                    wb_.editTemplate = false;
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    invalidate();
+                    focusFieldSoon_ = FSection;
+                });
+                y += 26;
+                y += drawLinkedText(text, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lsec" + title + ":") + 24;
+            }
+            if (!empty.empty()) {
+                gfx_.text(L"STILL TO WRITE", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 26;
+                float lx = m.x;
+                for (const std::string& t : empty) {
+                    const std::wstring nm = L"+ " + w(t);
+                    const float lw2 = gfx_.measureWidth(nm, Font::Small) + 26;
+                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 34; }
+                    const Rect chip{lx, y, lw2, 28};
+                    const std::string id = "wb:secnew:" + t;
+                    addHit(id, chip, [this, t] {
+                        commitFields();
+                        wb_.section = t;
+                        wb_.editTemplate = false;
+                        loadedFocus_ = {Focus::None, "-", ""};
+                        focusFieldSoon_ = FSection;
+                        invalidate();
+                    });
+                    const float hv = hoverAmount(id);
+                    const bool on = wb_.section == t;
+                    gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+                    gfx_.strokeRounded(chip, 14, on ? pal_.ribbon : pal_.rule.mix(pal_.ribbon, hv));
+                    gfx_.text(nm, chip, Font::Small, on ? pal_.ink : pal_.inkMuted, {Align::Center, false, true, true});
+                    if (focused(id)) focusRing(chip);
+                    lx += lw2 + 8;
+                }
+                y += 50;
+            }
+        }
+
+        // Notes for each book, in reading order.
+        {
+            if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+            for (const Id& bid : wb_.bookOrder) {
+                const std::string& note = e->bookNote(bid);
+                const studio::Book* b = lib_->book(bid);
+                if (note.empty() || !b) continue;
+                gfx_.text(L"IN " + upper(w(b->title)), {m.x, y, cw - 60, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                linkText("wb:bnedit:" + bid, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y - 2, L"Edit", [this, bid] {
+                    commitFields();
+                    wb_.noteBook = bid;
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    focusFieldSoon_ = FBookNote;
+                    invalidate();
+                });
+                y += 26;
+                y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
+            }
+        }
+
+        // Gallery: pictures of it, kept with the entry.
+        {
+            gfx_.text(L"GALLERY" + (e->gallery.empty() ? std::wstring() : L"  ·  " + std::to_wstring(e->gallery.size())), {m.x, y, cw, 18},
+                      Font::Label, pal_.inkFaint, {Align::Left, false});
+            linkText("wb:galadd", m.right() - gfx_.measureWidth(L"+ Add pictures…", Font::Small), y - 2, L"+ Add pictures…",
+                     [this] { addGalleryPictures(); });
+            y += 30;
+            if (e->gallery.empty()) {
+                y += gfx_.text(L"Art, sketches, references and looks for it. The main picture is set in the panel; any of these can be it.",
+                               {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 18;
+            } else {
+                const float th = 150, gap = 12;
+                float lx = m.x, rowH = th;
+                for (size_t i = 0; i < e->gallery.size(); ++i) {
+                    const auto& pic = e->gallery[i];
+                    const std::wstring path = w(lib_->blobPath(pic.blob));
+                    const auto [pw, ph] = gfx_.imageSize(path);
+                    const float tw = pw > 0 ? std::clamp(th * pw / (float)ph, 80.0f, 300.0f) : th;
+                    const float capH = pic.caption.empty() ? 0 : 22;
+                    if (lx + tw > m.right() && lx > m.x) { lx = m.x; y += rowH + gap; rowH = th; }
+                    rowH = std::max(rowH, th + capH);
+                    const Rect pr{lx, y, tw, th};
+                    const std::string id = "wb:gal:" + std::to_string(i);
+                    addHit(id, pr, [this, i] {
+                        commitFields();
+                        wb_.picture = (int)i;
+                        loadedFocus_ = {Focus::None, "-", ""};
+                        focusFieldSoon_ = FCaption;
+                        invalidate();
+                    });
+                    const float hv = hoverAmount(id);
+                    const bool sel = wb_.picture == (int)i;
+                    softShadow(pr, 4, std::max(0.3f + 0.7f * hv, sel ? 1.0f : 0.0f));
+                    if (!gfx_.drawImage(path, pr, true)) {
+                        gfx_.fillRounded(pr, 4, pal_.sunken);
+                        gfx_.text(L"Missing", pr, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+                    }
+                    if (pic.blob == e->imageBlob) {
+                        const Rect tag{pr.x + 6, pr.y + 6, gfx_.measureWidth(L"Main", Font::Label) + 14, 20};
+                        gfx_.fillRounded(tag, 10, pal_.paper.withAlpha(0.9f));
+                        gfx_.text(L"MAIN", tag, Font::Label, pal_.ink, {Align::Center, false, false, true});
+                    }
+                    if (sel) gfx_.strokeRounded(pr, 4, pal_.ribbon, 2.5f);
+                    if (!pic.caption.empty())
+                        gfx_.text(w(pic.caption), {pr.x, pr.bottom() + 4, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                    if (focused(id)) focusRing(pr);
+                    lx += tw + gap;
+                }
+                y += rowH + 30;
+            }
+        }
+
+        // Image boards kept on this page.
+        {
+            const json bj = boardsData();
+            std::vector<const json*> mine;
+            for (auto& bd : bj["boards"]) if (bd.value("entry", "") == e->id) mine.push_back(&bd);
+            gfx_.text(L"IMAGE BOARDS" + (mine.empty() ? std::wstring() : L"  ·  " + std::to_wstring(mine.size())), {m.x, y, cw, 18},
+                      Font::Label, pal_.inkFaint, {Align::Left, false});
+            linkText("wb:eboardnew", m.right() - gfx_.measureWidth(L"+ New board", Font::Small), y - 2, L"+ New board", [this] { newEntryBoard(); });
+            y += 30;
+            if (mine.empty()) {
+                y += gfx_.text(L"Boards to arrange pictures freely: outfits, moods, a place's look. A board from the sidebar can be moved here "
+                               L"from its panel.",
+                               {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 18;
+            } else {
+                const float bw = 260, bh = 150, gap = 12;
+                const int cols = std::max(1, (int)((cw + gap) / (bw + gap)));
+                const float cwid = (cw - gap * (cols - 1)) / cols;
+                for (size_t i = 0; i < mine.size(); ++i) {
+                    const json& bd = *mine[i];
+                    const int col = (int)i % cols;
+                    const Rect br{m.x + col * (cwid + gap), y, cwid, bh};
+                    const std::string bid = bd.value("id", "");
+                    const std::string id = "wb:eboard:" + bid;
+                    addHit(id, br, [this, bid, eid = e->id] {
+                        commitFields();
+                        wb_.board = bid;
+                        wb_.item.clear();
+                        wb_.boardEntry = eid;
+                        wb_.entry.clear();
+                        wb_.scroll = 0;
+                        wb_.panelScroll = 0;
+                        setFocus({Focus::Board, bid, {}});
+                        invalidate();
+                    });
+                    const float hv = hoverAmount(id);
+                    gfx_.fillRounded(br, 6, pal_.surface);
+                    gfx_.strokeRounded(br, 6, pal_.rule.mix(pal_.ribbon, hv));
+                    // Up to three of its pictures, side by side.
+                    const auto& items = bd["items"];
+                    const Rect strip{br.x + 8, br.y + 8, br.w - 16, bh - 52};
+                    const size_t n = std::min<size_t>(3, items.size());
+                    if (n == 0) {
+                        gfx_.fillRounded(strip, 4, pal_.sunken);
+                        gfx_.text(L"Empty", strip, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+                    }
+                    for (size_t k = 0; k < n; ++k) {
+                        const float sw = (strip.w - 6 * (float)(n - 1)) / (float)n;
+                        const Rect sr{strip.x + k * (sw + 6), strip.y, sw, strip.h};
+                        if (!gfx_.drawImage(w(lib_->blobPath(items[k].value("blob", ""))), sr, true)) gfx_.fillRounded(sr, 4, pal_.sunken);
+                    }
+                    gfx_.text(w(bd.value("name", "Board")), {br.x + 12, br.bottom() - 40, br.w - 24, 20}, Font::BodyStrong, pal_.ink,
+                              {Align::Left, false, true});
+                    gfx_.text(std::to_wstring(items.size()) + (items.size() == 1 ? L" picture" : L" pictures"), {br.x + 12, br.bottom() - 21, br.w - 24, 16},
+                              Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                    if (focused(id)) focusRing(br);
+                    if (col == cols - 1 || i + 1 == mine.size()) y += bh + gap;
+                }
+                y += 22;
+            }
+        }
+
         // Relationships.
         // Members: a group's or a race's people (and creatures), as small cards, with a way to add them.
         auto isMembership = [&](const EntryLink& l) {
@@ -1079,12 +1273,22 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
     gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
+    if (const Entry* ce = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry)) {
+        // The section written in the panel: the one picked, else the first of the template.
+        const auto secs = lib_->entrySections(*ce);
+        if (std::none_of(secs.begin(), secs.end(), [&](auto& s) { return s.first == wb_.section; })) {
+            wb_.section = secs.empty() ? std::string() : secs[0].first;
+            loadedFocus_ = {Focus::None, "-", ""};
+        }
+        if (wb_.picture >= (int)ce->gallery.size()) wb_.picture = -1;
+    }
     if (!(focus_ == loadedFocus_)) loadFields();
     gfx_.pushClip(r);
     setHitClip(r);
     const Rect c{r.x + 20, r.y, r.w - 40, 0};
     float y = r.y + 18 - wb_.panelScroll;
     const Entry* e = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry);
+    std::map<int, float> fieldTop;   // where some fields are, to scroll to them
     if (e && !e->deleted) {
         panelHeading(c, y, L"ENTRY", true);
         y = panelField(c, y, L"Name", FName);
@@ -1166,6 +1370,127 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             if (const Entry* x = lib_->entry(wb_.entry)) { Entry u = *x; u.imageBlob.clear(); lib_->updateEntry(u); }
         }, false);
         y = panelField(c, y, L"Details (one per line, like Age: 34)", FSynopsis, 120);
+
+        // The selected gallery picture.
+        if (wb_.picture >= 0 && wb_.picture < (int)e->gallery.size()) {
+            panelHeading(c, y, L"GALLERY PICTURE", false);
+            const auto& pic = e->gallery[(size_t)wb_.picture];
+            const std::wstring path = w(lib_->blobPath(pic.blob));
+            const auto [pw, ph] = gfx_.imageSize(path);
+            const float bh = pw > 0 ? std::min(c.w * ph / (float)pw, 220.0f) : 120.0f;
+            const float bw = pw > 0 ? std::min(c.w, bh * pw / (float)ph) : c.w;
+            if (!gfx_.drawImage(path, {c.x, y, bw, bh}, true)) gfx_.fillRounded({c.x, y, c.w, bh}, 3, pal_.sunken);
+            y += bh + 10;
+            fieldTop[FCaption] = y;
+            y = panelField(c, y, L"Caption", FCaption);
+            if (pic.blob != e->imageBlob) {
+                linkText("wb:galmain", c.x, y, L"Use as the main picture", [this] {
+                    commitFields();
+                    if (const Entry* x = lib_->entry(wb_.entry); x && wb_.picture >= 0 && wb_.picture < (int)x->gallery.size()) {
+                        Entry u = *x;
+                        u.imageBlob = x->gallery[(size_t)wb_.picture].blob;
+                        lib_->updateEntry(u);
+                        flash(L"It's now the entry's main picture.", 4);
+                    }
+                });
+                y += 26;
+            }
+            linkText("wb:galremove", c.x, y, L"Remove from the gallery", [this] { galleryMenu((size_t)wb_.picture); });
+            y += 26;
+            linkText("wb:galdone", c.x, y, L"Done", [this] { commitFields(); wb_.picture = -1; loadedFocus_ = {Focus::None, "-", ""}; invalidate(); });
+            y += 36;
+        }
+
+        // The page's sections, one at a time.
+        panelHeading(c, y, L"PAGE", false);
+        {
+            const auto secs = lib_->entrySections(*e);
+            if (!secs.empty()) {
+                panelChoice("wb:section", c, y, L"Section", w(wb_.section), [this] {
+                    const Entry* x = lib_->entry(wb_.entry);
+                    if (!x) return;
+                    const auto ss = lib_->entrySections(*x);
+                    std::vector<std::wstring> items;
+                    int cur = -1;
+                    for (size_t i = 0; i < ss.size(); ++i) {
+                        items.push_back(w(ss[i].first) + (ss[i].second.empty() ? L"" : L"  ✓"));
+                        if (ss[i].first == wb_.section) cur = (int)i;
+                    }
+                    const int i = popupAt(hwnd(), items, cur);
+                    if (i < 0 || i == cur) return;
+                    commitFields();
+                    wb_.section = ss[(size_t)i].first;
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    focusFieldSoon_ = FSection;
+                    invalidate();
+                });
+                fieldTop[FSection] = y;
+                y = panelField(c, y, w(wb_.section), FSection, 170);
+            }
+        }
+        {
+            const std::wstring kindName = w(entryKindLabel(e->kind));
+            if (!wb_.editTemplate) {
+                linkText("wb:tpl", c.x, y, L"Change the sections every " + kindName + L" page has…", [this] {
+                    commitFields();
+                    wb_.editTemplate = true;
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    focusFieldSoon_ = FTemplate;
+                    invalidate();
+                });
+                y += 34;
+            } else {
+                const World* wo = lib_->world(e->worldId);
+                fieldTop[FTemplate] = y;
+                y = panelField(c, y, L"Sections of a " + kindName + L" page, one per line" + (wo ? L" (all of " + w(wo->name) + L")" : L""), FTemplate, 130);
+                linkText("wb:tpldone", c.x, y, L"Done", [this] {
+                    commitFields();
+                    wb_.editTemplate = false;
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    invalidate();
+                });
+                linkText("wb:tplreset", c.x + 60, y, L"Use the built-in sections", [this] {
+                    const Entry* x = lib_->entry(wb_.entry);
+                    if (!x) return;
+                    wb_.editTemplate = false;
+                    commitFields();
+                    lib_->setEntryTemplate(x->worldId, x->kind, defaultEntryTemplate(x->kind));
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    invalidate();
+                });
+                y += 26;
+                y += gfx_.text(L"Writing already in a section you take out stays on the page, after the others.", {c.x, y, c.w, 40}, Font::Small,
+                               pal_.inkFaint) + 12;
+            }
+        }
+
+        // Notes for one book at a time.
+        if (const Id nb = noteBookFor(*e); !nb.empty()) {
+            const studio::Book* b = lib_->book(nb);
+            if (wb_.bookOrder.size() > 1) {
+                panelChoice("wb:notebook", c, y, L"Notes for the book", b ? w(b->title) : L"", [this] {
+                    std::vector<std::wstring> items;
+                    int cur = -1;
+                    const Entry* x = lib_->entry(wb_.entry);
+                    if (!x) return;
+                    const Id now = noteBookFor(*x);
+                    for (size_t i = 0; i < wb_.bookOrder.size(); ++i) {
+                        const studio::Book* bk = lib_->book(wb_.bookOrder[i]);
+                        items.push_back(bk ? w(bk->title) + (x->bookNote(bk->id).empty() ? L"" : L"  ✓") : L"?");
+                        if (wb_.bookOrder[i] == now) cur = (int)i;
+                    }
+                    const int i = popupAt(hwnd(), items, cur);
+                    if (i < 0 || i == cur) return;
+                    commitFields();
+                    wb_.noteBook = wb_.bookOrder[(size_t)i];
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    focusFieldSoon_ = FBookNote;
+                    invalidate();
+                });
+            }
+            fieldTop[FBookNote] = y;
+            y = panelField(c, y, L"In " + (b ? w(b->title) : std::wstring()) + L": what happens to it, what it knows", FBookNote, 110);
+        }
         y = panelField(c, y, L"Notes", FNotes, 180);
         linkText("wb:trash", c.x, y, L"Move to Trash", [this] {
             const Entry* x = lib_->entry(wb_.entry);
@@ -1199,6 +1524,101 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     wb_.panelContent = y + wb_.panelScroll - r.y + 20;
     clearHitClip();
     gfx_.popClip();
+    if (focusFieldSoon_ >= 0 && focusFieldSoon_ < FieldCount) {
+        if (placed_[focusFieldSoon_]) {
+            SetFocus(fields_[focusFieldSoon_]);
+            SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, (WPARAM)-1, -1);
+            focusFieldSoon_ = -1;
+        } else if (auto it = fieldTop.find(focusFieldSoon_); it != fieldTop.end()) {
+            // Out of sight: scroll the panel to it, and focus it once it's placed.
+            const float want = wb_.panelScroll + (it->second - (r.y + 50));
+            wb_.panelScroll = std::clamp(want, 0.0f, std::max(0.0f, wb_.panelContent - r.h));
+            invalidate();
+        } else {
+            focusFieldSoon_ = -1;
+        }
+    }
+}
+
+// The book whose notes the panel shows: the one picked, else the book open in Writing, else the first.
+Id StudioApp::noteBookFor(const Entry& e) const {
+    if (!e.bookId.empty()) return e.bookId;
+    std::vector<Id> books;
+    for (const studio::Book* b : lib_->liveBooks()) if (b->worldId == e.worldId && !e.worldId.empty()) books.push_back(b->id);
+    auto in = [&](const Id& id) { return !id.empty() && std::find(books.begin(), books.end(), id) != books.end(); };
+    if (in(wb_.noteBook)) return wb_.noteBook;
+    if (in(writingBook_)) return writingBook_;
+    if (!wb_.bookOrder.empty() && in(wb_.bookOrder[0])) return wb_.bookOrder[0];
+    return books.empty() ? Id{} : books[0];
+}
+
+// Pictures from files into the entry's gallery (stored once in the library, listed in Artwork).
+void StudioApp::addGalleryPictures() {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e) return;
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC spec[] = {{L"Pictures", L"*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"}};
+    dlg->SetFileTypes(1, spec);
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM);
+    dlg->SetTitle((L"Add pictures of " + w(e->name)).c_str());
+    std::vector<std::wstring> paths;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItemArray* arr = nullptr;
+        if (SUCCEEDED(dlg->GetResults(&arr))) {
+            DWORD n = 0;
+            arr->GetCount(&n);
+            for (DWORD i = 0; i < n && i < 200; ++i) {
+                IShellItem* item = nullptr;
+                if (SUCCEEDED(arr->GetItemAt(i, &item))) {
+                    PWSTR p = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { paths.push_back(p); CoTaskMemFree(p); }
+                    item->Release();
+                }
+            }
+            arr->Release();
+        }
+    }
+    dlg->Release();
+    if (paths.empty()) return;
+    commitFields();
+    Entry u = *lib_->entry(wb_.entry);
+    int added = 0, failed = 0;
+    for (const std::wstring& p : paths) {
+        std::ifstream f(p.c_str(), std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (bytes.empty() || bytes.size() > 80u * 1024 * 1024) { ++failed; continue; }
+        std::wstring name = p.substr(p.find_last_of(L"\\/") + 1);
+        if (const size_t dot = name.rfind(L'.'); dot != std::wstring::npos) name.resize(dot);
+        const Id aid = lib_->addArtwork(bytes, narrow(name), "Bible");
+        const Artwork* a = aid.empty() ? nullptr : lib_->artwork(aid);
+        if (!a) { ++failed; continue; }
+        if (std::none_of(u.gallery.begin(), u.gallery.end(), [&](auto& g) { return g.blob == a->blob; })) u.gallery.push_back({a->blob, ""});
+        if (u.imageBlob.empty()) u.imageBlob = a->blob;   // the first picture is the main one
+        ++added;
+    }
+    lib_->updateEntry(u);
+    flash(std::to_wstring(added) + (added == 1 ? L" picture added to the gallery." : L" pictures added to the gallery.") +
+              (failed ? L" " + std::to_wstring(failed) + L" couldn't be read." : L""), 5);
+    invalidate();
+}
+
+// Taking a picture out of the gallery (it stays in Artwork).
+void StudioApp::galleryMenu(size_t index) {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e || index >= e->gallery.size()) return;
+    commitFields();
+    Entry u = *lib_->entry(wb_.entry);
+    const std::string blob = u.gallery[index].blob;
+    u.gallery.erase(u.gallery.begin() + (long)index);
+    if (u.imageBlob == blob) u.imageBlob = u.gallery.empty() ? std::string() : u.gallery[0].blob;
+    lib_->updateEntry(u);
+    wb_.picture = -1;
+    loadedFocus_ = {Focus::None, "-", ""};
+    flash(L"Removed from the gallery. The picture stays in Artwork.", 5);
+    invalidate();
 }
 
 // ------------------------------------------------------------- tidying and the creature tree

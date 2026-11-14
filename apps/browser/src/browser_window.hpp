@@ -304,6 +304,19 @@ private:
     std::int64_t weatherAt_ = 0;     // when it was fetched (Unix seconds)
     bool weatherBusy_ = false, weatherSetup_ = false;
 
+    // ---- Video pop-out (browser_popout.cpp): a tab's page in a small window that stays on top
+    // of other apps, its video filling it. Closing it (or "Back to the tab") puts the page back.
+    void popOutVideo(int id);
+    void popBackIn();
+    LRESULT popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp);
+    void placePopoutPage();
+    void drawPopoutPlaceholder(const cjui::Rect& r);
+    HWND pop_ = nullptr;
+    int popTab_ = 0;              // the tab whose page is in it (0 = none)
+    int popHover_ = 0, popDown_ = 0;   // 1 back, 2 close
+    bool popTracking_ = false;
+    friend LRESULT CALLBACK popoutProc(HWND, UINT, WPARAM, LPARAM);
+
     // ---- Start page (browser_start.cpp)
     void drawStartTiles(const cjui::Rect& area, float& y);
 };

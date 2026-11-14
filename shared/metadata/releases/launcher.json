@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.35.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.32.0: entry pages with sections from a template you can change, notes per book, a gallery and image boards inside each entry.",
+        "NorthRay Browser 0.7.0: pop out a video to watch it on top of other apps, and it keeps going when an advert ends."
+      ]
+    },
+    {
       "version": "0.34.0",
       "date": "2026-11-14",
       "notes": [

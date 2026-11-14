@@ -187,9 +187,26 @@ struct Entry {
     std::string details;              // "Label: value" lines (Age: 34, Eyes: grey, ...)
     std::string notes;
     std::string imageBlob;
+    // The page's sections, in order ("Appearance & personality" -> text), from the kind's template.
+    std::vector<std::pair<std::string, std::string>> sections;
+    // Pictures kept with the entry: its gallery (the main picture is imageBlob). Its image boards are
+    // the app's boards marked as the entry's.
+    struct Picture { std::string blob, caption; };
+    std::vector<Picture> gallery;
+    std::vector<std::pair<Id, std::string>> bookNotes;     // notes for one book (book id -> text)
     double order = 0;
     Time created = 0, modified = 0, deleted = 0;
+
+    const std::string& section(const std::string& title) const;   // "" if it has none
+    void setSection(const std::string& title, const std::string& text);
+    const std::string& bookNote(const Id& book) const;
+    void setBookNote(const Id& book, const std::string& text);
 };
+// The sections an entry page of `kind` starts with (the built-in template).
+const std::vector<std::string>& defaultEntryTemplate(const std::string& kind);
+// A template written one section per line, and back.
+std::vector<std::string> parseEntryTemplate(const std::string& lines);
+std::string entryTemplateText(const std::vector<std::string>& sections);
 const std::vector<std::string>& entryKinds();          // in display order
 // The parts of a character's full name that stand for them too ("Maren Ada Holt": "Maren", "Holt", "Maren Holt", ...).
 std::vector<std::string> nameParts(const std::string& fullName);
@@ -436,6 +453,11 @@ public:
     static std::string localDay(Time t);
     // Small per-library settings (a book's typesetting design, ...), kept in the database.
     std::string setting(const std::string& key) const;
+    // A world's page template for one kind (its own if edited, else the built-in one), and editing it.
+    std::vector<std::string> entryTemplate(const Id& worldId, const std::string& kind) const;
+    bool setEntryTemplate(const Id& worldId, const std::string& kind, const std::vector<std::string>& sections);
+    // An entry's sections in its template's order, with any it has beyond the template after them.
+    std::vector<std::pair<std::string, std::string>> entrySections(const Entry& e) const;
     bool setSetting(const std::string& key, const std::string& value);
 
     // A whole-library JSON file (without images) for moving or archiving.

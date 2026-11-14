@@ -54,6 +54,7 @@ add_executable(NorthRayBrowser WIN32
   src/browser_downloads.cpp
   src/browser_references.cpp
   src/browser_start.cpp
+  src/browser_popout.cpp
   src/settings.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )

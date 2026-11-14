@@ -356,6 +356,7 @@ std::unique_ptr<Library> Library::open(const std::string& folder, OpenResult& r)
             {"nodes", "pov_id", "ALTER TABLE nodes ADD COLUMN pov_id TEXT NOT NULL DEFAULT ''"},
             {"nodes", "target_words", "ALTER TABLE nodes ADD COLUMN target_words INTEGER NOT NULL DEFAULT 0"},
             {"nodes", "matter", "ALTER TABLE nodes ADD COLUMN matter INTEGER NOT NULL DEFAULT 0"},
+            {"entries", "page", "ALTER TABLE entries ADD COLUMN page TEXT NOT NULL DEFAULT '{}'"},
         };
         for (const Add& a : adds) {
             bool has = false;
@@ -1136,7 +1137,7 @@ bool Library::exportJson(const std::string& path, std::string& err) const {
     for (auto& e : entries_)
         j["entries"].push_back({{"id", e.id}, {"worldId", e.worldId}, {"bookId", e.bookId}, {"kind", e.kind}, {"name", e.name},
                                 {"aliases", e.aliases}, {"summary", e.summary}, {"details", e.details}, {"notes", e.notes},
-                                {"imageBlob", e.imageBlob}, {"order", e.order}, {"created", e.created}, {"modified", e.modified},
+                                {"imageBlob", e.imageBlob}, {"page", json::parse(detail::entryPageText(e), nullptr, false)}, {"order", e.order}, {"created", e.created}, {"modified", e.modified},
                                 {"deleted", e.deleted}});
     for (auto& l : links_) j["entryLinks"].push_back({{"from", l.from}, {"to", l.to}, {"label", l.label}});
     for (auto& c : comments_)

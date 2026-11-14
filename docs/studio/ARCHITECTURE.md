@@ -298,3 +298,12 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
 - Review's "Add to the bible" refuses a name that is already in the bible.
 - Creatures (`drawCreatureTree`): with `wb_.facet` empty, the species are shown as cards; with "under=<id>", the kinds under that entry, then the characters linked to it with "Kind of" ("named"). A path leads back up. Cards are `wb:tree:<id>` drag sources (`DragState::Entry`) and `Drop::KindOf` targets; there's a "species of its own" zone while dragging. `setKindOf` refuses to create a loop. A character's page has "A creature?" for choosing its kind.
 - The gender and sex signs are drawn in the Title font on character cards and group headings.
+
+## 0.32.0: entry pages, notes per book, galleries
+
+- One column, `entries.page` (TEXT, JSON, default `'{}'`), added through the "adds" list, so `kSchemaVersion` stays 8 and older builds still open the library (they keep the column). It holds `sections` (`[[title, text], ...]`), `gallery` (`[{blob, caption}]`) and `bookNotes` (`{bookId: text}`), and it is written by `detail::entryPageText` and read by `detail::readEntryPage`. The export JSON includes it as `page`.
+- `Entry::section`, `setSection`, `bookNote` and `setBookNote` (an empty note is removed).
+- Templates: `defaultEntryTemplate(kind)` is built in. A world's own template is the setting `entry-template:<world>:<kind>`, one section per line; empty means the built-in one, and a single space means none. `entryTemplate`, `setEntryTemplate` (writing the built-in one clears the setting) and `entrySections(e)` (template order, then any extra written sections).
+- `mergeEntries` joins sections and book notes with `joinText`, and adds gallery pictures it doesn't already have.
+- The app's entry page shows written sections, a "Still to write" row of chips (each picks `wb_.section`), notes per book in reading order, the gallery (`wb_.picture` selects; the panel has its caption, "Use as the main picture" and "Remove"), and the image boards whose JSON has `"entry": <id>`. Those boards are left out of the sidebar, their back link goes to the entry, and the board panel's "Kept in" moves a board between the sidebar and an entry.
+- Panel fields `FSection`, `FBookNote`, `FTemplate` and `isMultiField()`. `focusFieldSoon_` scrolls the panel to a field and focuses it once it's placed.

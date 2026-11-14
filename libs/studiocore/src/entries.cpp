@@ -145,6 +145,7 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
     if (kind == "race") return race;
     if (kind == "creature") return creature;
     if (kind == "place") return place;
+    if (kind == "realm") return realm;
     if (kind == "group") return group;
     if (kind == "thing") return thing;
     if (kind == "lore") return lore;
@@ -157,13 +158,143 @@ std::string reverseRelation(const std::string& label) {
     return label;
 }
 
+// ----------------------------------------------------------------- entry pages
+
+namespace {
+const std::string kNone;
+}
+
+const std::string& Entry::section(const std::string& title) const {
+    for (auto& s : sections) if (s.first == title) return s.second;
+    return kNone;
+}
+
+void Entry::setSection(const std::string& title, const std::string& text) {
+    for (auto& s : sections) if (s.first == title) { s.second = text; return; }
+    if (!text.empty()) sections.emplace_back(title, text);
+}
+
+const std::string& Entry::bookNote(const Id& book) const {
+    for (auto& n : bookNotes) if (n.first == book) return n.second;
+    return kNone;
+}
+
+void Entry::setBookNote(const Id& book, const std::string& text) {
+    for (size_t i = 0; i < bookNotes.size(); ++i)
+        if (bookNotes[i].first == book) {
+            if (text.empty()) bookNotes.erase(bookNotes.begin() + (long)i); else bookNotes[i].second = text;
+            return;
+        }
+    if (!text.empty() && !book.empty()) bookNotes.emplace_back(book, text);
+}
+
+const std::vector<std::string>& defaultEntryTemplate(const std::string& kind) {
+    static const std::vector<std::string> character{"Appearance & personality", "Backstory & goals", "Abilities & powers", "Age, birth & status"};
+    static const std::vector<std::string> creature{"Appearance", "Habitat & range", "Behaviour & diet", "Abilities", "Life cycle"};
+    static const std::vector<std::string> race{"Appearance", "Homeland", "Culture & customs", "Language & names", "Abilities", "History"};
+    static const std::vector<std::string> place{"Description", "History", "Who lives there", "Notable spots"};
+    static const std::vector<std::string> realm{"Description", "Rulers & peoples", "Lands within", "History"};
+    static const std::vector<std::string> group{"Purpose & beliefs", "Leaders & members", "History", "Symbols & colours"};
+    static const std::vector<std::string> thing{"Description", "Origin", "Powers & uses", "Where it is now"};
+    static const std::vector<std::string> lore{"Rules", "Costs & limits", "Who can use it", "History"};
+    static const std::vector<std::string> event{"What happened", "Causes", "Who was there", "What came of it"};
+    static const std::vector<std::string> none;
+    if (kind == "character") return character;
+    if (kind == "creature") return creature;
+    if (kind == "race") return race;
+    if (kind == "place") return place;
+    if (kind == "realm") return realm;
+    if (kind == "group") return group;
+    if (kind == "thing") return thing;
+    if (kind == "lore") return lore;
+    if (kind == "event") return event;
+    return none;
+}
+
+std::vector<std::string> parseEntryTemplate(const std::string& lines) {
+    std::vector<std::string> out;
+    std::istringstream in(lines);
+    std::string l;
+    while (std::getline(in, l)) {
+        while (!l.empty() && (l.back() == '\r' || l.back() == ' ' || l.back() == '\t')) l.pop_back();
+        size_t i = 0;
+        while (i < l.size() && (l[i] == ' ' || l[i] == '\t' || l[i] == '-' || l[i] == '*')) ++i;
+        l = l.substr(i);
+        if (l.empty() || std::find(out.begin(), out.end(), l) != out.end()) continue;
+        out.push_back(l.substr(0, 80));
+    }
+    return out;
+}
+
+std::string entryTemplateText(const std::vector<std::string>& sections) {
+    std::string s;
+    for (auto& t : sections) { if (!s.empty()) s += "\n"; s += t; }
+    return s;
+}
+
+std::vector<std::string> Library::entryTemplate(const Id& worldId, const std::string& kind) const {
+    const std::string own = setting("entry-template:" + worldId + ":" + kind);
+    if (!own.empty()) return parseEntryTemplate(own);
+    return defaultEntryTemplate(kind);
+}
+
+bool Library::setEntryTemplate(const Id& worldId, const std::string& kind, const std::vector<std::string>& sections) {
+    // Empty means "back to the built-in one"; a single space keeps an intentionally empty template.
+    const bool same = sections == defaultEntryTemplate(kind);
+    return setSetting("entry-template:" + worldId + ":" + kind, same ? std::string() : sections.empty() ? std::string(" ") : entryTemplateText(sections));
+}
+
+std::vector<std::pair<std::string, std::string>> Library::entrySections(const Entry& e) const {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (auto& t : entryTemplate(e.worldId, e.kind)) out.emplace_back(t, e.section(t));
+    for (auto& s : e.sections)
+        if (!s.second.empty() && std::none_of(out.begin(), out.end(), [&](auto& o) { return o.first == s.first; })) out.push_back(s);
+    return out;
+}
+
+namespace detail {
+
+std::string entryPageText(const Entry& e) {
+    json j = json::object();
+    json sec = json::array();
+    for (auto& s : e.sections) if (!s.second.empty()) sec.push_back({s.first, s.second});
+    if (!sec.empty()) j["sections"] = sec;
+    json g = json::array();
+    for (auto& p : e.gallery) {
+        json o{{"blob", p.blob}};
+        if (!p.caption.empty()) o["caption"] = p.caption;
+        g.push_back(o);
+    }
+    if (!g.empty()) j["gallery"] = g;
+    json n = json::object();
+    for (auto& b : e.bookNotes) if (!b.second.empty()) n[b.first] = b.second;
+    if (!n.empty()) j["bookNotes"] = n;
+    return j.dump();
+}
+
+void readEntryPage(Entry& e, const std::string& text) {
+    const json j = json::parse(text, nullptr, false);
+    if (!j.is_object()) return;
+    if (auto s = j.find("sections"); s != j.end() && s->is_array())
+        for (auto& x : *s)
+            if (x.is_array() && x.size() == 2 && x[0].is_string() && x[1].is_string()) e.sections.emplace_back(x[0].get<std::string>(), x[1].get<std::string>());
+    if (auto g = j.find("gallery"); g != j.end() && g->is_array())
+        for (auto& x : *g)
+            if (x.is_object() && x.value("blob", std::string()).size())
+                e.gallery.push_back({x.value("blob", std::string()), x.value("caption", std::string())});
+    if (auto n = j.find("bookNotes"); n != j.end() && n->is_object())
+        for (auto it = n->begin(); it != n->end(); ++it) if (it->is_string()) e.bookNotes.emplace_back(it.key(), it->get<std::string>());
+}
+
+}  // namespace detail
+
 // ----------------------------------------------------------------- storage
 
 bool Library::loadEntries() {
     entries_.clear();
     links_.clear();
     {
-        Stmt q(db_, "SELECT id, world_id, book_id, kind, name, aliases, summary, details, notes, image_blob, sort_order, created, modified, deleted "
+        Stmt q(db_, "SELECT id, world_id, book_id, kind, name, aliases, summary, details, notes, image_blob, sort_order, created, modified, deleted, page "
                     "FROM entries ORDER BY name COLLATE NOCASE");
         if (!q) { error_ = sqlite3_errmsg(db_); return false; }
         while (q.row()) {
@@ -173,6 +304,7 @@ bool Library::loadEntries() {
             if (a.is_array()) for (auto& x : a) if (x.is_string()) e.aliases.push_back(x.get<std::string>());
             e.summary = q.text(6); e.details = q.text(7); e.notes = q.text(8); e.imageBlob = q.text(9);
             e.order = q.dbl(10); e.created = q.i64(11); e.modified = q.i64(12); e.deleted = q.i64(13);
+            detail::readEntryPage(e, q.text(14));
             entries_.push_back(std::move(e));
         }
     }
@@ -184,10 +316,11 @@ bool Library::loadEntries() {
 
 bool Library::saveEntry(const Entry& e) {
     Stmt s(db_, "INSERT INTO entries(id, world_id, book_id, kind, name, aliases, summary, details, notes, image_blob, sort_order, created, "
-                "modified, deleted) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(id) DO UPDATE SET "
+                "modified, deleted, page) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET "
                 "kind=excluded.kind, name=excluded.name, aliases=excluded.aliases, summary=excluded.summary, details=excluded.details, "
                 "notes=excluded.notes, image_blob=excluded.image_blob, sort_order=excluded.sort_order, modified=excluded.modified, "
-                "deleted=excluded.deleted");
+                "deleted=excluded.deleted, page=excluded.page");
+    s.bind(15, detail::entryPageText(e));
     s.bindIdOrNull(2, e.worldId).bindIdOrNull(3, e.bookId);
     s.bind(1, e.id).bind(4, e.kind).bind(5, e.name).bind(6, json(e.aliases).dump()).bind(7, e.summary).bind(8, e.details)
         .bind(9, e.notes).bind(10, e.imageBlob).bind(11, e.order).bind(12, (std::int64_t)e.created).bind(13, (std::int64_t)e.modified)
@@ -354,7 +487,9 @@ std::string joinText(const std::string& a, const std::string& b) {
 }
 
 int richness(const Entry& e, size_t links) {
-    return (int)(e.summary.size() + e.details.size() + e.notes.size()) + (e.imageBlob.empty() ? 0 : 200) + (int)e.aliases.size() * 20 + (int)links * 40;
+    return (int)(e.summary.size() + e.details.size() + e.notes.size()) + (e.imageBlob.empty() ? 0 : 200) + (int)e.aliases.size() * 20 + (int)links * 40
+         + [&] { int n = 0; for (auto& x : e.sections) n += (int)x.second.size(); for (auto& x : e.bookNotes) n += (int)x.second.size(); return n; }()
+         + (int)e.gallery.size() * 100;
 }
 
 }  // namespace
@@ -382,6 +517,10 @@ bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
     k.details = joinText(k.details, other->details);
     k.notes = joinText(k.notes, other->notes);
     if (k.imageBlob.empty()) k.imageBlob = other->imageBlob;
+    for (auto& sct : other->sections) k.setSection(sct.first, joinText(k.section(sct.first), sct.second));
+    for (auto& p : other->gallery)
+        if (std::none_of(k.gallery.begin(), k.gallery.end(), [&](const Entry::Picture& q) { return q.blob == p.blob; })) k.gallery.push_back(p);
+    for (auto& n : other->bookNotes) k.setBookNote(n.first, joinText(k.bookNote(n.first), n.second));
     k.modified = now();
     if (!saveEntry(k)) { rollback(); return false; }
     // Its links, now the kept entry's (none to itself, none twice).

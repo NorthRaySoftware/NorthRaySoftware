@@ -103,6 +103,7 @@ struct PageEvents {
     // page's address and title) and "Pick a colour from the page".
     std::function<void(const std::wstring& picture, const std::wstring& page, const std::wstring& title)> savePicture;
     std::function<void()> pickColour;
+    std::function<void()> popoutVideo;                 // "Pop out the video" (or put it back)
     std::function<void(const std::wstring& text)> statusText;  // a link under the pointer, or ""
     std::function<void(int w, int h, std::vector<unsigned char> rgba)> favicon;  // RGBA, empty when none
     std::function<void(bool on)> fullscreen;           // the page wants (or leaves) full screen
@@ -161,6 +162,13 @@ public:
     void setBackground(COLORREF c);
     // What the page shows now, as pixels (RGBA; empty if it couldn't be captured).
     void capture(std::function<void(int w, int h, std::vector<unsigned char> rgba)> done);
+    // Moves the page into another window (the video pop-out) and back.
+    void reparent(HWND parent);
+    // Video pop-out: the page's main video (with its player, so adverts, their end screens and the
+    // controls still work) fills the page, and keeps doing so as the page swaps one video element
+    // for another (an advert ending, the next video). `done(hasVideo)` says whether there was one.
+    void setVideoPopout(bool on, std::function<void(bool hasVideo)> done = {});
+    bool videoPopout() const { return popout_; }
     // Turns saving passwords and filling forms on or off for the page's profile.
     void setFormSaving(bool passwords, bool forms);
     // Deletes every password (and, with `forms`, form entry) the profile has saved.
@@ -192,6 +200,7 @@ private:
     int certFailure_ = 0;         // why the current navigation's certificate was refused
     std::uint64_t navId_ = 0;        // the latest main-frame navigation
     bool downloading_ = false;       // it turned into a download
+    bool popout_ = false;            // the video pop-out is on (set again after each new document)
     int blocked_ = 0;                // requests refused on the page showing
     std::wstring navigatingTo_;   // the main-frame address being opened
     bool loading_ = false, canBack_ = false, canForward_ = false, visible_ = true, closed_ = false;

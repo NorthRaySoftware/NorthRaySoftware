@@ -29,6 +29,8 @@ struct Settings {
     double weatherLat = 0, weatherLon = 0;
     bool fahrenheit = false;
     bool defaultOffered = false;   // the start page has asked once about being the default browser
+    // The video pop-out: where it was last (screen pixels; 0 wide = the bottom-right corner).
+    int popX = 0, popY = 0, popW = 0, popH = 0;
 
     // False if the file couldn't be read (the defaults are used). A file from a
     // newer version is read as far as it's understood and never overwritten
