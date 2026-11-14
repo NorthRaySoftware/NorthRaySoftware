@@ -13,6 +13,9 @@ struct Settings {
     static constexpr int kVersion = 1;
     Theme theme = Theme::System;
     std::string searchEngine = "duckduckgo";
+    bool showBookmarksBar = true;
+    bool savePasswords = true;   // the engine offers to save passwords after a sign-in
+    bool fillForms = true;       // and fills in addresses and other form entries
 
     // False if the file couldn't be read (the defaults are used). A file from a
     // newer version is read as far as it's understood and never overwritten

@@ -1,11 +1,14 @@
 // Unit tests for NorthRay Browser's portable core. Dependency-free like the
 // other suites: run it, it prints each group and exits non-zero on failure.
+#include "nrb/bookmarks.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
 #include "nrb/url.hpp"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 static int g_failed = 0, g_passed = 0;
@@ -257,7 +260,115 @@ static void testTabs() {
     CHECK(n == (int)TabModel::kMaxClosed);
 }
 
+static void testBookmarks() {
+    std::printf("bookmarks\n");
+    std::string err;
+    auto st = BookmarkStore::open(":memory:", err);
+    CHECK(st != nullptr);
+    if (!st) return;
+    // The two fixed folders exist and stay.
+    CHECK(st->isFolder(BookmarkStore::kBar) && st->isFolder(BookmarkStore::kOther));
+    CHECK(!st->remove(BookmarkStore::kBar) && !st->rename(BookmarkStore::kOther, "x"));
+    // Adding, in order, and at a position.
+    const auto a = st->add(BookmarkStore::kBar, "Alpha", "https://alpha.example/");
+    const auto b = st->add(BookmarkStore::kBar, "Beta", "https://beta.example/");
+    const auto c = st->add(BookmarkStore::kBar, "Gamma", "https://gamma.example/", 0);
+    CHECK(a && b && c);
+    auto bar = st->children(BookmarkStore::kBar);
+    CHECK(bar.size() == 3 && bar[0].id == c && bar[1].id == a && bar[2].id == b);
+    CHECK(bar[0].position == 0 && bar[2].position == 2);
+    // Only safe addresses.
+    CHECK(!st->add(BookmarkStore::kBar, "x", "javascript:alert(1)"));
+    CHECK(!st->add(BookmarkStore::kBar, "x", "data:text/html,hi"));
+    CHECK(st->add(BookmarkStore::kOther, "", "file:///C:/notes.txt") != 0);
+    CHECK(!st->add(999, "x", "https://x.example/"));
+    // Finding.
+    CHECK(st->findUrl("https://beta.example/") && st->findUrl("https://beta.example/")->id == b);
+    CHECK(!st->findUrl("https://nowhere.example/"));
+    CHECK(st->search("ALPHA").size() == 1 && st->search("example").size() == 3 && st->search("").size() == 4);
+    CHECK(st->count() == 4);
+    // Renaming, moving, folders.
+    CHECK(st->rename(a, "  Alpha site  ") && st->get(a)->title == "Alpha site");
+    const auto f = st->addFolder(BookmarkStore::kBar, "Reading");
+    CHECK(f && st->isFolder(f));
+    CHECK(st->move(b, f, 0));
+    bar = st->children(BookmarkStore::kBar);
+    CHECK(bar.size() == 3 && bar[0].id == c && bar[1].id == a && bar[2].id == f);
+    CHECK(bar[0].position == 0 && bar[1].position == 1 && bar[2].position == 2);
+    CHECK(st->children(f).size() == 1);
+    CHECK(st->move(c, BookmarkStore::kBar, 2));   // within a folder, to the end
+    bar = st->children(BookmarkStore::kBar);
+    CHECK(bar[0].id == a && bar[1].id == f && bar[2].id == c);
+    const auto sub = st->addFolder(f, "Inner");
+    CHECK(!st->move(f, sub, 0));                  // not into itself
+    // Icons are checked for size.
+    CHECK(st->setIcon(a, 2, 2, std::vector<unsigned char>(16, 200)) && st->get(a)->icon.size() == 16);
+    CHECK(!st->setIcon(a, 2, 2, std::vector<unsigned char>(15, 200)));
+    // Deleting a folder takes its contents.
+    CHECK(st->remove(f));
+    CHECK(!st->get(b) && !st->get(sub) && st->children(BookmarkStore::kBar).size() == 2);
+    CHECK(st->children(BookmarkStore::kBar)[1].position == 1);
+
+    // Export, then import into a fresh store: the same bookmarks, in the same places.
+    st->add(BookmarkStore::kBar, "Tom & Jerry <cartoon>", "https://example.com/?a=1&b=\"2\"");
+    const std::string html = st->exportHtml();
+    CHECK(html.find("NETSCAPE-Bookmark-file-1") != std::string::npos);
+    CHECK(html.find("Tom &amp; Jerry &lt;cartoon&gt;") != std::string::npos);
+    auto st2 = BookmarkStore::open(":memory:", err);
+    CHECK(st2 && st2->importHtml(html, BookmarkStore::kOther) == 4);
+    if (st2) {
+        const auto bar2 = st2->children(BookmarkStore::kBar);
+        CHECK(bar2.size() == 3 && bar2[0].title == "Alpha site" && bar2[2].title == "Tom & Jerry <cartoon>");
+        CHECK(bar2.size() == 3 && bar2[2].url == "https://example.com/?a=1&b=\"2\"");
+        CHECK(st2->children(BookmarkStore::kOther).size() == 1);   // straight into Other bookmarks, no extra folder
+    }
+    // Another browser's export: nested folders, entities, a bookmarklet that must be skipped.
+    const std::string other =
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p>\n"
+        "<DT><H3 ADD_DATE=\"1700000000\" PERSONAL_TOOLBAR_FOLDER=\"true\">Favorites bar</H3>\n<DL><p>\n"
+        "  <DT><A HREF=\"https://news.example/\" ADD_DATE=\"1700000001\">News &#8211; daily</A>\n"
+        "  <DT><H3>Work</H3>\n  <DL><p>\n    <DT><A href='https://work.example/'>Work</A>\n  </DL><p>\n"
+        "  <DT><A HREF=\"javascript:void(0)\">Bookmarklet</A>\n"
+        "</DL><p>\n<DT><A HREF=\"https://loose.example/\">Loose</A>\n</DL><p>\n";
+    auto st3 = BookmarkStore::open(":memory:", err);
+    CHECK(st3 && st3->importHtml(other, BookmarkStore::kOther) == 3);
+    if (st3) {
+        const auto bar3 = st3->children(BookmarkStore::kBar);
+        CHECK(bar3.size() == 2 && bar3[0].title == "News \xE2\x80\x93 daily" && bar3[0].created == 1700000001);
+        CHECK(bar3.size() == 2 && bar3[1].folder && st3->children(bar3[1].id).size() == 1);
+        CHECK(st3->children(BookmarkStore::kOther).size() == 1 && st3->children(BookmarkStore::kOther)[0].title == "Loose");
+    }
+
+    // On disk: it keeps its contents, makes a daily backup, and recovers from damage.
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "nrb-bookmarks-test";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const std::string path = (dir / "bookmarks.db").string();
+    {
+        auto d = BookmarkStore::open(path, err);
+        CHECK(d && d->add(BookmarkStore::kBar, "Kept", "https://kept.example/"));
+        CHECK(d && d->backupIfDue(1000000) && fs::exists(path + ".backup"));
+        CHECK(d && !d->backupIfDue(1000000 + 3600));   // not again the same day
+    }
+    {
+        auto d = BookmarkStore::open(path, err);
+        CHECK(d && d->children(BookmarkStore::kBar).size() == 1 && d->children(BookmarkStore::kBar)[0].title == "Kept");
+    }
+    {
+        std::ofstream(path, std::ios::binary | std::ios::trunc) << std::string(8192, 'x');   // ruin it
+        fs::remove(path + "-wal");
+        fs::remove(path + "-shm");
+        std::string notice;
+        auto d = BookmarkStore::open(path, err, &notice);
+        CHECK(d != nullptr && notice.find("backup") != std::string::npos && fs::exists(path + ".damaged"));
+        CHECK(d && d->children(BookmarkStore::kBar).size() == 1);   // restored from the backup
+    }
+    fs::remove_all(dir);
+}
+
 int main() {
+    testBookmarks();
     testOmniboxAddresses();
     testOmniboxPrivate();
     testOmniboxFiles();

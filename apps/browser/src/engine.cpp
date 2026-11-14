@@ -274,16 +274,8 @@ void Page::attach(ComPtr<ICoreWebView2Controller> controller) {
         // Microsoft's list of dangerous sites (see docs: it sends addresses to Microsoft).
         if (auto s8 = settings.as<ICoreWebView2Settings8>()) s8->put_IsReputationCheckingRequired(TRUE);
     }
-    // No saved passwords or form data until NorthRay's credential storage is designed.
-    if (auto w13 = web_.as<ICoreWebView2_13>()) {
-        ComPtr<ICoreWebView2Profile> profile;
-        if (SUCCEEDED(w13->get_Profile(profile.put())) && profile) {
-            if (auto p6 = profile.as<ICoreWebView2Profile6>()) {
-                p6->put_IsPasswordAutosaveEnabled(FALSE);
-                p6->put_IsGeneralAutofillEnabled(FALSE);
-            }
-        }
-    }
+    // Saved passwords and form filling: the engine's own (see Options), as chosen in the menu.
+    setFormSaving(options_.savePasswords, options_.fillForms);
     wireEvents();
     if (bounds_.right > bounds_.left) controller_->put_Bounds(bounds_);
     controller_->put_IsVisible(visible_ ? TRUE : FALSE);
@@ -548,6 +540,41 @@ void Page::close() {
     if (controller_) controller_->Close();
     web_.reset();
     controller_.reset();
+}
+
+}  // namespace nrb
+
+namespace nrb {
+
+void Page::setFormSaving(bool passwords, bool forms) {
+    options_.savePasswords = passwords;
+    options_.fillForms = forms;
+    auto w13 = web_.as<ICoreWebView2_13>();
+    if (!w13) return;
+    ComPtr<ICoreWebView2Profile> profile;
+    if (FAILED(w13->get_Profile(profile.put())) || !profile) return;
+    if (auto p6 = profile.as<ICoreWebView2Profile6>()) {
+        const bool on = !options_.inPrivate;   // a private window never keeps them
+        p6->put_IsPasswordAutosaveEnabled(on && passwords ? TRUE : FALSE);
+        p6->put_IsGeneralAutofillEnabled(on && forms ? TRUE : FALSE);
+    }
+}
+
+void Page::clearSavedPasswords(bool forms, std::function<void(bool ok)> done) {
+    auto w13 = web_.as<ICoreWebView2_13>();
+    ComPtr<ICoreWebView2Profile> profile;
+    if (!w13 || FAILED(w13->get_Profile(profile.put())) || !profile) { if (done) done(false); return; }
+    auto p2 = profile.as<ICoreWebView2Profile2>();
+    if (!p2) { if (done) done(false); return; }
+    auto kinds = COREWEBVIEW2_BROWSING_DATA_KINDS_PASSWORD_AUTOSAVE;
+    if (forms) kinds = (COREWEBVIEW2_BROWSING_DATA_KINDS)(kinds | COREWEBVIEW2_BROWSING_DATA_KINDS_GENERAL_AUTOFILL);
+    std::weak_ptr<bool> alive = alive_;
+    auto handler = makeHandler<ICoreWebView2ClearBrowsingDataCompletedHandler, HRESULT>([alive, done](HRESULT hr) -> HRESULT {
+        auto a = alive.lock();
+        if (a && *a && done) done(SUCCEEDED(hr));
+        return S_OK;
+    });
+    if (FAILED(p2->ClearBrowsingData(kinds, handler.get())) && done) done(false);
 }
 
 }  // namespace nrb

@@ -1,7 +1,7 @@
 # NorthRay Browser: architecture
 
-Status: **0.1.0, Stage 1 (technical foundation)**. A working, sandboxed browser window in the NorthRay design language,
-with tabs, an address bar, navigation, NorthRay error and start pages. Last updated 14 November 2026.
+Status: **0.2.0**: Stage 1 (technical foundation) plus bookmarks, a new start page and saved passwords (from Stage 3/4,
+asked for early by the director). Last updated 14 November 2026.
 Developed by the NorthRay Software project. Contact: NorthRaySoftware@protonmail.com.
 
 ## 1. Engine decision: WebView2, not CEF
@@ -35,12 +35,16 @@ apps/browser/
     url            display text, site kind (secure, not secure, file, internal)
     load_errors    plain-words error pages (WebView2's WEB_ERROR_STATUS values)
     tab_model      tab order, where new tabs go, which tab activates on close, recently closed
+    bookmarks      BookmarkStore: SQLite, schema-versioned (user_version), folders, import/export, daily backup, recovery
   src/
     engine.*       the only WebView2 code: Engine (environment) and Page (one tab's view)
     browser_window.*  the window, drawn with cjui: tab strip, toolbar, address bar, pages, status bar
+    browser_bookmarks.cpp  star, bookmarks bar, menus, the bookmarks page (northray://bookmarks), import/export,
+                   password and form settings
+    browser_start.cpp  the start page
     settings.*     settings.json (versioned, read defensively, saved atomically)
     main.cpp       start-up, one window per session (a second launch hands its addresses over), message loop
-  tests/           browsercore_tests (169 checks)
+  tests/           browsercore_tests (213 checks)
 libs/cjui          shared with the other apps; additions: cjui/northray.hpp (palette, night sky, aurora band),
                    WindowSpec::style and ::quitOnDestroy, drawPixels(..., useAlpha)
 libs/third_party/webview2-sdk   Microsoft.Web.WebView2 1.0.4314.35 (see its README)
@@ -78,8 +82,18 @@ NorthRay Browser follows the Launcher (0.17+), not the older `docs/DESIGN.md` (w
   (they'd offer the Windows sign-in to that server); local, private and intranet addresses are opened, never searched.
 - Addresses from the command line (a second launch, later the default-browser hand-off) are limited to http, https and
   local files.
-- **Saved passwords and form autofill are off** until NorthRay designs credential storage (Windows Credential
-  Manager / DPAPI is the likely base).
+- **Saved passwords and form filling** (0.2.0, asked for by the director): the engine's own password manager, the one
+  Microsoft Edge has (`ICoreWebView2Profile6::IsPasswordAutosaveEnabled` / `IsGeneralAutofillEnabled`). Chromium keeps
+  them in the profile's `Login Data` / `Web Data` under the engine folder, encrypted with an AES key that is itself
+  protected with DPAPI for the Windows account (os_crypt). NorthRay's code never sees a password. On by default, with
+  "Offer to save passwords" and "Fill in forms automatically" in the menu; "Delete saved passwords" uses
+  `ICoreWebView2Profile2::ClearBrowsingData(PASSWORD_AUTOSAVE | GENERAL_AUTOFILL)` (creating a page for the purpose if
+  none is open). Private pages (when they exist) always have both off. WebView2 has no API to list or edit saved
+  passwords, so there's no password list yet; a NorthRay-designed vault would be the way to add one.
+- **Bookmarks** are in `%LOCALAPPDATA%\NorthRay\Browser\User\bookmarks.db` (SQLite, WAL), apart from the engine's data.
+  Only http, https, file and northray addresses can be bookmarked (never `javascript:`, including on import). The file is
+  checked on open (`quick_check`); a damaged one is kept as `.damaged` and replaced from `.backup` (made at most daily
+  with `VACUUM INTO`), or started afresh, and the person is told.
 - **SmartScreen is on** (`IsReputationCheckingRequired`). It's real protection against phishing and malware downloads,
   and it sends addresses to Microsoft; the privacy policy and Settings must say so. *Decision pending with the director.*
 - Single sign-on with the Windows account is off. No telemetry of our own.
@@ -88,7 +102,11 @@ NorthRay Browser follows the Launcher (0.17+), not the older `docs/DESIGN.md` (w
 
 ## 5. Tested
 
-Unit tests: `browsercore_tests` (169 checks, Linux with AddressSanitizer/UBSan and as a Windows .exe under Wine).
+Unit tests: `browsercore_tests` (213 checks, Linux with AddressSanitizer/UBSan and as a Windows .exe under Wine), including
+bookmarks: order, moves, folders, safe addresses, export and re-import, another browser's file, on-disk persistence,
+the daily backup and recovery from a damaged file. 0.2.0 under Wine (no engine, virtual desktop): start page, tiles,
+bookmarks bar and folder menu, bookmarks page (rename, search), menus in both themes. Not yet checked on Windows:
+the star on real pages, saving and filling a password, deleting saved passwords, import/export file dialogs.
 Build: the whole suite with MinGW-w64 (no warnings in the browser). Under Wine (no engine): window, tabs, address bar
 rules, themes at 150 %, clean exit.
 
@@ -117,7 +135,9 @@ printing, downloads (WebView2's own download bubble appears; NorthRay's comes in
 - One window; pop-up windows open as tabs. Tab overflow beyond the strip isn't scrollable yet (Ctrl+Tab reaches them).
 - Closing a tab doesn't run the page's "leave this page?" prompt.
 - No Settings page yet (theme and search engine are in the menu). Menus are NorthRay-drawn (`cjui::showMenu`, 0.1.2) in the app's palette: a modal loop like `TrackPopupMenu(TPM_RETURNCMD)`, with mouse capture on the top menu so a click anywhere else (including on the page) closes it; submenus open after 200 ms or with Right; Windows 11 rounded corners via DWM.
-- No bookmarks, history, downloads panel, profiles, private windows, find-in-page UI or session restore yet (stages 0.2–0.4).
+- No history, downloads panel, profiles, private windows, find-in-page UI or session restore yet. Bookmarks can't be
+  dragged to reorder (Move up/down and Move to are in their menu), and their site icons are saved only when a page is
+  bookmarked from the star.
 - cjui has no UI Automation provider, so the drawn controls (tabs, toolbar buttons) aren't announced by screen readers;
   the address bar and the page are.
 - The `--no-engine` switch is a development aid (interface without an engine, for screenshots); the status bar says so.

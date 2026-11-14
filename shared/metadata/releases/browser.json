@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Bookmarks: click the star in the address bar (or press Ctrl+D) to bookmark a page. They appear on the new bookmarks bar (Ctrl+Shift+B shows or hides it) and on the start page.",
+        "A Bookmarks page (Ctrl+Shift+O): folders, search, rename, reorder, move and delete. Import bookmarks exported from Chrome, Edge or Firefox, or export yours for them. Bookmarks are backed up daily and kept apart from browsing data.",
+        "A new start page: a greeting and search field on the night sky, your bookmarks as tiles, and the tabs you closed recently.",
+        "Saved passwords: after you sign in, the browser offers to save the password and fills it in next time. They're encrypted with a key protected by your Windows account and stay on your PC. Turn saving off, or delete them all, under Menu > Passwords and forms."
+      ]
+    },
+    {
       "version": "0.1.2",
       "date": "2026-11-14",
       "notes": [

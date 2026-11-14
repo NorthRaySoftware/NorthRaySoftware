@@ -80,6 +80,12 @@ public:
         std::wstring profile = L"Default";
         bool inPrivate = false;        // a private window: nothing kept after it closes
         COLORREF background = RGB(255, 255, 255);  // shown before the page paints
+        // The engine's own password manager and form filling (Chromium's, as in
+        // Microsoft Edge): it offers to save a password after a sign-in, stores
+        // it encrypted with a key protected by the person's Windows account, and
+        // fills it in next time. Off for private windows regardless.
+        bool savePasswords = true;
+        bool fillForms = true;
     };
 
     Page(Engine& engine, HWND parent, Options options, PageEvents events);
@@ -108,6 +114,10 @@ public:
     void focus();
     void parentMoved();              // the window moved (keeps menus and pop-ups in place)
     void setBackground(COLORREF c);
+    // Turns saving passwords and filling forms on or off for the page's profile.
+    void setFormSaving(bool passwords, bool forms);
+    // Deletes every password (and, with `forms`, form entry) the profile has saved.
+    void clearSavedPasswords(bool forms, std::function<void(bool ok)> done);
 
     const std::wstring& url() const { return url_; }
     const std::wstring& title() const { return title_; }

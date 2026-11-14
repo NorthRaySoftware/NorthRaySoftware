@@ -44,6 +44,7 @@ enum : UINT {
     CmdThemeSystem = 200, CmdThemeLight, CmdThemeDark,
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
+    CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
 };
 
 COLORREF toColorRef(Color c) {
@@ -111,6 +112,15 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     const SearchEngine* se = findSearchEngine(settings_.searchEngine);
     const std::wstring cue = L"Search with " + widen((se ? *se : defaultSearchEngine()).name) + L" or type an address";
     SendMessageW(edit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(cue.c_str()));
+
+    openBookmarkStore();
+    {
+        const SearchEngine* e = findSearchEngine(settings_.searchEngine);
+        const std::wstring c = L"Search with " + widen((e ? *e : defaultSearchEngine()).name) + L" or type an address";
+        startSearch_ = makeEdit(c.c_str());
+    }
+    pageSearch_ = makeEdit(L"Search bookmarks");
+    renameEdit_ = makeEdit(nullptr);
 
     applyTheme();
     newTab(L"", true, false);
@@ -274,6 +284,8 @@ Page* BrowserWindow::ensurePage(TabView& v, bool forNewWindow) {
     if (!engineOk_) return nullptr;
     Page::Options o;
     o.background = toColorRef(pal_.paper);
+    o.savePasswords = settings_.savePasswords;
+    o.fillForms = settings_.fillForms;
     v.page = std::make_unique<Page>(engine_, hwnd(), o, eventsFor(v.id));
     v.page->show(false);
     if (!forNewWindow) v.page->create();
@@ -284,6 +296,13 @@ PageEvents BrowserWindow::eventsFor(int id) {
     PageEvents e;
     e.ready = [this, id] {
         syncTabFromPage(id);
+        if (clearPasswordsWhenReady_) {
+            clearPasswordsWhenReady_ = false;
+            if (TabView* v = view(id); v && v->page)
+                v->page->clearSavedPasswords(true, [this](bool ok) {
+                    flash(ok ? L"Saved passwords and form entries deleted." : L"The saved passwords couldn't be deleted.", 8);
+                });
+        }
         // A page that's just been created for the active tab takes the keyboard,
         // unless the person has gone back to the address bar.
         if (id == model_.activeId() && !editFocused_)
@@ -373,8 +392,10 @@ void BrowserWindow::syncTabFromPage(int id) {
     Tab* t = model_.find(id);
     if (!v || !t || !v->page) return;
     const std::wstring url = v->page->url();
-    t->url = narrow(url);
-    t->title = narrow(v->page->title());
+    if (!v->showStart) {   // the start and bookmarks pages keep their own names
+        t->url = narrow(url);
+        t->title = narrow(v->page->title());
+    }
     t->loading = v->page->loading();
     if (id == model_.activeId()) {
         if (!v->editing) updateAddressText();
@@ -393,6 +414,8 @@ bool BrowserWindow::anyLoading() const {
 // ---------------------------------------------------------------- navigation
 
 void BrowserWindow::navigateTab(TabView& v, const std::wstring& url) {
+    if (v.bookmarksPage && v.id == model_.activeId()) finishRename(true);
+    v.bookmarksPage = false;
     v.error.reset();
     v.crashed = false;
     v.showStart = false;
@@ -420,6 +443,18 @@ void BrowserWindow::submitAddress() {
     const int n = GetWindowTextLengthW(edit_);
     std::wstring text((size_t)n, L'\0');
     if (n) GetWindowTextW(edit_, text.data(), n + 1);
+    submitText(text);
+}
+
+void BrowserWindow::submitText(const std::wstring& text) {
+    TabView* v = activeView();
+    if (!v) return;
+    // NorthRay's own pages.
+    std::wstring low = text;
+    for (auto& ch : low) ch = (wchar_t)towlower(ch);
+    while (!low.empty() && (low.back() == L' ' || low.back() == L'/')) low.pop_back();
+    if (low == L"northray://bookmarks" || low == L"northray:bookmarks") { v->editing = false; showBookmarksPage(); return; }
+    if (low == L"northray://start" || low == L"northray://newtab") { v->editing = false; goHome(); return; }
     const SearchEngine* se = findSearchEngine(settings_.searchEngine);
     const InputResult r = interpretInput(narrow(text), se ? *se : defaultSearchEngine());
     switch (r.kind) {
@@ -439,6 +474,8 @@ void BrowserWindow::goHome() {
     if (!v) return;
     if (v->page) v->page->navigate(L"about:blank");
     v->showStart = true;
+    v->bookmarksPage = false;
+    if (Tab* t = model_.find(v->id)) { t->title.clear(); t->url.clear(); }
     v->error.reset();
     updateAddressText();
     focusAddressBar();
@@ -480,7 +517,7 @@ void BrowserWindow::updateAddressText() {
     std::wstring text;
     if (v) {
         if (v->editing) text = v->typed;
-        else if (v->showStart) text = L"";
+        else if (v->showStart) text = v->bookmarksPage ? L"northray://bookmarks" : L"";
         else if (v->error && !v->errorUrl.empty()) text = v->errorUrl;
         else if (v->page && !v->page->url().empty()) text = editFocused_ ? v->page->url() : widen(displayUrl(narrow(v->page->url())));
         else if (const Tab* t = model_.find(v->id)) text = editFocused_ ? widen(t->url) : widen(displayUrl(t->url));
@@ -514,6 +551,9 @@ bool BrowserWindow::shortcut(UINT vk, bool ctrl, bool shift, bool alt) {
             case 'T': if (shift) reopenClosedTab(); else newTab(L"", true, false); return true;
             case 'W': case VK_F4: if (v) closeTab(v->id); return true;
             case 'L': focusAddressBar(); return true;
+            case 'D': if (!shift) { starClicked(); return true; } break;
+            case 'B': if (shift) { toggleBookmarksBar(); return true; } break;
+            case 'O': if (shift) { showBookmarksPage(); return true; } break;
             case 'R': if (v && v->page) v->page->reload(shift); return true;
             case VK_F5: if (v && v->page) v->page->reload(true); return true;
             case VK_TAB: activateNeighbour(shift ? -1 : 1); return true;
@@ -567,6 +607,29 @@ bool BrowserWindow::preTranslate(MSG& msg) {
         // Alt shortcuts arrive as system keys.
         const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         if (msg.wParam != VK_MENU && shortcut((UINT)msg.wParam, ctrl, shift, true)) return true;
+        return false;
+    }
+    if (msg.message == WM_KEYDOWN && msg.hwnd && (msg.hwnd == startSearch_ || msg.hwnd == pageSearch_ || msg.hwnd == renameEdit_)) {
+        if (msg.wParam == VK_RETURN) {
+            if (msg.hwnd == startSearch_) {
+                const int n = GetWindowTextLengthW(startSearch_);
+                std::wstring t((size_t)n, L'\0');
+                if (n) GetWindowTextW(startSearch_, t.data(), n + 1);
+                SetWindowTextW(startSearch_, L"");
+                submitText(t);
+            } else if (msg.hwnd == renameEdit_) {
+                finishRename(true);
+            }
+            return true;
+        }
+        if (msg.wParam == VK_ESCAPE) {
+            if (msg.hwnd == renameEdit_) finishRename(false);
+            else SetWindowTextW(msg.hwnd, L"");
+            return true;
+        }
+        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (ctrl && (msg.wParam == 'T' || msg.wParam == 'W' || msg.wParam == 'L' || msg.wParam == VK_TAB))
+            return shortcut((UINT)msg.wParam, ctrl, shift, false);
         return false;
     }
     if (msg.hwnd != edit_ || msg.message != WM_KEYDOWN) return false;
@@ -685,6 +748,21 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             invalidate();
             break;
         case WM_COMMAND:
+            if (lp && ((HWND)lp == startSearch_ || (HWND)lp == pageSearch_ || (HWND)lp == renameEdit_)) {
+                const int code = HIWORD(wp);
+                if ((HWND)lp == pageSearch_ && code == EN_CHANGE) {
+                    const int n = GetWindowTextLengthW(pageSearch_);
+                    std::wstring t((size_t)n, L'\0');
+                    if (n) GetWindowTextW(pageSearch_, t.data(), n + 1);
+                    pageQuery_ = t;
+                    while (!pageQuery_.empty() && pageQuery_.back() == L' ') pageQuery_.pop_back();
+                    resetScroll();
+                }
+                if ((HWND)lp == renameEdit_ && code == EN_KILLFOCUS) finishRename(true);
+                if (code == EN_SETFOCUS || code == EN_KILLFOCUS || code == EN_CHANGE) invalidate();
+                handled = true;
+                return 0;
+            }
             if ((HWND)lp == edit_ && edit_) {
                 const int code = HIWORD(wp);
                 if (code == EN_SETFOCUS) {
@@ -713,7 +791,7 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             }
             break;
         case WM_CTLCOLOREDIT:
-            if ((HWND)lp == edit_) {
+            if ((HWND)lp == edit_ || (HWND)lp == startSearch_ || (HWND)lp == pageSearch_ || (HWND)lp == renameEdit_) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
                 SetBkColor(dc, toColorRef(pal_.sunken));
@@ -730,8 +808,10 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             // Middle-click a tab to close it.
             const float s = gfx_.dpiScale();
             const float x = GET_X_LPARAM(lp) / s, y = GET_Y_LPARAM(lp) / s;
+            bool done = false;
             for (auto& [id, r] : tabRects_)
-                if (r.contains(x, y)) { closeTab(id); break; }
+                if (r.contains(x, y)) { closeTab(id); done = true; break; }
+            if (!done) bookmarkMiddleClick(x, y);
             handled = true;
             return 0;
         }
@@ -838,6 +918,7 @@ bool BrowserWindow::onMouseUp(float, float) {
 }
 
 bool BrowserWindow::onRightClick(float x, float y) {
+    if (bookmarkRightClick(x, y)) return true;
     for (auto& [id, r] : tabRects_)
         if (r.contains(x, y)) {
             const float s = gfx_.dpiScale();
@@ -860,9 +941,18 @@ void BrowserWindow::showMenu() {
     for (size_t i = 0; i < engines.size(); ++i)
         searchItems.push_back(MenuItem::item(widen(engines[i].name), CmdEngineFirst + (UINT)i, {}, true,
                                              engines[i].id == settings_.searchEngine));
+    std::vector<std::int64_t> bookmarkIds;
     const std::vector<MenuItem> items = {
         MenuItem::item(L"New tab", CmdNewTab, L"Ctrl+T"),
         MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
+        MenuItem::sep(),
+        MenuItem::sub(L"Bookmarks", bookmarksSubmenu(bookmarkIds)),
+        MenuItem::sub(L"Passwords and forms",
+                      {MenuItem::item(L"Offer to save passwords", CmdPwSave, {}, true, settings_.savePasswords),
+                       MenuItem::item(L"Fill in forms automatically", CmdPwForms, {}, true, settings_.fillForms),
+                       MenuItem::sep(),
+                       MenuItem::item(L"Delete saved passwords...", CmdPwClear),
+                       MenuItem::item(L"How passwords are kept", CmdPwAbout)}),
         MenuItem::sep(),
         MenuItem::item(L"Print...", CmdPrint, L"Ctrl+P", hasPage),
         MenuItem::item(L"Full screen", CmdFullscreen, L"F11", true, fullscreen_),
@@ -886,6 +976,15 @@ void BrowserWindow::showMenu() {
     const std::wstring& settingsPath = settingsPath_;
     if (cmd == CmdNewTab) newTab(L"", true, false);
     else if (cmd == CmdReopen) reopenClosedTab();
+    else if (cmd == 1) starClicked();
+    else if (cmd == 2) toggleBookmarksBar();
+    else if (cmd == 3) importBookmarks();
+    else if (cmd == 4) exportBookmarks();
+    else if (cmd == 9 || cmd >= 10000) openFromMenuId(cmd, bookmarkIds, false);
+    else if (cmd == CmdPwSave) setFormSaving(!settings_.savePasswords, settings_.fillForms);
+    else if (cmd == CmdPwForms) setFormSaving(settings_.savePasswords, !settings_.fillForms);
+    else if (cmd == CmdPwClear) clearSavedPasswords();
+    else if (cmd == CmdPwAbout) explainPasswords();
     else if (cmd == CmdPrint && hasPage) v->page->print();
     else if (cmd == CmdDevTools && hasPage) v->page->openDevTools();
     else if (cmd == CmdFullscreen) setFullscreen(!fullscreen_, false);
@@ -965,27 +1064,34 @@ void BrowserWindow::drawFrame(float W, float H) {
     tabRects_.clear();
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const bool chrome = !fullscreen_;
-    const float top = chrome ? kStripH + kToolbarH : 0;
+    const bool bar = chrome && settings_.showBookmarksBar && bookmarks_;
+    const float top = chrome ? kStripH + kToolbarH + (bar ? kBookmarksBarH : 0) : 0;
     const float statusH = chrome ? kStatusH : 0;
     const Rect content{0, top, W, H - top - statusH};
 
     TabView* v = activeView();
     if (engineFailed_) drawEngineProblem(content);
     else if (v && v->error) drawErrorPage(content, *v);
+    else if (v && v->showStart && v->bookmarksPage) drawBookmarksPage(content);
     else if (v && v->showStart) drawStartPage(content);
     else if (v && (!v->page || !v->page->ready())) {
         gfx_.fill(content, pal_.paper);   // the page is on its way
     }
+    if (!v || !v->showStart || v->error || engineFailed_) { tileRects_.clear(); rowRects_.clear(); }
     placePages(content);
 
     if (chrome) {
         drawTabStrip({0, 0, W, kStripH});
         drawToolbar({0, kStripH, W, kToolbarH});
+        if (bar) drawBookmarksBar({0, kStripH + kToolbarH, W, kBookmarksBarH});
+        else barRects_.clear();
         drawStatusBar({0, H - kStatusH, W, kStatusH});
     } else if (edit_ && IsWindowVisible(edit_)) {
         if (GetFocus() == edit_) SetFocus(hwnd());
         ShowWindow(edit_, SW_HIDE);
     }
+    if (!chrome) startSearchVisible_ = pageSearchVisible_ = renameVisible_ = false;
+    positionExtraEdits();
 }
 
 void BrowserWindow::placePages(const Rect& content) {
@@ -1101,9 +1207,11 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
         const float a0 = (float)std::fmod(secs * 6.0, 6.2831853);
         gfx_.circle(ic.x + 8, ic.y + 8, 6.5f, ink.withAlpha(0.18f), false, 2);
         arcLines(gfx_, ic.x + 8, ic.y + 8, 6.5f, a0, a0 + 1.9f, active ? pal_.ribbon : nr::kAuroraGreen, 2);
-    } else if (v && !v->favicon.empty() &&
+    } else if (v && !v->showStart && !v->favicon.empty() &&
                gfx_.drawPixels(L"fav:" + std::to_wstring(t.id) + L":" + std::to_wstring(v->favGen), v->favW, v->favH,
                                v->favicon.data(), ic, true)) {
+    } else if (v && v->showStart && v->bookmarksPage) {
+        drawStar(ic.x + 8, ic.y + 8, 7.5f, active ? pal_.ribbon : nr::kAuroraGreen, true);
     } else if (v && v->showStart) {
         // The start page: a tiny NorthRay tile, night with a rising globe.
         gfx_.fillRounded(ic, 4, nr::kNightTop.mix(nr::kNightBottom, 0.5f));
@@ -1124,7 +1232,7 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     // Title
     if (r.w >= 72) {
         std::wstring title = widen(t.title);
-        if (title.empty() && v && v->showStart) title = L"New tab";
+        if (v && v->showStart) title = v->bookmarksPage ? L"Bookmarks" : L"New tab";
         if (title.empty() && v && v->error) title = hostLabel(v->errorUrl);
         if (title.empty()) title = widen(hostOf(t.url));
         if (title.empty()) title = t.loading ? L"Loading..." : L"New tab";
@@ -1260,10 +1368,24 @@ void BrowserWindow::drawAddressBar(const Rect& r) {
             x += 8;
         }
     }
+    // The star: bookmark this page, or (filled) it's bookmarked.
+    float right = r.right() - 10;
+    if (bookmarks_ && currentBookmarkable()) {
+        std::string url;
+        currentBookmarkable(&url);
+        const bool marked = bookmarks_->findUrl(url).has_value();
+        const Rect sr{r.right() - 34, r.y + 3, 30, r.h - 6};
+        addHit("tb:star", sr, [this] { starClicked(); });
+        const float hv = hoverAmount("tb:star");
+        if (hv > 0.01f) gfx_.fillRounded(sr, 6, pal_.ink.withAlpha(0.07f * hv));
+        drawStar(sr.x + sr.w / 2, sr.y + sr.h / 2 + 0.5f, 7.5f, marked ? pal_.ribbon : pal_.inkMuted.mix(pal_.ink, hv), marked);
+        if (focused("tb:star")) focusRing(sr);
+        right = sr.x - 4;
+    }
     // The edit control sits inside the drawn frame.
     const float s = gfx_.dpiScale();
     const float th = 20;
-    const RECT rc{(LONG)std::lround(x * s), (LONG)std::lround((r.y + (r.h - th) / 2) * s), (LONG)std::lround((r.right() - 10) * s),
+    const RECT rc{(LONG)std::lround(x * s), (LONG)std::lround((r.y + (r.h - th) / 2) * s), (LONG)std::lround(right * s),
                   (LONG)std::lround((r.y + (r.h + th) / 2) * s)};
     if (memcmp(&rc, &editRect_, sizeof rc) != 0 || !IsWindowVisible(edit_)) {
         editRect_ = rc;
@@ -1277,38 +1399,6 @@ void BrowserWindow::layoutAddressFont() {
     editFont_ = CreateFontW(-(int)std::lround(14 * editScale_), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     if (edit_) SendMessageW(edit_, WM_SETFONT, reinterpret_cast<WPARAM>(editFont_), TRUE);
-}
-
-void BrowserWindow::drawStartPage(const Rect& r) {
-    gfx_.fill(r, pal_.paper);
-    const float pad = r.w > 900 ? 44 : 28;
-    const float w = std::min(r.w - pad * 2, 880.0f);
-    const float x = r.x + (r.w - w) / 2;
-    float y = r.y + 36;
-    const Rect hero{x, y, w, 150};
-    nr::nightSky(gfx_, hero, 12, 1.0f, 3, pal_.paper);
-    gfx_.text(L"NORTHRAY SOFTWARE", {hero.x + 32, hero.y + 30, hero.w - 64, 16}, Font::Label, nr::kAuroraGreen, {Align::Left, false});
-    gfx_.text(L"NorthRay Browser", {hero.x + 32, hero.y + 50, hero.w - 64, 40}, Font::Title, nr::kNightInk, {Align::Left, false});
-    const SearchEngine* se = findSearchEngine(settings_.searchEngine);
-    const std::wstring line = L"Search with " + widen((se ? *se : defaultSearchEngine()).name) +
-                              L", or type an address, in the bar above.";
-    gfx_.text(line, {hero.x + 32, hero.y + 96, hero.w - 64, 40}, Font::Body, nr::kNightMuted);
-    y = hero.bottom() + 32;
-
-    y += sectionLabel(x, y, w, L"KEYBOARD") + 6;
-    struct Row { const wchar_t* keys; const wchar_t* what; };
-    const Row rows[] = {{L"Ctrl+L", L"Go to the address bar"},
-                        {L"Ctrl+T", L"Open a new tab"},
-                        {L"Ctrl+W", L"Close this tab"},
-                        {L"Ctrl+Shift+T", L"Reopen the tab you closed last"},
-                        {L"Ctrl+Tab", L"Go to the next tab"},
-                        {L"Alt+Left", L"Go back"}};
-    for (const Row& row : rows) {
-        gfx_.text(row.keys, {x, y, 150, 24}, Font::SmallStrong, pal_.ink, {Align::Left, false, false, true});
-        gfx_.text(row.what, {x + 150, y, w - 150, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-        y += 26;
-        gfx_.line(x, y - 1, x + w, y - 1, pal_.rule.withAlpha(0.6f));
-    }
 }
 
 void BrowserWindow::drawErrorPage(const Rect& r, TabView& v) {

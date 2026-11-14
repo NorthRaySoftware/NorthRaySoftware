@@ -55,6 +55,7 @@ public:
 
     // Most recent first; at most kMaxClosed are kept.
     bool hasClosed() const { return !closed_.empty(); }
+    const std::deque<ClosedTab>& closed() const { return closed_; }
     ClosedTab popClosed();
     static constexpr std::size_t kMaxClosed = 25;
 

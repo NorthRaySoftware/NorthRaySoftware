@@ -5,11 +5,13 @@
 #pragma once
 
 #include "engine.hpp"
+#include "nrb/bookmarks.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
 #include "settings.hpp"
 
+#include "cjui/menu.hpp"
 #include "cjui/window.hpp"
 
 #include <memory>
@@ -22,6 +24,7 @@ namespace nrb {
 class BrowserWindow : public cjui::AppWindow {
 public:
     static constexpr const wchar_t* kClassName = L"NorthRayBrowser";
+    static constexpr float kBookmarksBarH = 34;
 
     BrowserWindow(Engine& engine, Settings& settings, std::wstring settingsPath);
     ~BrowserWindow() override;
@@ -55,6 +58,7 @@ private:
         std::unique_ptr<Page> page;
         std::wstring pendingUrl;          // to open once the engine is ready
         bool showStart = true;            // the NorthRay start page instead of a web page
+        bool bookmarksPage = false;       // with showStart: the bookmarks page instead of the start page
         std::optional<LoadErrorText> error;
         std::wstring errorUrl;
         std::wstring lastTyped;           // for "Search instead"
@@ -82,6 +86,7 @@ private:
 
     // Navigation
     void submitAddress();
+    void submitText(const std::wstring& text);
     void navigateTab(TabView& v, const std::wstring& url);
     void goHome();
     void stopOrReload();
@@ -151,6 +156,52 @@ private:
     bool dragging_ = false;
     std::vector<std::pair<int, cjui::Rect>> tabRects_;
     std::wstring windowTitle_;
+
+    // ---- Bookmarks (browser_bookmarks.cpp)
+    void openBookmarkStore();
+    void starClicked();
+    bool currentBookmarkable(std::string* url = nullptr);
+    void toggleBookmarksBar();
+    void drawStar(float cx, float cy, float r, cjui::Color c, bool filled);
+    void drawBookmarksBar(const cjui::Rect& r);
+    void drawBookmarkIcon(const Bookmark& b, const cjui::Rect& r, bool onNight = false);
+    void openBookmark(const Bookmark& b, bool newTab);
+    void showBookmarkMenu(std::int64_t id, POINT screen);
+    void showFolderMenu(std::int64_t folder, POINT screen);
+    std::vector<cjui::MenuItem> folderItems(std::int64_t folder, std::vector<std::int64_t>& ids, int depth);
+    std::vector<cjui::MenuItem> bookmarksSubmenu(std::vector<std::int64_t>& ids);
+    void openFromMenuId(UINT cmd, const std::vector<std::int64_t>& ids, bool newTab);
+    void showBookmarksPage(std::int64_t folder = 0, std::int64_t rename = 0);
+    void drawBookmarksPage(const cjui::Rect& r);
+    void folderTree(std::int64_t folder, int depth, float x, float& y, float w);
+    void startRename(std::int64_t id);
+    void finishRename(bool commit);
+    void deleteBookmark(std::int64_t id);
+    void moveBookmarkBy(std::int64_t id, int delta);
+    void importBookmarks();
+    void exportBookmarks();
+    bool bookmarkRightClick(float x, float y);
+    bool bookmarkMiddleClick(float x, float y);
+    HWND makeEdit(const wchar_t* cue);
+    void placeEdit(HWND e, const cjui::Rect& r, bool show);
+    void positionExtraEdits();
+    // Passwords and forms
+    void setFormSaving(bool passwords, bool forms);
+    void clearSavedPasswords();
+    void explainPasswords();
+
+    std::unique_ptr<BookmarkStore> bookmarks_;
+    std::vector<std::pair<std::int64_t, cjui::Rect>> barRects_, tileRects_, rowRects_;
+    std::int64_t pageFolder_ = BookmarkStore::kBar;   // the folder the bookmarks page shows
+    std::wstring pageQuery_;
+    HWND pageSearch_ = nullptr, renameEdit_ = nullptr, startSearch_ = nullptr;
+    std::int64_t renaming_ = 0;
+    cjui::Rect renameRect_{}, pageSearchRect_{}, startSearchRect_{};
+    bool renameVisible_ = false, pageSearchVisible_ = false, startSearchVisible_ = false;
+    bool clearPasswordsWhenReady_ = false;
+
+    // ---- Start page (browser_start.cpp)
+    void drawStartTiles(const cjui::Rect& area, float& y);
 };
 
 }  // namespace nrb
