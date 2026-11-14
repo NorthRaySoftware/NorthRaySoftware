@@ -1,7 +1,7 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-14T08:11:08Z",
+  "generatedUtc": "2026-11-14T09:27:10Z",
   "apps": [
     {
       "id": "launcher",
@@ -9,8 +9,8 @@
       "version": "0.18.1",
       "file": "NorthRayLauncher-Setup-0.18.1.exe",
       "url": "downloads/NorthRayLauncher-Setup-0.18.1.exe",
-      "size": 1740671,
-      "sha256": "04711706b638ba73b465a063b7fc1a3656450210d8a26e8e2dbc92ae84b044a7"
+      "size": 1740798,
+      "sha256": "09e68b5b5accfc906b202fbb717429dc2d01a8ac2af5c507cab0c53c0b6031e2"
     },
     {
       "id": "writing-studio",
@@ -24,11 +24,11 @@
     {
       "id": "browser",
       "name": "NorthRay Browser",
-      "version": "0.1.0",
-      "file": "NorthRayBrowser-Setup-0.1.0.exe",
-      "url": "downloads/NorthRayBrowser-Setup-0.1.0.exe",
-      "size": 1285798,
-      "sha256": "2f9d919479765390bb4884e3eab5f2546812e3c78a61b695735c38d9224b6766"
+      "version": "0.1.1",
+      "file": "NorthRayBrowser-Setup-0.1.1.exe",
+      "url": "downloads/NorthRayBrowser-Setup-0.1.1.exe",
+      "size": 1288313,
+      "sha256": "3988059fe6e726e6f6c2bd4904d80c634482690ebe7cc6cf78f2d53bdfa4f792"
     },
     {
       "id": "cj-radio",
