@@ -33,7 +33,7 @@ enum : UINT {
 
 bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 
-bool isCapture(SourceKind k) { return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera; }
+bool isCapture(SourceKind k) { return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour; }
 
 std::string shortTitle(std::string t) {
     // "Document - Program" titles: the program's own part is usually after the last " - ".
@@ -199,6 +199,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         MenuItem::sub(L"Camera or capture card", cam),
     };
     if (!existing.empty()) items.push_back(MenuItem::sub(L"A source from another scene", existing));
+    items.push_back(MenuItem::item(L"Sync test (flash and beep)", 10, L"checks recordings"));
     items.push_back(MenuItem::sep());
     items.push_back(MenuItem::item(L"Image", 5, L"Milestone 8", false));
     items.push_back(MenuItem::item(L"Text", 6, L"Milestone 8", false));
@@ -207,6 +208,21 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     for (auto& m : audioAddItems(sound)) items.push_back(m);
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     if (audioAddCommand(cmd, sound)) return;
+    if (cmd == 10) {
+        // The pattern in this scene, and the tone among the sound sources (once).
+        addCapture(SourceKind::Colour, "Sync test pattern", nlohmann::json{{"sync", true}}.dump());
+        bool haveTone = false;
+        for (auto& s : scenes_.sources())
+            if (s.settings.find("#synctone") != std::string::npos) haveTone = true;
+        if (!haveTone) {
+            scenes_.addSource(SourceKind::InputAudio, "Sync test tone",
+                              nlohmann::json{{"device", "#synctone"}, {"volume", 1.0}, {"muted", false}, {"buses", (unsigned)(routing::Stream | routing::Track1)}}.dump());
+            syncAudio();
+            scenesChanged();
+        }
+        flash(L"Record about 20 seconds, then check in an editor that each white flash and its beep start together.", 10);
+        return;
+    }
     if (cmd >= CmdDisplay0 && cmd < CmdDisplay0 + monitors.size()) {
         const auto& m = monitors[cmd - CmdDisplay0];
         addCapture(SourceKind::Display, "Display " + std::to_string(m.number),

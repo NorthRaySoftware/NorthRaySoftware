@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "capture",
   "name": "NorthRay Capture",
-  "tagline": "Livestreaming and recording for Windows, in the NorthRay look. In development: it captures and routes your screen, windows, cameras and sound, but doesn't record or stream yet.",
-  "description": "NorthRay Capture is a livestreaming and recording app for Windows, being built in stages towards a real alternative to OBS Studio: per-application audio (stream a game and your microphone while music and voice chat stay private), streaming to several platforms at once from one encode, and staying light on older PCs. This version captures a whole display, a single window or a camera or capture card into a live preview, where you arrange them in scenes, and captures sound: microphones and other inputs, desktop audio (everything you hear), and on Windows 11 one program's sound on its own. Each sound source has a meter, a volume fader and mute, and its own routing: to the stream, to any of six recording tracks, and to your headphones, so a game can go to viewers while music and voice chat stay in your ears only. Capture warns when something kept off the stream would still reach it through desktop audio, or when monitoring would feed back or echo. It doesn't record or stream yet.",
+  "tagline": "Livestreaming and recording for Windows, in the NorthRay look. In development: it captures, routes and records (recording not yet tried on real hardware); streaming comes next.",
+  "description": "NorthRay Capture is a livestreaming and recording app for Windows, being built in stages towards a real alternative to OBS Studio: per-application audio (stream a game and your microphone while music and voice chat stay private), streaming to several platforms at once from one encode, and staying light on older PCs. This version captures a whole display, a single window or a camera or capture card into a live preview, where you arrange them in scenes, and captures sound: microphones and other inputs, desktop audio (everything you hear), and on Windows 11 one program's sound on its own. Each sound source has a meter, a volume fader and mute, and its own routing: to the stream, to any of six recording tracks, and to your headphones, so a game can go to viewers while music and voice chat stay in your ears only. Capture warns when something kept off the stream would still reach it through desktop audio, or when monitoring would feed back or echo. This version adds recording: H.264 video from your graphics card's encoder (or Windows' software one) and up to six AAC audio tracks, in MKV files that stay playable if the PC crashes. Recording has been checked here only as far as the file format (against ffmpeg); it hasn't yet been tried with a real encoder, so please report how it goes. Streaming comes next.",
   "features": [
     "Capture a whole display (Desktop Duplication, with Windows Graphics Capture and a compatibility mode as fallbacks), with or without the mouse pointer",
     "Capture one window, even when it's covered (Windows Graphics Capture); it's found again when the program restarts",
@@ -20,11 +20,13 @@
     "The workspace: resize, rearrange, hide and save the panels as layouts",
     "Light on the computer: when the preview is hidden and nothing is recording or streaming, nothing is composed",
     "Settings: theme, low-resource mode, preview and output frame rates, canvas size (1080p, 720p, 1440p or vertical 9:16); the encoders your PC offers",
-    "Not yet: recording and streaming (each arrives in a later version)"
+    "Recording to MKV: H.264 video through NVIDIA, AMD or Intel hardware encoders (or Windows' software encoder) and up to six AAC audio tracks named after what's on them; playable even if the PC crashes (new, not yet tried on real hardware)",
+    "A sync test source (a white flash and a beep at each second) for checking picture and sound line up in a recording",
+    "Not yet: streaming, and saving recordings as MP4 (each arrives in a later version)"
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

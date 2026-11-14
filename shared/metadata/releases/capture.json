@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.5.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Recording: Start recording in Controls. The canvas is encoded as H.264 by your graphics card's encoder where it has one (NVIDIA, AMD or Intel), or by Windows' software encoder, with the recording tracks chosen in Settings › Recording as AAC audio tracks, each named after the sources on it.",
+        "Recordings are MKV files in Videos\\NorthRay Capture (or the folder you choose). They're written so that everything up to a crash or power cut still plays. Recording stops cleanly if the disk is nearly full.",
+        "Settings › Recording: the folder, the video encoder (automatic or a chosen one), video quality (6 to 40 Mbit/s), which audio tracks go in the file, and audio quality.",
+        "While recording: the time in Controls, and the time, the file's size and any lost frames in the status bar.",
+        "A sync test source (+ in Sources › Sync test): a white flash and a beep at the start of each second, for checking that picture and sound line up in a recording.",
+        "Please note: recording has only been tested here as far as the file format. This computer has no H.264 or AAC encoders, so recording hasn't yet run with a real encoder. If it doesn't work on your PC, the message and the log (Settings › Open the logs folder) say why.",
+        "Not yet: streaming (next) and saving a recording as MP4."
+      ]
+    },
+    {
       "version": "0.4.0",
       "date": "2026-11-14",
       "notes": [

@@ -313,3 +313,50 @@ advanced scenes and audio milestones if wanted.
   several, use application sources for what should be heard instead of desktop audio.
 - Monitoring adds the device's own latency (~40 ms buffer); there's no per-source monitor delay or "monitor only"
   vs "monitor and output" distinction beyond the Monitor and Stream buttons, which already cover both.
+
+## 12. Milestone 5: Recording (status: built, 14 Nov 2026; released as 0.5.0; not yet run with a real encoder)
+
+**Built**
+- `core/media`: Annex B parsing (3- and 4-byte start codes), length-prefixed conversion, keyframe detection, SPS/PPS
+  extraction, the avcC record, the AAC-LC AudioSpecificConfig, and an interleaver that releases packets in decode
+  order (waiting for every live stream to pass a time, or one second for a stream that's gone quiet).
+- `core/mkv`: a Matroska writer: EBML head; segment and clusters written with "unknown size" and patched when
+  closed (a crashed file still plays); seek head with a void that becomes the cues entry; info with the duration
+  patched at the end; one H.264 track and up to six named AAC tracks; a cluster per video keyframe (and at most 30 s);
+  SimpleBlocks; cues for every keyframe.
+- `src/encode/video_encoder`: an H.264 MFT (the chosen one, else hardware first, then software). Canvas BGRA →
+  NV12 by the D3D11 video processor (BT.709 limited range, signalled in the output type). Hardware: async MFT
+  (unlocked), D3D manager, NV12 textures straight in (MFCreateDXGISurfaceBuffer). Software or no D3D manager: copied
+  to memory through a staging texture. Settings through ICodecAPI: VBR (peak-constrained, 1.5× max) or CBR, mean
+  bitrate, GOP = 2 s, no B-frames; High profile, Main as a fallback. Its own thread (event-driven for async MFTs);
+  at most 3 frames waiting, more are dropped and counted. Drains on finish.
+- `src/encode/audio_encoder`: Windows' AAC MFT, 48 kHz stereo 16-bit in (converted from float), raw AAC out,
+  96-192 kbit/s; sample times by counting samples from the first block.
+- `src/output/recorder`: one recording: taps on the chosen track buses (the mixer stamps each tap's first block
+  with its QPC time; it now mixes missed blocks after a stall instead of skipping them), the engine's frame sink (the
+  canvas each frame; composition runs while it's set), a constant frame grid at the output rate (late frames counted),
+  audio in 1024-frame blocks, packets interleaved and written once the first keyframe has given the SPS/PPS; a 1 MB
+  write buffer; free space checked every 5 s (won't start under 500 MB, stops cleanly under 200 MB); on stop: no more
+  frames, the encoders drained, everything written in order, the file finished. A file with no pictures is deleted.
+- UI: Start/Stop recording in Controls with the time; the status bar's time, size and lost frames; Settings ›
+  Recording (folder picker, encoder menu, bitrate, tracks 1-6, audio quality); canvas and frame rate locked while
+  recording; the recording is finished properly if the window closes. Track names list the sources on them.
+- A sync test: a pattern source (white for the first 33 ms of each QPC second) and a mixer-generated tone (a 1 kHz
+  beep for the first 50 ms of each QPC second), added together from + in Sources.
+
+**Tested**
+- capturecore: 152 tests (NAL parsing, avcC, AAC config, the interleaver including quiet and not-yet-started
+  streams, the Matroska writer's header and patched sizes).
+- `tools/check-mkv.sh`: an H.264 stream (libx264, with AUDs) and two AAC streams (ffmpeg) put through Capture's
+  writer and interleaver: ffprobe reads 1 video and 2 named audio tracks, ffmpeg decodes every packet without errors,
+  seeking to 9 s works (cues), all 360 frames read back, and a copy cut off halfway still gives 180 frames.
+- In Wine: "No H.264 encoder was found" reported when starting (Wine has no MF encoders); the controls, the
+  status bar, the settings section; the sync pattern and tone (the tone shows on the Stream meter).
+
+**Not tested / limits**
+- The MF encoders (hardware or software), the video processor conversion, the recorder's timing and the A/V sync
+  have not run anywhere yet: this machine has no H.264/AAC MFTs. CJ's PC (GTX 960: NVENC) is the first real test.
+  The sync test source is for exactly that: record ~20 s and check each flash and beep start together.
+- MKV only; "save as MP4" (a remux) is planned. Recording resolution is the canvas's (no downscaling yet).
+- Audio and video are timed from the same QPC clock; device latencies (capture card, Bluetooth) aren't compensated
+  yet (a per-source sync offset is Milestone 9 material).

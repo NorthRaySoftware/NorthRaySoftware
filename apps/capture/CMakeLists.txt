@@ -6,7 +6,7 @@ string(STRIP "${NCAP_VERSION}" NCAP_VERSION)
 string(REPLACE "." "," NCAP_VERSION_COMMAS "${NCAP_VERSION}.0")
 
 # The portable core: scenes, routing and leak checks, log redaction, layouts. Tested everywhere.
-add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/routing.cpp core/src/diag.cpp)
+add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/routing.cpp core/src/diag.cpp)
 target_include_directories(capturecore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
   target_compile_options(capturecore PRIVATE /W4 /utf-8)
@@ -21,6 +21,12 @@ if(CJ_BUILD_TESTS)
     target_link_options(capturecore_tests PRIVATE -static)
   endif()
   add_test(NAME capturecore COMMAND capturecore_tests)
+  # Not a test by itself: builds an MKV from an H.264 and AAC elementary stream, for checking
+  # with ffprobe/ffmpeg (tools/check-mkv.sh).
+  if(NOT WIN32)
+    add_executable(capture_mkv_check tests/mkv_check.cpp)
+    target_link_libraries(capture_mkv_check PRIVATE capturecore)
+  endif()
 endif()
 
 if(NOT WIN32)
@@ -35,6 +41,10 @@ add_executable(NorthRayCapture WIN32
   src/capture_window.cpp
   src/capture_sources.cpp
   src/capture_audio.cpp
+  src/capture_record.cpp
+  src/encode/video_encoder.cpp
+  src/encode/audio_encoder.cpp
+  src/output/recorder.cpp
   src/audio/devices.cpp
   src/audio/capture.cpp
   src/audio/mixer.cpp
@@ -49,7 +59,7 @@ add_executable(NorthRayCapture WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayCapture PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version)
+target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite)
 if(MSVC)
   target_compile_options(NorthRayCapture PRIVATE /W4 /utf-8)
 else()

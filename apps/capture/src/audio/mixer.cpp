@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace ncap::audio {
@@ -184,7 +185,9 @@ void Mixer::run() {
     while (!quit_) {
         next += interval;
         QueryPerformanceCounter(&c);
-        if (c.QuadPart > next + 5 * interval) next = c.QuadPart;   // after a long stall, don't rush to catch up
+        // After a stall (the PC was busy), mix the missed blocks at once rather than skipping them,
+        // so a recording's sound never loses time against its picture; beyond half a second, skip.
+        if (c.QuadPart > next + 50 * interval) next = c.QuadPart - interval;
         const LONGLONG wait = next - c.QuadPart;
         if (wait > 0) {
             LARGE_INTEGER due;
@@ -192,6 +195,7 @@ void Mixer::run() {
             if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(timer, 100);
             else Sleep(10);
         }
+        blockQpc_ = next;
         block();
     }
     timeEndPeriod(1);
@@ -213,6 +217,17 @@ void Mixer::clipWrite(const Id& key, const float* frames) {
     finishedClip_ = clipPath_;
 }
 
+void Mixer::addTap(std::shared_ptr<Tap> tap) {
+    std::lock_guard<std::mutex> l(m_);
+    tap->firstQpc = 0;
+    taps_.push_back(std::move(tap));
+}
+
+void Mixer::removeTap(const std::shared_ptr<Tap>& tap) {
+    std::lock_guard<std::mutex> l(m_);
+    taps_.erase(std::remove(taps_.begin(), taps_.end(), tap), taps_.end());
+}
+
 void Mixer::block() {
     std::vector<MixSource> sources;
     {
@@ -222,13 +237,26 @@ void Mixer::block() {
     for (auto& b : bus_) std::fill(b.begin(), b.end(), 0.0f);
     std::map<Id, Levels> peaks;
     for (auto& s : sources) {
-        if (!s.capture) continue;
-        Ring& ring = s.capture->ring();
-        // Keep each source's delay small: if it has run more than 100 ms ahead, drop to 20 ms.
-        const size_t have = ring.available();
-        if (have > (size_t)kBlock * 10) ring.skip(have - (size_t)kBlock * 2);
-        const size_t got = ring.read(buf_.data(), kBlock);
-        if (got < (size_t)kBlock) std::fill(buf_.begin() + (long)(got * kChannels), buf_.end(), 0.0f);
+        if (s.syncTone) {
+            // The beep starts exactly on each second of the performance counter.
+            LARGE_INTEGER f;
+            QueryPerformanceFrequency(&f);
+            const double t0 = (double)blockQpc_ / (double)f.QuadPart;
+            for (int i = 0; i < kBlock; ++i) {
+                const double t = t0 + (double)i / kRate;
+                const double inSecond = t - std::floor(t);
+                const float v = inSecond < 0.05 ? (float)(0.5 * std::sin(2 * 3.14159265358979 * 1000.0 * inSecond)) : 0.0f;
+                buf_[(size_t)i * 2] = buf_[(size_t)i * 2 + 1] = v;
+            }
+        } else {
+            if (!s.capture) continue;
+            Ring& ring = s.capture->ring();
+            // Keep each source's delay small: if it has run more than 100 ms ahead, drop to 20 ms.
+            const size_t have = ring.available();
+            if (have > (size_t)kBlock * 10) ring.skip(have - (size_t)kBlock * 2);
+            const size_t got = ring.read(buf_.data(), kBlock);
+            if (got < (size_t)kBlock) std::fill(buf_.begin() + (long)(got * kChannels), buf_.end(), 0.0f);
+        }
         {
             std::lock_guard<std::mutex> l(m_);
             clipWrite(s.id, buf_.data());
@@ -248,6 +276,12 @@ void Mixer::block() {
     }
     monitor_.push(bus_[7].data(), kBlock);
     std::lock_guard<std::mutex> l(m_);
+    for (auto& t : taps_) {
+        if (t->bus < 0 || t->bus >= kBuses) continue;
+        if (t->firstQpc == 0) t->firstQpc = blockQpc_;
+        const std::size_t wrote = t->ring.write(bus_[(size_t)t->bus].data(), kBlock);
+        if (wrote < (std::size_t)kBlock) t->overflowed += kBlock - wrote;
+    }
     for (int b = 0; b < kBuses; ++b) clipWrite(busKey(b), bus_[(size_t)b].data());
     for (auto& [id, p] : peaks) {
         Levels& have = levels_[id];

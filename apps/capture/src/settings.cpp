@@ -53,6 +53,13 @@ bool Settings::load(const std::wstring& path) {
     monitorDevice = widen(cj::valueOr(j, "monitorDevice", std::string("default")));
     if (monitorDevice.empty()) monitorDevice = L"default";
     monitorHeadphones = cj::valueOr(j, "monitorHeadphones", true);
+    recordEncoder = widen(cj::valueOr(j, "recordEncoder", std::string()));
+    const int rk = cj::valueOr(j, "recordKbps", 20000);
+    recordKbps = rk >= 1000 && rk <= 150000 ? rk : 20000;
+    recordTracks = (unsigned)cj::valueOr(j, "recordTracks", 0x0F) & 0x3Fu;
+    if (!recordTracks) recordTracks = 1;
+    const int ak = cj::valueOr(j, "audioKbps", 160);
+    audioKbps = ak == 96 || ak == 128 || ak == 160 || ak == 192 ? ak : 160;
     return true;
 }
 
@@ -64,7 +71,8 @@ bool Settings::save(const std::wstring& path) const {
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
-                              {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}};
+                              {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

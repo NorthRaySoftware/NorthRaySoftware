@@ -37,6 +37,8 @@ struct MixSource {
     float gain = 1;
     bool muted = false;
     std::uint32_t buses = routing::Stream | routing::Track1;
+    bool syncTone = false;   // no capture: a 1 kHz beep for 50 ms at each whole second of the clock,
+                             // in step with the sync test pattern's flash (checking sync in a recording)
 };
 
 struct Levels {
@@ -61,6 +63,16 @@ private:
     std::wstring status_;
 };
 
+// A bus's sound handed to a recording or a stream: 10 ms blocks in a ring, with the time (QPC
+// ticks) the first block was mixed, so the reader can time every sample after it by counting.
+struct Tap {
+    explicit Tap(int bus) : bus(bus) {}
+    const int bus;
+    Ring ring{kRate * 2};   // 2 s
+    std::atomic<std::int64_t> firstQpc{0};
+    std::atomic<std::uint64_t> overflowed{0};   // frames dropped because the reader fell behind
+};
+
 class Mixer {
 public:
     ~Mixer() { stop(); }
@@ -78,6 +90,9 @@ public:
     // being saved.
     bool startClip(const Id& sourceOrBus, const std::wstring& path, int seconds);
     std::wstring takeFinishedClip(bool* ok = nullptr);   // once, when a clip is done
+    // Recordings and streams read buses through taps, from the next block on.
+    void addTap(std::shared_ptr<Tap> tap);
+    void removeTap(const std::shared_ptr<Tap>& tap);
 
 private:
     void run();
@@ -99,6 +114,8 @@ private:
     std::uint32_t clipFrames_ = 0, clipWanted_ = 0;
     std::vector<float> buf_;
     std::array<std::vector<float>, kBuses> bus_;
+    std::vector<std::shared_ptr<Tap>> taps_;
+    std::int64_t blockQpc_ = 0;   // when the block being mixed was due
 };
 
 }  // namespace ncap::audio

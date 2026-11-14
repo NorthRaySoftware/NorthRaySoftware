@@ -17,6 +17,7 @@
 #include "audio/mixer.hpp"
 #include "video/devices.hpp"
 #include "video/engine.hpp"
+#include "output/recorder.hpp"
 
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
@@ -130,6 +131,15 @@ private:
     void monitorMenu(POINT screen);
     float drawRoutes(float x, float y, float w);   // the settings page's routing view; returns its height
 
+    // Recording (capture_record.cpp)
+    void startRecording();
+    void stopRecording();
+    void recordTick();                          // finished files, problems
+    void chooseRecordingsFolder();
+    void encoderMenu(POINT screen);
+    std::wstring recordingsFolder() const;
+    float drawRecordingSettings(float x, float y, float w);
+
     // Layout
     void layoutMenu(POINT screen);
     void panelMenu(int panel, POINT screen);
@@ -198,6 +208,9 @@ private:
     bool metersRunning_ = false;
     float mixerScroll_ = 0, mixerContentH_ = 0;
     cjui::Rect mixerBody_{};
+
+    // Recording
+    output::Recorder recorder_;
 
     // Status
     sys::UsageSampler sampler_;

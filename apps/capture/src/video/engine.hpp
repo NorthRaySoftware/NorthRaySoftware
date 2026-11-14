@@ -15,6 +15,7 @@
 #include <dxgi1_2.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -70,6 +71,10 @@ public:
     // the preview is hidden.
     void setOutputsActive(bool on) { outputsActive_ = on; }
     EngineStats stats() const;
+    // Called on the video thread with each composed canvas while set (a recording or a stream);
+    // `qpc` is when the frame was composed. Composition runs whenever this is set.
+    using FrameSink = std::function<void(ID3D11Texture2D* canvas, LONGLONG qpc)>;
+    void setFrameSink(FrameSink sink);
     Gpu& gpu() { return gpu_; }   // for the UI thread's device-independent questions only
 
 private:
@@ -88,6 +93,7 @@ private:
 
     mutable std::mutex m_;
     Snapshot snap_;
+    FrameSink sink_;
     EngineStats stats_;
 
     // Video thread only.

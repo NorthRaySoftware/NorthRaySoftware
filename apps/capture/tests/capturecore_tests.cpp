@@ -1,6 +1,8 @@
 // Unit tests for NorthRay Capture's portable core. Dependency-free like the other suites.
 #include "ncap/audio.hpp"
 #include "ncap/diag.hpp"
+#include "ncap/media.hpp"
+#include "ncap/mkv.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
 
@@ -207,6 +209,77 @@ static void testAudio() {
     CHECK(h.size() == 44 && h[0] == 'R' && h[8] == 'W' && h[20] == 3 && h[22] == 2 && h[34] == 32 && h[40] == 0x00 && h[41] == 0x0F);
 }
 
+static void testMedia() {
+    std::printf("media\n");
+    using namespace ncap::media;
+    // An access unit: AUD, SPS, PPS, IDR slice; mixed 3- and 4-byte start codes.
+    const Bytes au = {0, 0, 0, 1, 0x09, 0xF0, 0, 0, 0, 1, 0x67, 0x64, 0x00, 0x28, 0xAC, 0, 0, 1, 0x68, 0xEE, 0x3C, 0x80, 0, 0, 1, 0x65, 0x88, 0x84, 0x00};
+    const auto nals = nalUnits(au.data(), au.size());
+    CHECK(nals.size() == 4 && nalType(nals[1].first) == 7 && nals[1].second == 5 && nalType(nals[3].first) == 5 && nals[3].second == 4);
+    CHECK(containsKeyframe(au.data(), au.size()));
+    Bytes sps, pps;
+    CHECK(findParameterSets(au.data(), au.size(), sps, pps) && sps.size() == 5 && pps.size() == 4);
+    const Bytes lp = annexBToLengthPrefixed(au.data(), au.size(), true);   // only the slice is left
+    CHECK(lp.size() == 8 && lp[3] == 4 && lp[4] == 0x65);
+    CHECK(annexBToLengthPrefixed(au.data(), au.size(), false).size() == 4 * 4 + 2 + 5 + 4 + 4);
+    const Bytes c = avcC(sps, pps);
+    CHECK(c.size() == 6 + 2 + 5 + 1 + 2 + 4 && c[0] == 1 && c[1] == 0x64 && c[3] == 0x28 && c[4] == 0xFF && c[5] == 0xE1 && c[7] == 5);
+    const Bytes asc = aacConfig(48000, 2);
+    CHECK(asc.size() == 2 && asc[0] == 0x11 && asc[1] == 0x90 && aacConfig(44100, 2)[1] == 0x10 && aacConfig(12345, 2).empty());
+    CHECK(recordingName(2026, 11, 4, 9, 5, 3) == "2026-11-04 09-05-03");
+
+    // Interleaving: video every 16.7 ms, audio every 21.3 ms; out in time order, and nothing waits
+    // on a stream that has gone quiet for longer than the limit.
+    Interleaver il(2, 100000);
+    auto pkt = [](int s, std::int64_t t) {
+        Packet p;
+        p.stream = s;
+        p.pts = p.dts = t;
+        return p;
+    };
+    il.push(pkt(0, 0));
+    il.push(pkt(0, 16667));
+    Packet out;
+    CHECK(!il.pop(out));   // audio may still bring something earlier
+    il.push(pkt(1, 0));
+    il.push(pkt(1, 21333));
+    std::vector<std::int64_t> order;
+    while (il.pop(out)) order.push_back(out.dts * 10 + out.stream);
+    CHECK(order.size() == 3 && order[0] == 0 && order[1] == 1 && order[2] == 166670);   // audio 21333 waits for video's next
+    for (int i = 2; i < 12; ++i) il.push(pkt(0, i * 16667));   // audio stops: video carries on after 100 ms
+    int released = 0;
+    while (il.pop(out)) ++released;
+    CHECK(released == 11 && il.queued() == 0);   // the quiet audio holds nothing up
+    Interleaver fresh(2, 100000);                  // a stream that hasn't started yet is waited for, up to the limit
+    fresh.push(pkt(0, 0));
+    CHECK(!fresh.pop(out));
+    fresh.push(pkt(0, 150000));
+    CHECK(fresh.pop(out) && out.dts == 0);
+    CHECK(fresh.drain(out) && out.dts == 150000 && !fresh.drain(out));
+
+    // The Matroska writer: header, blocks, and the sizes and duration filled in at the end.
+    ncap::mkv::MemorySink sink;
+    ncap::mkv::Writer w;
+    ncap::mkv::VideoTrack v;
+    v.width = 1280;
+    v.height = 720;
+    v.fps = 30;
+    v.avcC = c;
+    CHECK(w.begin(&sink, v, {{"Track 1", 48000, 2, asc}, {"Microphone", 48000, 2, asc}}, "NorthRay Capture test"));
+    CHECK(sink.bytes.size() > 40 && sink.bytes[0] == 0x1A && sink.bytes[1] == 0x45 && sink.bytes[2] == 0xDF && sink.bytes[3] == 0xA3);
+    CHECK(w.video(0, true, lp) && w.audio(0, 0, {1, 2, 3}) && w.audio(1, 10000, {4, 5}) && w.video(33333, false, lp) && w.video(1000000, true, lp));
+    const std::size_t before = sink.bytes.size();
+    CHECK(w.finish() && sink.bytes.size() > before && w.durationUs() == 1000000);
+    // The segment's size is no longer "unknown".
+    std::size_t seg = 0;
+    for (std::size_t i = 0; i + 4 < sink.bytes.size(); ++i)
+        if (sink.bytes[i] == 0x18 && sink.bytes[i + 1] == 0x53 && sink.bytes[i + 2] == 0x80 && sink.bytes[i + 3] == 0x67) {
+            seg = i + 4;
+            break;
+        }
+    CHECK(seg > 0 && sink.bytes[seg] == 0x01 && sink.bytes[seg + 7] != 0xFF);
+}
+
 static void testScenes() {
     std::printf("scenes\n");
     SceneCollection c;
@@ -382,6 +455,7 @@ int main() {
     testItemEditing();
     testPlacement();
     testAudio();
+    testMedia();
     testRouting();
     testDiagnostics();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);

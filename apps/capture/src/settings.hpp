@@ -22,7 +22,11 @@ struct Settings {
     std::wstring recordingsFolder;    // "" = the Videos folder
     bool welcomed = false;
     std::wstring monitorDevice = L"default";   // where the monitor mix plays: "default", an endpoint id, or "off"
-    bool monitorHeadphones = true;    // the monitor device is headphones (no echo into a microphone)
+    bool monitorHeadphones = true;
+    std::wstring recordEncoder;       // "" = the best available
+    int recordKbps = 20000;           // video bitrate for recordings
+    unsigned recordTracks = 0x0F;     // bit n-1 = recording track n (1-4 by default)
+    int audioKbps = 160;    // the monitor device is headphones (no echo into a microphone)
 
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;   // atomic: written beside, then swapped in

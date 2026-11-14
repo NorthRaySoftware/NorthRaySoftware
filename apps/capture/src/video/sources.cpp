@@ -11,6 +11,7 @@
 #include <mfreadwrite.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <thread>
 #include <vector>
@@ -863,9 +864,38 @@ private:
     std::uint64_t seen_ = 0;
 };
 
+// ------------------------------------------------------------------ the sync test pattern
+
+// White for the first 33 ms of each second of the performance counter, black otherwise: with the
+// sync tone (a beep at the same moments), a recording shows whether picture and sound line up.
+class SyncPattern : public VideoSource {
+public:
+    void update(Gpu& gpu) override {
+        LARGE_INTEGER f, c;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&c);
+        const double t = (double)c.QuadPart / (double)f.QuadPart;
+        const bool white = t - std::floor(t) < 0.033;
+        if (!out_.ensure(gpu.device(), 640, 360)) return;
+        if (!hasPicture_ || white != white_) {
+            const float v = white ? 1.0f : 0.0f;
+            gpu.clear(out_.rtv.Get(), v, v, v, 1);
+            white_ = white;
+            hasPicture_ = true;
+            w_ = 640;
+            h_ = 360;
+            setStatus(L"Sync test: a white flash at the start of each second, with the test tone's beep");
+        }
+    }
+
+private:
+    bool white_ = false;
+};
+
 }  // namespace
 
 std::shared_ptr<VideoSource> createVideoSource(SourceKind kind, const std::string& settings) {
+    if (kind == SourceKind::Colour && settings.find("\"sync\"") != std::string::npos) return std::make_shared<SyncPattern>();
     switch (kind) {
         case SourceKind::Display: return std::make_shared<DisplaySource>(settings);
         case SourceKind::Window: return std::make_shared<WindowSource>(settings);

@@ -120,6 +120,8 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
 }
 
 void CaptureWindow::onDestroy() {
+    recorder_.stop();   // the file is finished properly even when the window closes mid-recording
+    recordTick();
     engine_.stop();
     live_.clear();   // stops the captures
     mixer_.stop();
@@ -581,6 +583,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
     if (id == kStatsTimer) {
         usage_ = sampler_.sample();
         checkPendingFits();
+        recordTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -962,11 +965,35 @@ void CaptureWindow::drawSources(const Rect& b) {
 }
 
 void CaptureWindow::drawControls(const Rect& b) {
-    struct C { const wchar_t* label; const wchar_t* when; };
-    const C cs[] = {{L"Start streaming", L"Milestone 6"}, {L"Start recording", L"Milestone 5"}, {L"Replay buffer", L"Milestone 11"},
-                    {L"Studio mode", L"Milestone 8"},     {L"Virtual camera", L"Milestone 11"}};
     float y = b.y + 10;
     const float w = b.w - 24;
+    // Recording: the one that works now.
+    {
+        const bool rec = recorder_.active();
+        const Rect r{b.x + 12, y, w, 40};
+        const Color red = cjui::hexColor("#E0566A");
+        addHit("ctl:record", r, [this, rec] {
+            if (rec) stopRecording();
+            else startRecording();
+        });
+        const float hv = hoverAmount("ctl:record");
+        gfx_.fillRounded(r, 8, rec ? red.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
+        gfx_.strokeRounded(r, 8, rec ? red : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
+        gfx_.circle(r.x + 18, r.y + r.h / 2, 5, rec ? red : red.withAlpha(0.8f), true);
+        std::wstring label = rec ? L"Stop recording" : L"Start recording";
+        gfx_.text(label, {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        if (rec) {
+            const output::RecordStatus st = recorder_.status();
+            wchar_t t[32];
+            const int sec = (int)st.seconds;
+            swprintf(t, 32, L"%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
+            gfx_.text(t, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
+        }
+        if (focused("ctl:record")) focusRing(r);
+        y += 46;
+    }
+    struct C { const wchar_t* label; const wchar_t* when; };
+    const C cs[] = {{L"Start streaming", L"Milestone 6"}, {L"Replay buffer", L"Milestone 11"}, {L"Studio mode", L"Milestone 8"}, {L"Virtual camera", L"Milestone 11"}};
     for (const C& c : cs) {
         if (y + 34 > b.bottom()) break;
         const Rect r{b.x + 12, y, w, 34};
@@ -977,7 +1004,7 @@ void CaptureWindow::drawControls(const Rect& b) {
         y += 40;
     }
     if (y + 40 < b.bottom())
-        gfx_.text(L"Not built yet: each starts working in the milestone shown.", {b.x + 14, y + 2, b.w - 28, 40}, Font::Small, pal_.inkFaint);
+        gfx_.text(L"Greyed out: not built yet; each starts working in the milestone shown.", {b.x + 14, y + 2, b.w - 28, 40}, Font::Small, pal_.inkFaint);
 }
 
 void CaptureWindow::drawStatusBar(const Rect& r) {
@@ -1002,7 +1029,18 @@ void CaptureWindow::drawStatusBar(const Rect& r) {
         x += vw + 22;
     };
     item(L"Stream", L"off", &pal_.inkFaint);
-    item(L"Recording", L"off", &pal_.inkFaint);
+    if (recorder_.active()) {
+        const output::RecordStatus st = recorder_.status();
+        const Color red = cjui::hexColor("#E0566A");
+        wchar_t t[64];
+        const int sec = (int)st.seconds;
+        swprintf(t, 64, L"%d:%02d:%02d · %.0f MB", sec / 3600, sec / 60 % 60, sec % 60, (double)st.bytes / (1024.0 * 1024.0));
+        std::wstring v = t;
+        if (st.droppedFrames + st.encoderDropped > 0) v += L" · " + std::to_wstring(st.droppedFrames + st.encoderDropped) + L" frames lost";
+        item(L"Recording", v, &red);
+    } else {
+        item(L"Recording", L"off", &pal_.inkFaint);
+    }
     item(L"CPU", percent(usage_.processCpu) + L" (system " + percent(usage_.systemCpu) + L")");
     item(L"Memory", megabytes(usage_.privateBytes ? usage_.privateBytes : usage_.workingSet));
     {
@@ -1107,6 +1145,10 @@ void CaptureWindow::drawSettings(const Rect& area) {
         int sel = -1;
         for (int i = 0; i < 4; ++i) if (scenes_.canvasWidth == rs[i].w && scenes_.canvasHeight == rs[i].h) sel = i;
         segmented("set:canvas", {x + colW - 330, y - 2, 330, 32}, {rs[0].label, rs[1].label, rs[2].label, rs[3].label}, sel, [this](int i) {
+            if (recorder_.active()) {
+                flash(L"Stop recording to change the canvas.", 4);
+                return;
+            }
             const int W[] = {1920, 1280, 2560, 1080}, Hh[] = {1080, 720, 1440, 1920};
             scenes_.canvasWidth = W[i];
             scenes_.canvasHeight = Hh[i];
@@ -1114,11 +1156,15 @@ void CaptureWindow::drawSettings(const Rect& area) {
             saveScenes();
         });
         y += std::max(h, 34.0f) + 14;
-        const float h2 = row(L"Frame rate", L"For streams and recordings (from Milestone 5). 30 is kinder to older computers.", 300);
+        const float h2 = row(L"Frame rate", L"For streams and recordings. 30 is kinder to older computers.", 300);
         const int fps[] = {24, 30, 50, 60};
         int fsel = 3;
         for (int i = 0; i < 4; ++i) if (settings_.outputFps == fps[i]) fsel = i;
         segmented("set:ofps", {x + colW - 300, y - 2, 300, 32}, {L"24", L"30", L"50", L"60"}, fsel, [this](int i) {
+            if (recorder_.active()) {
+                flash(L"Stop recording to change the frame rate.", 4);
+                return;
+            }
             const int v[] = {24, 30, 50, 60};
             settings_.outputFps = v[i];
             settings_.save(settingsPath_);
@@ -1151,6 +1197,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
         y += 28;
         y += drawRoutes(x, y, colW) + 8;
     }
+
+    section(L"RECORDING");
+    y += drawRecordingSettings(x, y, colW) + 8;
 
     section(L"ENCODERS ON THIS PC");
     {
