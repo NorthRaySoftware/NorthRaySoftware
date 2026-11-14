@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.36.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.33.0: family trees from the bible's relationships.",
+        "NorthRay Browser 0.7.2: the video pop-out keeps the video's shape, with back 10 s, play or pause, forward 10 s, and Skip ad."
+      ]
+    },
+    {
       "version": "0.35.1",
       "date": "2026-11-14",
       "notes": [

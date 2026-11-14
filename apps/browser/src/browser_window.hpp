@@ -313,7 +313,16 @@ private:
     void drawPopoutPlaceholder(const cjui::Rect& r);
     HWND pop_ = nullptr;
     HWND popBar_ = nullptr;       // the bar: shown over the top of the video while the mouse is on it
+    HWND popCtl_ = nullptr;       // the controls along the bottom (back 10 s, play or pause, forward 10 s, skip ad)
     void placePopoutBar();
+    LRESULT popoutControls(HWND h, UINT msg, WPARAM wp, LPARAM lp);
+    void popoutCommand(const std::string& command);
+    void fitPopoutToVideo();
+    Page::VideoState popVideo_;   // the latest the page said
+    int popCtlHover_ = 0, popCtlDown_ = 0;   // 1 back, 2 play or pause, 3 forward, 4 skip ad
+    bool popCtlTracking_ = false, popCtlSmall_ = false, popSizing_ = false;
+    int popTick_ = 0;
+    float popAspect_ = 0;         // width / height the pop-out keeps (0 = not known yet)
     int popTab_ = 0;              // the tab whose page is in it (0 = none)
     int popHover_ = 0, popDown_ = 0;   // 1 back, 2 close
     bool popTracking_ = false;

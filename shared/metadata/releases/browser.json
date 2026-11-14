@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.7.2",
+      "date": "2026-11-14",
+      "notes": [
+        "The video pop-out takes the shape of the video, and keeps it as you resize it.",
+        "Controls on the pop-out while the mouse is over it: back 10 seconds, play or pause, forward 10 seconds.",
+        "“Skip ad” appears on the pop-out whenever the site offers to skip an advert (YouTube's button, or a “Skip ad” on other sites), even when the mouse isn't over it, and presses the site's own button for you."
+      ]
+    },
+    {
       "version": "0.7.1",
       "date": "2026-11-14",
       "notes": [

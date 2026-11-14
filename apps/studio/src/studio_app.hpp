@@ -277,6 +277,11 @@ private:
     void addRelationship();
     void addMembers();
     float drawCreatureTree(const Rect& m, float y);
+    // Family trees (studio_world.cpp): a character's family on their page, the whole tree as a page.
+    float drawFamilySection(const Rect& m, float y, const studio::Entry& e);
+    void drawFamilyTree(const Rect& r);
+    void addFamilyMember(const Id& who, int relation);   // 0 parent, 1 partner, 2 sibling, 3 child
+    void openFamilyTree(const Id& root);
     float drawKindSuggestions(const Rect& m, float y);
     void addGalleryPictures();
     void galleryMenu(size_t index);
@@ -536,6 +541,8 @@ private:
         bool editTemplate = false; // the panel edits the kind's page template
         Id boardEntry;             // the board open belongs to this entry (back goes to it)
         int picture = -1;          // the gallery picture selected on the entry's page
+        Id familyRoot;             // the family tree shown ("" = none), drawn from this person
+        float treeX = 0, treeW = 0;   // the tree scrolled across (Shift and the wheel), and its width
         std::vector<studio::Mention> mentions;
         Id mentionsFor;
         std::string mentionsKey;   // the names they were found for

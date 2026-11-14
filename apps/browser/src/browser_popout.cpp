@@ -20,6 +20,8 @@ constexpr int kBar = 30;      // the bar over the top, in pixels at 96 dpi
 constexpr int kEdge = 3;      // the border round the page (resizing)
 constexpr wchar_t kPopClass[] = L"NorthRayBrowserPopout";
 constexpr wchar_t kBarClass[] = L"NorthRayBrowserPopoutBar";
+constexpr int kCtl = 46;      // the controls along the bottom
+constexpr int kSkipW = 116;   // "Skip ad" on its own, when the mouse isn't on the pop-out
 constexpr UINT_PTR kHoverTimer = 7;
 
 int px(HWND h, int v) { return MulDiv(v, (int)GetDpiForWindow(h), 96); }
@@ -91,6 +93,12 @@ void BrowserWindow::popOutVideo(int id) {
     popBar_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kBarClass, L"", WS_POPUP, 0, 0, 10, 10, pop_, nullptr,
                               GetModuleHandleW(nullptr), this);
     if (popBar_) SetLayeredWindowAttributes(popBar_, 0, 225, LWA_ALPHA);
+    popCtl_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kBarClass, L"", WS_POPUP, 0, 0, 10, 10, pop_, nullptr,
+                              GetModuleHandleW(nullptr), this);
+    if (popCtl_) SetLayeredWindowAttributes(popCtl_, 0, 230, LWA_ALPHA);
+    popVideo_ = {};
+    popAspect_ = 0;
+    popTick_ = 0;
     SetTimer(pop_, kHoverTimer, 120, nullptr);
     popTab_ = id;
     v->page->reparent(pop_);
@@ -126,11 +134,12 @@ void BrowserWindow::popBackIn() {
     if (pop_) {
         HWND p = pop_;
         pop_ = nullptr;
-        popBar_ = nullptr;   // owned by the pop-out: goes with it
+        popBar_ = nullptr;   // owned by the pop-out: go with it
+        popCtl_ = nullptr;
         KillTimer(p, kHoverTimer);
         DestroyWindow(p);
     }
-    popHover_ = popDown_ = 0;
+    popHover_ = popDown_ = popCtlHover_ = popCtlDown_ = 0;
     invalidate();   // the page goes back in its place on the next frame
 }
 
@@ -146,26 +155,82 @@ void BrowserWindow::placePopoutPage() {
     placePopoutBar();
 }
 
-// The bar over the top of the video, while the mouse is on the pop-out (or the bar is in use).
+// The bar over the top of the video and the controls along its bottom, while the mouse is on the
+// pop-out (or one of them is in use). "Skip ad" shows on its own whenever the site offers it.
 void BrowserWindow::placePopoutBar() {
     if (!pop_ || !popBar_) return;
     RECT wr;
     GetWindowRect(pop_, &wr);
     POINT c;
     GetCursorPos(&c);
-    const bool over = PtInRect(&wr, c) || popDown_ != 0;
-    const bool minimised = IsIconic(pop_);
-    if (!over || minimised) {
+    const bool over = (PtInRect(&wr, c) || popDown_ != 0 || popCtlDown_ != 0) && !IsIconic(pop_);
+    const int e = px(pop_, kEdge);
+    const int w = (wr.right - wr.left) - 2 * e;
+    if (!over) {
         if (IsWindowVisible(popBar_)) ShowWindow(popBar_, SW_HIDE);
-        if (popHover_) popHover_ = 0;
+        popHover_ = 0;
+    } else {
+        SetWindowPos(popBar_, HWND_TOPMOST, wr.left + e, wr.top + e, w, px(pop_, kBar), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+    if (!popCtl_) return;
+    const bool skipOnly = !over && popVideo_.canSkip && !IsIconic(pop_);
+    if (!over && !skipOnly) {
+        if (IsWindowVisible(popCtl_)) ShowWindow(popCtl_, SW_HIDE);
+        popCtlHover_ = 0;
         return;
     }
-    const int e = px(pop_, kEdge);
-    SetWindowPos(popBar_, HWND_TOPMOST, wr.left + e, wr.top + e, (wr.right - wr.left) - 2 * e, px(pop_, kBar),
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (skipOnly != popCtlSmall_) { popCtlSmall_ = skipOnly; InvalidateRect(popCtl_, nullptr, FALSE); }
+    const int ch = px(pop_, kCtl);
+    if (skipOnly) {
+        const int sw = std::min(w, px(pop_, kSkipW));
+        SetWindowPos(popCtl_, HWND_TOPMOST, wr.right - e - sw - px(pop_, 10), wr.bottom - e - ch - px(pop_, 10), sw, ch,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else {
+        SetWindowPos(popCtl_, HWND_TOPMOST, wr.left + e, wr.bottom - e - ch, w, ch, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+}
+
+// Asks the page (and does what was pressed); the answer keeps the buttons and the shape up to date.
+void BrowserWindow::popoutCommand(const std::string& command) {
+    TabView* v = view(popTab_);
+    if (!v || !v->page) return;
+    const int tab = popTab_;
+    v->page->videoCommand(command, [this, tab](const Page::VideoState& st) {
+        if (popTab_ != tab || !pop_) return;
+        const bool redraw = st.paused != popVideo_.paused || st.canSkip != popVideo_.canSkip;
+        popVideo_ = st;
+        if (st.found && st.width > 0 && st.height > 0) {
+            const float a = (float)st.width / (float)st.height;
+            if (std::fabs(a - popAspect_) > 0.01f) { popAspect_ = a; fitPopoutToVideo(); }
+        }
+        if (redraw && popCtl_) InvalidateRect(popCtl_, nullptr, FALSE);
+        placePopoutBar();
+    });
+}
+
+// The pop-out takes the video's shape: the same width, the height to match (kept on the screen).
+void BrowserWindow::fitPopoutToVideo() {
+    if (!pop_ || popAspect_ <= 0 || popSizing_ || IsIconic(pop_)) return;
+    RECT wr;
+    GetWindowRect(pop_, &wr);
+    const int e2 = 2 * px(pop_, kEdge);
+    const int w = wr.right - wr.left;
+    int h = (int)std::lround((w - e2) / popAspect_) + e2;
+    MONITORINFO mi{sizeof mi};
+    GetMonitorInfoW(MonitorFromWindow(pop_, MONITOR_DEFAULTTONEAREST), &mi);
+    const int maxH = (mi.rcWork.bottom - mi.rcWork.top) * 9 / 10;
+    int nw = w;
+    if (h > maxH) { h = maxH; nw = (int)std::lround((h - e2) * popAspect_) + e2; }   // a tall video: narrower instead
+    // Keep the bottom edge where it was (the pop-out usually sits in a bottom corner), within the screen.
+    int top = wr.bottom - h;
+    if (top < mi.rcWork.top) top = mi.rcWork.top;
+    int left = wr.right - nw;
+    if (left < mi.rcWork.left) left = mi.rcWork.left;
+    SetWindowPos(pop_, nullptr, left, top, nw, h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 LRESULT BrowserWindow::popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    if (h == popCtl_ && popCtl_) return popoutControls(h, msg, wp, lp);
     if (GetWindow(h, GW_OWNER) != nullptr) {   // only the bar has an owner (the pop-out)
         // ---- The bar.
         switch (msg) {
@@ -274,7 +339,11 @@ LRESULT BrowserWindow::popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     // ---- The pop-out itself: a thin black frame round the page, for resizing.
     switch (msg) {
     case WM_TIMER:
-        if (wp == kHoverTimer) { placePopoutBar(); return 0; }
+        if (wp == kHoverTimer) {
+            placePopoutBar();
+            if (++popTick_ % 4 == 1) popoutCommand("state");   // about twice a second
+            return 0;
+        }
         break;
     case WM_NCHITTEST: {
         POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
@@ -293,6 +362,24 @@ LRESULT BrowserWindow::popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         if (t) return HTTOP;
         return HTCAPTION;   // the frame drags it too
     }
+    case WM_ENTERSIZEMOVE:
+        popSizing_ = true;
+        return 0;
+    case WM_SIZING: {
+        // Resizing keeps the video's shape.
+        if (popAspect_ <= 0) break;
+        auto* rc = reinterpret_cast<RECT*>(lp);
+        const int e2 = 2 * px(h, kEdge);
+        const int w = rc->right - rc->left - e2, hh = rc->bottom - rc->top - e2;
+        if (wp == WMSZ_TOP || wp == WMSZ_BOTTOM) {
+            rc->right = rc->left + (int)std::lround(hh * popAspect_) + e2;
+        } else {
+            const int nh = (int)std::lround(w / popAspect_) + e2;
+            if (wp == WMSZ_TOPLEFT || wp == WMSZ_TOPRIGHT) rc->top = rc->bottom - nh;
+            else rc->bottom = rc->top + nh;
+        }
+        return TRUE;
+    }
     case WM_GETMINMAXINFO: {
         auto* mm = reinterpret_cast<MINMAXINFO*>(lp);
         mm->ptMinTrackSize = {px(h, 220), px(h, 150)};
@@ -302,9 +389,11 @@ LRESULT BrowserWindow::popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         placePopoutPage();
         InvalidateRect(h, nullptr, FALSE);
         return 0;
+    case WM_EXITSIZEMOVE:
+        popSizing_ = false;
+        [[fallthrough]];
     case WM_MOVE:
     case WM_MOVING:
-    case WM_EXITSIZEMOVE:
         placePopoutPage();
         return msg == WM_MOVING ? TRUE : 0;
     case WM_DPICHANGED: {
@@ -326,6 +415,150 @@ LRESULT BrowserWindow::popoutMessage(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rc;
         GetClientRect(h, &rc);
         FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        EndPaint(h, &ps);
+        return 0;
+    }
+    default:
+        break;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+namespace {
+// The controls' buttons, in client pixels: 1 back 10 s, 2 play or pause, 3 forward 10 s, 4 skip ad.
+RECT ctlRect(HWND h, int which, bool small, bool canSkip) {
+    RECT rc;
+    GetClientRect(h, &rc);
+    if (small) return which == 4 ? rc : RECT{};
+    const int b = px(h, 44), cy = (rc.top + rc.bottom) / 2, cx = (rc.left + rc.right) / 2;
+    if (which == 4) {
+        if (!canSkip) return {};
+        const int sw = px(h, kSkipW - 10);
+        return {rc.right - sw - px(h, 8), cy - px(h, 15), rc.right - px(h, 8), cy + px(h, 15)};
+    }
+    const int x = cx + (which - 2) * (b + px(h, 10));
+    return {x - b / 2, cy - b / 2, x + b / 2, cy + b / 2};
+}
+
+void triangle(HDC dc, int x, int y, int s, bool right, COLORREF c) {
+    POINT p[3] = {{right ? x - s / 2 : x + s / 2, y - s / 2}, {right ? x - s / 2 : x + s / 2, y + s / 2}, {right ? x + s / 2 : x - s / 2, y}};
+    HBRUSH b = CreateSolidBrush(c);
+    HPEN pen = CreatePen(PS_SOLID, 1, c);
+    HGDIOBJ ob = SelectObject(dc, b), op = SelectObject(dc, pen);
+    Polygon(dc, p, 3);
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(b);
+    DeleteObject(pen);
+}
+}  // namespace
+
+LRESULT BrowserWindow::popoutControls(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_MOUSEMOVE: {
+        if (!popCtlTracking_) {
+            TRACKMOUSEEVENT tme{sizeof tme, TME_LEAVE, h, 0};
+            TrackMouseEvent(&tme);
+            popCtlTracking_ = true;
+        }
+        POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        int hv = 0;
+        for (int i = 1; i <= 4; ++i) { const RECT br = ctlRect(h, i, popCtlSmall_, popVideo_.canSkip); if (PtInRect(&br, p)) hv = i; }
+        if (hv != popCtlHover_) { popCtlHover_ = hv; InvalidateRect(h, nullptr, FALSE); }
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        popCtlTracking_ = false;
+        if (popCtlHover_) { popCtlHover_ = 0; InvalidateRect(h, nullptr, FALSE); }
+        return 0;
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
+        popCtlDown_ = popCtlHover_;
+        if (popCtlDown_) SetCapture(h);
+        else { ReleaseCapture(); SendMessageW(pop_, WM_NCLBUTTONDOWN, HTCAPTION, 0); }   // the strip between buttons drags
+        return 0;
+    case WM_LBUTTONUP: {
+        ReleaseCapture();
+        const int was = popCtlDown_;
+        popCtlDown_ = 0;
+        POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        const RECT br = ctlRect(h, was, popCtlSmall_, popVideo_.canSkip);
+        if (was && PtInRect(&br, p)) {
+            static const char* cmds[] = {"", "back", "toggle", "forward", "skip"};
+            if (was == 2) { popVideo_.paused = !popVideo_.paused; }   // shown at once; the page's answer confirms it
+            popoutCommand(cmds[was]);
+        }
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
+    }
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        HBRUSH bg = CreateSolidBrush(RGB(0x10, 0x14, 0x22));
+        FillRect(dc, &rc, bg);
+        DeleteObject(bg);
+        const COLORREF ink = RGB(0xF2, 0xF4, 0xF8);
+        HFONT f = CreateFontW(-px(h, 12), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                              CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        HGDIOBJ oldF = SelectObject(dc, f);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, ink);
+        for (int i = 1; i <= 4; ++i) {
+            const RECT br = ctlRect(h, i, popCtlSmall_, popVideo_.canSkip);
+            if (br.right <= br.left) continue;
+            const int cx = (br.left + br.right) / 2, cy = (br.top + br.bottom) / 2;
+            if (i == 4) {
+                // Skip ad: a light button, easy to spot.
+                HBRUSH sb = CreateSolidBrush(popCtlHover_ == 4 ? RGB(0xFF, 0xFF, 0xFF) : RGB(0xE6, 0xE9, 0xF0));
+                HGDIOBJ ob = SelectObject(dc, sb);
+                HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
+                RoundRect(dc, br.left, br.top, br.right, br.bottom, px(h, 8), px(h, 8));
+                SelectObject(dc, ob);
+                SelectObject(dc, op);
+                DeleteObject(sb);
+                SetTextColor(dc, RGB(0x10, 0x14, 0x22));
+                RECT tr = br;
+                tr.right -= px(h, 18);
+                DrawTextW(dc, L"Skip ad", -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                triangle(dc, br.right - px(h, 16), cy, px(h, 8), true, RGB(0x10, 0x14, 0x22));
+                SetTextColor(dc, ink);
+                continue;
+            }
+            if (popCtlHover_ == i) {
+                HBRUSH hb = CreateSolidBrush(RGB(0x2A, 0x31, 0x45));
+                HGDIOBJ ob = SelectObject(dc, hb);
+                HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
+                Ellipse(dc, br.left, br.top, br.right, br.bottom);
+                SelectObject(dc, ob);
+                SelectObject(dc, op);
+                DeleteObject(hb);
+            }
+            const int s = px(h, 12);
+            if (i == 2) {
+                if (popVideo_.paused) triangle(dc, cx + px(h, 1), cy, px(h, 16), true, ink);
+                else {
+                    RECT a{cx - px(h, 6), cy - px(h, 8), cx - px(h, 2), cy + px(h, 8)}, b{cx + px(h, 2), cy - px(h, 8), cx + px(h, 6), cy + px(h, 8)};
+                    HBRUSH ib = CreateSolidBrush(ink);
+                    FillRect(dc, &a, ib);
+                    FillRect(dc, &b, ib);
+                    DeleteObject(ib);
+                }
+            } else {
+                // Two arrows and "10": back (pointing left) or forward.
+                const bool fwd = i == 3;
+                triangle(dc, cx + (fwd ? -px(h, 4) : px(h, 4)), cy - px(h, 5), s * 2 / 3, fwd, ink);
+                triangle(dc, cx + (fwd ? px(h, 4) : -px(h, 4)), cy - px(h, 5), s * 2 / 3, fwd, ink);
+                RECT tr{br.left, cy, br.right, br.bottom - px(h, 4)};
+                DrawTextW(dc, L"10", -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            }
+        }
+        SelectObject(dc, oldF);
+        DeleteObject(f);
         EndPaint(h, &ps);
         return 0;
     }

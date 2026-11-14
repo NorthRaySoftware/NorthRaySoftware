@@ -752,6 +752,81 @@ const wchar_t* kPopoutScript = LR"JS((function(on){
   return had ? 'video' : 'none';
 })(%ON%))JS";
 
+
+// The pop-out's controls, run in the page: the video the pop-out shows (or the main one), its size
+// and whether it's paused, and whether the site is offering "Skip ad" (a visible button or link saying
+// so: YouTube's, and others'). Answers "found|width|height|paused|canSkip".
+const wchar_t* kVideoControlScript = LR"JS((function(cmd){
+  function shown(e){ if (!e || !e.isConnected) return false; var cs = getComputedStyle(e);
+    if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) return false;
+    var r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; }
+  function skipButton(){
+    var sel = '.ytp-skip-ad-button,.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-ad-skip-button-slot button,[class*="skip-ad"],[class*="skipAd"],[class*="ad-skip"]';
+    var list = document.querySelectorAll(sel);
+    for (var i = 0; i < list.length; i++)
+      if (shown(list[i])) {
+        // A wrapper round the site's button: the button itself.
+        var inner = list[i].matches('button,[role=button],a') ? null : list[i].querySelector('button,[role=button],a');
+        return inner && shown(inner) ? inner : list[i];
+      }
+    var cands = document.querySelectorAll('button,[role=button],a,div,span');
+    for (var j = 0; j < cands.length && j < 4000; j++) {
+      var c = cands[j], t = (c.textContent || '').trim();
+      // Words of its own, not a container holding the player or other blocks.
+      if (t.length > 0 && t.length < 24 && /^skip( ad| ads|$)/i.test(t) && c.children.length < 4 &&
+          !c.querySelector('video,div,p,section,iframe') && shown(c)) return c;
+    }
+    return null;
+  }
+  var v = window.__nrPopVideo;
+  if (!v || !v.isConnected) {
+    var best = null, sc = 0;
+    document.querySelectorAll('video').forEach(function(x){ var r = x.getBoundingClientRect(); var a = r.width * r.height * (x.paused ? 1 : 8); if (a > sc) { sc = a; best = x; } });
+    v = best;
+  }
+  if (v) {
+    if (cmd === 'back') v.currentTime = Math.max(0, v.currentTime - 10);
+    else if (cmd === 'forward') v.currentTime = Math.min(isFinite(v.duration) ? v.duration : 1e12, v.currentTime + 10);
+    else if (cmd === 'toggle') { if (v.paused || v.ended) { var p = v.play(); if (p && p.catch) p.catch(function(){}); } else v.pause(); }
+  }
+  var sk = skipButton();
+  if (cmd === 'skip' && sk) { sk.click(); sk = null; }
+  return (v ? 1 : 0) + '|' + (v ? v.videoWidth : 0) + '|' + (v ? v.videoHeight : 0) + '|' + (!v || v.paused ? 1 : 0) + '|' + (sk ? 1 : 0);
+})('%CMD%'))JS";
+
+void Page::videoCommand(const std::string& command, std::function<void(const VideoState&)> done) {
+    if (!web_) { if (done) done({}); return; }
+    std::wstring script = kVideoControlScript;
+    std::wstring cmd(command.begin(), command.end());
+    script.replace(script.find(L"%CMD%"), 5, cmd);
+    auto live = [alive = std::weak_ptr<bool>(alive_)] { auto a = alive.lock(); return a && *a; };
+    auto handler = makeHandler<ICoreWebView2ExecuteScriptCompletedHandler, HRESULT, LPCWSTR>(
+        [done, live](HRESULT hr, LPCWSTR result) -> HRESULT {
+            if (!live() || !done) return S_OK;
+            VideoState st;
+            if (SUCCEEDED(hr) && result) {
+                std::wstring r = result;   // a JSON string: "1|640|360|0|1"
+                if (r.size() >= 2 && r.front() == L'"') r = r.substr(1, r.size() - 2);
+                int f[5] = {0, 0, 0, 1, 0};
+                size_t at = 0;
+                for (int i = 0; i < 5 && at <= r.size(); ++i) {
+                    const size_t bar = r.find(L'|', at);
+                    f[i] = _wtoi(r.substr(at, bar == std::wstring::npos ? std::wstring::npos : bar - at).c_str());
+                    if (bar == std::wstring::npos) break;
+                    at = bar + 1;
+                }
+                st.found = f[0] != 0;
+                st.width = f[1];
+                st.height = f[2];
+                st.paused = f[3] != 0;
+                st.canSkip = f[4] != 0;
+            }
+            done(st);
+            return S_OK;
+        });
+    web_->ExecuteScript(script.c_str(), handler.get());
+}
+
 void Page::reparent(HWND parent) {
     parent_ = parent;
     if (controller_) {

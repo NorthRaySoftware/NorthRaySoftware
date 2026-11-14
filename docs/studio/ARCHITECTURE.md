@@ -312,3 +312,18 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
 
 - The "race" facet has no built-in options. `facetChoices` offers the bible's Race entries and race values already written on characters. The panel's Race list ends with "New race…", which creates a Race entry called "New race", opens it, and focuses the Name field with its text selected (`focusFieldSoon_ = FName`).
 - The studiocore family tree (`familyOf`, `familyLayout`, `families`, in `family.cpp`) is in, with tests; the app doesn't draw it yet.
+
+## 0.33.0: family trees
+
+- `Library::familyOf(id)` reads "Parent of" and "Child of" (either direction), "Partner of" and "Married to", and "Sibling of". Siblings also include anyone sharing a parent; `familyOf(id, false)` leaves that out, so a parent loop can't recurse.
+- `familyLayout(root, limit)`:
+  - A breadth-first walk gives each person a generation (partners and siblings 0, parents -1, children +1), up to `limit` people (`cut` says some were left out).
+  - Units are a person plus their partners in the same generation.
+  - Generations are placed from the eldest down: each unit sorted by the mean x of its members' parents, then pushed right to avoid overlap (0.25 gaps between units).
+  - Two passes, from the youngest generation up, move parent units towards the middle of their children, within their neighbours.
+  - x is in card widths. `families(world)` returns the connected families of two or more people, named after the most common surname (the last word) and rooted at the eldest; largest first.
+- App:
+  - The Family section on a character's page (`drawFamilySection`). `addFamilyMember` offers a new character (created, linked, opened with `focusFieldSoon_ = FName`) or an existing one.
+  - `wb_.familyRoot` shows `drawFamilyTree`: cards of 176 × 66 scaled to fit, down to 0.66, and wider than that `wb_.treeX` is moved with Shift and the wheel.
+  - Partners have one line between them, or two for "Married to". Children are grouped by parent set: a line down from a couple's midpoint (or below a single parent), a bar across, and a line down to each child.
+  - A "Family trees" chip row sits on the Characters list.

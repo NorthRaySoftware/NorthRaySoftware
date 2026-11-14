@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.33.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Family trees: a character's page has a Family section with their parents, partners, brothers and sisters, and children (anyone sharing a parent counts as a brother or sister), with “+ Parent”, “+ Partner”, “+ Brother or sister” and “+ Child”: someone already in the bible, or a new character opened with its name ready to type.",
+        "“See the family tree”: the whole family drawn by generation, partners side by side (two lines for a marriage), lines down to their children. Click anyone to open their page. A wide tree shrinks to fit; wider still, Shift and the mouse wheel move across it.",
+        "Characters lists the bible's families (“The Wren family · 7”), each opening its tree. Families are named after the surname most of them share."
+      ]
+    },
+    {
       "version": "0.32.1",
       "date": "2026-11-14",
       "notes": [

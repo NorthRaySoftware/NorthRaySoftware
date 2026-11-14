@@ -1339,6 +1339,8 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     if (ws_ == Workspace::Worldbuilding) {
         if (panelRect_.contains(x, y)) wb_.panelScroll = std::clamp(wb_.panelScroll + lines * 20, 0.0f, std::max(0.0f, wb_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) wb_.sideScroll = std::clamp(wb_.sideScroll + lines * 20, 0.0f, std::max(0.0f, wb_.sideContent - sideRect_.h));
+        else if (pageRect_.contains(x, y) && !wb_.familyRoot.empty() && (GetKeyState(VK_SHIFT) & 0x8000))
+            wb_.treeX = std::clamp(wb_.treeX + lines * 40, 0.0f, std::max(0.0f, wb_.treeW - pageRect_.w + 60));   // a wide tree, across
         else if (pageRect_.contains(x, y)) wb_.scroll = std::clamp(wb_.scroll + lines * 30, 0.0f, std::max(0.0f, wb_.content - pageRect_.h));
         invalidate();
         return true;

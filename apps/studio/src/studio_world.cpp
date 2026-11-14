@@ -299,6 +299,7 @@ void StudioApp::openEntry(const Id& id) {
     commitFields();
     wb_.board.clear();   // out of any image board
     wb_.item.clear();
+    wb_.familyRoot.clear();
     if (wb_.entry != id) {
         wb_.panelScroll = 0;
         wb_.section.clear();
@@ -646,6 +647,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
 void StudioApp::drawWorldPage(const Rect& r) {
     wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
     if (!wb_.board.empty()) { drawBoard(r); return; }
+    if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
@@ -688,6 +690,33 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += 40;
         }
         y = drawKindSuggestions(m, y);
+        if (wb_.kind == "character" && wb_.facet.empty()) {
+            // The families in the bible, each opening its tree.
+            const auto fams = lib_->families(wb_.world, wb_.book);
+            if (!fams.empty()) {
+                gfx_.text(L"FAMILY TREES", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 26;
+                float lx = m.x;
+                for (const auto& fg : fams) {
+                    const Entry* rootE = lib_->entry(fg.root);
+                    if (!rootE) continue;
+                    const std::wstring nm = (fg.surname.empty() ? w(rootE->name) + L"'s family" : L"The " + w(fg.surname) + L" family") +
+                                            L"  \u00B7  " + std::to_wstring(fg.people);
+                    const float lw2 = gfx_.measureWidth(nm, Font::Body) + 30;
+                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 36; }
+                    const Rect chip{lx, y, lw2, 30};
+                    const std::string id = "wb:fam:" + fg.root;
+                    addHit(id, chip, [this, rid = fg.root] { openFamilyTree(rid); });
+                    const float hv = hoverAmount(id);
+                    gfx_.fillRounded(chip, 15, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+                    gfx_.strokeRounded(chip, 15, pal_.rule.mix(pal_.ribbon, hv));
+                    gfx_.text(nm, chip, Font::Body, pal_.ink, {Align::Center, false, true, true});
+                    if (focused(id)) focusRing(chip);
+                    lx += lw2 + 8;
+                }
+                y += 52;
+            }
+        }
         if (wb_.kind == "creature" && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
             y = drawCreatureTree(m, y);
         } else if (list.empty()) {
@@ -987,6 +1016,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
             }
         }
+
+        if (e->kind == "character") y = drawFamilySection(m, y, *e);
 
         // Gallery: pictures of it, kept with the entry.
         {
@@ -1912,6 +1943,261 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
         }
     }
     return y + 20;
+}
+
+// ------------------------------------------------------------- family trees
+
+void StudioApp::openFamilyTree(const Id& root) {
+    commitFields();
+    wb_.board.clear();
+    wb_.item.clear();
+    wb_.familyRoot = root;
+    wb_.scroll = 0;
+    wb_.treeX = -1;   // centred on the person on the first frame
+    setFocus({Focus::Entry, root, {}});
+    invalidate();
+}
+
+// Adds a parent, partner, sibling or child: someone already in the bible, or a new character
+// (opened with its name ready to type).
+void StudioApp::addFamilyMember(const Id& who, int relation) {
+    const Entry* me = lib_->entry(who);
+    if (!me) return;
+    const auto fam = lib_->familyOf(who);
+    std::set<Id> already;
+    for (auto* v : {&fam.parents, &fam.partners, &fam.siblings, &fam.children}) already.insert(v->begin(), v->end());
+    std::vector<const Entry*> people;
+    for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
+        if (o->kind == "character" && o->id != who && !already.count(o->id)) people.push_back(o);
+    static const wchar_t* what[] = {L"parent", L"partner", L"brother or sister", L"child"};
+    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"New character as " + w(me->name) + L"'s " + what[relation] + L"…", 1)};
+    if (!people.empty()) menu.push_back(cjui::MenuItem::sep());
+    for (size_t i = 0; i < people.size() && i < 300; ++i) menu.push_back(cjui::MenuItem::item(w(people[i]->name), (UINT)(10 + i)));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
+    if (!ch) return;
+    commitFields();
+    Id other;
+    if (ch == 1) {
+        other = lib_->createEntry(wb_.world, wb_.book, "character", "New character");
+        if (other.empty()) return;
+    } else {
+        other = people[ch - 10]->id;
+    }
+    bool ok = false;
+    switch (relation) {
+        case 0: ok = lib_->addLink(other, who, "Parent of"); break;
+        case 1: ok = lib_->addLink(who, other, "Partner of"); break;
+        case 2: ok = lib_->addLink(who, other, "Sibling of"); break;
+        default: ok = lib_->addLink(who, other, "Parent of"); break;
+    }
+    if (!ok) { flash(w("Couldn't add them: " + lib_->lastError()), 6); return; }
+    if (ch == 1) {
+        const bool inTree = !wb_.familyRoot.empty();
+        openEntry(other);
+        focusFieldSoon_ = FName;
+        flash(inTree ? L"Name them; “See the family tree” on their page goes back to the tree." : L"Name them here.", 6);
+    }
+    invalidate();
+}
+
+// A character's close family on their page: who, and quick ways to add more.
+float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
+    const float cw = m.w;
+    const auto fam = lib_->familyOf(e.id);
+    gfx_.text(L"FAMILY", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    const bool any = !fam.parents.empty() || !fam.partners.empty() || !fam.siblings.empty() || !fam.children.empty();
+    if (any) {
+        const std::wstring t = L"See the family tree ›";
+        linkText("wb:famtree", m.right() - gfx_.measureWidth(t, Font::Small), y - 2, t, [this, id = e.id] { openFamilyTree(id); });
+    }
+    y += 28;
+    struct Row { const wchar_t* label; const std::vector<Id>* ids; int rel; const wchar_t* add; };
+    const Row rows[] = {{L"Parents", &fam.parents, 0, L"+ Parent"}, {L"Partners", &fam.partners, 1, L"+ Partner"},
+                        {L"Brothers and sisters", &fam.siblings, 2, L"+ Brother or sister"}, {L"Children", &fam.children, 3, L"+ Child"}};
+    for (const Row& row : rows) {
+        gfx_.text(row.label, {m.x, y, 160, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        float lx = m.x + 170;
+        for (const Id& pid : *row.ids) {
+            const Entry* o = lib_->entry(pid);
+            if (!o) continue;
+            const std::wstring nm = w(o->name);
+            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 26;
+            if (lx + lw2 > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
+            const Rect chip{lx, y, lw2, 28};
+            const std::string id = "wb:famp:" + std::to_string(row.rel) + pid;
+            addHit(id, chip, [this, pid] { openEntry(pid); });
+            const float hv = hoverAmount(id);
+            const std::wstring g = w(facetOf(*o, *findFacet("gender")));
+            const cjui::Color gc = g.empty() ? pal_.rule : genderColor(g, pal_);
+            gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+            gfx_.strokeRounded(chip, 14, gc.mix(pal_.ribbon, hv));
+            gfx_.text(nm, chip, Font::Small, pal_.ink, {Align::Center, false, true, true});
+            if (focused(id)) focusRing(chip);
+            lx += lw2 + 8;
+        }
+        const float aw = gfx_.measureWidth(row.add, Font::Small);
+        if (lx + aw > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
+        linkText("wb:famadd" + std::to_string(row.rel), lx + 4, y + 6, row.add, [this, id = e.id, rel = row.rel] { addFamilyMember(id, rel); });
+        y += 34;
+    }
+    return y + 22;
+}
+
+// The whole family as a tree: generations top to bottom, couples side by side, lines to children.
+void StudioApp::drawFamilyTree(const Rect& r) {
+    const Entry* root = lib_->entry(wb_.familyRoot);
+    if (!root || root->deleted) { wb_.familyRoot.clear(); invalidate(); return; }
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const float pad = r.w > 900 ? 40 : 28;
+    float y = r.y + 26 - wb_.scroll;
+    linkText("wb:famback", r.x + pad, y, L"‹ " + w(root->name), [this, id = root->id] { openEntry(id); });
+    y += 34;
+    const auto lay = lib_->familyLayout(root->id);
+    std::map<std::string, int> surnames;
+    for (auto& p : lay.people)
+        if (const Entry* x = lib_->entry(p.id)) {
+            const std::string& n = x->name;
+            if (const size_t sp = n.rfind(' '); sp != std::string::npos && sp + 1 < n.size()) ++surnames[n.substr(sp + 1)];
+        }
+    std::string surname;
+    int best = 1;
+    for (auto& [sn, n] : surnames) if (n > best) { best = n; surname = sn; }
+    const int gens = lay.maxGeneration - lay.minGeneration + 1;
+    const std::wstring title = surname.empty() ? w(root->name) + L"'s family" : L"The " + w(surname) + L" family";
+    std::wstring sub = std::to_wstring(lay.people.size()) + (lay.people.size() == 1 ? L" person" : L" people") + L" across " +
+                       std::to_wstring(gens) + (gens == 1 ? L" generation." : L" generations.");
+    if (lay.cut) sub += L" Only the closest 150 are shown.";
+    sub += L" Click someone to open their page.";
+    y += pageHeader({r.x + pad, y, std::min(r.w - pad * 2, 900.0f), 0}, L"FAMILY TREE", title, sub);
+    {
+        float bx = r.x + pad;
+        float bw = 0;
+        smallButton("wb:famaddp", bx, y - 6, L"+ Parent of " + w(root->name), [this, id = root->id] { addFamilyMember(id, 0); }, &bw);
+        bx += bw + 8;
+        smallButton("wb:famaddc", bx, y - 6, L"+ Child", [this, id = root->id] { addFamilyMember(id, 3); }, &bw);
+        bx += bw + 8;
+        smallButton("wb:famaddpt", bx, y - 6, L"+ Partner", [this, id = root->id] { addFamilyMember(id, 1); }, &bw);
+        y += 44;
+    }
+
+    // Sizes: cards shrink to fit (down to two thirds); wider than that, Shift and the wheel move across.
+    const float baseW = 176, baseH = 66, baseGapX = 22, baseGapY = 58;
+    const float avail = r.w - pad * 2;
+    const float natural = lay.width * (baseW + baseGapX) - baseGapX;
+    const float s = std::clamp(natural > 0 ? avail / natural : 1.0f, 0.66f, 1.0f);
+    const float cardW = baseW * s, cardH = baseH * s, stepX = (baseW + baseGapX) * s, gapY = baseGapY * s;
+    const float treeW = lay.width * stepX - baseGapX * s;
+    wb_.treeW = treeW;
+    std::map<Id, Rect> at;
+    float x0 = treeW <= avail ? r.x + pad + (avail - treeW) / 2 : r.x + pad;
+    if (treeW > avail) {
+        if (wb_.treeX < 0)   // first look: the person in the middle
+            for (auto& p : lay.people)
+                if (p.id == root->id) wb_.treeX = std::clamp(p.x * stepX + cardW / 2 - avail / 2, 0.0f, treeW - avail + 60);
+        wb_.treeX = std::clamp(wb_.treeX, 0.0f, treeW - avail + 60);
+        x0 -= wb_.treeX;
+    } else {
+        wb_.treeX = 0;
+    }
+    for (auto& p : lay.people)
+        at[p.id] = {x0 + p.x * stepX, y + (p.generation - lay.minGeneration) * (cardH + gapY), cardW, cardH};
+    const cjui::Color lineC = pal_.inkFaint.withAlpha(0.8f);
+
+    // Partners: a line between them at mid-height (two for a marriage).
+    std::set<std::pair<Id, Id>> married;
+    for (auto& [a, b] : lay.couples)
+        for (const EntryLink& l : lib_->linksOf(a))
+            if (l.label == "Married to" && (l.from == b || l.to == b)) married.insert({a, b});
+    for (auto& [a, b] : lay.couples) {
+        Rect ra = at[a], rb = at[b];
+        if (ra.x > rb.x) std::swap(ra, rb);
+        const float cy = ra.y + ra.h / 2;
+        if (married.count({a, b})) {
+            gfx_.line(ra.right(), cy - 2, rb.x, cy - 2, lineC, 1.4f);
+            gfx_.line(ra.right(), cy + 2, rb.x, cy + 2, lineC, 1.4f);
+        } else {
+            gfx_.line(ra.right(), cy, rb.x, cy, lineC, 1.4f);
+        }
+    }
+    // Children, grouped by their parents: down from the parents (from the middle of a couple's line),
+    // along, and down to each child.
+    std::map<std::vector<Id>, std::vector<Id>> byParents;
+    {
+        std::map<Id, std::vector<Id>> parentsOf;
+        for (auto& [par, ch] : lay.parentChild) parentsOf[ch].push_back(par);
+        for (auto& [ch, ps] : parentsOf) { std::sort(ps.begin(), ps.end()); byParents[ps].push_back(ch); }
+    }
+    for (auto& [ps, kids] : byParents) {
+        float ox = 0, oy = 0;
+        bool couple = ps.size() == 2;
+        if (couple) {
+            const Rect a = at[ps[0]], b = at[ps[1]];
+            couple = std::fabs(a.y - b.y) < 1 && std::fabs(a.x - b.x) <= stepX * 1.01f;
+            if (couple) { ox = (std::min(a.right(), b.right()) + std::max(a.x, b.x)) / 2; oy = a.y + a.h / 2; }
+        }
+        if (!couple) {
+            float sx = 0, by = 0;
+            for (const Id& p : ps) { sx += at[p].x + at[p].w / 2; by = std::max(by, at[p].bottom()); }
+            ox = sx / ps.size();
+            oy = by;
+        }
+        float minX = ox, maxX = ox, topY = 1e9f;
+        for (const Id& k : kids) {
+            const Rect kr = at[k];
+            minX = std::min(minX, kr.x + kr.w / 2);
+            maxX = std::max(maxX, kr.x + kr.w / 2);
+            topY = std::min(topY, kr.y);
+        }
+        if (topY > 1e8f) continue;
+        const float busY = topY - gapY / 2;
+        gfx_.line(ox, oy, ox, busY, lineC, 1.4f);
+        gfx_.line(minX, busY, maxX, busY, lineC, 1.4f);
+        for (const Id& k : kids) {
+            const Rect kr = at[k];
+            gfx_.line(kr.x + kr.w / 2, busY, kr.x + kr.w / 2, kr.y, lineC, 1.4f);
+        }
+    }
+    // The people.
+    float bottom = y;
+    for (auto& p : lay.people) {
+        const Entry* x = lib_->entry(p.id);
+        if (!x) continue;
+        const Rect cr = at[p.id];
+        bottom = std::max(bottom, cr.bottom());
+        if (cr.right() < r.x || cr.x > r.right()) continue;
+        const std::string id = "wb:famcard:" + p.id;
+        addHit(id, cr, [this, pid = p.id] { openEntry(pid); });
+        const float hv = hoverAmount(id);
+        const bool me = p.id == root->id;
+        const std::wstring g = w(facetOf(*x, *findFacet("gender")));
+        const cjui::Color gc = g.empty() ? kindColor("character", pal_.dark) : genderColor(g, pal_);
+        softShadow(cr, 6, 0.25f + 0.5f * hv);
+        gfx_.fillRounded(cr, 6, pal_.surface);
+        gfx_.strokeRounded(cr, 6, me ? pal_.ribbon : pal_.rule.mix(gc, 0.5f + 0.5f * hv), me ? 2.0f : 1.0f);
+        gfx_.fill({cr.x + 1, cr.y + 8 * s, 3, cr.h - 16 * s}, gc);
+        const float ps = cr.h - 18 * s;
+        const Rect pic{cr.x + 12 * s, cr.y + 9 * s, ps, ps};
+        if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
+            gfx_.fillRounded(pic, ps / 2, gc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+            gfx_.text(initials(x->name), pic, Font::SmallStrong, gc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+        }
+        const float tx = pic.right() + 10 * s, tw = cr.right() - 8 - tx;
+        gfx_.text(w(x->name), {tx, cr.y + 10 * s, tw, 20}, s < 0.8f ? Font::SmallStrong : Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        std::wstring line2;
+        if (!g.empty()) line2 = genderSign(g).empty() ? g : genderSign(g) + L" " + g;
+        if (!line2.empty()) gfx_.text(line2, {tx, cr.y + cr.h - 26 * s, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        if (focused(id)) focusRing(cr);
+    }
+    wb_.content = bottom + wb_.scroll - r.y + 60;
+    wb_.scroll = std::clamp(wb_.scroll, 0.0f, std::max(0.0f, wb_.content - r.h));
+    if (treeW > avail)
+        gfx_.text(L"Shift and the mouse wheel move across the tree.", {r.x + pad, r.bottom() - 28, avail, 20}, Font::Small, pal_.inkFaint,
+                  {Align::Right, false});
+    clearHitClip();
+    gfx_.popClip();
 }
 
 }  // namespace nrs

@@ -169,6 +169,10 @@ public:
     // for another (an advert ending, the next video). `done(hasVideo)` says whether there was one.
     void setVideoPopout(bool on, std::function<void(bool hasVideo)> done = {});
     bool videoPopout() const { return popout_; }
+    // The popped-out video's state, and controlling it: "state", "back" (10 s), "toggle" (play or pause),
+    // "forward" (10 s) or "skip" (presses the site's own "Skip ad" button, if it shows one).
+    struct VideoState { bool found = false; int width = 0, height = 0; bool paused = true, canSkip = false; };
+    void videoCommand(const std::string& command, std::function<void(const VideoState&)> done = {});
     // Turns saving passwords and filling forms on or off for the page's profile.
     void setFormSaving(bool passwords, bool forms);
     // Deletes every password (and, with `forms`, form entry) the profile has saved.
