@@ -34,4 +34,10 @@ void searchFoldersAsync(HWND window, std::vector<std::wstring> roots, std::wstri
 void searchIndexAsync(HWND window, std::wstring scope, std::wstring query, Visibility visibility, std::vector<std::wstring> fallbackRoots,
                       std::uint64_t request, std::shared_ptr<std::atomic<std::uint64_t>> latest);
 
+// Things by path (a collection's, or what has a tag): each looked at as it is now, matched by name
+// against `query`. With `keepMissing`, a path that isn't there any more is listed too (icon -1,
+// attributes 0, type "Missing"), and hidden things are kept.
+void listPathsAsync(HWND window, std::vector<std::wstring> paths, std::wstring query, Visibility visibility, bool keepMissing,
+                    std::uint64_t request, std::shared_ptr<std::atomic<std::uint64_t>> latest);
+
 }  // namespace nrf

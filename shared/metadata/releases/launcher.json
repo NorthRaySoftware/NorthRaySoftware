@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.42.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Files 0.5.0: colour labels, tags, collections and a gallery view."
+      ]
+    },
+    {
       "version": "0.41.0",
       "date": "2026-11-14",
       "notes": [

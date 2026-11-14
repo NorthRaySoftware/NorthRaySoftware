@@ -8,6 +8,7 @@
 #include "search.hpp"
 #include "nrf/search.hpp"
 #include "nrf/art.hpp"
+#include "nrf/labels.hpp"
 #include "version.hpp"
 
 #include "cjui/northray.hpp"
@@ -65,14 +66,31 @@ bool isTextName(const std::wstring& name) {
     return false;
 }
 
-enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes, IconPreview };
+enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes, IconPreview, IconGallery };
 
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
-    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
 };
+
+constexpr UINT CmdColour0 = 1000;   // + labels::Colour
+constexpr UINT CmdTag0 = 1100;      // + the tag's place in Store::tags()
+constexpr UINT CmdColl0 = 3000;     // + the collection's place
+
+Color labelColour(labels::Colour c) {
+    switch (c) {
+        case labels::Colour::Red: return cjui::hexColor("#E5484D");
+        case labels::Colour::Orange: return cjui::hexColor("#F27B2E");
+        case labels::Colour::Yellow: return cjui::hexColor("#E2B714");
+        case labels::Colour::Green: return cjui::hexColor("#30A46C");
+        case labels::Colour::Blue: return cjui::hexColor("#3E8EDE");
+        case labels::Colour::Purple: return cjui::hexColor("#8E4EC6");
+        case labels::Colour::Grey: return cjui::hexColor("#8B8D98");
+        default: return cjui::hexColor("#8B8D98");
+    }
+}
 
 COLORREF toColorRef(Color c) {
     auto b = [](float v) { return (BYTE)std::clamp((int)std::lround(v * 255), 0, 255); };
@@ -141,6 +159,11 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     SetWindowSubclass(search_, quietEditProc, 3, 0);
     SendMessageW(search_, EM_SETLIMITTEXT, 260, 0);
 
+    ask_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
+    SetWindowSubclass(ask_, quietEditProc, 4, 0);
+    SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
+    loadLabels();
+
     rename_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(rename_, quietEditProc, 2, 0);
     SendMessageW(rename_, EM_SETLIMITTEXT, 255, 0);
@@ -163,6 +186,12 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     // Tabs from last time (each pane), unless a folder was asked for.
     auto toLocation = [&](const std::wstring& t) -> std::optional<Location> {
         if (t == L"::thispc") return Location{true, L""};
+        if (t.rfind(L"::collection:", 0) == 0) {
+            Location c;
+            c.collection = labels::toUtf8(t.substr(13));
+            if (labels_.collection(c.collection)) return c;
+            return std::nullopt;
+        }
         auto n = normalizePath(t, L"");
         if (n) return Location{false, *n};
         return std::nullopt;
@@ -208,11 +237,12 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
 
 void FilesWindow::onDestroy() {
     settings_.lastFolder = here_.thisPC ? L"::thispc" : here_.path;
+    if (!here_.collection.empty()) settings_.lastFolder.clear();
     for (int p = 0; p < 2; ++p) {
         settings_.tabs[p].clear();
         for (int t = 0; t < (int)tabs_[p].size(); ++t) {
             const Location& l = tabLocation(p, t);
-            settings_.tabs[p].push_back(l.thisPC ? L"::thispc" : l.path);
+            settings_.tabs[p].push_back(l.thisPC ? L"::thispc" : !l.collection.empty() ? L"::collection:" + labels::fromUtf8(l.collection) : l.path);
         }
         settings_.activeTab[p] = activeTab_[p];
     }
@@ -285,7 +315,21 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
 void FilesWindow::startListing() {
     const Visibility vis{settings_.showHidden, settings_.showProtected};
     if (here_.thisPC) listDrivesAsync(hwnd(), request_, latest_);
-    else if (here_.searching() && here_.everywhere) {
+    else if (!here_.collection.empty()) {
+        // A collection: its things, wherever they are (and the ones that aren't there any more).
+        const labels::Collection* c = labels_.collection(here_.collection);
+        listPathsAsync(hwnd(), c ? c->items : std::vector<std::wstring>{}, L"", vis, true, request_, latest_);
+    } else if (here_.searching() && search::parse(here_.query).byLabel()) {
+        // Tags and colours are NorthRay Files' own, so they're looked up rather than searched for.
+        const search::Query q = search::parse(here_.query);
+        std::vector<std::wstring> paths;
+        for (const labels::Label* l : labels_.all()) {
+            if (!search::matchesLabels(q, l->tags, (int)l->colour)) continue;
+            if (!here_.everywhere && (!labels::within(l->path, here_.path) || labels::pathKey(l->path) == labels::pathKey(here_.path))) continue;
+            paths.push_back(l->path);
+        }
+        listPathsAsync(hwnd(), paths, here_.query, vis, false, request_, latest_);
+    } else if (here_.searching() && here_.everywhere) {
         // The whole PC: the Windows Search index, or every drive's folders when it can't be asked.
         std::vector<std::wstring> roots;
         for (const Drive& d : drives_) if (d.ready && (d.type == DRIVE_FIXED || d.type == DRIVE_REMOVABLE)) roots.push_back(d.root);
@@ -295,7 +339,11 @@ void FilesWindow::startListing() {
     else listFolderAsync(hwnd(), here_.path, request_, latest_);
 }
 
-std::wstring FilesWindow::nameFor(const Location& l) {
+std::wstring FilesWindow::nameFor(const Location& l) const {
+    if (!l.collection.empty()) {
+        const labels::Collection* c = labels_.collection(l.collection);
+        return c ? c->name : L"Collection";
+    }
     if (l.searching()) return L"\u201C" + l.query + L"\u201D";
     if (l.thisPC) return L"This PC";
     return isDriveRoot(l.path) ? l.path.substr(0, 2) : nameOf(l.path);
@@ -320,7 +368,7 @@ void FilesWindow::forward() {
 }
 
 void FilesWindow::up() {
-    if (here_.thisPC) return;
+    if (here_.thisPC || !here_.collection.empty()) return;
     if (here_.searching()) { endSearch(); return; }
     if (isRoot(here_.path)) {
         if (isDriveRoot(here_.path)) go({true, L""}, true, here_.path);
@@ -417,7 +465,7 @@ void FilesWindow::receive(ListBatch* b) {
             error_ = ListError::None;
         }
         // Changes made here or by any other program show by themselves.
-        if (error_ == ListError::None && !here_.searching()) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
+        if (error_ == ListError::None && !here_.searching() && here_.collection.empty()) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
     }
     showHere();
     if (b->done && !selectNames_.empty()) {
@@ -519,6 +567,10 @@ bool FilesWindow::preTranslate(MSG& msg) {
         if (msg.wParam == VK_RETURN) { endRename(true); return true; }
         if (msg.wParam == VK_ESCAPE) { endRename(false); return true; }
     }
+    if (msg.hwnd == ask_ && msg.message == WM_KEYDOWN) {
+        if (msg.wParam == VK_RETURN) { endAsk(true); return true; }
+        if (msg.wParam == VK_ESCAPE) { endAsk(false); return true; }
+    }
     if (msg.hwnd == search_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) {
             KillTimer(hwnd(), kSearchTimer);
@@ -577,7 +629,7 @@ void FilesWindow::typeAhead(wchar_t c) {
 
 bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     const std::size_t n = here_.thisPC ? 0 : shown_.size();
-    const bool icons = settings_.view == ViewMode::Icons;
+    const bool icons = settings_.view != ViewMode::Details;
     const int cols = icons ? std::max(1, columns_) : 1;
     const int focus = sel_.focus();
     const float rowH = icons ? tileH_ : rowH_;
@@ -613,6 +665,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
             case VK_TAB: activate(pane_, (activeTab_[pane_] + (int)tabs_[pane_].size() - 1) % (int)tabs_[pane_].size()); return true;
             case '6': setView(ViewMode::Details); return true;
             case '2': setView(ViewMode::Icons); return true;
+            case '1': setView(ViewMode::Gallery); return true;
             default: break;
         }
     }
@@ -655,6 +708,11 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 }
 
 bool FilesWindow::onMouseDown(float x, float y) {
+    if (asking_) {
+        if (askCard_.contains(x, y)) return false;   // its buttons
+        endAsk(false);
+        return true;
+    }
     if (editing_) endEditingAddress(false);
     if (renaming_) endRename(true);
     drag_ = Drag{};
@@ -712,6 +770,15 @@ bool FilesWindow::onMouseDown(float x, float y) {
 
 bool FilesWindow::onRightClick(float x, float y) {
     if (const int p = paneAt(x, y); p >= 0 && p != pane_) activate(p, activeTab_[p]);
+    // A collection in the sidebar.
+    for (auto& [id, rr] : collectionRects_)
+        if (rr.contains(x, y)) {
+            const float s = gfx_.dpiScale();
+            POINT pt{(LONG)(x * s), (LONG)(y * s)};
+            ClientToScreen(hwnd(), &pt);
+            collectionMenu(id, pt);
+            return true;
+        }
     // A pinned folder in the sidebar.
     for (auto& [path, rr] : pinnedRects_)
         if (rr.contains(x, y)) {
@@ -767,7 +834,7 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             if (thumbs_) {
                 thumbs_->received(t);
                 for (std::uint64_t serial : thumbs_->takeEvicted()) gfx_.forgetImage(L"thumb:" + std::to_wstring(serial));
-                if (settings_.view == ViewMode::Icons) invalidate();
+                invalidate();   // (Icons and Gallery views, and the preview pane)
             }
             delete t;
             handled = true;
@@ -855,7 +922,7 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             break;
         case WM_CTLCOLOREDIT:
-            if ((HWND)lp == address_ || (HWND)lp == rename_ || (HWND)lp == search_) {
+            if ((HWND)lp == address_ || (HWND)lp == rename_ || (HWND)lp == search_ || (HWND)lp == ask_) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
                 SetBkColor(dc, toColorRef(pal_.sunken));
@@ -953,7 +1020,8 @@ void FilesWindow::showMenu() {
     const SortKey k = (SortKey)settings_.sortKey;
     const std::vector<MenuItem> items = {
         MenuItem::sub(L"View", {MenuItem::item(L"Details", CmdViewDetails, L"Ctrl+Shift+6", true, settings_.view == ViewMode::Details),
-                                MenuItem::item(L"Icons", CmdViewIcons, L"Ctrl+Shift+2", true, settings_.view == ViewMode::Icons)}),
+                                MenuItem::item(L"Icons", CmdViewIcons, L"Ctrl+Shift+2", true, settings_.view == ViewMode::Icons),
+                                MenuItem::item(L"Gallery", CmdViewGallery, L"Ctrl+Shift+1", true, settings_.view == ViewMode::Gallery)}),
         MenuItem::sub(L"Sort by", {MenuItem::item(L"Name", CmdSortName, {}, true, k == SortKey::Name),
                                    MenuItem::item(L"Date modified", CmdSortDate, {}, true, k == SortKey::Modified),
                                    MenuItem::item(L"Type", CmdSortType, {}, true, k == SortKey::Type),
@@ -983,6 +1051,7 @@ void FilesWindow::showMenu() {
     switch (cmd) {
         case CmdViewDetails: setView(ViewMode::Details); break;
         case CmdViewIcons: setView(ViewMode::Icons); break;
+        case CmdViewGallery: setView(ViewMode::Gallery); break;
         case CmdSortName: sortBy(SortKey::Name); break;
         case CmdSortDate: sortBy(SortKey::Modified); break;
         case CmdSortType: sortBy(SortKey::Type); break;
@@ -1036,13 +1105,46 @@ void FilesWindow::showItemMenu(POINT screen) {
         items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(n > 1 ? L"Copy paths" : L"Copy path", CmdCopyPath, L"Ctrl+Shift+C"));
         items.push_back(MenuItem::sep());
+        // Labels (0.5): the same for everything selected is ticked.
+        const auto paths = selectedPaths();
+        std::vector<MenuItem> colours;
+        for (int c = 0; c < labels::kColours; ++c) {
+            const bool all = std::all_of(paths.begin(), paths.end(), [&](const std::wstring& pth) { return (int)labels_.colourOf(pth) == c; });
+            colours.push_back(MenuItem::item(c == 0 ? L"No colour" : labels::colourName((labels::Colour)c), CmdColour0 + (UINT)c, {}, true, all));
+        }
+        items.push_back(MenuItem::sub(L"Colour label", colours));
+        std::vector<MenuItem> tags;
+        tagChoices_ = labels_.tags();
+        for (std::size_t t = 0; t < tagChoices_.size() && t < 900; ++t) {
+            const auto& tag = tagChoices_[t].first;
+            const bool all = std::all_of(paths.begin(), paths.end(), [&](const std::wstring& pth) { return labels_.hasTag(pth, tag); });
+            tags.push_back(MenuItem::item(tag, CmdTag0 + (UINT)t, {}, true, all));
+        }
+        if (!tags.empty()) tags.push_back(MenuItem::sep());
+        tags.push_back(MenuItem::item(L"New tag\u2026", CmdNewTag));
+        items.push_back(MenuItem::sub(L"Tags", tags));
+        std::vector<MenuItem> cols;
+        const auto& all = labels_.collections();
+        for (std::size_t c = 0; c < all.size() && c < 900; ++c) {
+            const bool in = std::all_of(paths.begin(), paths.end(), [&](const std::wstring& pth) {
+                auto w = labels_.collectionsWith(pth);
+                return std::find(w.begin(), w.end(), all[c].id) != w.end();
+            });
+            cols.push_back(MenuItem::item(all[c].name, CmdColl0 + (UINT)c, {}, true, in));
+        }
+        if (!cols.empty()) cols.push_back(MenuItem::sep());
+        cols.push_back(MenuItem::item(L"New collection\u2026", CmdNewCollection));
+        items.push_back(MenuItem::sub(L"Add to collection", cols));
+        if (!here_.collection.empty()) items.push_back(MenuItem::item(L"Remove from this collection", CmdCollRemove));
+        items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(L"More options", CmdMore, L"Shift+F10"));
     } else {
         items.push_back(MenuItem::item(L"Paste", CmdPaste, L"Ctrl+V", canPaste));
         items.push_back(MenuItem::item(L"New folder", CmdNewFolder, L"Ctrl+Shift+N"));
         items.push_back(MenuItem::sep());
         items.push_back(MenuItem::sub(L"View", {MenuItem::item(L"Details", CmdViewDetails, {}, true, settings_.view == ViewMode::Details),
-                                                MenuItem::item(L"Icons", CmdViewIcons, {}, true, settings_.view == ViewMode::Icons)}));
+                                                MenuItem::item(L"Icons", CmdViewIcons, {}, true, settings_.view == ViewMode::Icons),
+                                                MenuItem::item(L"Gallery", CmdViewGallery, {}, true, settings_.view == ViewMode::Gallery)}));
         items.push_back(MenuItem::item(L"Refresh", CmdRefresh, L"F5"));
         items.push_back(MenuItem::item(L"Copy this folder's path", CmdCopyPath, L"Ctrl+Shift+C"));
         items.push_back(MenuItem::item(L"Show hidden items", CmdHidden, {}, true, settings_.showHidden));
@@ -1050,7 +1152,25 @@ void FilesWindow::showItemMenu(POINT screen) {
         items.push_back(MenuItem::item(L"More options", CmdMore, L"Shift+F10"));
     }
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd >= CmdColour0 && cmd < CmdColour0 + labels::kColours) { setColourOnSelection((labels::Colour)(cmd - CmdColour0)); return; }
+    if (cmd >= CmdTag0 && cmd < CmdTag0 + 900) {
+        if (cmd - CmdTag0 < tagChoices_.size()) toggleTagOnSelection(tagChoices_[cmd - CmdTag0].first);
+        return;
+    }
+    if (cmd >= CmdColl0 && cmd < CmdColl0 + 900) {
+        const auto& all = labels_.collections();
+        if (cmd - CmdColl0 < all.size()) addSelectionToCollection(all[cmd - CmdColl0].id);
+        return;
+    }
     switch (cmd) {
+        case CmdNewTag: newTagForSelection(); break;
+        case CmdNewCollection: newCollectionFromSelection(); break;
+        case CmdCollRemove: {
+            const int n2 = labels_.removeFromCollection(here_.collection, selectedPaths());
+            saveLabels();
+            if (n2) reloadQuietly();
+            break;
+        }
         case CmdOpen: openSelection(); break;
         case CmdNewTabHere: { const auto rows = sel_.indices(); if (rows.size() == 1) newTab({false, rowPath(rows[0])}); break; }
         case CmdPin: { const auto rows = sel_.indices(); if (rows.size() == 1) pinFolder(rowPath(rows[0])); break; }
@@ -1067,6 +1187,7 @@ void FilesWindow::showItemMenu(POINT screen) {
         case CmdMore: moreOptions(screen); break;
         case CmdViewDetails: setView(ViewMode::Details); break;
         case CmdViewIcons: setView(ViewMode::Icons); break;
+        case CmdViewGallery: setView(ViewMode::Gallery); break;
         case CmdRefresh: refresh(); break;
         case CmdHidden: toggleHidden(); break;
         default: break;
@@ -1105,7 +1226,7 @@ void FilesWindow::copyOrCut(bool cut) {
 }
 
 void FilesWindow::paste(const std::wstring& into) {
-    if ((here_.thisPC || here_.searching()) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
+    if ((here_.thisPC || here_.searching() || !here_.collection.empty()) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
     const std::wstring dest = into.empty() ? here_.path : into;
     const auto clip = ops::readClipboard(hwnd());
     if (clip.paths.empty()) { flash(L"There are no files on the clipboard. Copy (Ctrl+C) or cut (Ctrl+X) some first.", 6); return; }
@@ -1131,6 +1252,7 @@ void FilesWindow::paste(const std::wstring& into) {
         }
     }
     ops::Result r = ops::transfer(hwnd(), plain, dest, clip.cut);
+    if (clip.cut) noteMoved(plain, dest);
     if (!beside.empty() && !r.cancelled) {
         const ops::Result r2 = ops::copyAs(hwnd(), beside);
         if (!r2.ok) r = r2;
@@ -1165,6 +1287,7 @@ void FilesWindow::deleteSelection(bool permanently) {
     if (!rows.empty() && rows.back() + 1 < shown_.size()) after = shown_[rows.back() + 1].name;
     else if (!rows.empty() && rows.front() > 0) after = shown_[rows.front() - 1].name;
     const ops::Result r = ops::remove(hwnd(), paths, permanently);
+    noteRemoved(paths);
     if (!r.ok && !r.cancelled)
         cjui::messageBox(hwnd(), (L"Some items couldn't be deleted.\n\n" + r.message).c_str(), L"NorthRay Files", MB_OK | MB_ICONWARNING);
     else if (r.ok)
@@ -1174,7 +1297,7 @@ void FilesWindow::deleteSelection(bool permanently) {
 }
 
 void FilesWindow::newFolder() {
-    if (here_.thisPC || here_.searching()) { flash(L"Open a folder to make a new one in it.", 5); return; }
+    if (here_.thisPC || here_.searching() || !here_.collection.empty()) { flash(L"Open a folder to make a new one in it.", 5); return; }
     const std::wstring name = uniqueName(L"New folder", namesHere(), true);
     const ops::Result r = ops::newFolder(join(here_.path, name));
     if (!r.ok) { flash(L"A folder couldn't be made here. " + r.message, 8); return; }
@@ -1234,7 +1357,12 @@ void FilesWindow::endRename(bool commit) {
     if (!problem.empty()) { flash(problem, 7); return; }
     const ops::Result r = ops::rename(hwnd(), join(renameIn_, renameName_), text);
     if (!r.ok && !r.cancelled) { flash(L"It couldn't be renamed. " + r.message, 8); return; }
-    if (r.ok) reloadQuietly({text});
+    if (r.ok) {
+        labels_.moved(join(renameIn_, renameName_), join(renameIn_, text));
+        saveLabels();
+        if (!here_.collection.empty()) { reloadQuietly(); return; }
+        reloadQuietly({text});
+    }
 }
 
 void FilesWindow::reloadQuietly(std::vector<std::wstring> select) {
@@ -1254,7 +1382,7 @@ void FilesWindow::moreOptions(POINT screen) {
     const bool extended = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     const auto paths = selectedPaths();
     std::wstring folder = here_.path;
-    if (here_.searching()) {
+    if (here_.searching() || !here_.collection.empty()) {
         // Windows' menu is for things in one folder.
         if (paths.empty()) return;
         folder = parentOf(paths[0]);
@@ -1522,6 +1650,9 @@ void FilesWindow::drawPreview(const Rect& r) {
     line(L"Modified", dateText(e.modified));
     if (here_.searching()) line(L"Folder", e.location.empty() ? here_.path : e.location);
     if (e.cloudOnly()) line(L"Online only", L"Opening it downloads it.");
+    if (e.icon < 0 && e.attributes == 0 && !here_.collection.empty()) line(L"Missing", L"It isn't there any more (moved, renamed or deleted outside NorthRay Files).");
+    y += 4;
+    y = drawPreviewLabels(x, y, w, path);
     if (textual && previewState_ == PreviewText && previewTruncated_) line(L"", L"Only the start is shown.");
     y += 8;
     button("tb:preview:open", {x, y, 96, 34}, L"Open", [this, row] { open(row); }, true);
@@ -1531,6 +1662,343 @@ void FilesWindow::drawPreview(const Rect& r) {
             const std::wstring at = shown_[row].location, nm = shown_[row].name;
             if (!at.empty()) go({false, at}, true, nm);
         });
+}
+
+// ---------------------------------------------------------------- labels, tags and collections (0.5)
+
+void FilesWindow::loadLabels() {
+    labelsPath_ = join(parentOf(settingsPath_), L"labels.json");
+    HANDLE h = CreateFileW(labelsPath_.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER size{};
+    GetFileSizeEx(h, &size);
+    std::string text((std::size_t)std::min<LONGLONG>(size.QuadPart, 64ll << 20), '\0');
+    DWORD got = 0;
+    if (!text.empty() && ReadFile(h, text.data(), (DWORD)text.size(), &got, nullptr)) text.resize(got);
+    CloseHandle(h);
+    labels_.fromJson(text);
+}
+
+void FilesWindow::saveLabels() {
+    if (labelsPath_.empty()) return;
+    const std::string text = labels_.toJson();
+    const std::wstring tmp = labelsPath_ + L".new";
+    HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) { flash(L"Labels couldn't be saved (the settings folder can't be written to).", 6); return; }
+    DWORD put = 0;
+    const bool ok = WriteFile(h, text.data(), (DWORD)text.size(), &put, nullptr) && put == text.size();
+    FlushFileBuffers(h);
+    CloseHandle(h);
+    if (!ok || !MoveFileExW(tmp.c_str(), labelsPath_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(tmp.c_str());
+        flash(L"Labels couldn't be saved.", 6);
+    }
+}
+
+static bool exists(const std::wstring& p) { return GetFileAttributesW(extendedPath(p).c_str()) != INVALID_FILE_ATTRIBUTES; }
+
+void FilesWindow::noteMoved(const std::vector<std::wstring>& sources, const std::wstring& dest) {
+    bool any = false;
+    for (const auto& src : sources) {
+        const std::wstring dst = join(dest, nameOf(src));
+        if (!exists(src) && exists(dst)) {
+            labels_.moved(src, dst);
+            any = true;
+        }
+    }
+    if (any) saveLabels();
+}
+
+void FilesWindow::noteRemoved(const std::vector<std::wstring>& paths) {
+    bool any = false;
+    for (const auto& p : paths)
+        if (!exists(p)) {
+            labels_.removed(p);
+            any = true;
+        }
+    if (any) saveLabels();
+}
+
+void FilesWindow::setColourOnSelection(labels::Colour c) {
+    const auto paths = selectedPaths();
+    for (const auto& p : paths) labels_.setColour(p, c);
+    saveLabels();
+    invalidate();
+}
+
+void FilesWindow::toggleTagOnSelection(const std::wstring& tag) {
+    const auto paths = selectedPaths();
+    const bool all = std::all_of(paths.begin(), paths.end(), [&](const std::wstring& p) { return labels_.hasTag(p, tag); });
+    for (const auto& p : paths) {
+        if (all) labels_.removeTag(p, tag);
+        else labels_.addTag(p, tag);
+    }
+    saveLabels();
+    invalidate();
+}
+
+void FilesWindow::newTagForSelection() {
+    const auto paths = selectedPaths();
+    if (paths.empty()) return;
+    askText(paths.size() == 1 ? L"A tag for \u201C" + nameOf(paths[0]) + L"\u201D" : L"A tag for " + std::to_wstring(paths.size()) + L" items", L"",
+            [this, paths](const std::wstring& text) {
+                const std::wstring tag = labels::normaliseTag(text);
+                if (tag.empty()) return;
+                for (const auto& p : paths) labels_.addTag(p, tag);
+                saveLabels();
+                invalidate();
+            });
+}
+
+void FilesWindow::addSelectionToCollection(const std::string& id) {
+    const auto paths = selectedPaths();
+    const labels::Collection* c = labels_.collection(id);
+    if (!c || paths.empty()) return;
+    const std::wstring name = c->name;
+    const int added = labels_.addToCollection(id, paths);
+    saveLabels();
+    flash(added ? L"Added to \u201C" + name + L"\u201D. They stay where they are." : L"They're in \u201C" + name + L"\u201D already.", 5);
+    invalidate();
+}
+
+void FilesWindow::newCollectionFromSelection(bool empty) {
+    const auto paths = empty ? std::vector<std::wstring>{} : selectedPaths();
+    askText(L"Name the new collection", L"", [this, paths, empty](const std::wstring& text) {
+        if (labels::normaliseTag(text).empty()) return;
+        const std::string id = labels_.createCollection(text);
+        labels_.addToCollection(id, paths);
+        saveLabels();
+        if (empty) openCollection(id);
+        else flash(L"Made the collection \u201C" + labels_.collection(id)->name + L"\u201D. The files stay where they are.", 5);
+        invalidate();
+    });
+}
+
+void FilesWindow::openCollection(const std::string& id, bool inNewTab) {
+    Location c;
+    c.collection = id;
+    if (inNewTab) newTab(c);
+    else go(c);
+}
+
+void FilesWindow::collectionMenu(const std::string& id, POINT screen) {
+    const labels::Collection* c = labels_.collection(id);
+    if (!c) return;
+    const std::vector<MenuItem> items = {MenuItem::item(L"Open", CmdCollOpen), MenuItem::item(L"Open in a new tab", CmdCollTab), MenuItem::sep(),
+                                         MenuItem::item(L"Rename\u2026", CmdCollRename), MenuItem::item(L"Delete the collection", CmdCollDelete)};
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd == CmdCollOpen) openCollection(id);
+    else if (cmd == CmdCollTab) openCollection(id, true);
+    else if (cmd == CmdCollRename) {
+        askText(L"Rename the collection", c->name, [this, id](const std::wstring& text) {
+            if (labels_.renameCollection(id, text)) saveLabels();
+            invalidate();
+        });
+    } else if (cmd == CmdCollDelete) {
+        const std::wstring q = L"Delete the collection \u201C" + c->name + L"\u201D?\n\nOnly the collection goes: the files and folders in it stay where they are.";
+        if (cjui::messageBox(hwnd(), q, L"NorthRay Files", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+        labels_.deleteCollection(id);
+        saveLabels();
+        // Tabs showing it go to This PC.
+        if (here_.collection == id) go({true, L""}, false);
+        for (auto& pane : tabs_)
+            for (auto& v : pane)
+                if (v.here.collection == id) v.here = Location{true, L""};
+    }
+    invalidate();
+}
+
+void FilesWindow::openLabelSearch(const std::wstring& query) {
+    std::wstring root = here_.path;
+    if (here_.thisPC || !here_.collection.empty() || root.empty()) {
+        root = L"C:\\";
+        for (const Drive& d : drives_) if (d.ready) { root = d.root; break; }
+    }
+    go({false, root, query, true});
+}
+
+void FilesWindow::tagsMenu() {
+    tagChoices_ = labels_.tags();
+    if (tagChoices_.empty()) {
+        flash(L"No tags yet. Right-click a file and choose Tags to give it one.", 6);
+        return;
+    }
+    std::vector<MenuItem> items;
+    for (std::size_t t = 0; t < tagChoices_.size() && t < 900; ++t)
+        items.push_back(MenuItem::item(tagChoices_[t].first, CmdTag0 + (UINT)t, std::to_wstring(tagChoices_[t].second)));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+    if (cmd >= CmdTag0 && cmd - CmdTag0 < tagChoices_.size()) {
+        const std::wstring& tag = tagChoices_[cmd - CmdTag0].first;
+        openLabelSearch(tag.find(L' ') != std::wstring::npos ? L"tag:\"" + tag + L"\"" : L"tag:" + tag);
+    }
+}
+
+float FilesWindow::drawPreviewLabels(float x, float y, float w, const std::wstring& path) {
+    const labels::Label* lab = labels_.find(path);
+    const labels::Colour cur = lab ? lab->colour : labels::Colour::None;
+    // Colour: a swatch for each, the one it has ringed.
+    gfx_.text(L"Colour", {x, y, 84, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+    float sx = x + 88;
+    if (x + 88 + labels::kColours * 26 > x + w) { y += 24; sx = x - 2; }   // a narrow pane: the swatches go under
+    for (int c = 0; c < labels::kColours; ++c) {
+        const Rect sw{sx, y, 24, 24};
+        const std::string id = "tb:pv:colour:" + std::to_string(c);
+        addHit(id, sw, [this, c] { setColourOnSelection((labels::Colour)c); });
+        const float hv = hoverAmount(id);
+        const float cx = sw.x + 12, cy = sw.y + 12;
+        if ((int)cur == c) gfx_.circle(cx, cy, 10.5f, pal_.ink.withAlpha(0.7f), false, 1.5f);
+        else if (hv > 0.01f) gfx_.circle(cx, cy, 10.5f, pal_.ink.withAlpha(0.25f * hv), false, 1.2f);
+        if (c == 0) {
+            gfx_.circle(cx, cy, 6.5f, pal_.inkFaint, false, 1.3f);
+            gfx_.line(cx - 4.5f, cy + 4.5f, cx + 4.5f, cy - 4.5f, pal_.inkFaint, 1.3f);
+        } else {
+            gfx_.circle(cx, cy, 7, labelColour((labels::Colour)c), true);
+        }
+        sx += 26;
+        if (sx + 24 > x + w) break;
+    }
+    y += 32;
+    // Tags: a chip for each (x takes it off), and one to add more.
+    gfx_.text(L"Tags", {x, y, 84, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+    float tx = x + 88;
+    auto chip = [&](const std::string& id, const std::wstring& text, bool removable, std::function<void()> act) {
+        const float cw = std::min(w - 88, gfx_.measureWidth(text, Font::Small) + (removable ? 34 : 20));
+        if (tx + cw > x + w && tx > x + 88) { tx = x + 88; y += 28; }
+        const Rect c{tx, y, cw, 24};
+        addHit(id, c, std::move(act));
+        const float hv = hoverAmount(id);
+        gfx_.fillRounded(c, 12, removable ? pal_.ink.withAlpha((pal_.dark ? 0.10f : 0.07f) + 0.05f * hv) : pal_.ribbon.withAlpha(0.10f + 0.10f * hv));
+        gfx_.text(text, {c.x + 10, c.y, c.w - (removable ? 30 : 20), c.h}, Font::Small, removable ? pal_.ink : pal_.ribbon, {Align::Left, false, true, true});
+        if (removable) {
+            const float ex = c.right() - 14, ey = c.y + 12;
+            gfx_.line(ex - 3, ey - 3, ex + 3, ey + 3, pal_.inkMuted, 1.2f);
+            gfx_.line(ex + 3, ey - 3, ex - 3, ey + 3, pal_.inkMuted, 1.2f);
+        }
+        if (focused(id)) focusRing(c);
+        tx += cw + 6;
+    };
+    if (lab)
+        for (std::size_t k = 0; k < lab->tags.size(); ++k) {
+            const std::wstring tag = lab->tags[k];
+            chip("tb:pv:tag:" + std::to_string(k), tag, true, [this, path, tag] {
+                labels_.removeTag(path, tag);
+                saveLabels();
+                invalidate();
+            });
+        }
+    chip("tb:pv:tag:add", L"+ Tag", false, [this] {
+        // The tags in use (to add one again), and a new one.
+        tagChoices_ = labels_.tags();
+        std::vector<MenuItem> items;
+        const auto paths = selectedPaths();
+        for (std::size_t t = 0; t < tagChoices_.size() && t < 900; ++t) {
+            const bool all = std::all_of(paths.begin(), paths.end(), [&](const std::wstring& p) { return labels_.hasTag(p, tagChoices_[t].first); });
+            items.push_back(MenuItem::item(tagChoices_[t].first, CmdTag0 + (UINT)t, {}, true, all));
+        }
+        if (!items.empty()) items.push_back(MenuItem::sep());
+        items.push_back(MenuItem::item(L"New tag\u2026", CmdNewTag));
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+        if (cmd == CmdNewTag) newTagForSelection();
+        else if (cmd >= CmdTag0 && cmd - CmdTag0 < tagChoices_.size()) toggleTagOnSelection(tagChoices_[cmd - CmdTag0].first);
+    });
+    y += 34;
+    // The collections it's in.
+    std::wstring in;
+    for (const auto& id : labels_.collectionsWith(path))
+        if (const labels::Collection* c = labels_.collection(id)) in += (in.empty() ? L"" : L", ") + c->name;
+    if (!in.empty()) {
+        gfx_.text(L"In", {x, y, 84, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        y += std::max(20.0f, gfx_.text(in, {x + 88, y, w - 88, 60}, Font::Small, pal_.ink, {Align::Left, true})) + 6;
+    }
+    return y;
+}
+
+// Gallery view: big pictures filling square tiles (cropped to fit), the name over the foot of the
+// picture when it's pointed at or selected; folders and other files as a card with their icon and name.
+void FilesWindow::drawGalleryTile(const Rect& t, std::size_t i, int px, float fade) {
+    const Entry& e = shown_[i];
+    const Rect box{t.x + 4, t.y + 4, t.w - 8, t.h - 8};
+    const bool sel = sel_.selected(i);
+    const bool hov = hoverId() == idPrefix_ + "row:" + std::to_string(i);
+    if (renaming_ && (int)i == renameRow_) renameRect_ = {box.x + 4, box.bottom() - 34, box.w - 8, 28};
+    const Thumb* th = nullptr;
+    if (thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::hasPicture(e.name)) th = thumbs_->get(rowPath(i), e.modified, e.size, px);
+    bool picture = false;
+    if (th && th->w > 0 && th->h > 0) {
+        const float s = std::max(box.w / th->w, box.h / th->h);
+        const float w = th->w * s, h = th->h * s;
+        gfx_.pushClip(box);
+        gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(),
+                        {std::round(box.x + (box.w - w) / 2), std::round(box.y + (box.h - h) / 2), std::round(w), std::round(h)}, true);
+        if (fade < 1) gfx_.fill(box, pal_.paper.withAlpha(1.0f - fade));
+        gfx_.popClip();
+        picture = true;
+    } else {
+        gfx_.fillRounded(box, 8, pal_.sunken);
+        drawIcon(e.icon, {box.x + (box.w - 48) / 2, box.y + (box.h - 48) / 2 - 14, 48, 48}, fade);
+    }
+    if (!picture || hov || sel) {
+        const Rect band{box.x, box.bottom() - 32, box.w, 32};
+        if (picture) gfx_.fill(band, cjui::hexColor("#000000").withAlpha(0.55f));
+        gfx_.text(e.name, {band.x + 10, band.y, band.w - 20, band.h}, Font::Small, picture ? cjui::hexColor("#FFFFFF") : pal_.ink,
+                  {picture ? Align::Left : Align::Center, false, true, true});
+    }
+    if (sel) gfx_.strokeRounded({box.x - 2, box.y - 2, box.w + 4, box.h + 4}, 8, pal_.ribbon, 2.5f);
+    else if (hov) gfx_.strokeRounded({box.x - 1, box.y - 1, box.w + 2, box.h + 2}, 8, pal_.ink.withAlpha(0.25f), 1);
+    if ((int)i == sel_.focus() && GetFocus() == hwnd() && !sel) gfx_.strokeRounded(box, 8, pal_.ribbon.withAlpha(0.7f), 1);
+}
+
+// ---------------------------------------------------------------- asking for a name
+
+void FilesWindow::askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done) {
+    if (renaming_) endRename(false);
+    askTitle_ = title;
+    askDone_ = std::move(done);
+    asking_ = true;
+    SetWindowTextW(ask_, initial.c_str());
+    invalidate();
+    UpdateWindow(hwnd());   // places the field
+    ShowWindow(ask_, SW_SHOW);
+    SetFocus(ask_);
+    SendMessageW(ask_, EM_SETSEL, 0, -1);
+}
+
+void FilesWindow::endAsk(bool commit) {
+    if (!asking_) return;
+    asking_ = false;
+    const int n = GetWindowTextLengthW(ask_);
+    std::wstring text((size_t)n, L'\0');
+    if (n) GetWindowTextW(ask_, text.data(), n + 1);
+    ShowWindow(ask_, SW_HIDE);
+    SetFocus(hwnd());
+    auto done = std::move(askDone_);
+    askDone_ = nullptr;
+    invalidate();
+    if (commit && done) done(text);
+}
+
+void FilesWindow::drawAsk(float W, float H) {
+    gfx_.fill({0, 0, W, H}, cjui::hexColor("#000000").withAlpha(pal_.dark ? 0.45f : 0.25f));
+    const float cw = std::min(440.0f, W - 40), ch = 172;
+    const Rect card{std::floor((W - cw) / 2), std::floor(std::max(80.0f, H * 0.3f)), cw, ch};
+    askCard_ = card;
+    softShadow(card, 12, 1);
+    gfx_.fillRounded(card, 12, pal_.surface);
+    gfx_.strokeRounded(card, 12, pal_.rule);
+    gfx_.text(askTitle_, {card.x + 22, card.y + 18, card.w - 44, 26}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+    const Rect field{card.x + 22, card.y + 58, card.w - 44, 38};
+    gfx_.fillRounded(field, 8, pal_.sunken);
+    gfx_.strokeRounded(field, 8, pal_.focus, 1.5f);
+    const float s = gfx_.dpiScale(), th = 20;
+    SetWindowPos(ask_, HWND_TOP, (int)std::lround((field.x + 12) * s), (int)std::lround((field.y + (field.h - th) / 2) * s),
+                 (int)std::lround((field.w - 24) * s), (int)std::lround(th * s), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    const float by = card.bottom() - 54;
+    button("tb:ask:ok", {card.right() - 22 - 96, by, 96, 36}, L"OK", [this] { endAsk(true); }, true);
+    button("tb:ask:cancel", {card.right() - 22 - 96 - 10 - 96, by, 96, 36}, L"Cancel", [this] { endAsk(false); });
 }
 
 // ---------------------------------------------------------------- searching
@@ -1563,6 +2031,12 @@ void FilesWindow::searchTyped() {
     std::wstring trimmed = text;
     while (!trimmed.empty() && iswspace(trimmed.back())) trimmed.pop_back();
     while (!trimmed.empty() && iswspace(trimmed.front())) trimmed.erase(0, 1);
+    if (!here_.collection.empty()) {
+        // In a collection the box narrows what's in it.
+        here_.query = search::parse(trimmed).empty() ? std::wstring() : trimmed;
+        showHere();
+        return;
+    }
     if (search::parse(trimmed).empty()) {
         // Nothing to look for (yet): the folder, as it was.
         KillTimer(hwnd(), kSearchTimer);
@@ -1599,6 +2073,12 @@ void FilesWindow::runSearch(const std::wstring& text, bool everywhere) {
 
 void FilesWindow::endSearch() {
     KillTimer(hwnd(), kSearchTimer);
+    if (!here_.collection.empty()) {
+        here_.query.clear();
+        showHere();
+        showSearchText();
+        return;
+    }
     if (!here_.searching()) { showSearchText(); return; }
     const Location folder{false, here_.path};
     if (!backStack_.empty() && backStack_.back() == folder) {
@@ -1614,7 +2094,7 @@ std::wstring FilesWindow::searchFolderOf(std::size_t row) const {
     if (row >= shown_.size()) return L"";
     const std::wstring& at = shown_[row].location;
     if (at.empty()) return L"";
-    if (here_.everywhere) return at;
+    if (here_.everywhere || !here_.collection.empty()) return at;
     const std::wstring rel = search::relativeFolder(here_.path, at);
     return rel.empty() ? (isDriveRoot(here_.path) ? here_.path : nameOf(here_.path)) : rel;
 }
@@ -1637,7 +2117,7 @@ void FilesWindow::drawSearchBox(const Rect& r) {
                      (int)std::lround((r.w - 40 - clearW) * s), (int)std::lround(th * s), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
         ShowWindow(search_, SW_HIDE);
-        const std::wstring where = here_.thisPC ? L"this PC" : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
+        const std::wstring where = here_.thisPC ? L"this PC" : !here_.collection.empty() ? nameFor(here_) : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
         gfx_.text(L"Search " + where, {r.x + 32, r.y, r.w - 40, r.h}, Font::Body, pal_.inkFaint, {Align::Left, false, true, true});
         addHit("tb:search", r, [this] { focusSearch(); });
     }
@@ -1665,7 +2145,7 @@ float FilesWindow::drawSearchBar(const Rect& r) {
     std::wstring text = (loading_ ? L"Searching" + where + L"\u2026 " + found + L" so far" : found + where);
     if (here_.everywhere && searchNoIndex_)
         text += loading_ ? L" (Windows Search isn't available, so the drives are being read)" : L" (Windows Search isn't available, so the drives were read)";
-    else if (here_.everywhere && !loading_)
+    else if (here_.everywhere && !loading_ && !search::parse(here_.query).byLabel())
         text += L", from Windows Search (places it indexes)";
     // The other place to look.
     const std::wstring other = here_.everywhere ? L"Only in \u201C" + folder + L"\u201D" : L"Search the whole PC";
@@ -1829,6 +2309,7 @@ void FilesWindow::transferToOtherPane(bool move) {
     if (!plan.problem.empty()) flash(plan.problem, 6);
     if (plan.sources.empty()) return;
     const ops::Result r = ops::transfer(hwnd(), plan.sources, to.path, move);
+    if (move) noteMoved(plan.sources, to.path);
     if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
                                                 L"NorthRay Files", MB_OK | MB_ICONWARNING);
     else if (r.ok) flash((move ? L"Moved to “" : L"Copied to “") + (isDriveRoot(to.path) ? to.path : nameOf(to.path)) + L"”.", 5);
@@ -1938,7 +2419,7 @@ std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
         bool dragged = false;
         for (auto& d : drag_.paths) if (samePath(d, rowFolder)) dragged = true;
         if (!rowFolder.empty() && !dragged) out = rowFolder;
-        else if (p != drag_.fromPane && !here_.searching()) out = here_.path;   // the other pane's folder
+        else if (p != drag_.fromPane && !here_.searching() && here_.collection.empty()) out = here_.path;   // the other pane's folder
     }
     if (swapped) swapView(tabs_[p][(size_t)activeTab_[p]]);
     return out;
@@ -1964,6 +2445,14 @@ bool FilesWindow::onMouseUp(float x, float y) {
         return false;
     }
     invalidate();
+    for (auto& [id, rr] : collectionRects_)
+        if (rr.contains(x, y)) {
+            const int added = labels_.addToCollection(id, d.paths);
+            saveLabels();
+            const labels::Collection* c = labels_.collection(id);
+            flash(added ? L"Added to \u201C" + (c ? c->name : std::wstring()) + L"\u201D. They stay where they are." : L"They're in that collection already.", 5);
+            return true;
+        }
     if (sidebarRect_.contains(x, y)) {
         int pinned = 0;
         for (auto& p : d.paths) {
@@ -1986,6 +2475,7 @@ bool FilesWindow::onMouseUp(float x, float y) {
     if (plan.nothingToDo || plan.sources.empty()) { if (!plan.problem.empty()) flash(plan.problem, 6); return true; }
     if (!plan.problem.empty()) flash(plan.problem, 6);
     const ops::Result r = ops::transfer(hwnd(), plan.sources, target, move);
+    if (move) noteMoved(plan.sources, target);
     if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
                                                 L"NorthRay Files", MB_OK | MB_ICONWARNING);
     else if (r.ok) flash((move ? L"Moved to “" : L"Copied to “") + (isDriveRoot(target) ? target : nameOf(target)) + L"”.", 5);
@@ -2081,6 +2571,14 @@ void FilesWindow::navButton(const std::string& id, const Rect& r, int icon, bool
             gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
             gfx_.line(cx, cy - 6, cx, cy + 6, c, 1.4f);
             break;
+        case IconGallery:   // big pictures: a mountain in a frame
+            gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
+            gfx_.line(cx - 6, cy + 4, cx - 2, cy - 1, c, 1.3f);
+            gfx_.line(cx - 2, cy - 1, cx + 1, cy + 2, c, 1.3f);
+            gfx_.line(cx + 1, cy + 2, cx + 3, cy, c, 1.3f);
+            gfx_.line(cx + 3, cy, cx + 6, cy + 4, c, 1.3f);
+            gfx_.circle(cx + 3, cy - 3, 1.3f, c, true);
+            break;
         case IconPreview:   // a pane at the right with a picture in it
             gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
             gfx_.line(cx + 2, cy - 6, cx + 2, cy + 6, c, 1.4f);
@@ -2100,6 +2598,7 @@ void FilesWindow::drawFrame(float W, float H) {
                                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         SendMessageW(address_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
         SendMessageW(search_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
+        SendMessageW(ask_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
     }
     const float side = W >= 760 ? kSidebarW : 0;   // a narrow window gives the files the room
     sidebarRect_ = {0, 0, side, H};
@@ -2146,7 +2645,12 @@ void FilesWindow::drawFrame(float W, float H) {
         const bool toSidebar = sidebarRect_.contains(drag_.x, drag_.y);
         std::wstring what = drag_.paths.size() == 1 ? nameOf(drag_.paths[0]) : std::to_wstring(drag_.paths.size()) + L" items";
         std::wstring label = what;
-        if (toSidebar) label = L"Pin " + what + L" to the sidebar";
+        std::wstring toCollection;
+        for (auto& [id, rr] : collectionRects_)
+            if (rr.contains(drag_.x, drag_.y))
+                if (const labels::Collection* c = labels_.collection(id)) toCollection = c->name;
+        if (!toCollection.empty()) label = L"Add " + what + L" to \u201C" + toCollection + L"\u201D";
+        else if (toSidebar) label = L"Pin " + what + L" to the sidebar";
         else if (!target.empty()) {
             const bool copy = (GetKeyState(VK_CONTROL) & 0x8000) || (drag_.paths.size() && towupper(drag_.paths[0][0]) != towupper(target[0]));
             label = (copy ? L"Copy " : L"Move ") + what + L" to " + (isDriveRoot(target) ? target : nameOf(target));
@@ -2157,6 +2661,7 @@ void FilesWindow::drawFrame(float W, float H) {
         gfx_.text(label, g, Font::Small, pal_.paper, {Align::Center, false, true, true});
     }
     drawToast({side, kToolbarH, W - side, H - kToolbarH});
+    if (asking_) drawAsk(W, H);
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
         const float s = gfx_.dpiScale();
@@ -2230,6 +2735,50 @@ void FilesWindow::drawSidebar(const Rect& r) {
         recycleBinMenu(pt);
     }, recycleItems_ ? std::to_wstring(recycleItems_) : L"");
     y += 12;
+    // Collections, then the colour labels and tags (0.5).
+    collectionRects_.clear();
+    {
+        gfx_.text(L"COLLECTIONS", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
+        const Rect plus{r.right() - 40, y - 6, 26, 26};
+        addHit("tb:coll:new", plus, [this] { newCollectionFromSelection(true); });
+        const float ph = hoverAmount("tb:coll:new");
+        if (ph > 0.01f) gfx_.fillRounded(plus, 6, nr::kNightInk.withAlpha(0.08f * ph));
+        gfx_.line(plus.x + 13, plus.y + 8, plus.x + 13, plus.y + 18, nr::kNightMuted, 1.4f);
+        gfx_.line(plus.x + 8, plus.y + 13, plus.x + 18, plus.y + 13, nr::kNightMuted, 1.4f);
+        y += 22;
+        int folderIcon = -1;
+        for (const Place& p : places_) if (p.icon >= 0) { folderIcon = p.icon; break; }
+        for (const labels::Collection& c : labels_.collections()) {
+            collectionRects_.push_back({c.id, {r.x + 10, y, r.w - 20, 32}});
+            row("tb:coll:" + c.id, c.name, folderIcon, here_.collection == c.id, [this, id = c.id] { openCollection(id); },
+                c.items.empty() ? L"" : std::to_wstring(c.items.size()));
+        }
+        if (labels_.collections().empty()) {
+            gfx_.text(L"Groups of files from anywhere", {r.x + 22, y, r.w - 44, 20}, Font::Small, nr::kNightMuted.withAlpha(0.7f), {Align::Left, false, true});
+            y += 24;
+        }
+        y += 10;
+        gfx_.text(L"LABELS", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
+        y += 22;
+        float dx = r.x + 26;
+        for (int c = 1; c < labels::kColours; ++c) {
+            const Rect dot{dx - 2, y, 22, 22};
+            const std::string id = "tb:label:" + std::to_string(c);
+            addHit(id, dot, [this, c] { openLabelSearch(L"colour:" + labels::lowerName((labels::Colour)c)); });
+            const float hv = hoverAmount(id);
+            if (hv > 0.01f) gfx_.circle(dot.x + 11, dot.y + 11, 10, nr::kNightInk.withAlpha(0.15f * hv), true);
+            gfx_.circle(dot.x + 11, dot.y + 11, 6, labelColour((labels::Colour)c), true);
+            dx += 23;
+        }
+        const std::wstring tagsLabel = L"Tags";
+        const float tw = gfx_.measureWidth(tagsLabel, Font::Small) + 18;
+        const Rect tb{r.right() - 14 - tw, y, tw, 22};
+        addHit("tb:tags", tb, [this] { tagsMenu(); });
+        const float th2 = hoverAmount("tb:tags");
+        gfx_.fillRounded(tb, 11, nr::kNightInk.withAlpha(0.07f + 0.08f * th2));
+        gfx_.text(tagsLabel, tb, Font::Small, nr::kNightMuted.mix(nr::kNightInk, 0.5f * th2), {Align::Center, false, true, true});
+        y += 34;
+    }
     gfx_.text(L"THIS PC", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
     y += 22;
     int pcIcon = -1;
@@ -2260,7 +2809,8 @@ void FilesWindow::drawToolbar(const Rect& r) {
     navButton("tb:refresh", {x, by, bs, bs}, IconRefresh, true, [this] { refresh(); });
     x += bs + 10;
     const float right = r.right() - drawCaptionButtons(r, false) - 8;
-    const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs, previewX = panesX - 2 - bs;
+    const float menuX = right - bs, galleryX = menuX - 10 - bs, iconsX = galleryX - bs - 2, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs,
+                previewX = panesX - 2 - bs;
     const float avail = previewX - 12 - x;
     if (settings_.previewPane) gfx_.fillRounded({previewX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
     navButton("tb:preview", {previewX, by, bs, bs}, IconPreview, true, [this] { togglePreview(); });
@@ -2271,8 +2821,9 @@ void FilesWindow::drawToolbar(const Rect& r) {
     if (twoPanes_) gfx_.fillRounded({panesX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
     navButton("tb:panes", {panesX, by, bs, bs}, IconPanes, true, [this] { setTwoPanes(!twoPanes_); });
     // Views: the current one is marked.
-    const bool icons = settings_.view == ViewMode::Icons;
-    gfx_.fillRounded({icons ? iconsX : detailsX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
+    const float onX = settings_.view == ViewMode::Icons ? iconsX : settings_.view == ViewMode::Gallery ? galleryX : detailsX;
+    gfx_.fillRounded({onX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
+    navButton("tb:gallery", {galleryX, by, bs, bs}, IconGallery, true, [this] { setView(ViewMode::Gallery); });
     navButton("tb:details", {detailsX, by, bs, bs}, IconDetails, true, [this] { setView(ViewMode::Details); });
     navButton("tb:icons", {iconsX, by, bs, bs}, IconTiles, true, [this] { setView(ViewMode::Icons); });
     navButton("tb:menu", {menuX, by, bs, bs}, IconMenu, true, [this] { showMenu(); });
@@ -2295,6 +2846,9 @@ void FilesWindow::drawAddress(const Rect& r) {
     std::vector<Part> parts;
     if (here_.thisPC) {
         parts.push_back({L"This PC", {true, L""}});
+    } else if (!here_.collection.empty()) {
+        parts.push_back({L"Collections", here_});
+        parts.push_back({nameFor(here_), here_});
     } else {
         for (const Crumb& c : breadcrumbs(here_.path)) {
             std::wstring label = c.label;
@@ -2377,9 +2931,16 @@ void FilesWindow::drawContent(const Rect& rIn) {
         return;
     }
     Rect r = rIn;
-    if (here_.searching()) {
+    if (here_.searching() && here_.collection.empty()) {
         const float bh = drawSearchBar(r);
         r = {r.x, r.y + bh, r.w, r.h - bh};
+    }
+    if (shown_.empty() && !here_.collection.empty() && !loading_) {
+        drawMessage(r, here_.searching() ? L"Nothing found" : L"This collection is empty",
+                    here_.searching() ? L"Nothing in this collection matches \u201C" + here_.query + L"\u201D."
+                                      : L"Right-click files or folders anywhere and choose \u201CAdd to collection\u201D, or drag them onto it in the sidebar. They stay where they are.",
+                    false);
+        return;
     }
     if (shown_.empty() && here_.searching()) {
         if (!loading_)
@@ -2428,7 +2989,7 @@ void FilesWindow::drawDetails(const Rect& r) {
     // Columns: Name takes what's left; Type then Date go when it's narrow.
     const bool showType = w >= 620, showDate = w >= 430;
     // Search results: where each one is, in place of its type.
-    const bool folderCol = here_.searching();
+    const bool folderCol = here_.searching() || !here_.collection.empty();
     const float sizeW = 100, typeW = showType ? (folderCol ? std::min(260.0f, w * 0.3f) : 170) : 0, dateW = showDate ? 170 : 0;
     const float nameW = w - sizeW - typeW - dateW;
     const float xName = x0, xDate = xName + nameW, xType = xDate + dateW, xSize = xType + typeW;
@@ -2477,6 +3038,27 @@ void FilesWindow::drawDetails(const Rect& r) {
         drawRowBackground(row, i, 6);
         const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
         if (renaming_ && (int)i == renameRow_) renameRect_ = {xName + 26, row.y + 2, std::max(120.0f, nameW - 36), row.h - 4};
+        // Its colour label (a bar at the row's edge) and tags (chips at the end of its name).
+        const std::wstring rp = rowPath(i);
+        const labels::Label* lab = labels_.find(rp);
+        float chipsW = 0;
+        if (lab) {
+            if (lab->colour != labels::Colour::None)
+                gfx_.fillRounded({row.x + 1, row.y + 6, 4, row.h - 12}, 2, labelColour(lab->colour));
+            float cx = xName + nameW - 12;
+            const std::size_t shownTags = std::min<std::size_t>(lab->tags.size(), 2);
+            std::vector<std::wstring> chips(lab->tags.begin(), lab->tags.begin() + (long)shownTags);
+            if (lab->tags.size() > shownTags) chips.push_back(L"+" + std::to_wstring(lab->tags.size() - shownTags));
+            for (std::size_t k = chips.size(); k-- > 0;) {
+                const float cw = std::min(110.0f, gfx_.measureWidth(chips[k], Font::Small) + 16);
+                if (cx - cw < xName + 120) break;
+                cx -= cw;
+                gfx_.fillRounded({cx, row.y + (row.h - 20) / 2, cw, 20}, 10, pal_.ink.withAlpha(pal_.dark ? 0.10f : 0.07f));
+                gfx_.text(chips[k], {cx + 8, row.y, cw - 16, row.h}, Font::Small, pal_.inkMuted, {Align::Center, false, true, true});
+                cx -= 4;
+                chipsW = xName + nameW - 12 - cx;
+            }
+        }
         drawIcon(e.icon, {xName + 4, row.y + (row.h - 16) / 2, 16, 16}, fade);
         if (e.link()) {
             // A link (shortcut-style arrow), so a junction isn't mistaken for a real folder.
@@ -2487,7 +3069,8 @@ void FilesWindow::drawDetails(const Rect& r) {
             gfx_.line(lx + 5.5f, ly + 1.5f, lx + 5.5f, ly + 4, pal_.ink, 1.2f);
         }
         const Color ink = fade < 1 ? pal_.inkMuted : pal_.ink;
-        gfx_.text(e.name, {xName + 30, row.y, nameW - 40, row.h}, Font::Body, ink, {Align::Left, false, true, true});
+        gfx_.text(e.name, {xName + 30, row.y, nameW - 40 - chipsW, row.h}, Font::Body, e.icon < 0 && e.attributes == 0 ? pal_.inkFaint : ink,
+                  {Align::Left, false, true, true});
         if (dateW > 0) gfx_.text(dateText(e.modified), {xDate + 10, row.y, dateW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
         if (typeW > 0)
             gfx_.text(folderCol ? searchFolderOf(i) : e.type, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted,
@@ -2499,19 +3082,20 @@ void FilesWindow::drawDetails(const Rect& r) {
 }
 
 void FilesWindow::drawIcons(const Rect& r) {
+    const bool gallery = settings_.view == ViewMode::Gallery;
     const float pad = 16;
     const Rect clip{r.x, r.y + 4, r.w, r.h - 4};
     listClip_ = clip;
     const float avail = r.w - pad * 2;
-    columns_ = std::max(1, (int)(avail / 156));
+    columns_ = std::max(1, (int)(avail / (gallery ? 200 : 156)));
     tileW_ = avail / (float)columns_;
-    tileH_ = 172;
+    tileH_ = gallery ? tileW_ : 172;
     listX_ = r.x + pad;
     const float top = beginScroll(clip);
     listTop_ = top + 8;
     // Pictures are made at the size they're shown on this display.
     const float boxW = 136, boxH = 102;
-    const int thumbPx = boxW * gfx_.dpiScale() <= 128 ? 128 : 256;
+    const int thumbPx = gallery ? (tileW_ * gfx_.dpiScale() <= 256 ? 256 : 512) : (boxW * gfx_.dpiScale() <= 128 ? 128 : 256);
     const std::size_t n = shown_.size();
     const std::size_t lines = (n + (std::size_t)columns_ - 1) / (std::size_t)columns_;
     const std::size_t firstLine = (std::size_t)std::max(0.0f, std::floor((clip.y - listTop_) / tileH_));
@@ -2525,6 +3109,15 @@ void FilesWindow::drawIcons(const Rect& r) {
             addHit(idPrefix_ + "row:" + std::to_string(i), t, nullptr, false);
             drawRowBackground(t, i, 8);
             const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
+            const labels::Colour lc = labels_.colourOf(rowPath(i));
+            if (gallery) {
+                drawGalleryTile(t, i, thumbPx, fade);
+                if (lc != labels::Colour::None) {
+                    gfx_.circle(t.x + 14, t.y + 14, 7, pal_.paper, true);
+                    gfx_.circle(t.x + 14, t.y + 14, 5.5f, labelColour(lc), true);
+                }
+                continue;
+            }
             const Rect box{t.x + (t.w - boxW) / 2, t.y + 8, boxW, boxH};
             if (renaming_ && (int)i == renameRow_) renameRect_ = {t.x + 2, box.bottom() + 4, t.w - 4, 28};
             const Thumb* th = nullptr;
@@ -2544,6 +3137,10 @@ void FilesWindow::drawIcons(const Rect& r) {
             }
             gfx_.text(e.name, {t.x + 6, box.bottom() + 6, t.w - 12, 38}, Font::Small, fade < 1 ? pal_.inkMuted : pal_.ink,
                       {Align::Center, true, true});
+            if (lc != labels::Colour::None) {   // its colour label, at the corner
+                gfx_.circle(t.x + 13, t.y + 13, 7, pal_.paper, true);
+                gfx_.circle(t.x + 13, t.y + 13, 5.5f, labelColour(lc), true);
+            }
         }
     endScroll((float)lines * tileH_ + 16);
 }

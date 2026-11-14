@@ -11,6 +11,7 @@
 #include "shell.hpp"
 #include "thumbnails.hpp"
 
+#include "nrf/labels.hpp"
 #include "nrf/listing.hpp"
 
 #include "cjui/menu.hpp"
@@ -56,7 +57,10 @@ private:
         std::wstring path;
         std::wstring query;       // a search in `path` (and its sub-folders) when not empty
         bool everywhere = false;  // the search is of the whole PC (the Windows Search index)
-        bool operator==(const Location& o) const { return thisPC == o.thisPC && path == o.path && query == o.query && everywhere == o.everywhere; }
+        std::string collection;   // a collection (0.5) instead of a folder
+        bool operator==(const Location& o) const {
+            return thisPC == o.thisPC && path == o.path && query == o.query && everywhere == o.everywhere && collection == o.collection;
+        }
         bool searching() const { return !query.empty(); }
     };
 
@@ -168,6 +172,36 @@ private:
     void typeAhead(wchar_t c);
     std::wstring rowPath(std::size_t row) const;
 
+    // Labels, tags and collections (0.5)
+    labels::Store labels_;
+    std::wstring labelsPath_;
+    std::vector<std::pair<std::wstring, int>> tagChoices_;   // the tags as the last menu listed them
+    std::vector<std::pair<std::string, cjui::Rect>> collectionRects_;
+    void loadLabels();
+    void saveLabels();
+    void noteMoved(const std::vector<std::wstring>& sources, const std::wstring& destFolder);
+    void noteRemoved(const std::vector<std::wstring>& paths);
+    void setColourOnSelection(labels::Colour c);
+    void toggleTagOnSelection(const std::wstring& tag);
+    void newTagForSelection();
+    void addSelectionToCollection(const std::string& id);
+    void newCollectionFromSelection(bool empty = false);
+    void openCollection(const std::string& id, bool inNewTab = false);
+    void collectionMenu(const std::string& id, POINT screen);
+    void openLabelSearch(const std::wstring& query);
+    void tagsMenu();
+    float drawPreviewLabels(float x, float y, float w, const std::wstring& path);
+    void drawGalleryTile(const cjui::Rect& t, std::size_t row, int px, float fade);
+    // Asking for a name (a new tag or collection): a small card over the window.
+    void askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done);
+    void endAsk(bool commit);
+    void drawAsk(float W, float H);
+    HWND ask_ = nullptr;
+    bool asking_ = false;
+    std::wstring askTitle_;
+    std::function<void(const std::wstring&)> askDone_;
+    cjui::Rect askCard_{};
+
     // The preview pane (0.4)
     void togglePreview();
     void drawPreview(const cjui::Rect& r);
@@ -191,7 +225,7 @@ private:
     bool searchLimited_ = false, searchNoIndex_ = false;
     bool searchReplace_ = false;            // the next results replace what's shown (searching again)
     void startListing();                    // reads here_ (a folder, This PC or a search) on a worker
-    static std::wstring nameFor(const Location& l);
+    std::wstring nameFor(const Location& l) const;
     std::uint64_t searchFolders_ = 0;
     std::wstring searchFolderOf(std::size_t row) const;   // where a result is, below the searched folder
 

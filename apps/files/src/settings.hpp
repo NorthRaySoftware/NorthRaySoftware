@@ -10,7 +10,7 @@
 namespace nrf {
 
 enum class Theme { System = 0, Light = 1, Dark = 2 };
-enum class ViewMode { Details = 0, Icons = 1 };
+enum class ViewMode { Details = 0, Icons = 1, Gallery = 2 };
 
 struct Settings {
     static constexpr int kVersion = 1;

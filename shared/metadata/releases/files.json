@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.5.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Colour labels: right-click anything and choose a colour (or pick one in the preview pane). It shows as a bar beside its name in Details and a dot in Icons and Gallery views.",
+        "Tags: give files and folders as many tags as you like from the right-click menu or the preview pane, and take them off again. The sidebar's Tags button lists every tag; choosing one shows everything with it.",
+        "Search by label: tag:dragon (or #dragon), tag:\"two words\", colour:red, mixed with the other search words. The colour dots in the sidebar do the same in one click.",
+        "Collections: groups of files and folders from anywhere, without moving them. Make one from the sidebar or from “Add to collection”, drag things onto it, open it like a folder (the Folder column says where each thing really is), and rename or delete it from its right-click menu. Things that have gone missing are shown as missing.",
+        "Gallery view (Ctrl+Shift+1 or the toolbar): big square pictures for art folders, the name over the picture when you point at it.",
+        "Labels and collections are kept in NorthRay Files' own file, so the files themselves are never changed. They follow things renamed, moved or deleted in NorthRay Files; things moved by another program lose them.",
+        "Long submenus (such as a long list of tags) have a search field too."
+      ]
+    },
+    {
       "version": "0.4.1",
       "date": "2026-11-14",
       "notes": [

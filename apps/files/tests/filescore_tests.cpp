@@ -2,6 +2,7 @@
 // suites: run it, it prints each group and exits non-zero on failure.
 #include "nrf/art.hpp"
 #include "nrf/exif.hpp"
+#include "nrf/labels.hpp"
 #include "nrf/listing.hpp"
 #include "nrf/operations.hpp"
 #include "nrf/paths.hpp"
@@ -360,6 +361,18 @@ static void testSearch() {
     q = parse(L"kind:wizard");
     CHECK(q.kind == Kind::Any && q.words.size() == 1);
     CHECK(parse(L"   ").empty());
+    q = parse(L"tag:Dragon #wip colour:red color:GRAY sky");
+    CHECK(q.tags.size() == 2 && q.tags[0] == L"dragon" && q.tags[1] == L"wip");
+    CHECK(q.colours.size() == 2 && q.colours[0] == 1 && q.colours[1] == 7);
+    CHECK(q.words.size() == 1 && q.byLabel());
+    CHECK(matchesLabels(q, {L"WIP", L"Dragon"}, 7));
+    CHECK(!matchesLabels(q, {L"Dragon"}, 1));
+    CHECK(!matchesLabels(q, {L"Dragon", L"wip"}, 3));
+    CHECK(matchesLabels(parse(L"sky"), {}, 0));
+    CHECK(parse(L"colour:teal").words.size() == 1);
+    q = parse(L"tag:\"Dragon Art\" sky");
+    CHECK(q.tags.size() == 1 && q.tags[0] == L"dragon art" && q.words.size() == 1);
+    CHECK(nrf::labels::lowerName(nrf::labels::Colour::Grey) == L"grey");
     CHECK(parse(L"*").empty());
     CHECK(kindOf(L".MP4") == Kind::Video && kindOf(L".flac") == Kind::Music && kindOf(L".epub") == Kind::Document && kindOf(L".xyz") == Kind::Any);
 
@@ -468,6 +481,68 @@ static void testArt() {
     CHECK(!looksLikeText(bin, sizeof bin));
 }
 
+
+static void testLabels() {
+    std::printf("labels\n");
+    using namespace nrf::labels;
+    Store s;
+    CHECK_EQ(normaliseTag(L"  dragon   art \t"), L"dragon art");
+    CHECK(normaliseTag(L"   ").empty());
+    CHECK(normaliseTag(std::wstring(60, L'x')).size() == 40);
+    CHECK(colourFromName(L"RED") == Colour::Red && colourFromName(L"gray") == Colour::Grey && colourFromName(L"teal") == Colour::None);
+
+    s.setColour(L"C:\\Art\\Cover.png", Colour::Red);
+    CHECK(s.colourOf(L"c:\\art\\cover.png") == Colour::Red);
+    CHECK(s.addTag(L"C:\\Art\\Cover.png", L"Dragon"));
+    CHECK(!s.addTag(L"C:\\Art\\Cover.png", L"dragon"));   // already there (case doesn't matter)
+    CHECK(s.addTag(L"C:\\Art\\Sketches\\a.psd", L"dragon"));
+    CHECK(s.find(L"C:\\Art\\Sketches\\a.psd")->tags[0] == L"Dragon");   // keeps the first way it was written
+    CHECK(s.addTag(L"C:\\Art\\Sketches\\a.psd", L"wip"));
+    auto t = s.tags();
+    CHECK(t.size() == 2 && t[0].first == L"Dragon" && t[0].second == 2 && t[1].first == L"wip");
+    CHECK(s.pathsWithTag(L"DRAGON").size() == 2);
+    CHECK(s.pathsWithColour(Colour::Red).size() == 1);
+
+    // Moving a folder takes what's inside along; a folder with a similar name isn't touched.
+    s.addTag(L"C:\\Art2\\x.png", L"other");
+    s.moved(L"C:\\Art", L"D:\\Pictures\\Art");
+    CHECK(s.colourOf(L"D:\\Pictures\\Art\\Cover.png") == Colour::Red);
+    CHECK(s.hasTag(L"D:\\Pictures\\Art\\Sketches\\a.psd", L"wip"));
+    CHECK(s.find(L"C:\\Art\\Cover.png") == nullptr);
+    CHECK(s.hasTag(L"C:\\Art2\\x.png", L"other"));
+    CHECK(within(L"C:\\Art\\x", L"C:\\Art") && !within(L"C:\\Art2\\x", L"C:\\Art") && within(L"C:\\x", L"C:\\"));
+
+    // Taking the last label off forgets the file.
+    s.setColour(L"D:\\Pictures\\Art\\Cover.png", Colour::None);
+    CHECK(s.removeTag(L"D:\\Pictures\\Art\\Cover.png", L"dragon"));
+    CHECK(s.find(L"D:\\Pictures\\Art\\Cover.png") == nullptr);
+
+    const std::string id = s.createCollection(L"  Book 3 covers ");
+    CHECK(s.collection(id) && s.collection(id)->name == L"Book 3 covers");
+    CHECK(s.addToCollection(id, {L"C:\\A\\one.png", L"C:\\B\\two.png", L"c:\\a\\ONE.png"}) == 2);
+    CHECK(s.collectionsWith(L"C:\\B\\two.png").size() == 1);
+    s.moved(L"C:\\B", L"C:\\Bee");
+    CHECK(s.collection(id)->items[1] == L"C:\\Bee\\two.png");
+    CHECK(s.removeFromCollection(id, {L"c:\\a\\one.png"}) == 1);
+    s.removed(L"C:\\Bee");
+    CHECK(s.collection(id)->items.empty());
+    CHECK(s.renameCollection(id, L"Covers"));
+    CHECK(!s.renameCollection(id, L"   "));
+
+    // Saved and read back, with a name that isn't ASCII.
+    s.addTag(L"C:\\Caf\u00E9\\\u00C6sir.png", L"m\u00FCnster \U0001F409");
+    const std::string json = s.toJson();
+    Store r;
+    CHECK(r.fromJson(json));
+    CHECK(r.hasTag(L"C:\\Caf\u00E9\\\u00C6sir.png", L"m\u00FCnster \U0001F409"));
+    CHECK(r.hasTag(L"D:\\Pictures\\Art\\Sketches\\a.psd", L"wip"));
+    CHECK(r.collections().size() == 1 && r.collections()[0].name == L"Covers");
+    CHECK(r.createCollection(L"New") != id);   // ids aren't reused
+    CHECK(!r.fromJson("not json"));
+    CHECK_EQ(fromUtf8(toUtf8(L"\u00E9\U0001F409x")), L"\u00E9\U0001F409x");
+    CHECK_EQ(fromUtf8(std::string("ab\xE2\x82")), L"ab\uFFFD");
+}
+
 int main() {
     testNormalize();
     testPathParts();
@@ -478,6 +553,7 @@ int main() {
     testOperations();
     testSearch();
     testArt();
+    testLabels();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

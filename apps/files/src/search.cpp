@@ -236,4 +236,40 @@ void searchIndexAsync(HWND window, std::wstring scope, std::wstring query, Visib
     }).detach();
 }
 
+void listPathsAsync(HWND window, std::vector<std::wstring> paths, std::wstring query, Visibility visibility, bool keepMissing,
+                    std::uint64_t request, std::shared_ptr<std::atomic<std::uint64_t>> latest) {
+    std::thread([=] {
+        const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        {
+            Sender out(window, request);
+            auto stale = [&] { return latest->load() != request; };
+            const search::Query q = search::parse(query);
+            for (const std::wstring& p : paths) {
+                if (stale()) break;
+                Entry e;
+                e.name = nameOf(p);
+                e.location = parentOf(p);
+                if (e.name.empty()) continue;
+                WIN32_FILE_ATTRIBUTE_DATA fa{};
+                if (GetFileAttributesExW(extendedPath(p).c_str(), GetFileExInfoStandard, &fa)) {
+                    e.attributes = fa.dwFileAttributes;
+                    e.size = e.folder() ? 0 : ((std::uint64_t)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
+                    e.modified = ((std::uint64_t)fa.ftLastWriteTime.dwHighDateTime << 32) | fa.ftLastWriteTime.dwLowDateTime;
+                    if (!keepMissing && !isVisible(e, visibility)) continue;
+                    if (!search::matches(q, e.name, e.folder())) continue;
+                    describeEntry(e, p);
+                } else {
+                    if (!keepMissing) continue;
+                    e.type = L"Missing";
+                    e.icon = -1;
+                }
+                out.add(std::move(e));
+                out.maybeSend();
+            }
+            if (!stale()) out.send(true);
+        }
+        if (SUCCEEDED(co)) CoUninitialize();
+    }).detach();
+}
+
 }  // namespace nrf

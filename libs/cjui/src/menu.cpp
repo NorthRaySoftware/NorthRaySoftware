@@ -133,8 +133,8 @@ struct Session {
     }
 
     void typed(wchar_t c) {
-        Level& L = *levels[0];
-        if (!L.searchable || levels.size() > 1) return;
+        Level& L = *levels.back();   // the deepest menu open (a long submenu has its own search)
+        if (!L.searchable) return;
         if (c == 8) { if (L.filter.empty()) return; L.filter.pop_back(); }
         else if (c >= 32 && c != 127) L.filter += c;
         else return;
@@ -268,7 +268,7 @@ struct Session {
             choices += m.separator ? 0 : 1;
             content += m.separator ? kSepH : kRowH;
         }
-        L->searchable = parent < 0 && choices >= kSearchFrom;
+        L->searchable = choices >= kSearchFrom;
         L->listTop = kPad + (L->searchable ? kRowH + 4 : 0);
         // As tall as it needs, up to a screenful (and long lists to a comfortable number of rows).
         float most = (float)(wa.bottom - wa.top) / scale - 16;
@@ -405,7 +405,7 @@ struct Session {
             case VK_PRIOR: scrollBy(D, -D.viewH()); break;
             case VK_NEXT: scrollBy(D, D.viewH()); break;
             case VK_ESCAPE:
-                if (depth == 0 && !D.filter.empty()) { D.filter.clear(); D.scroll = 0; layout(D); redraw(D); break; }
+                if (!D.filter.empty()) { D.filter.clear(); D.scroll = 0; layout(D); redraw(D); break; }
                 if (depth > 0) closeFrom((size_t)depth);
                 else done = true;
                 break;
@@ -514,7 +514,7 @@ UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Pa
         }
         if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN) {
             s.key(msg.wParam);
-            if (m == WM_KEYDOWN && s.levels[0]->searchable) TranslateMessage(&msg);   // letters for the search
+            if (m == WM_KEYDOWN && s.levels.back()->searchable) TranslateMessage(&msg);   // letters for the search
             continue;
         }
         if (m == WM_CHAR) { s.typed((wchar_t)msg.wParam); continue; }

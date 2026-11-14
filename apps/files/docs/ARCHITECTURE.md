@@ -201,7 +201,35 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
 - Tested in Wine: PSD, Procreate, Krita pictures in Icons view and the pane, Markdown text, a broken PSD. Video/PDF
   pictures depend on Windows' handlers and are untested here.
 
-## 7e. Next: 0.5, tags and colour labels, collections, gallery view
+## 7e. 0.5.0: colour labels, tags, collections, gallery (done 14 November 2026)
+
+- `nrf/labels.hpp` (portable, tested): a `Store` of labels by lower-case path (colour + tags, the first spelling of a
+  tag kept), collections (stable ids, ordered items), `moved` (a folder takes its contents along; prefix-safe
+  `within`), `removed`, JSON with UTF-8 conversion. Saved as `labels.json` beside settings.json (write to `.new`, then
+  `MoveFileEx` replace). Nothing is written into the files themselves.
+- The window keeps it current after its own operations: rename (`moved`), delete (`removed` for paths now gone),
+  cut-paste, drag-move and move-to-other-pane (`noteMoved` checks source gone and destination present).
+- Search: `tag:x`, `#x`, `tag:"two words"`, `colour:`/`color:`/`label:` parse into `Query::tags`/`colours`; such queries
+  are answered from the store (scope: a folder and below, or everywhere) and each path is looked at by
+  `listPathsAsync`, so they're instant and need no index.
+- Collections are a `Location` with `collection` set: listed by `listPathsAsync(keepMissing)` (missing items show as
+  "Missing"), a Folder column, the search box narrows in place, paste/new folder ask for a folder, tabs persist as
+  `::collection:<id>`. Sidebar: COLLECTIONS (+ to make one, drop files on one to add, right-click to open/rename/delete)
+  and LABELS (colour dots → `colour:` search; Tags → a searchable menu of every tag with counts).
+- Item menu: Colour label, Tags (tick to toggle across the selection; New tag…), Add to collection (New collection…),
+  Remove from this collection. Preview pane: colour swatches, tag chips (× to remove, + Tag), the collections it's in.
+- A small in-window "ask" card (`askText`) for names, as cjui has no text prompt.
+- Gallery view (`ViewMode::Gallery`, Ctrl+Shift+1): square tiles ≥200 DIPs, pictures cropped to fill (clip + cover
+  scale, 256/512 px requests), names over the picture on hover/selection, non-pictures as cards.
+- cjui: submenus with 13+ items now search too (typing goes to the deepest open menu).
+- Tested in Wine: colours, tags, the ask card, collections (make, drag in, open), the red-dot search, gallery, labels
+  following a rename and surviving a restart.
+
+## 7f. Next
+
+The first rebuild (0.2–0.5) is complete. Candidates: browsing the Recycle Bin inside Files, drag and drop to and from
+other apps (OLE), column resizing, UI Automation for screen readers, labels that follow moves made by other programs
+(NTFS file ids).
 
 ## (Earlier plan) 0.2, core file operations
 
@@ -212,5 +240,5 @@ and drag and drop with File Explorer. The Shell context menu (`IContextMenu`) be
 
 ## 8. Known limitations in 0.1
 
-(Updated for 0.4.0.) No previews yet, thumbnails in Icons view only (none in Details), no network locations
+(Updated for 0.5.0.), thumbnails in Icons view only (none in Details), no network locations
 in the sidebar, no column resizing, no drag and drop to or from other apps, and no UI Automation for screen readers.

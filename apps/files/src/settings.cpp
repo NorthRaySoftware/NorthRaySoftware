@@ -21,7 +21,10 @@ bool Settings::load(const std::wstring& path) {
     readOnly = cj::valueOr(j, "version", 1) > kVersion;
     const int t = cj::valueOr(j, "theme", 0);
     theme = t == 1 ? Theme::Light : t == 2 ? Theme::Dark : Theme::System;
-    view = cj::valueOr(j, "view", 0) == 1 ? ViewMode::Icons : ViewMode::Details;
+    {
+        const int v = cj::valueOr(j, "view", 0);
+        view = v == 1 ? ViewMode::Icons : v == 2 ? ViewMode::Gallery : ViewMode::Details;
+    }
     sortKey = std::clamp(cj::valueOr(j, "sortKey", 0), 0, 3);
     sortDescending = cj::valueOr(j, "sortDescending", false);
     showHidden = cj::valueOr(j, "showHidden", false);

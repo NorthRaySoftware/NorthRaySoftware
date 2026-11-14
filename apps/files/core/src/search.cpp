@@ -77,12 +77,16 @@ Query parse(const std::wstring& text) {
         }
     }
     if (!cur.empty()) tokens.push_back(inQuotes ? L"\"" + cur : cur);
+    bool tagNext = false;   // tag:"two words" (or #"two words"): the phrase is the tag
     for (std::wstring t : tokens) {
         if (t[0] == L'"') {   // a phrase: the words together, as typed
             t = lower(t.substr(1));
+            if (tagNext) { if (!t.empty()) q.tags.push_back(t); tagNext = false; continue; }
             if (!t.empty()) q.words.push_back(t);
             continue;
         }
+        tagNext = false;
+        if (lower(t) == L"tag:" || t == L"#") { tagNext = true; continue; }
         const std::wstring l = lower(t);
         if (startsWith(l, L"kind:") || startsWith(l, L"type:")) {
             const std::wstring k = l.substr(5);
@@ -93,6 +97,20 @@ Query parse(const std::wstring& text) {
             else if (k == L"document" || k == L"documents" || k == L"doc" || k == L"docs" || k == L"text") q.kind = Kind::Document;
             else if (k == L"archive" || k == L"archives" || k == L"zip") q.kind = Kind::Archive;
             else q.words.push_back(l);   // not a kind we know: look for it in names
+            continue;
+        }
+        if (startsWith(l, L"tag:") || (l.size() > 1 && l[0] == L'#')) {
+            q.tags.push_back(l.substr(l[0] == L'#' ? 1 : 4));
+            continue;
+        }
+        if (startsWith(l, L"colour:") || startsWith(l, L"color:") || startsWith(l, L"label:")) {
+            const std::wstring c = l.substr(l.find(L':') + 1);
+            static const wchar_t* names[] = {L"", L"red", L"orange", L"yellow", L"green", L"blue", L"purple", L"grey"};
+            int found = 0;
+            for (int i = 1; i < 8; ++i)
+                if (c == names[i] || (i == 7 && c == L"gray")) found = i;
+            if (found) q.colours.push_back(found);
+            else q.words.push_back(l);
             continue;
         }
         if (startsWith(l, L"ext:")) {
@@ -141,6 +159,13 @@ bool matches(const Query& q, const std::wstring& name, bool folder) {
         case Kind::Folder: return folder;
         default: return !folder && kindOf(ext) == q.kind;
     }
+}
+
+bool matchesLabels(const Query& q, const std::vector<std::wstring>& tags, int colour) {
+    for (const auto& want : q.tags)
+        if (std::none_of(tags.begin(), tags.end(), [&](const std::wstring& t) { return lower(t) == want; })) return false;
+    if (!q.colours.empty() && std::find(q.colours.begin(), q.colours.end(), colour) == q.colours.end()) return false;
+    return true;
 }
 
 std::wstring indexSql(const Query& q, const std::wstring& scope, int limit) {
