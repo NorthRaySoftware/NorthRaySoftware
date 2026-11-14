@@ -98,7 +98,7 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 #title { font: 600 calc(var(--text-size, 1.12rem) * 1.43)/1.25 var(--text-font, var(--serif)); text-align: center; margin: 0 0 2.4rem; color: var(--ink); }
 #title:empty { display: none; }
 
-.ProseMirror { outline: none; font: var(--text-size, 1.12rem)/1.65 var(--text-font, var(--serif)); hyphens: auto; word-wrap: break-word; white-space: pre-wrap; caret-color: var(--accent); }
+.ProseMirror { outline: none; font: var(--text-size, 1.12rem)/1.65 var(--text-font, var(--serif)); hyphens: manual; overflow-wrap: break-word; word-break: normal; white-space: pre-wrap; caret-color: var(--accent); }
 .ProseMirror ::selection { background: var(--sel); }
 .ProseMirror p { margin: 0; text-indent: 1.5em; }
 .ProseMirror > p:first-child, .ProseMirror h1 + p, .ProseMirror h2 + p, .ProseMirror h3 + p, .ProseMirror .scene-break + p,

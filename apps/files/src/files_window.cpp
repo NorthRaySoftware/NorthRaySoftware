@@ -1,4 +1,5 @@
 #include "files_window.hpp"
+#include "cjui/dialog.hpp"
 
 #include "nrf/paths.hpp"
 #include "resource.h"
@@ -228,7 +229,7 @@ void FilesWindow::openSelection() {
     if (files.empty()) { flash(L"Select one folder to open it.", 5); return; }
     if (files.size() > 10) {
         const std::wstring q = L"Open " + std::to_wstring(files.size()) + L" files, each in its own app?";
-        if (MessageBoxW(hwnd(), q.c_str(), L"NorthRay Files", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+        if (cjui::messageBox(hwnd(), q.c_str(), L"NorthRay Files", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     }
     for (std::size_t r : files) open(r);
 }
@@ -619,7 +620,7 @@ void FilesWindow::toggleHidden() {
 
 void FilesWindow::toggleProtected() {
     if (!settings_.showProtected &&
-        MessageBoxW(hwnd(),
+        cjui::messageBox(hwnd(),
                     L"Show protected operating system files?\n\nThese are files Windows needs to start and run. Changing or deleting "
                     L"them can stop Windows working. They'll be shown faded.",
                     L"NorthRay Files", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
@@ -694,7 +695,7 @@ void FilesWindow::showMenu() {
             applyTheme();
             break;
         case CmdAbout:
-            MessageBoxW(hwnd(),
+            cjui::messageBox(hwnd(),
                         L"NorthRay Files " CJ_VERSION_WSTR L" (preview)\n\nDeveloped by the " CJ_DEVELOPER_WSTR
                         L" project.\nNorthRaySoftware@protonmail.com\n\nThis first version browses folders and opens files. It "
                         L"doesn't change, move or delete anything yet; copying, moving, renaming and deleting come next.",

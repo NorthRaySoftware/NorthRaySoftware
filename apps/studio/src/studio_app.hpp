@@ -228,6 +228,8 @@ private:
     void drawCommentPanel(const Rect& c, float& y);
     void drawNodeComments(const Rect& c, float& y, const studio::ManuscriptNode& n);
     float drawReviewComments(const Rect& m, float y);
+    void makeReviewCopy();
+    void importReaderComments();
     bool focusCommentField_ = false;
     bool showResolvedComments_ = false;
     Id pendingComment_;

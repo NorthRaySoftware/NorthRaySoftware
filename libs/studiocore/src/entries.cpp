@@ -413,6 +413,18 @@ std::vector<std::string> searchNames(const Entry& e) {
         for (size_t i = 0; i < given; ++i)
             for (auto& p : nameParts(n[i])) if (std::find(n.begin(), n.end(), p) == n.end()) n.push_back(p);
     }
+    // Either apostrophe: the bible's Zah'mes is the text's Zah’mes, and the other way round.
+    {
+        const size_t given = n.size();
+        auto swapAll = [](std::string t, const std::string& from, const std::string& to) {
+            for (size_t at = t.find(from); at != std::string::npos; at = t.find(from, at + to.size())) t.replace(at, from.size(), to);
+            return t;
+        };
+        for (size_t i = 0; i < given; ++i) {
+            for (const std::string& v : {swapAll(n[i], "'", "\xE2\x80\x99"), swapAll(n[i], "\xE2\x80\x99", "'")})
+                if (v != n[i] && std::find(n.begin(), n.end(), v) == n.end()) n.push_back(v);
+        }
+    }
     // Shouted: "JACKSON!" (ASCII letters upper-cased; others are left as they are).
     const size_t plain = n.size();
     for (size_t i = 0; i < plain; ++i) {

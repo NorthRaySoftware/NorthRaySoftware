@@ -195,6 +195,36 @@ function setStyle(style) {
   };
 }
 
+// Ctrl+Backspace / Ctrl+Delete: the word before or after the cursor (with the spaces next to it),
+// within the paragraph; a selection is simply deleted.
+function deleteWord(dir) {
+  return (state, dispatch) => {
+    const { $from, empty, from, to } = state.selection;
+    if (!empty) { if (dispatch) dispatch(state.tr.delete(from, to).scrollIntoView()); return true; }
+    const p = $from.parent;
+    if (!p.isTextblock) return false;
+    const text = p.textBetween(0, p.content.size, "\n", "\ufffc");
+    let i = $from.parentOffset;
+    if (dir < 0 && i === 0) return false;              // at the start: Backspace joins paragraphs as usual
+    if (dir > 0 && i === text.length) return false;
+    const isWord = (c) => /[\p{L}\p{N}'’_-]/u.test(c);
+    if (dir < 0) {
+      let j = i;
+      while (j > 0 && /\s/.test(text[j - 1])) j--;
+      if (j > 0 && isWord(text[j - 1])) while (j > 0 && isWord(text[j - 1])) j--;
+      else if (j === i) j--;                            // punctuation: one character
+      if (dispatch) dispatch(state.tr.delete($from.start() + j, $from.start() + i).scrollIntoView());
+    } else {
+      let j = i;
+      if (isWord(text[j])) while (j < text.length && isWord(text[j])) j++;
+      else if (!/\s/.test(text[j])) j++;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (dispatch) dispatch(state.tr.delete($from.start() + i, $from.start() + j).scrollIntoView());
+    }
+    return true;
+  };
+}
+
 // ----------------------------------------------------------------- comic scripts
 
 function comicStyle(style) {
@@ -424,14 +454,14 @@ const navigate = (delta) => () => { flush(); send({ type: "navigate", delta }); 
 const keys = {
   "Mod-ArrowUp": navigate(-1), "Mod-ArrowDown": navigate(1),
   "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
+  "Mod-Backspace": deleteWord(-1), "Mod-Delete": deleteWord(1),
   "Mod-b": toggleMark(M.strong), "Mod-i": toggleMark(M.em), "Mod-u": toggleMark(M.underline),
   "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-k": toggleLink, "Mod-Alt-m": addComment,
   "Mod-Enter": insertSceneBreak, "Shift-Enter": hardBreak,
   "Mod-Alt-0": setStyle("body"), "Mod-Alt-1": setBlockType(S.heading, { level: 1 }),
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
-  "Enter": splitListItem(S.list_item), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
+  "Enter": chainCommands(comicEnter, splitListItem(S.list_item)), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
   "Mod-[": lift,
-  "Enter": comicEnter,
   "Alt-1": comicStyle("page"), "Alt-2": comicStyle("panel"), "Alt-3": comicStyle("dialogue"), "Alt-4": comicStyle("caption"), "Alt-5": comicStyle("sfx"),
   "F3": () => { send({ type: "togglePanel", which: "side" }); return true; },
   "F4": () => { send({ type: "togglePanel", which: "details" }); return true; },
@@ -481,7 +511,7 @@ const FONTS = {
   typewriter: '"Courier New", "Consolas", monospace',
 };
 const SIZES = [1.0, 1.12, 1.26, 1.42];
-const WIDTHS = { narrow: "36rem", normal: "44rem", wide: "56rem" };
+const WIDTHS = { narrow: "36rem", normal: "44rem", wide: "56rem", fit: "calc(100% - 48px)" };
 
 function applyView() {
   const v = viewSettings, root = document.documentElement;
@@ -656,13 +686,15 @@ function setNames(list) {
     const k = t.toLocaleLowerCase();
     if (!nameIds.has(k)) nameIds.set(k, []);
     if (!nameIds.get(k).includes(id)) nameIds.get(k).push(id);
-    for (const w of k.split(/[^\p{L}\p{N}'’]+/u)) if (w) nameWords.add(w);
+    for (const w of k.split(/[^\p{L}\p{N}'’]+/u)) if (w) { nameWords.add(w); nameWords.add(w.replace(/[’‘]/g, "'")); nameWords.add(w.replace(/'/g, "’")); }
     all.add(t);
     all.add(t.toLocaleUpperCase());   // shouted: "JACKSON!"
   };
+  // Either apostrophe matches: the bible's Zah'mes is the text's Zah’mes.
+  const addBoth = (t, id) => { add(t, id); if (/['’]/.test(t)) { add(t.replace(/’/g, "'"), id); add(t.replace(/'/g, "’"), id); } };
   for (const e of nameList) {
-    for (const n of e.names || []) add(n, e.id);
-    if (e.kind === "Character") for (const n of e.names || []) for (const p of nameParts(n)) add(p, e.id);
+    for (const n of e.names || []) addBoth(n, e.id);
+    if (e.kind === "Character") for (const n of e.names || []) for (const p of nameParts(n)) addBoth(p, e.id);
   }
   const sorted = [...all].sort((a, b) => b.length - a.length);   // "Maren Holt" before "Maren"
   const esc = sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));

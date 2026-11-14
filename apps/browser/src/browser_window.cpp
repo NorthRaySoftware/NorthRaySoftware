@@ -1,4 +1,5 @@
 #include "browser_window.hpp"
+#include "cjui/dialog.hpp"
 
 #include "nrb/url.hpp"
 #include "resource.h"
@@ -1141,7 +1142,7 @@ void BrowserWindow::showAbout() {
     text += L"\n\nDeveloped by the " CJ_DEVELOPER_WSTR L" project.\nNorthRaySoftware@protonmail.com\n\n"
             L"Web pages are shown by Microsoft's WebView2 (Chromium), which Windows keeps up to date. "
             L"Licences: chrome://credits (the engine's) and the licences folder next to NorthRay Browser.";
-    MessageBoxW(hwnd(), text.c_str(), L"About NorthRay Browser", MB_OK | MB_ICONINFORMATION);
+    cjui::messageBox(hwnd(), text.c_str(), L"About NorthRay Browser", MB_OK | MB_ICONINFORMATION);
 }
 
 void BrowserWindow::setFullscreen(bool on, bool fromPage) {
@@ -1220,13 +1221,13 @@ void BrowserWindow::placePages(const Rect& content) {
 }
 
 void BrowserWindow::drawTabStrip(const Rect& r) {
-    nr::nightSky(gfx_, r, 0, 0.75f, 5);
+    nr::nightSky(gfx_, r, 0, 0.35f, 5);   // a quiet aurora: the tabs' words come first
     nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
     if (sideW() > 0) {
         // Tabs are down the side: the strip is the title bar, with the page's name in the middle.
         std::wstring title = windowTitle_.empty() ? L"NorthRay Browser" : windowTitle_;
-        gfx_.text(title, {r.x + 16 + kCaptionW * 3, r.y + 4, r.w - 32 - kCaptionW * 6, r.h - 6}, Font::Small,
-                  nr::kNightInk.withAlpha(activeWindow_ ? 0.78f : 0.5f), {Align::Center, false, true, true});
+        gfx_.text(title, {r.x + 16 + kCaptionW * 3, r.y + 4, r.w - 32 - kCaptionW * 6, r.h - 6}, Font::BodyStrong,
+                  nr::kNightInk.withAlpha(activeWindow_ ? 1.0f : 0.6f), {Align::Center, false, true, true});
         drawCaptionButtons(r);
         return;
     }
@@ -1313,7 +1314,7 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     } else if (hv > 0.01f) {
         gfx_.fillRounded({r.x + 2, r.y + 2, r.w - 4, r.h - 6}, 8, nr::kNightInk.withAlpha(0.08f * hv));
     }
-    const Color ink = active ? pal_.ink : nr::kNightMuted.mix(nr::kNightInk, hv * 0.6f);
+    const Color ink = active ? pal_.ink : nr::kNightInk.withAlpha(0.8f + 0.2f * hv);
     const bool roomy = r.w >= 96;
     const bool showClose = active ? r.w >= 56 : (roomy && hv > 0.01f);
     float x = r.x + 12;

@@ -25,3 +25,9 @@ test("thesaurus: words and phrases, in the word's form", async () => {
   assert.ok(sp.synonyms("pass away").includes("die"));                        // a phrase looked up
   assert.ok(sp.synonyms("loud").includes("deafening"));
 });
+
+test("words with apostrophes added to the dictionary match either apostrophe", () => {
+  sp.setExtraWords(["Zah'mes", "Brennick’s"]);
+  assert.equal(sp.misspelt("Zah’mes and Zah'mes met Brennick's guard.").length, 0);
+  sp.setExtraWords([]);
+});

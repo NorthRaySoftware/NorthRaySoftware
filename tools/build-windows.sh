@@ -7,5 +7,5 @@ cmake -S . -B build/windows -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake 
 # app relinks and repackages, and a metadata-only change is never shipped stale.
 find build/windows -maxdepth 3 -name '*.exe' -path '*/apps/*' -delete 2>/dev/null || true
 rm -f build/windows/launcher/NorthRayLauncher.exe
-cmake --build build/windows -j"$(nproc)"
+cmake --build build/windows -j3
 echo "Built: build/windows/launcher/NorthRayLauncher.exe and build/windows/launcher/packages/"

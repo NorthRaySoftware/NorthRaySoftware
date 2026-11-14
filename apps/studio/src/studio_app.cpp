@@ -1,4 +1,5 @@
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/northray.hpp"
 #include "cjui/menu.hpp"
 
@@ -225,7 +226,7 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
     auto lib = Library::open(folder, r);
     if (!r.ok) {
         if (interactive)
-            MessageBoxW(hwnd(), (L"That library couldn't be opened.\n\n" + w(r.error)).c_str(), L"NorthRay Writing Studio",
+            cjui::messageBox(hwnd(), (L"That library couldn't be opened.\n\n" + w(r.error)).c_str(), L"NorthRay Writing Studio",
                         MB_OK | MB_ICONWARNING);
         libraryNote_ = w(r.error);
         return false;
@@ -294,7 +295,7 @@ void StudioApp::chooseLibraryFolder() {
         if (entries > 0) {
             const std::wstring q = L"There's no library in that folder, and it already has other files in it.\n\n"
                                    L"Create a new library there anyway? It'll add library.db, objects and backups next to them.";
-            if (MessageBoxW(hwnd(), q.c_str(), L"New library", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
+            if (cjui::messageBox(hwnd(), q.c_str(), L"New library", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
         }
     }
     openLibrary(chosen, true);
@@ -322,7 +323,7 @@ void StudioApp::exportLibrary() {
     if (path.empty()) return;
     std::string err;
     if (lib_->exportJson(path, err)) flash(L"Exported the library structure and book details.", 6);
-    else MessageBoxW(hwnd(), w("The export couldn't be written.\n\n" + err).c_str(), L"Export library", MB_OK | MB_ICONWARNING);
+    else cjui::messageBox(hwnd(), w("The export couldn't be written.\n\n" + err).c_str(), L"Export library", MB_OK | MB_ICONWARNING);
 }
 
 void StudioApp::backupNow() {
@@ -335,7 +336,7 @@ void StudioApp::backupNow() {
         flash(settings_.backupFolder.empty() ? L"Backup made in the library's backups folder."
                                              : L"Backup made in the library's backups folder and copied to your backup folder.", 5);
     }
-    else MessageBoxW(hwnd(), w("The backup couldn't be made.\n\n" + err).c_str(), L"Back up", MB_OK | MB_ICONWARNING);
+    else cjui::messageBox(hwnd(), w("The backup couldn't be made.\n\n" + err).c_str(), L"Back up", MB_OK | MB_ICONWARNING);
 }
 
 // Every 30 minutes, a backup if anything has changed since the last one (kept: the newest 20).
@@ -493,7 +494,7 @@ void StudioApp::command(int id) {
                 L"- objects holds covers and images, each stored once.\n"
                 L"- backups holds a full copy made every time the library opens (the newest 10).\n\n"
                 L"Keep the folder out of OneDrive or Dropbox while the Studio is open. Use Export on the Settings page for a portable copy.";
-            MessageBoxW(hwnd(), t.c_str(), L"Where my work is stored", MB_OK | MB_ICONINFORMATION);
+            cjui::messageBox(hwnd(), t.c_str(), L"Where my work is stored", MB_OK | MB_ICONINFORMATION);
             break;
         }
     }
@@ -519,7 +520,7 @@ void StudioApp::showAbout() {
                            L"(FreeType Licence), stb_image and stb_image_write (public domain), hyph-utf8 hyphenation patterns, the Crimson "
                            L"Text and Gentium Book fonts (SIL Open Font License) and Microsoft Edge WebView2. Licences are in the licenses "
                            L"folder next to the program.";
-    MessageBoxW(hwnd(), t.c_str(), L"About NorthRay Writing Studio", MB_OK | MB_ICONINFORMATION);
+    cjui::messageBox(hwnd(), t.c_str(), L"About NorthRay Writing Studio", MB_OK | MB_ICONINFORMATION);
 }
 
 // ------------------------------------------------------------- navigation
@@ -595,7 +596,7 @@ void StudioApp::trashFocused() {
         if (used) {
             const std::wstring q = L"“" + w(a->name) + L"” is used in " + std::to_wstring(used) + (used == 1 ? L" chapter" : L" chapters") +
                                    L". Move it to the Trash anyway?\n\nThe chapters keep showing it; it just leaves the artwork library.";
-            if (MessageBoxW(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+            if (cjui::messageBox(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
         }
         commitFields();
         const std::wstring name = w(a->name);
@@ -654,7 +655,7 @@ void StudioApp::emptyTrash() {
                            (pictures ? L", and " + std::to_wstring(pictures) + L" picture(s) from the artwork library" : std::wstring()) +
                            L".\n\nThis can't be undone. "
                            L"(The library's backups folder still has copies from earlier sessions.)";
-    if (MessageBoxW(hwnd(), q.c_str(), L"Empty Trash", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Empty Trash", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
     commitFields();
     if (lib_->emptyTrash()) { recentlyTrashed_.clear(); setFocus({}); flash(L"The Trash was emptied.", 5); }
     else flash(w("Couldn't empty the Trash: " + lib_->lastError()), 8);
@@ -714,7 +715,7 @@ void StudioApp::moveBookTo(const Id& bookId, const Id& worldId) {
         for (auto* s : lost) names += L"\n  • " + w(s->name);
         const std::wstring q = L"“" + w(b->title) + L"” will leave these series, which belong to its current world:" + names +
                                L"\n\nThe book itself and everything in it are kept. Move it?";
-        if (MessageBoxW(hwnd(), q.c_str(), L"Move book", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+        if (cjui::messageBox(hwnd(), q.c_str(), L"Move book", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     }
     commitFields();
     if (lib_->moveBookToWorld(bookId, worldId)) {
@@ -737,7 +738,7 @@ void StudioApp::addToSeries(const Id& bookId, const Id& seriesId) {
             for (auto* l : lost) names += L"\n  • " + w(l->name);
             const std::wstring q = L"Adding it to “" + w(s->name) + L"” moves the book into " + (x ? w(x->name) : L"") +
                                    L", so it leaves:" + names + L"\n\nContinue?";
-            if (MessageBoxW(hwnd(), q.c_str(), L"Add to series", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+            if (cjui::messageBox(hwnd(), q.c_str(), L"Add to series", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
         }
     }
     commitFields();
@@ -753,7 +754,7 @@ void StudioApp::moveSeriesTo(const Id& seriesId, const Id& worldId) {
     const World* x = lib_->world(worldId);
     const std::wstring q = L"Move “" + w(s->name) + L"” to " + (x ? w(x->name) : std::wstring(L"no world")) + L"?\n\n" +
                            std::to_wstring(books) + L" book(s) in it move too. Books that are also in other series of the old world leave those series.";
-    if (MessageBoxW(hwnd(), q.c_str(), L"Move series", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Move series", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     commitFields();
     if (lib_->moveSeriesToWorld(seriesId, worldId)) flash(L"Series moved.", 4);
     else flash(w("Couldn't move it: " + lib_->lastError()), 8);

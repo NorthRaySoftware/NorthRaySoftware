@@ -3,6 +3,7 @@
 // arrives; the page lists them by day, newest first, with search, delete and
 // "Clear history".
 #include "browser_window.hpp"
+#include "cjui/dialog.hpp"
 
 #include "nrb/url.hpp"
 
@@ -116,7 +117,7 @@ void BrowserWindow::clearHistoryMenu(POINT screen) {
     const wchar_t* what = cmd == Hour ? L"the last hour" : cmd == Today ? L"today" : cmd == Week ? L"the last 7 days" : L"all time";
     const std::wstring ask = std::wstring(L"Clear the history of ") + what +
                              L"?\n\nThe pages stay open, and bookmarks, passwords and sites' sign-ins aren't affected. This can't be undone.";
-    if (MessageBoxW(hwnd(), ask.c_str(), L"Clear history", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
+    if (cjui::messageBox(hwnd(), ask.c_str(), L"Clear history", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
     const std::size_t n = history_->clearSince(since);
     for (TabView& v : views_) v.visitId = 0;
     flash(n == 1 ? L"1 page was removed from the history." : std::to_wstring(n) + L" pages were removed from the history.", 6);

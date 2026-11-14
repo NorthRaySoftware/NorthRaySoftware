@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}} · review copy</title>
+<!-- A review copy from NorthRay Writing Studio. Everything is in this one file: open it in any web
+     browser, select words to comment on them, then press "Send my comments" and email the file it
+     saves back to the author. Nothing is sent anywhere by this page. -->
+<style>
+:root {
+  --paper: #F3F5F9; --page: #FFFFFF; --ink: #0E1526; --muted: #4E5A70; --faint: #8590A4; --rule: #D9DEE7;
+  --accent: #0F8F6E; --mark: rgba(245, 197, 66, .38); --mark-on: rgba(245, 197, 66, .7); --night: #0A1020;
+  --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #0D1220; --page: #141B2C; --ink: #E9EEF7; --muted: #A4AEC2; --faint: #6B768C; --rule: #232C40;
+    --accent: #5BE3B4; --mark: rgba(245, 197, 66, .28); --mark-on: rgba(245, 197, 66, .55); color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body { font: 15px/1.5 var(--ui); }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 10px 20px;
+  background: linear-gradient(90deg, #0A1020, #14233A); color: #E8EDF7; border-top: 3px solid #2FC6A0; }
+header .t { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .t small { display: block; font-weight: 400; color: #9FB0C8; font-size: 12px; }
+button { font: 600 13px var(--ui); border-radius: 7px; border: 1px solid var(--rule); background: var(--page); color: var(--ink);
+  padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: #2FC6A0; border-color: #2FC6A0; color: #06221A; }
+header button { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: #E8EDF7; }
+header button.primary { background: #5BE3B4; border-color: #5BE3B4; color: #06221A; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { position: static !important; height: auto !important; } }
+article { max-width: 42em; margin: 0 auto; padding: 32px 28px 120px; font: 1.12rem/1.65 var(--serif); }
+article section { margin-bottom: 4em; }
+article h1 { font: 600 1.6rem/1.3 var(--serif); text-align: center; margin: 2.2em 0 1.4em; }
+article section.part h1 { font-size: 2rem; margin-top: 3em; }
+article p { margin: 0; text-indent: 1.4em; }
+article p.first, article h1 + p, article hr + p { text-indent: 0; }
+article p.centered { text-align: center; text-indent: 0; }
+article p.epigraph { font-style: italic; margin: 0 2em; text-indent: 0; }
+article p.attribution { text-align: right; text-indent: 0; margin-bottom: 1em; }
+article p.note, article p.letter { text-indent: 0; margin: .6em 1.5em; }
+article hr.scene { border: 0; text-align: center; margin: 1.2em 0; }
+article hr.scene::after { content: "* * *"; letter-spacing: .5em; color: var(--muted); }
+article figure { margin: 1.4em auto; text-align: center; }
+article figure img { max-width: 100%; height: auto; }
+article .sc { font-variant: small-caps; }
+.chapter-end { display: flex; justify-content: center; margin-top: 2em; }
+.chapter-end button { font-weight: 500; color: var(--muted); }
+mark.nrc { background: var(--mark); color: inherit; border-radius: 2px; cursor: pointer; }
+mark.nrc.on { background: var(--mark-on); }
+aside { position: sticky; top: 56px; height: calc(100vh - 56px); overflow: auto; border-left: 1px solid var(--rule); padding: 18px; background: var(--paper); }
+aside h2 { font: 700 11px var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+.c { background: var(--page); border: 1px solid var(--rule); border-radius: 9px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; }
+.c.on { border-color: var(--accent); }
+.c q { display: block; color: var(--muted); font: italic 13px/1.4 var(--serif); margin-bottom: 6px; quotes: "“" "”"; }
+.c .where { font-size: 11px; color: var(--faint); margin-bottom: 4px; }
+.c .text { white-space: pre-wrap; }
+.c .acts { margin-top: 8px; display: flex; gap: 6px; }
+.c .acts button { padding: 3px 8px; font-size: 12px; font-weight: 500; }
+.empty { color: var(--muted); font-size: 14px; }
+#bubble { position: absolute; z-index: 9; display: none; }
+#bubble button { box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+#editor { position: fixed; inset: 0; z-index: 20; display: none; background: rgba(5, 10, 20, .45); align-items: center; justify-content: center; }
+#editor .box { width: min(520px, 92vw); background: var(--page); border-radius: 12px; padding: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+#editor q { display: block; color: var(--muted); font: italic 14px/1.4 var(--serif); margin-bottom: 10px; max-height: 6em; overflow: auto; }
+#editor textarea { width: 100%; min-height: 120px; font: 15px/1.5 var(--ui); padding: 10px; border-radius: 8px; border: 1px solid var(--rule);
+  background: var(--paper); color: var(--ink); resize: vertical; }
+#editor .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #14233A; color: #E8EDF7; padding: 10px 16px;
+  border-radius: 9px; display: none; z-index: 30; }
+nav.toc { margin: 0 0 28px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 10px; background: var(--page); font: 14px/1.6 var(--ui); }
+nav.toc a { color: var(--ink); text-decoration: none; display: block; }
+nav.toc a.part { font-weight: 600; margin-top: 6px; }
+nav.toc a:hover { color: var(--accent); }
+.intro { font: 14px/1.5 var(--ui); color: var(--muted); background: var(--page); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="t">{{TITLE}}<small>A review copy from {{AUTHOR}} · <span id="who"></span></small></div>
+  <button id="name">Your name</button>
+  <button id="send" class="primary">Send my comments</button>
+</header>
+<main>
+  <article id="book">
+    <div class="intro">Thank you for reading. Select any words and press <b>Comment</b> to say what you think, or use
+      <b>Comment on this chapter</b> at the end of each chapter. Your comments stay in this browser as you go. When you've
+      finished (or whenever you like), press <b>Send my comments</b>: it saves a small file to email back to the author.</div>
+    <nav class="toc" id="toc"></nav>
+  </article>
+  <aside><h2>Your comments</h2><div id="list"></div></aside>
+</main>
+<div id="bubble"><button class="primary">Comment</button></div>
+<div id="editor"><div class="box"><q id="eq"></q><textarea id="et" placeholder="What did you think?"></textarea>
+  <div class="row"><button id="ecancel">Cancel</button><button id="esave" class="primary">Save</button></div></div></div>
+<div id="toast"></div>
+<script type="application/json" id="data">{{DATA}}</script>
+<script>
+(function () {
+  "use strict";
+  const data = JSON.parse(document.getElementById("data").textContent);
+  const KEY = "nr-review-" + data.copy;
+  const $ = (id) => document.getElementById(id);
+  let state = { reader: "", comments: [] };
+  try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  const toast = (t) => { const el = $("toast"); el.textContent = t; el.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => (el.style.display = "none"), 3500); };
+
+  // The book.
+  const book = $("book"), toc = $("toc");
+  data.chapters.forEach((c, i) => {
+    const s = document.createElement("section");
+    s.id = "ch" + i;
+    s.dataset.node = c.node;
+    if (c.part) s.className = "part";
+    s.innerHTML = "<h1></h1>" + c.html;
+    s.querySelector("h1").textContent = c.title;
+    if (!c.part) {
+      const end = document.createElement("div");
+      end.className = "chapter-end";
+      const b = document.createElement("button");
+      b.textContent = "Comment on this chapter";
+      b.addEventListener("click", () => openEditor({ node: c.node, chapter: c.title, quote: "", prefix: "", suffix: "" }));
+      end.append(b);
+      s.append(end);
+    }
+    book.append(s);
+    const a = document.createElement("a");
+    a.href = "#ch" + i;
+    a.textContent = c.title;
+    if (c.part) a.className = "part";
+    toc.append(a);
+  });
+
+  // Text positions inside a section (its text nodes in order, the chapter-end button left out).
+  function textNodes(section) {
+    const out = [];
+    const w = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement.closest("h1, .chapter-end") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    let n;
+    while ((n = w.nextNode())) out.push(n);
+    return out;
+  }
+  function sectionText(section) { return textNodes(section).map((n) => n.data).join(""); }
+  function offsetOf(section, node, offset) {
+    let at = 0;
+    for (const n of textNodes(section)) { if (n === node) return at + offset; at += n.data.length; }
+    return -1;
+  }
+  // Wraps text from..to of a section in <mark> elements (one per text node it crosses).
+  function highlight(section, from, to, id) {
+    let at = 0;
+    for (const n of textNodes(section)) {
+      const a = at, z = at + n.data.length;
+      at = z;
+      if (z <= from || a >= to) continue;
+      const s = Math.max(from, a) - a, e = Math.min(to, z) - a;
+      let mid = n;
+      if (s > 0) mid = mid.splitText(s);
+      if (e - s < mid.data.length) mid.splitText(e - s);
+      const m = document.createElement("mark");
+      m.className = "nrc";
+      m.dataset.c = id;
+      mid.parentNode.insertBefore(m, mid);
+      m.append(mid);
+      m.addEventListener("click", () => select(id));
+    }
+  }
+  function findQuote(section, c) {
+    const t = sectionText(section);
+    let best = -1, bestScore = -1, i = t.indexOf(c.quote);
+    while (i >= 0) {
+      let score = 0;
+      const before = t.slice(Math.max(0, i - c.prefix.length), i), after = t.slice(i + c.quote.length, i + c.quote.length + c.suffix.length);
+      for (let k = 1; k <= before.length && before[before.length - k] === c.prefix[c.prefix.length - k]; k++) score++;
+      for (let k = 0; k < after.length && after[k] === c.suffix[k]; k++) score++;
+      if (score > bestScore) { best = i; bestScore = score; }
+      i = t.indexOf(c.quote, i + 1);
+    }
+    return best;
+  }
+
+  // Comments.
+  const sectionOf = (node) => book.querySelector('section[data-node="' + node + '"]');
+  function paint() {
+    document.querySelectorAll("mark.nrc").forEach((m) => { const p = m.parentNode; while (m.firstChild) p.insertBefore(m.firstChild, m); m.remove(); p.normalize(); });
+    for (const c of state.comments) {
+      if (!c.quote) continue;
+      const s = sectionOf(c.node);
+      if (!s) continue;
+      const at = findQuote(s, c);
+      if (at >= 0) highlight(s, at, at + c.quote.length, c.id);
+    }
+    const list = $("list");
+    list.replaceChildren();
+    if (!state.comments.length) { list.innerHTML = '<p class="empty">Nothing yet. Select some words in the book to comment on them.</p>'; return; }
+    const order = data.chapters.map((c) => c.node);
+    const sorted = state.comments.slice().sort((a, b) => order.indexOf(a.node) - order.indexOf(b.node) || a.at - b.at);
+    for (const c of sorted) {
+      const d = document.createElement("div");
+      d.className = "c";
+      d.dataset.c = c.id;
+      const where = document.createElement("div");
+      where.className = "where";
+      where.textContent = c.chapter || "";
+      d.append(where);
+      if (c.quote) { const q = document.createElement("q"); q.textContent = c.quote.length > 160 ? c.quote.slice(0, 157) + "…" : c.quote; d.append(q); }
+      const t = document.createElement("div");
+      t.className = "text";
+      t.textContent = c.text;
+      d.append(t);
+      const acts = document.createElement("div");
+      acts.className = "acts";
+      const ed = document.createElement("button"); ed.textContent = "Edit";
+      ed.addEventListener("click", (e) => { e.stopPropagation(); openEditor(c); });
+      const del = document.createElement("button"); del.textContent = "Delete";
+      del.addEventListener("click", (e) => { e.stopPropagation(); state.comments = state.comments.filter((x) => x.id !== c.id); save(); paint(); });
+      acts.append(ed, del);
+      d.append(acts);
+      d.addEventListener("click", () => select(c.id, true));
+      list.append(d);
+    }
+  }
+  function select(id, scroll) {
+    document.querySelectorAll(".on").forEach((e) => e.classList.remove("on"));
+    document.querySelectorAll('[data-c="' + id + '"]').forEach((e) => e.classList.add("on"));
+    if (scroll) {
+      const m = document.querySelector('mark[data-c="' + id + '"]');
+      const c = state.comments.find((x) => x.id === id);
+      (m || (c && sectionOf(c.node)))?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else document.querySelector('.c[data-c="' + id + '"]')?.scrollIntoView({ block: "nearest" });
+  }
+
+  // Selecting words: a Comment button by the selection.
+  let pending = null;
+  document.addEventListener("selectionchange", () => {
+    const sel = window.getSelection();
+    const b = $("bubble");
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { b.style.display = "none"; return; }
+    const r = sel.getRangeAt(0);
+    const s1 = r.startContainer.parentElement?.closest("section"), s2 = r.endContainer.parentElement?.closest("section");
+    if (!s1 || s1 !== s2 || r.startContainer.nodeType !== 3 || r.endContainer.nodeType !== 3) { b.style.display = "none"; return; }
+    const from = offsetOf(s1, r.startContainer, r.startOffset), to = offsetOf(s1, r.endContainer, r.endOffset);
+    if (from < 0 || to <= from) { b.style.display = "none"; return; }
+    const t = sectionText(s1);
+    const ch = data.chapters.find((c) => c.node === s1.dataset.node);
+    pending = { node: s1.dataset.node, chapter: ch ? ch.title : "", quote: t.slice(from, to), prefix: t.slice(Math.max(0, from - 40), from), suffix: t.slice(to, to + 40) };
+    const rect = r.getBoundingClientRect();
+    b.style.left = (window.scrollX + rect.left + rect.width / 2 - 45) + "px";
+    b.style.top = (window.scrollY + rect.top - 46) + "px";
+    b.style.display = "block";
+  });
+  $("bubble").addEventListener("mousedown", (e) => { e.preventDefault(); if (pending) openEditor(pending); $("bubble").style.display = "none"; });
+
+  let editing = null;
+  function openEditor(c) {
+    editing = c;
+    $("eq").textContent = c.quote ? c.quote : "This chapter: " + (c.chapter || "");
+    $("et").value = c.text || "";
+    $("editor").style.display = "flex";
+    setTimeout(() => $("et").focus(), 0);
+  }
+  $("ecancel").addEventListener("click", () => { $("editor").style.display = "none"; editing = null; });
+  $("esave").addEventListener("click", () => {
+    const text = $("et").value.trim();
+    if (!editing) return;
+    if (!text) { toast("Write something first, or Cancel."); return; }
+    if (editing.id) editing.text = text;
+    else state.comments.push(Object.assign({}, editing, { id: Math.random().toString(16).slice(2, 10) + Date.now().toString(16).slice(-8), text, at: Date.now() }));
+    save();
+    $("editor").style.display = "none";
+    window.getSelection()?.removeAllRanges();
+    editing = null;
+    paint();
+    if (!state.reader) askName();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("editor").style.display = "none"; });
+
+  function askName() {
+    const n = prompt("Your name (the author will see it with your comments):", state.reader || "");
+    if (n !== null) { state.reader = n.trim(); save(); showName(); }
+  }
+  function showName() { $("who").textContent = state.reader ? "reading as " + state.reader : "add your name"; $("name").textContent = state.reader || "Your name"; }
+  $("name").addEventListener("click", askName);
+
+  // Sending: a small file to email back (nothing leaves this page by itself).
+  $("send").addEventListener("click", () => {
+    if (!state.comments.length) { toast("There are no comments to send yet."); return; }
+    if (!state.reader) askName();
+    const out = { format: "nrcomments", version: 1, copy: data.copy, book: data.book, title: data.title, reader: state.reader || "A reader",
+      made: new Date().toISOString(),
+      comments: state.comments.map((c) => ({ node: c.node, chapter: c.chapter, quote: c.quote, prefix: c.prefix, suffix: c.suffix, text: c.text, at: c.at })) };
+    const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (data.title + " - comments from " + (state.reader || "a reader")).replace(/[\\/:*?"<>|]+/g, " ") + ".nrcomments";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    toast("Saved. Email that file to " + (data.author || "the author") + ".");
+  });
+
+  showName();
+  paint();
+})();
+</script>
+</body>
+</html>

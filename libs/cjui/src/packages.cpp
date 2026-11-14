@@ -1,4 +1,5 @@
 #include "cjui/packages.hpp"
+#include "cjui/dialog.hpp"
 
 #include <shlobj.h>
 
@@ -248,7 +249,7 @@ static void reportCrash(const std::string& what) {
     }
     const std::wstring msg = g_crashName + L" ran into a problem and has to close.\n\n" + widen(what) +
                              L"\n\nA report was saved to " + log + L".";
-    MessageBoxW(nullptr, msg.c_str(), g_crashName.c_str(), MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+    cjui::messageBox(nullptr, msg.c_str(), g_crashName.c_str(), MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
 }
 
 static LONG WINAPI unhandled(EXCEPTION_POINTERS* ep) {

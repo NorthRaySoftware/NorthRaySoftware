@@ -6,6 +6,7 @@
 // "boards:world:<id>" or "boards:book:<id>":
 // {"boards": [{"id", "name", "items": [{"id", "blob", "x", "y", "w", "caption", "entry"}]}]}.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include <shobjidl.h>
@@ -282,7 +283,7 @@ void StudioApp::drawBoardPanel(const Rect& r) {
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 14;
         panelHeading(c, y, L"MORE", false);
         linkText("wb:bdelete", c.x, y, L"Delete this board", [this] {
-            if (MessageBoxW(hwnd(), L"Delete this board? The pictures stay in Artwork.", L"Delete board",
+            if (cjui::messageBox(hwnd(), L"Delete this board? The pictures stay in Artwork.", L"Delete board",
                             MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK)
                 return;
             json jj = boardsData();

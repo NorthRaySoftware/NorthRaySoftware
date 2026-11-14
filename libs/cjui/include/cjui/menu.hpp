@@ -53,6 +53,7 @@ UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Pa
 // "&" mnemonics are dropped; text after a tab is shown as the shortcut.
 UINT trackMenu(HMENU menu, POINT at, HWND owner);
 // The palette menus use when none is given (set by AppWindow::applyPalette).
+const Palette& menuPalette();   // the palette menus and dialogs are drawn in
 void setMenuPalette(const Palette& pal);
 
 }  // namespace cjui

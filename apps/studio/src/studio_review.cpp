@@ -2,6 +2,7 @@
 // versions and snapshots, its snapshots, a check of its names against the
 // world's bible, and daily writing goals.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
@@ -284,7 +285,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
                     button("rv:restore", {m.right() - 140, y - 4, 140, 30}, L"Restore it...", [this, label, before] {
                         const std::wstring msg = L"Replace the text of this chapter with " + label +
                                                  L"? The text as it is now is kept as an earlier version, so this can be undone.";
-                        if (MessageBoxW(hwnd(), msg.c_str(), L"Restore", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+                        if (cjui::messageBox(hwnd(), msg.c_str(), L"Restore", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
                         if (lib_->restoreNodeText(rv_.node, before)) { rv_.diffKey.clear(); rv_.against.clear(); flash(L"Restored.", 4); }
                         else flash(w(lib_->lastError()), 8);
                         invalidate();
@@ -683,7 +684,7 @@ void StudioApp::drawReviewPanel(const Rect& r) {
                 y += 34;
                 linkText("rv:snap:remove", c.x, y, L"Remove this snapshot", [this, sid = s.id, name = s.name] {
                     const std::wstring msg = L"Remove the snapshot “" + w(name) + L"”? The book itself isn't changed.";
-                    if (MessageBoxW(hwnd(), msg.c_str(), L"Remove snapshot", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+                    if (cjui::messageBox(hwnd(), msg.c_str(), L"Remove snapshot", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
                     focus_ = {};
                     loadedFocus_ = {Focus::None, "-", ""};
                     lib_->removeSnapshot(sid);
@@ -709,8 +710,11 @@ void StudioApp::drawReviewPanel(const Rect& r) {
         panelHeading(c, y, L"COMMENTS", true);
         y += gfx_.text(L"A comment is a note on some words of the text, for you or a reader helping you. Make one in Writing: select the "
                        L"words, then choose Comment (✎) in the toolbar or press Ctrl+Alt+M.\n\nComments are kept in the library, never in what "
-                       L"you publish. Resolve one once it's dealt with; it's kept and can be reopened.",
-                       {c.x, y, c.w, 300}, Font::Small, pal_.inkMuted) + 14;
+                       L"you publish. Resolve one once it's dealt with; it's kept and can be reopened.\n\nBeta readers: \u201CMake a review copy\u201D "
+                       L"saves the book as one web page. Your reader opens it in any browser, comments on words or whole chapters, and "
+                       L"sends you back the file it makes. \u201CImport a reader's comments\u201D puts each one on the words it was about, "
+                       L"with the reader's name.",
+                       {c.x, y, c.w, 400}, Font::Small, pal_.inkMuted) + 14;
     } else {
         panelHeading(c, y, L"YOUR GOAL", true);
         y = panelField(c, y, L"Words a day (blank: none)", FTarget);
@@ -727,7 +731,7 @@ void StudioApp::changeNameEverywhere(const std::string& from, const std::string&
     if (!bk || from == to) return;
     const std::wstring ask = L"Change every “" + w(from) + L"” in " + w(bk->title) + L" to “" + w(to) + L"”?\n\n"
                              L"Each chapter's text before the change is kept in its versions (Review › Changes), so it can be put back.";
-    if (MessageBoxW(hwnd(), ask.c_str(), L"Change a name", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    if (cjui::messageBox(hwnd(), ask.c_str(), L"Change a name", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     std::vector<Id> changed;
     const int n = review::replaceName(*lib_, rv_.book, from, to, &changed);
     if (std::find(changed.begin(), changed.end(), currentNode_) != changed.end()) sendLoad();   // the open chapter shows it

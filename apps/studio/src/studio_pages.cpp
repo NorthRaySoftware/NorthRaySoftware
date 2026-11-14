@@ -249,7 +249,7 @@ void StudioApp::drawFrame(float W, float H) {
 void StudioApp::drawTopBar(const Rect& r) {
     // The night sky with its aurora band, like the other NorthRay apps' title bars; light text on it.
     namespace nr = cjui::northray;
-    nr::nightSky(gfx_, r, 0, 0.7f, 13);
+    nr::nightSky(gfx_, r, 0, 0.3f, 13);   // a quiet aurora: the words on it come first
     nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
     // Minimise, maximise and close end the row (the window has no separate title bar).
     const float capW = drawCaptionButtons({r.x, r.y, r.w, r.h}, true);
@@ -360,7 +360,7 @@ void StudioApp::drawTopBar(const Rect& r) {
             const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
             gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
         } else {
-            const Color base = built ? nr::kNightMuted : nr::kNightMuted.withAlpha(0.6f);
+            const Color base = built ? nr::kNightInk.withAlpha(0.82f) : nr::kNightMuted.withAlpha(0.7f);
             gfx_.text(t.name, tr, Font::Body, base.mix(built ? nr::kNightInk : nr::kNightMuted, hoverAmount(id)), {Align::Center, false, false, true});
         }
         x += tw + 4;
@@ -379,7 +379,7 @@ void StudioApp::drawTopBar(const Rect& r) {
             const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
             gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
         } else {
-            gfx_.text(lbl, tr, Font::Body, nr::kNightMuted.mix(nr::kNightInk, hoverAmount(id)), {Align::Center, false, false, true});
+            gfx_.text(lbl, tr, Font::Body, nr::kNightInk.withAlpha(0.82f + 0.18f * hoverAmount(id)), {Align::Center, false, false, true});
         }
         // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
         if (lib_ && !active) {

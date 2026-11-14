@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.28.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Review copies for beta readers: Review › Comments › “Make a review copy…” saves the book as one web page. Your reader opens it in any browser, selects words to comment on them (or comments on a whole chapter), and sends you back the small file it makes. “Import a reader’s comments…” puts each comment on the words it was about, with the reader’s name.",
+        "Messages and questions (“Delete this?”, “Saved”) now appear in a NorthRay dialog that matches the app, instead of the plain grey Windows box.",
+        "Clearer top bar: the tabs you're not on are brighter against the night sky.",
+        "Words and names with apostrophes (Zah’mes, Brennick’s) can be added to the dictionary and match the bible, whichever apostrophe you type (’ or ').",
+        "Ctrl+Backspace and Ctrl+Delete remove a whole word at a time.",
+        "Page width has a new “Fit” setting: the text fills the window.",
+        "Long words move whole to the next line; the editor never breaks a word with a hyphen.",
+        "Fixed: Enter in a bulleted or numbered list didn't start a new item."
+      ]
+    },
+    {
       "version": "0.27.3",
       "date": "2026-11-14",
       "notes": [

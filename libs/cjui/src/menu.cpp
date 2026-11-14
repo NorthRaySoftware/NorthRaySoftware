@@ -11,6 +11,7 @@ namespace cjui {
 
 static Palette g_menuPalette = makePalette(false);
 void setMenuPalette(const Palette& pal) { g_menuPalette = pal; }
+const Palette& menuPalette() { return g_menuPalette; }
 
 static std::vector<MenuItem> fromHmenu(HMENU m, int depth) {
     std::vector<MenuItem> out;

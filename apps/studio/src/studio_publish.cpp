@@ -6,6 +6,7 @@
 // design and trim (by default the book's Typesetting design), so they always
 // match the manuscript and the edition's ISBNs.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include "studio/publish.hpp"
@@ -149,7 +150,7 @@ void StudioApp::removeCurrentEdition() {
     if (eds.size() <= 1) { flash(L"A book keeps at least one edition.", 5); return; }
     const std::wstring name = w(pub::editionLabel(*e));
     const std::wstring msg = L"Remove the " + name + L" edition? Its ISBN and settings go with it. The book itself isn't changed.";
-    if (MessageBoxW(hwnd(), msg.c_str(), L"Remove edition", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    if (cjui::messageBox(hwnd(), msg.c_str(), L"Remove edition", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     const Id gone = e->id;
     if (!lib_->removeEdition(gone)) { flash(w("Couldn't remove the edition: " + lib_->lastError()), 8); return; }
     focus_ = {};   // its fields are gone too
@@ -216,7 +217,7 @@ void StudioApp::exportEditionPdf(bool print) {
         flash(L"Exported the " + std::wstring(print ? L"print-ready" : L"proof") + L" PDF of the " + label + L" (" +
                   std::to_wstring(pb_.result->pages.size()) + L" pages) to " + fileName(path) + L".", 8);
     } else
-        MessageBoxW(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
+        cjui::messageBox(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
     invalidate();
 }
 
@@ -230,7 +231,7 @@ void StudioApp::exportEpub() {
     SetCursor(LoadCursorW(nullptr, IDC_WAIT));
     const auto r = pub::writeEpub(pub::editionSource(*lib_, *e), narrow(path));
     if (!r.ok) {
-        MessageBoxW(hwnd(), w("The EPUB couldn't be written.\n\n" + r.error).c_str(), L"Export EPUB", MB_OK | MB_ICONWARNING);
+        cjui::messageBox(hwnd(), w("The EPUB couldn't be written.\n\n" + r.error).c_str(), L"Export EPUB", MB_OK | MB_ICONWARNING);
         return;
     }
     pb_.lastExport = L"EPUB: " + fileName(path);

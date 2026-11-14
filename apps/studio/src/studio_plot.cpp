@@ -13,6 +13,7 @@
 // {"template": "three-act", "beats": {"<beat id>": "<node id>"}}.
 // The templates' descriptions were written for NorthRay.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include <algorithm>
@@ -581,7 +582,7 @@ void StudioApp::outlineFromStructure() {
     bool hasChapters = false;
     for (auto* n : lib_->manuscriptOf(pl_.book)) if (n->kind == NodeKind::Chapter) hasChapters = true;
     if (hasChapters &&
-        MessageBoxW(hwnd(), (L"Add " + std::to_wstring(tp->beats.size()) + L" chapters, one for each beat, after the book's last chapter? "
+        cjui::messageBox(hwnd(), (L"Add " + std::to_wstring(tp->beats.size()) + L" chapters, one for each beat, after the book's last chapter? "
                              L"Each gets the beat's name as its title and its description as the synopsis.").c_str(),
                     L"Outline from a structure", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
         return;

@@ -1,4 +1,5 @@
 #include "launcher.hpp"
+#include "cjui/dialog.hpp"
 
 #include "cjui/http.hpp"
 #include "cjui/menu.hpp"
@@ -287,7 +288,7 @@ void Launcher::uninstall(const std::string& appId) {
     if (!a) return;
     const std::wstring q = L"Uninstall " + w(a->entry.name) + L"?\n\nIts own settings and documents are kept "
                            L"(for the Writing Studio, your library folder isn't touched).";
-    if (MessageBoxW(hwnd(), q.c_str(), L"Uninstall", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Uninstall", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
     const std::wstring name = w(a->entry.name);
     const std::wstring err = model_.uninstall(appId);
     flash(err.empty() ? name + L" was uninstalled." : err, 6);
@@ -380,7 +381,7 @@ void Launcher::hideToTray() {
 
 void Launcher::quit() {
     if (jobs_.anyBusy() &&
-        MessageBoxW(hwnd(), L"An install or update is still running. Quit anyway? A download is stopped; a setup that has started finishes on its own.",
+        cjui::messageBox(hwnd(), L"An install or update is still running. Quit anyway? A download is stopped; a setup that has started finishes on its own.",
                     L"NorthRay Launcher", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK)
         return;
     quitting_ = true;

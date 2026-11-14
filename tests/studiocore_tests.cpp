@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <map>
@@ -1287,6 +1288,13 @@ static void testWorldbuilding() {
             CHECK(review::replaceWholeWord("Stienriket and Stienriket's gate, not Stienriketan.", "Stienriket", "Steinriket", c) ==
                   "Steinriket and Steinriket's gate, not Stienriketan." && c == 2);
         }
+        {
+            Entry z;
+            z.kind = "character";
+            z.name = "Zah'mes";
+            const auto sn = searchNames(z);
+            CHECK(std::find(sn.begin(), sn.end(), std::string("Zah\xE2\x80\x99mes")) != sn.end());
+        }
         // Relationships: each kind's list reads both ways, and places don't offer family ties.
         for (const char* k : {"character", "race", "creature", "place", "realm", "group", "thing", "lore", "event"})
             for (auto& rc : relationsFor(k)) {
@@ -1475,6 +1483,50 @@ static void testReview() {
         u = *lib->node(fm);
         u.kind = NodeKind::Part;
         CHECK(lib->updateNode(u) && lib->node(fm)->matter == 0);   // only chapters can be front matter
+    }
+    // Review copies: one HTML file for a reader; their comments come back onto the right words.
+    {
+        const Id rc = lib->createNode(book, {}, NodeKind::Chapter, "Review");
+        CHECK(lib->saveNodeContent(rc, docOf("The wind came off the sea. The wind </script> was cold. Then the wind dropped.")));
+        std::ifstream tf(appFolder("web") + "/review-copy.html", std::ios::binary);
+        std::stringstream ts;
+        ts << tf.rdbuf();
+        std::string err;
+        const std::string html = review::makeReviewCopy(*lib, book, ts.str(), err);
+        CHECK(err.empty() && html.find("Dragonfall") != std::string::npos && html.find("{{DATA}}") == std::string::npos);
+        const size_t d0 = html.find("id=\"data\">"), d1 = html.find("</script>", d0);
+        CHECK(d0 != std::string::npos && d1 != std::string::npos);
+        const std::string payload = html.substr(d0 + 10, d1 - d0 - 10);
+        CHECK(payload.find("</") == std::string::npos);                       // nothing can close the script early
+        const auto pj = nlohmann::json::parse(payload, nullptr, false);
+        CHECK(pj.is_object() && pj["chapters"].size() >= 1 && pj["book"] == book);
+        // The reader commented on the second "wind" (told apart by what's around it), on words since
+        // changed, and on the whole chapter.
+        const nlohmann::json file = {{"format", "nrcomments"}, {"book", book}, {"reader", "Jo"}, {"comments", {
+            {{"node", rc}, {"quote", "wind"}, {"prefix", "The "}, {"suffix", " </script> was"}, {"text", "Which wind?"}},
+            {{"node", rc}, {"quote", "a purple heron"}, {"prefix", ""}, {"suffix", ""}, {"text", "Lovely."}},
+            {{"node", rc}, {"quote", ""}, {"text", "Great chapter."}},
+            {{"node", "gone"}, {"quote", "x"}, {"text", "?"}}}}};
+        const auto rep = review::importReviewComments(*lib, book, file.dump());
+        CHECK(rep.error.empty() && rep.reader == "Jo" && rep.placed == 1 && rep.unplaced == 2 && rep.skipped == 1);
+        const std::string after = lib->nodeContent(rc);
+        const auto dj = nlohmann::json::parse(after);
+        // The mark sits on the second "wind" only.
+        std::string marked;
+        int seen = 0;
+        for (auto& t : dj["content"][0]["content"]) {
+            if (t.contains("marks")) marked += t["text"].get<std::string>();
+            ++seen;
+        }
+        CHECK(marked == "wind" && seen >= 3);
+        CHECK(doc::plainText(after).find("The wind came off the sea. The wind </script> was cold.") != std::string::npos);   // text unchanged
+        int fromJo = 0;
+        for (auto* c : lib->commentsOf(rc)) if (c->body.rfind("Jo: ", 0) == 0) ++fromJo;
+        CHECK(fromJo == 3);
+        CHECK(!review::importReviewComments(*lib, book, R"({"format":"nrcomments","book":"other","comments":[]})").error.empty());
+        std::vector<Id> ids;
+        for (auto* c : lib->commentsOf(rc)) ids.push_back(c->id);
+        for (auto& id : ids) lib->removeComment(id, true);   // the comment tests below count the book's
     }
     CHECK(lib->removeSnapshot(snap) && lib->snapshotsOf(book).empty());
     // Comments: a mark in the text, the comment beside it.

@@ -41,7 +41,8 @@ export function load(language, onReady) {
 }
 
 export function setExtraWords(words) {
-  extra = new Set((words || []).map((w) => String(w).toLocaleLowerCase()));
+  // Curly and straight apostrophes are the same letter here (Veyth’ar is Veyth'ar).
+  extra = new Set((words || []).map((w) => String(w).toLocaleLowerCase().replace(/[’‘]/g, "'")));
   cache.clear();
 }
 

@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.3.3",
+      "date": "2026-11-14",
+      "notes": [
+        "Messages and questions (“Delete this?”, “Saved”) now appear in a NorthRay dialog that matches the app, instead of the plain grey Windows box.",
+        "The side tabs’ title and the tabs you're not on are easier to read."
+      ]
+    },
+    {
       "version": "0.3.2",
       "date": "2026-11-14",
       "notes": [

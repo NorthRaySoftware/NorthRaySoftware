@@ -1,4 +1,5 @@
 #include "hub.hpp"
+#include "cjui/dialog.hpp"
 
 #include "cjui/http.hpp"
 #include "cjui/packages.hpp"
@@ -218,7 +219,7 @@ void CommunityApp::uninstall(const std::string& id) {
     AppItem* a = model_.app(id);
     if (!a || !a->inst.found) return;
     const std::wstring q = L"Uninstall " + w(a->entry.name) + L"? Its settings are kept, so it picks up where it left off if you install it again.";
-    if (MessageBoxW(hwnd(), q.c_str(), L"Uninstall", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Uninstall", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
     const std::wstring name = w(a->entry.name);
     SetCursor(LoadCursorW(nullptr, IDC_WAIT));
     const std::wstring err = model_.uninstall(id);

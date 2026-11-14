@@ -1,5 +1,6 @@
 // The Writing workspace (manuscript outline, editor, details) and the import preview.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
@@ -321,7 +322,7 @@ void StudioApp::styleFileExport(const std::string& text) {
     json j = json::parse(text, nullptr, false);
     std::string err;
     if (j.is_object() && atomicWrite(path, j.dump(2), err)) editor_.send(json{{"type", "notice"}, {"text", "Style rules exported."}}.dump());
-    else MessageBoxW(hwnd(), w("The rules couldn't be saved.\n\n" + err).c_str(), L"Export style rules", MB_OK | MB_ICONWARNING);
+    else cjui::messageBox(hwnd(), w("The rules couldn't be saved.\n\n" + err).c_str(), L"Export style rules", MB_OK | MB_ICONWARNING);
 }
 
 void StudioApp::styleFileImport() {
@@ -585,7 +586,7 @@ void StudioApp::writingCommand(int id) {
                 if (words > 0) {
                     const std::wstring q = L"Move “" + what + L"” (" + wordsLabel(words) + L") to the Trash?\n\n"
                                            L"It stays in the Trash at the bottom of the outline, where you can restore it, until you empty the Trash.";
-                    if (MessageBoxW(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) break;
+                    if (cjui::messageBox(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) break;
                 }
                 if (editor_.ready()) editor_.send(R"({"type":"flush"})");
                 const Id bookId = n->bookId, trashed = n->id;
@@ -815,7 +816,7 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
                   {c.x, y + 17, c.w - 70, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
         const float lw = gfx_.measureWidth(L"Restore", Font::Small);
         linkText("panel:ver:" + std::to_string(v.id), c.right() - lw, y + 8, L"Restore", [this, vid = v.id, when] {
-            if (MessageBoxW(hwnd(), (L"Replace the current text with the version from " + when +
+            if (cjui::messageBox(hwnd(), (L"Replace the current text with the version from " + when +
                                      L"?\n\nThe current text is kept as a version too, so you can switch back.").c_str(),
                             L"Restore an earlier version", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
                 return;

@@ -272,3 +272,12 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
 - Action tags (`ACTION_TAGS`) are marked only when `commaJoined` (the speech ends with a comma before the tag, or the tag comes first): after ? ! or . they read as beats.
 - Members (`addMembers`): groups and races list "Member of" / "Has member" links as cards; the menu ticks characters and creatures in and out and stays open for the next. Those links aren't repeated under Relationships.
 - Characters: `wb_.groupBy` (gender, race, none); creatures split by their top-level "Kind of" ancestor ("Other creatures" for those in no family).
+
+## 0.28.0
+
+- Review copies (`libs/studiocore/src/reviewcopy.cpp`, `review.hpp`): `makeReviewCopy` fills `web/review-copy.html` ({{LANG}}, {{TITLE}}, {{AUTHOR}}, {{DATA}} inside a JSON script tag, with `</` escaped). Each chapter is sent with its node id and its HTML from `ebook::documentHtml`, and pictures up to 3 MB are embedded as data URIs. The reader's page keeps its comments in localStorage (`nr-review-<copy>`). "Send my comments" downloads a `.nrcomments` file (`format: "nrcomments"`), which holds each comment's node, quote, prefix, suffix and text.
+- `importReviewComments` checks that the file belongs to this book. `markQuote` finds each quote in the chapter's ProseMirror JSON, ignoring differences in whitespace and preferring the copy whose surrounding text best matches the prefix and suffix. It splits the text nodes and adds a `comment` mark. The comment reads "Reader: text". A comment on a whole chapter, or on words that have since changed, has no mark and is listed with the chapter. Review › Comments has "Make a review copy…" and "Import a reader's comments…" (`studio_comments.cpp`).
+- `cjui::messageBox` (`libs/cjui/src/dialog.cpp`): a themed modal with the aurora band, an icon, primary and secondary buttons and keyboard support, using `menuPalette()`. It falls back to `MessageBoxW` if Direct2D isn't available. Every app uses it in place of `MessageBoxW`.
+- Top bars: inactive tabs are drawn in `kNightInk` at 0.8 alpha. The Browser side-tabs title uses BodyStrong at full ink.
+- Apostrophes: `searchNames`, the spelling extra words (`setExtraWords` normalises ’ ‘ to ') and the editor's name words accept both ' and ’.
+- Editor: `deleteWord(±1)` is bound to Mod-Backspace and Mod-Delete; width `fit` is `calc(100% - 48px)`; `hyphens: manual` with `overflow-wrap: break-word`. Enter is `chainCommands(comicEnter, splitListItem)`. A duplicate "Enter" key had dropped the list command.

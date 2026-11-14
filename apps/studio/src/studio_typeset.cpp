@@ -2,6 +2,7 @@
 // in the middle, contents and PDF export on the right. Pages are set on a
 // worker thread from a snapshot of the book, so editing never waits for it.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include <shobjidl.h>
@@ -135,7 +136,7 @@ void StudioApp::exportPdf() {
     if (ts::writePdf(*ts_.result, narrow(path), err))
         flash(L"Exported " + std::to_wstring(ts_.result->pages.size()) + L" pages to " + path.substr(path.find_last_of(L"\\/") + 1) + L".", 8);
     else
-        MessageBoxW(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
+        cjui::messageBox(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
 }
 
 // ---------------------------------------------------------------- drawing

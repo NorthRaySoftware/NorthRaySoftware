@@ -3,6 +3,7 @@
 // and export; and the password and form settings. The bookmarks themselves
 // are nrb::BookmarkStore (core/), one SQLite file in the user folder.
 #include "browser_window.hpp"
+#include "cjui/dialog.hpp"
 
 #include "nrb/url.hpp"
 
@@ -389,7 +390,7 @@ void BrowserWindow::deleteBookmark(std::int64_t id) {
     if (!b) return;
     if (b->folder && !bookmarks_->children(id).empty()) {
         const std::wstring q = L"Delete the folder \"" + widen(b->title) + L"\" and everything in it?";
-        if (MessageBoxW(hwnd(), q.c_str(), L"Delete folder", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+        if (cjui::messageBox(hwnd(), q.c_str(), L"Delete folder", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     }
     if (!bookmarks_->remove(id)) flash(widen(bookmarks_->lastError()), 8);
     else flash(b->folder ? L"Folder deleted." : L"Bookmark deleted.");
@@ -701,7 +702,7 @@ void BrowserWindow::setFormSaving(bool passwords, bool forms) {
 }
 
 void BrowserWindow::clearSavedPasswords() {
-    if (MessageBoxW(hwnd(),
+    if (cjui::messageBox(hwnd(),
                     L"Delete every password NorthRay Browser has saved on this PC, and the form entries it fills in?\n\n"
                     L"This can't be undone. Sites' own accounts aren't affected; you'll just need to type your passwords again.",
                     L"Delete saved passwords", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
@@ -720,7 +721,7 @@ void BrowserWindow::clearSavedPasswords() {
 }
 
 void BrowserWindow::explainPasswords() {
-    MessageBoxW(hwnd(),
+    cjui::messageBox(hwnd(),
                 L"When you sign in to a site, NorthRay Browser offers to save the password, and fills it in next time. "
                 L"It can also fill in addresses and other form entries you've typed before.\n\n"
                 L"They're kept by the browser engine (Microsoft Edge WebView2, which has the same password manager as Microsoft "
