@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.32.1",
+      "date": "2026-11-14",
+      "notes": [
+        "A character's Race lists only your own races: the bible's Races and the races you've written on characters. There's no built-in list of elves, dwarves and so on any more.",
+        "“New race…” in the Race list makes a race in the bible and opens it with its name ready to type."
+      ]
+    },
+    {
       "version": "0.32.0",
       "date": "2026-11-14",
       "notes": [

@@ -673,11 +673,16 @@ const wchar_t* kPopoutScript = LR"JS((function(on){
     [P,A,V,F].forEach(function(c){ document.querySelectorAll('.'+c).forEach(function(e){ e.classList.remove(c); }); });
   }
   clear();
+  document.documentElement.classList.remove('__nr_popping');
   var old = document.getElementById(S); if (old) old.remove();
   window.__nrPopBox = null;
   if (!on) { window.dispatchEvent(new Event('resize')); return 'off'; }
   var st = document.createElement('style'); st.id = S;
   st.textContent = 'html,body{overflow:hidden!important;scrollbar-width:none!important}'
+    + 'html.__nr_popping,html.__nr_popping body{background:#000!important}'
+    // Everything that isn't the player is hidden (the site's header, side bars, pop-ups), whatever layer it's in.
+    + 'html.__nr_popping body *:not(.'+P+'):not(.'+P+' *){visibility:hidden!important}'
+    + '.'+P+'{visibility:visible!important}'
     + 'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important}'
     + '.'+P+'{position:fixed!important;left:0!important;top:0!important;right:auto!important;bottom:auto!important;'
     + 'width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;min-width:0!important;'
@@ -726,6 +731,7 @@ const wchar_t* kPopoutScript = LR"JS((function(on){
     for (var f = v.parentElement; f && f !== box; f = f.parentElement) f.classList.add(F);
     for (var a = box.parentElement; a && a !== document.documentElement; a = a.parentElement) a.classList.add(A);
     box.classList.add(P);
+    document.documentElement.classList.add('__nr_popping');
     if (box !== v) { v.classList.add(V); if (getComputedStyle(box).position === 'static') box.style.setProperty('position', 'fixed', 'important'); }
     window.__nrPopBox = box;
     window.__nrPopVideo = v;

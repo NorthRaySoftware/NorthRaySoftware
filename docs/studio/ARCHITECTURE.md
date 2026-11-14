@@ -307,3 +307,8 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
 - `mergeEntries` joins sections and book notes with `joinText`, and adds gallery pictures it doesn't already have.
 - The app's entry page shows written sections, a "Still to write" row of chips (each picks `wb_.section`), notes per book in reading order, the gallery (`wb_.picture` selects; the panel has its caption, "Use as the main picture" and "Remove"), and the image boards whose JSON has `"entry": <id>`. Those boards are left out of the sidebar, their back link goes to the entry, and the board panel's "Kept in" moves a board between the sidebar and an entry.
 - Panel fields `FSection`, `FBookNote`, `FTemplate` and `isMultiField()`. `focusFieldSoon_` scrolls the panel to a field and focuses it once it's placed.
+
+## 0.32.1: only the author's races
+
+- The "race" facet has no built-in options. `facetChoices` offers the bible's Race entries and race values already written on characters. The panel's Race list ends with "New race…", which creates a Race entry called "New race", opens it, and focuses the Name field with its text selected (`focusFieldSoon_ = FName`).
+- The studiocore family tree (`familyOf`, `familyLayout`, `families`, in `family.cpp`) is in, with tests; the app doesn't draw it yet.

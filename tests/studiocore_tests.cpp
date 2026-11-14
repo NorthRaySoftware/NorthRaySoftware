@@ -1416,6 +1416,57 @@ static void testEntryPages() {
     }
 }
 
+static void testFamilyTree() {
+    using namespace studio;
+    const std::string dir = tempLibrary("family");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    auto person = [&](const char* n) { return lib->createEntry(world, {}, "character", n); };
+    const Id tom = person("Tom Wren"), mae = person("Mae Wren"), ada = person("Ada Wren"), ben = person("Ben Wren");
+    const Id cal = person("Cal Holt"), ivy = person("Ivy Holt"), gran = person("Old Wren"), stray = person("Nobody");
+    lib->addLink(tom, ada, "Parent of");
+    lib->addLink(ben, mae, "Child of");     // the other way round
+    lib->addLink(tom, ben, "Parent of");
+    lib->addLink(mae, tom, "Married to");
+    lib->addLink(mae, ada, "Parent of");
+    lib->addLink(ada, cal, "Partner of");
+    lib->addLink(ada, ivy, "Parent of");
+    lib->addLink(cal, ivy, "Parent of");
+    lib->addLink(gran, tom, "Parent of");
+    lib->addLink(ada, ben, "Parent of"); lib->removeLink(ada, ben, "Parent of");
+    lib->addLink(ivy, gran, "Child of"); lib->removeLink(ivy, gran, "Child of");
+    // A loop by mistake doesn't hang anything.
+    const Id x = person("Loop A"), y = person("Loop B");
+    lib->addLink(x, y, "Parent of");
+    lib->addLink(y, x, "Parent of");
+
+    const auto f = lib->familyOf(ada);
+    CHECK(f.parents.size() == 2 && f.partners.size() == 1 && f.partners[0] == cal && f.children.size() == 1 && f.children[0] == ivy);
+    CHECK(f.siblings.size() == 1 && f.siblings[0] == ben);    // shares a parent, never linked as siblings
+    const auto lay = lib->familyLayout(ada);
+    CHECK(lay.people.size() == 7 && !lay.cut);
+    CHECK(lay.minGeneration == -2 && lay.maxGeneration == 1);
+    std::map<Id, Library::FamilyLayout::Person> at;
+    for (auto& p : lay.people) at[p.id] = p;
+    CHECK(at[gran].generation == -2 && at[tom].generation == -1 && at[ivy].generation == 1 && at[cal].generation == 0);
+    CHECK(std::fabs(at[tom].x - at[mae].x) == 1.0f);         // a couple side by side
+    CHECK(std::fabs(at[ada].x - at[cal].x) == 1.0f);
+    // No two people of a generation in one place.
+    for (auto& a : lay.people) for (auto& b : lay.people)
+        if (a.id != b.id && a.generation == b.generation) CHECK(std::fabs(a.x - b.x) >= 0.99f);
+    // Ivy sits under her parents; Tom and Mae over their children.
+    const float kids = (at[ada].x + at[ben].x) / 2, parents = (at[tom].x + at[mae].x) / 2;
+    CHECK(std::fabs(kids - parents) < 1.01f);
+    CHECK(lay.couples.size() == 2 && lay.parentChild.size() == 7);
+    CHECK(lib->familyLayout(stray).people.size() == 1);
+    CHECK(lib->familyLayout(x).people.size() == 2);
+    const auto fams = lib->families(world);
+    CHECK(fams.size() == 2 && fams[0].people == 7 && fams[0].surname == "Wren" && fams[0].root == gran);
+    CHECK(fams[1].people == 2 && fams[1].surname == "");
+    // Limited: the rest left out, and said so.
+    CHECK(lib->familyLayout(ada, 3).cut && lib->familyLayout(ada, 3).people.size() == 3);
+}
+
 static void testBibleTidy() {
     using namespace studio;
     const std::string dir = tempLibrary("tidy");
@@ -1834,6 +1885,7 @@ int main() {
     testCovers();
     testBibleTidy();
     testEntryPages();
+    testFamilyTree();
     testEbookHtml();
     testPdfLikeHeadings();
     testTypeset();

@@ -76,9 +76,8 @@ static const std::vector<Facet>& allFacets() {
     static const std::vector<Facet> f = {
         {"gender", L"Gender or sex", "Gender", {"gender", "sex", "gender/sex", "gender or sex"},
          {L"Female", L"Male", L"Non-binary", L"Genderfluid", L"Agender", L"Intersex", L"Not applicable", L"Unknown", L"Other"}, false},
-        {"race", L"Race", "Race", {"race", "species", "people", "kin"},
-         {L"Human", L"Elf", L"Dwarf", L"Halfling", L"Orc", L"Goblin", L"Giant", L"Dragon", L"Fae", L"Merfolk", L"Vampire",
-          L"Werewolf", L"Undead", L"Spirit", L"Demon", L"Angel", L"Android or robot", L"Alien", L"Beast", L"Other"}, true},
+        // Races: only the author's own (the bible's Races, and races written on characters), never a built-in list.
+        {"race", L"Race", "Race", {"race", "species", "people", "kin"}, {}, true},
         {"realm", L"Realm or plane", "Realm", {"realm", "plane", "world of origin", "realm/plane"},
          {L"Mortal world", L"Heaven", L"Hell", L"Underworld", L"Purgatory", L"Fae realm", L"Spirit world", L"Dream world",
           L"Astral plane", L"Elemental plane", L"The Void", L"Other"}, true},
@@ -301,6 +300,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.board.clear();   // out of any image board
     wb_.item.clear();
     if (wb_.entry != id) {
+        wb_.panelScroll = 0;
         wb_.section.clear();
         wb_.editTemplate = false;
         wb_.picture = -1;
@@ -1291,6 +1291,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     std::map<int, float> fieldTop;   // where some fields are, to scroll to them
     if (e && !e->deleted) {
         panelHeading(c, y, L"ENTRY", true);
+        fieldTop[FName] = y;
         y = panelField(c, y, L"Name", FName);
         panelChoice("wb:kind", c, y, L"Kind", w(entryKindLabel(e->kind)), [this] {
             const Entry* x = lib_->entry(wb_.entry);
@@ -1344,12 +1345,23 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 std::vector<std::wstring> items = facetChoices(*f, lib_->entriesOf(wb_.world, wb_.book), x->kind);
                 const size_t n = items.size();
                 items.push_back(L"Not set");
+                if (f->key == "race") items.push_back(L"New race\u2026");
                 const std::wstring now = w(facetOf(*x, *f));
                 int checked = now.empty() ? (int)n : -1;
                 for (size_t i = 0; i < n; ++i) if (items[i] == now) checked = (int)i;
                 const int i = popupAt(hwnd(), items, checked);
                 if (i < 0 || i == checked) return;
                 commitFields();
+                if (f->key == "race" && i == (int)n + 1) {
+                    // A new race: made in the bible, opened with its name ready to type. Choose it on the
+                    // character afterwards.
+                    const Id rid = lib_->createEntry(wb_.world, wb_.book, "race", "New race");
+                    if (rid.empty()) return;
+                    openEntry(rid);
+                    focusFieldSoon_ = FName;
+                    flash(L"Name the race, then choose it on the character.", 6);
+                    return;
+                }
                 Entry u = *lib_->entry(wb_.entry);
                 u.details = withFacet(u, *f, i < (int)n ? narrow(items[i]) : std::string());
                 lib_->updateEntry(u);
@@ -1513,7 +1525,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         panelHeading(c, y, L"KINDS", false);
         for (auto& k : entryKinds()) {
             static const std::map<std::string, const wchar_t*> what = {
-                {"character", L"The people in the story."}, {"race", L"Peoples and species: elves, dwarves, the Fluxians."}, {"realm", L"Worlds and planes: Heaven, Hell, the spirit world."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
+                {"character", L"The people in the story."}, {"race", L"The peoples and species you've made: the Fluxians, say."}, {"realm", L"Worlds and planes: Heaven, Hell, the spirit world."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
                 {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
                 {"lore", L"History, magic, beliefs, languages, rules of the world."}, {"event", L"Battles, festivals, disasters, turning points."}};
             gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});
@@ -1527,7 +1539,9 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     if (focusFieldSoon_ >= 0 && focusFieldSoon_ < FieldCount) {
         if (placed_[focusFieldSoon_]) {
             SetFocus(fields_[focusFieldSoon_]);
-            SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, (WPARAM)-1, -1);
+            // A name is replaced as you type; writing goes on at the end.
+            if (focusFieldSoon_ == FName) SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, 0, -1);
+            else SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, (WPARAM)-1, -1);
             focusFieldSoon_ = -1;
         } else if (auto it = fieldTop.find(focusFieldSoon_); it != fieldTop.end()) {
             // Out of sight: scroll the panel to it, and focus it once it's placed.

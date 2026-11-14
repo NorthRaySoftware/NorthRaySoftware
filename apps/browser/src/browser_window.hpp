@@ -312,6 +312,8 @@ private:
     void placePopoutPage();
     void drawPopoutPlaceholder(const cjui::Rect& r);
     HWND pop_ = nullptr;
+    HWND popBar_ = nullptr;       // the bar: shown over the top of the video while the mouse is on it
+    void placePopoutBar();
     int popTab_ = 0;              // the tab whose page is in it (0 = none)
     int popHover_ = 0, popDown_ = 0;   // 1 back, 2 close
     bool popTracking_ = false;

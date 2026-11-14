@@ -423,6 +423,27 @@ public:
     // Entries that look filed under the wrong kind, with why.
     struct KindSuggestion { Id entry; std::string kind; std::string why; };
     std::vector<KindSuggestion> kindSuggestions(const Id& worldId, const Id& bookId = {}) const;
+    // A character's close family, from the bible's relationships ("Parent of", "Child of", "Partner
+    // of", "Married to", "Sibling of"); siblings include anyone sharing a parent. Each list by name.
+    struct Family { std::vector<Id> parents, partners, siblings, children; };
+    Family familyOf(const Id& entryId) const;
+    Family familyOf(const Id& entryId, bool sharedParents) const;   // false: only its own links
+    // Everyone joined to `root` by family (parents, children, partners, siblings), laid out as a tree:
+    // each person's generation (0 = root's, negative = older) and position across (in card widths).
+    struct FamilyLayout {
+        struct Person { Id id; int generation = 0; float x = 0; };
+        std::vector<Person> people;
+        std::vector<std::pair<Id, Id>> couples;        // partners, drawn side by side
+        std::vector<std::pair<Id, Id>> parentChild;    // parent, child
+        int minGeneration = 0, maxGeneration = 0;
+        float width = 0;                               // in card widths
+        bool cut = false;                              // more people than `limit`: the rest are left out
+    };
+    FamilyLayout familyLayout(const Id& root, int limit = 150) const;
+    // The families in a world (two or more people joined by family), each named after the surname most
+    // of them share ("The Wrens" -> "Wren"; "" if none), largest first. `root` is its eldest person.
+    struct FamilyGroup { Id root; std::string surname; int people = 0; };
+    std::vector<FamilyGroup> families(const Id& worldId, const Id& bookId = {}) const;
     bool addLink(const Id& from, const Id& to, const std::string& label);
     bool removeLink(const Id& from, const Id& to, const std::string& label);
     // Searches the manuscripts of the entry's world (or its book) for its names.

@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.7.1",
+      "date": "2026-11-14",
+      "notes": [
+        "The video pop-out shows just the video: the site's header, menus and everything else on the page are hidden while it's popped out (they come back when it goes back to the tab).",
+        "The pop-out's bar (title, back to the tab, close) only appears while the mouse is over the pop-out, on top of the video; drag it to move the pop-out. The frame round the video is now a thin black edge for resizing."
+      ]
+    },
+    {
       "version": "0.7.0",
       "date": "2026-11-14",
       "notes": [
