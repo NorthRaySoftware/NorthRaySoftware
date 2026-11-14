@@ -214,6 +214,95 @@ void SceneCollection::removeSource(const Id& id) {
     ++changes_;
 }
 
+bool SceneCollection::renameSource(const Id& id, const std::string& wanted) {
+    const std::string name = trim(wanted);
+    if (name.empty() || name.size() > 120) return false;
+    Source* mine = nullptr;
+    for (auto& s : sources_) {
+        if (s.id == id) mine = &s;
+        else if (lower(s.name) == lower(name)) return false;
+    }
+    if (!mine) return false;
+    if (mine->name != name) {
+        mine->name = name;
+        ++changes_;
+    }
+    return true;
+}
+
+bool SceneCollection::setSourceSettings(const Id& id, const std::string& settings) {
+    for (auto& s : sources_)
+        if (s.id == id) {
+            if (s.settings != settings) {
+                s.settings = settings;
+                ++changes_;
+            }
+            return true;
+        }
+    return false;
+}
+
+const SceneItem* SceneCollection::item(const Id& sceneId, const Id& itemId) const {
+    const Scene* s = scene(sceneId);
+    if (!s) return nullptr;
+    for (auto& i : s->items)
+        if (i.id == itemId) return &i;
+    return nullptr;
+}
+
+namespace {
+bool sameTransform(const Transform& a, const Transform& b) {
+    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height && a.rotation == b.rotation && a.cropLeft == b.cropLeft &&
+           a.cropTop == b.cropTop && a.cropRight == b.cropRight && a.cropBottom == b.cropBottom && a.opacity == b.opacity && a.flipH == b.flipH &&
+           a.flipV == b.flipV;
+}
+}  // namespace
+
+bool SceneCollection::setTransform(const Id& sceneId, const Id& itemId, const Transform& t) {
+    SceneItem* it = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!it) return false;
+    if (!sameTransform(it->transform, t)) {
+        it->transform = t;
+        ++changes_;
+    }
+    return true;
+}
+
+bool SceneCollection::setItemVisible(const Id& sceneId, const Id& itemId, bool visible) {
+    SceneItem* it = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!it) return false;
+    if (it->visible != visible) {
+        it->visible = visible;
+        ++changes_;
+    }
+    return true;
+}
+
+bool SceneCollection::setItemLocked(const Id& sceneId, const Id& itemId, bool locked) {
+    SceneItem* it = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!it) return false;
+    if (it->locked != locked) {
+        it->locked = locked;
+        ++changes_;
+    }
+    return true;
+}
+
+bool SceneCollection::moveItem(const Id& sceneId, const Id& itemId, int delta) {
+    Scene* s = sceneMut(sceneId);
+    if (!s) return false;
+    auto it = std::find_if(s->items.begin(), s->items.end(), [&](const SceneItem& i) { return i.id == itemId; });
+    if (it == s->items.end()) return false;
+    const long from = it - s->items.begin();
+    const long to = std::clamp(from + (long)delta, 0L, (long)s->items.size() - 1);
+    if (to == from) return false;
+    SceneItem moving = *it;
+    s->items.erase(it);
+    s->items.insert(s->items.begin() + to, moving);
+    ++changes_;
+    return true;
+}
+
 std::string SceneCollection::toJson() const {
     using nlohmann::json;
     json j;
@@ -233,7 +322,7 @@ std::string SceneCollection::toJson() const {
             const Transform& t = i.transform;
             items.push_back({{"id", i.id}, {"source", i.source}, {"visible", i.visible}, {"locked", i.locked},
                              {"transform", {{"x", t.x}, {"y", t.y}, {"width", t.width}, {"height", t.height}, {"rotation", t.rotation},
-                                            {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}}}});
+                                            {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}, {"flipH", t.flipH}, {"flipV", t.flipV}}}});
         }
         scs.push_back({{"id", s.id}, {"name", s.name}, {"items", items}});
     }
@@ -285,6 +374,8 @@ bool SceneCollection::fromJson(const std::string& text) {
                     it.transform.height = std::max(0.0f, num(t, "height", 0));
                     it.transform.rotation = num(t, "rotation", 0);
                     it.transform.opacity = std::clamp(num(t, "opacity", 1), 0.0f, 1.0f);
+                    it.transform.flipH = t.contains("flipH") && t["flipH"].is_boolean() && t["flipH"].get<bool>();
+                    it.transform.flipV = t.contains("flipV") && t["flipV"].is_boolean() && t["flipV"].get<bool>();
                     if (t.contains("crop") && t["crop"].is_array() && t["crop"].size() == 4) {
                         float* crop[] = {&it.transform.cropLeft, &it.transform.cropTop, &it.transform.cropRight, &it.transform.cropBottom};
                         for (size_t k = 0; k < 4; ++k)

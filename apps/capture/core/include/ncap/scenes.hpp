@@ -41,6 +41,7 @@ struct Transform {
     float rotation = 0;            // degrees, clockwise, about the centre
     float cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;   // source pixels
     float opacity = 1;
+    bool flipH = false, flipV = false;   // mirrored left-right / upside down (before rotation)
 };
 
 struct Source {
@@ -92,6 +93,15 @@ public:
     // Sources no scene shows any more (to stop capturing them).
     std::vector<Id> unusedSources() const;
     void removeSource(const Id& id);   // and every item showing it
+    bool renameSource(const Id& id, const std::string& name);   // false if empty or taken by another
+    bool setSourceSettings(const Id& id, const std::string& settings);
+
+    const SceneItem* item(const Id& scene, const Id& item) const;
+    bool setTransform(const Id& scene, const Id& item, const Transform& t);
+    bool setItemVisible(const Id& scene, const Id& item, bool visible);
+    bool setItemLocked(const Id& scene, const Id& item, bool locked);
+    // Towards the top of the scene (+1, drawn later) or the bottom (-1); +100 / -100 to the very top / bottom.
+    bool moveItem(const Id& scene, const Id& item, int delta);
 
     std::string toJson() const;
     // False (and the collection unchanged) if it isn't one; a newer version's file is read as far

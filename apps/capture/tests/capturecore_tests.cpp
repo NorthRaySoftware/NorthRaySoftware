@@ -15,6 +15,34 @@ static int g_failed = 0, g_passed = 0;
         else { ++g_failed; std::printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } \
     } while (0)
 
+static void testItemEditing() {
+    std::printf("item editing\n");
+    SceneCollection c;
+    const Id sc = c.current();
+    const Id a = c.addSource(SourceKind::Display, "Display");
+    const Id b = c.addSource(SourceKind::Camera, "Webcam");
+    const Id ia = c.addItem(sc, a), ib = c.addItem(sc, b);
+    CHECK(!c.renameSource(b, " display ") && !c.renameSource(b, "  ") && c.renameSource(b, " Face cam "));
+    CHECK(c.source(b)->name == "Face cam");
+    Transform t;
+    t.x = 10;
+    t.flipH = true;
+    const auto before = c.changes();
+    CHECK(c.setTransform(sc, ia, t) && c.changes() == before + 1);
+    CHECK(c.setTransform(sc, ia, t) && c.changes() == before + 1);   // unchanged: no new change
+    CHECK(c.setItemVisible(sc, ib, false) && !c.item(sc, ib)->visible);
+    CHECK(c.setItemLocked(sc, ia, true) && c.item(sc, ia)->locked);
+    CHECK(c.moveItem(sc, ia, 1) && c.scene(sc)->items.back().id == ia);   // to the top
+    CHECK(!c.moveItem(sc, ia, 5));                                         // already there
+    CHECK(c.moveItem(sc, ia, -100) && c.scene(sc)->items.front().id == ia);
+    CHECK(c.setSourceSettings(a, "{\"monitor\":1}") && !c.setSourceSettings("nope", "{}"));
+    SceneCollection d;
+    CHECK(d.fromJson(c.toJson()));
+    const SceneItem* back = d.item(sc, ia);
+    CHECK(back && back->transform.x == 10 && back->transform.flipH && !back->transform.flipV && back->locked);
+    CHECK(d.source(b)->name == "Face cam" && !d.item(sc, ib)->visible);
+}
+
 static void testScenes() {
     std::printf("scenes\n");
     SceneCollection c;
@@ -181,6 +209,7 @@ static void testDiagnostics() {
 
 int main() {
     testScenes();
+    testItemEditing();
     testRouting();
     testDiagnostics();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
