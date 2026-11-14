@@ -1,6 +1,6 @@
 # NorthRay Files: architecture
 
-Status: **0.1.0, Version 0.1 (Foundation)**. A working, read-only file browser in the NorthRay design language.
+Status: **0.1.1, Version 0.1 (Foundation)**, with picture thumbnails. A working, read-only file browser in the NorthRay design language.
 Last updated 14 November 2026. Developed by the NorthRay Software project. Contact: NorthRaySoftware@protonmail.com.
 
 ## 1. What 0.1 is
@@ -8,7 +8,7 @@ Last updated 14 November 2026. Developed by the NorthRay Software project. Conta
 A native Windows window that browses real folders: a night-sky sidebar of places and drives, a toolbar with back,
 forward, up and refresh, a breadcrumb address bar you can type or paste into, the folder in Details or Icons view with
 Windows' own icons and type names, sorting, single and multiple selection, keyboard navigation, This PC, and clear
-loading, empty and error states. Files open in their default app.
+loading, empty and error states. Files open in their default app. Since 0.1.1, image files show the picture itself in Icons view (section 4a).
 
 **It never changes a file.** Nothing in 0.1 copies, moves, renames, deletes or writes anywhere but its own settings.
 File operations arrive in 0.2 as a separate service (see section 7).
@@ -38,13 +38,15 @@ apps/files/
     paths              typed/pasted paths -> folder paths (drive, UNC, \\?\, file:///, relative), parents, breadcrumbs,
                        extended-length form for API calls, valid names, extensions
     listing            Entry (Win32 attributes), visibility (hidden / protected system), natural sort, sizes, Selection
+    exif               a JPEG's EXIF orientation from its first bytes; turning pixels the right way up
   src/
     shell.*            the Windows side: listing on worker threads, drives, known folders, type names and icons
                        (Shell), opening with the default app; nothing that writes
     files_window.*     the window, drawn with cjui
+    thumbnails.*       pictures of image files (WIC on a background thread, kept in memory)
     settings.*         settings.json (versioned, defensive, atomic save)
     main.cpp           start-up; each launch is its own window; a path on the command line opens there
-  tests/               filescore_tests (96 checks)
+  tests/               filescore_tests (208 checks)
 ```
 
 Later modules (operations service, tabs and panes, search, previews, metadata database) go beside these, with their
@@ -76,6 +78,27 @@ logic in `core/` where it can be tested without Windows.
 
 Not in 0.1: Shell virtual locations. The model already keeps a location as "a folder path or This PC", so a third kind
 (a Shell item) can be added without confusing virtual items with real folders.
+
+## 4a. Thumbnails (0.1.1)
+
+- **Decoding:** Windows Imaging Component (`IWICImagingFactory`), Windows' own codecs: JPEG, PNG, GIF, BMP, TIFF, ICO, JPEG XR,
+  and WebP, HEIF and AVIF where those Windows codecs are installed. Only `CreateDecoderFromFilename`, a Fant scaler that
+  fits the picture in a 128 or 256 pixel square (chosen by DPI; never enlarged) and a conversion to 32-bit RGBA. No
+  third-party Shell thumbnail handlers are loaded into the process. For an icon file the largest size is used.
+- **The right way up:** the EXIF orientation from WIC's metadata reader (`/app1/ifd/{ushort=274}`), or, when that has no
+  answer, from the file's first 128 KB by NorthRay's own parser (`core/exif`, bounds-checked and tested on truncated and
+  lying data). The decoded pixels are then turned in code (all eight orientations, tested), not by WIC's flip-rotator.
+- **Threading:** one background thread (COM multithreaded). Requests are taken newest first, so what's on screen comes
+  first; at most 400 wait, and a new folder drops the rest. Results reach the window as `WM_APP_THUMB`. The thread is
+  detached, so a slow file never holds up closing the window.
+- **Skipped:** online-only (cloud) files, so browsing never downloads them; empty files; files over 256 MB; pictures over
+  400 megapixels. They keep their normal icon, as do files that fail to decode.
+- **Memory:** up to 600 pictures, least recently used dropped first, with their Direct2D bitmaps. Keyed by path,
+  modified time and size, so a changed file gets a new picture. No disk cache yet (planned with previews in 0.4).
+- **Tested** under Wine: JPEG, PNG, BMP and ICO; tall and wide pictures; EXIF orientations 3, 6 and 8 (matching a
+  reference library); a broken .jpg (icon); a hidden picture (faded); 400 photos (pressing End shows the last ones at
+  once); dark theme; clean exit. WebP isn't available in the simulation, so its icon showed; please check WebP and HEIC
+  on a real PC.
 
 ## 5. Behaviour and safety (as built)
 
@@ -112,6 +135,6 @@ and drag and drop with File Explorer. The Shell context menu (`IContextMenu`) be
 
 ## 8. Known limitations in 0.1
 
-One window per launch, no tabs or panes (0.3), no search or previews (0.4), no thumbnails (icons only), no Recycle Bin
+One window per launch, no tabs or panes (0.3), no search or previews (0.4), thumbnails in Icons view only (none in Details), no Recycle Bin
 or network locations in the sidebar, no folder tree, no column resizing, no automatic refresh when a folder changes
 (F5), and no UI Automation for screen readers.

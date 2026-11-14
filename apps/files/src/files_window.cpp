@@ -99,6 +99,7 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     SetWindowSubclass(address_, quietEditProc, 1, 0);
     SendMessageW(address_, EM_SETLIMITTEXT, 32767, 0);
 
+    thumbs_ = std::make_unique<Thumbnails>(hwnd());
     applyTheme();
     places_ = knownPlaces();
     ShowWindow(hwnd(), show);
@@ -142,6 +143,7 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
         forwardStack_.clear();
     }
     loadedOnce_ = true;
+    if (thumbs_) thumbs_->forgetQueue();
     here_ = to;
     listed_.clear();
     shown_.clear();
@@ -506,6 +508,17 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             auto* b = reinterpret_cast<ListBatch*>(lp);
             receive(b);
             delete b;
+            handled = true;
+            return 0;
+        }
+        case WM_APP_THUMB: {
+            auto* t = reinterpret_cast<ThumbResult*>(lp);
+            if (thumbs_) {
+                thumbs_->received(t);
+                for (std::uint64_t serial : thumbs_->takeEvicted()) gfx_.forgetImage(L"thumb:" + std::to_wstring(serial));
+                if (settings_.view == ViewMode::Icons) invalidate();
+            }
+            delete t;
             handled = true;
             return 0;
         }
@@ -1092,12 +1105,15 @@ void FilesWindow::drawIcons(const Rect& r) {
     const Rect clip{r.x, r.y + 4, r.w, r.h - 4};
     listClip_ = clip;
     const float avail = r.w - pad * 2;
-    columns_ = std::max(1, (int)(avail / 116));
+    columns_ = std::max(1, (int)(avail / 156));
     tileW_ = avail / (float)columns_;
-    tileH_ = 118;
+    tileH_ = 172;
     listX_ = r.x + pad;
     const float top = beginScroll(clip);
     listTop_ = top + 8;
+    // Pictures are made at the size they're shown on this display.
+    const float boxW = 136, boxH = 102;
+    const int thumbPx = boxW * gfx_.dpiScale() <= 128 ? 128 : 256;
     const std::size_t n = shown_.size();
     const std::size_t lines = (n + (std::size_t)columns_ - 1) / (std::size_t)columns_;
     const std::size_t firstLine = (std::size_t)std::max(0.0f, std::floor((clip.y - listTop_) / tileH_));
@@ -1111,8 +1127,24 @@ void FilesWindow::drawIcons(const Rect& r) {
             addHit("row:" + std::to_string(i), t, nullptr, false);
             drawRowBackground(t, i, 8);
             const float fade = (e.hidden() || e.protectedSystem()) ? 0.55f : 1.0f;
-            drawIcon(e.icon, {t.x + (t.w - 48) / 2, t.y + 12, 48, 48}, fade);
-            gfx_.text(e.name, {t.x + 6, t.y + 66, t.w - 12, 38}, Font::Small, fade < 1 ? pal_.inkMuted : pal_.ink, {Align::Center, true, true});
+            const Rect box{t.x + (t.w - boxW) / 2, t.y + 8, boxW, boxH};
+            const Thumb* th = nullptr;
+            if (thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::isImage(e.name))
+                th = thumbs_->get(rowPath(i), e.modified, e.size, thumbPx);
+            if (th && th->w > 0 && th->h > 0) {
+                // The picture itself, its shape kept, never enlarged past its own size.
+                const float ds = gfx_.dpiScale();
+                const float s = std::min({boxW / th->w, boxH / th->h, 1.0f / ds});
+                const float w = std::max(1.0f, th->w * s), h = std::max(1.0f, th->h * s);
+                const Rect p{std::round(box.x + (boxW - w) / 2), std::round(box.y + (boxH - h) / 2), std::round(w), std::round(h)};
+                gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(), p, true);
+                gfx_.stroke({p.x - 0.5f, p.y - 0.5f, p.w + 1, p.h + 1}, pal_.rule, 1);
+                if (fade < 1) gfx_.fill(p, pal_.paper.withAlpha(1.0f - fade));
+            } else {
+                drawIcon(e.icon, {t.x + (t.w - 48) / 2, box.y + (boxH - 48) / 2, 48, 48}, fade);
+            }
+            gfx_.text(e.name, {t.x + 6, box.bottom() + 6, t.w - 12, 38}, Font::Small, fade < 1 ? pal_.inkMuted : pal_.ink,
+                      {Align::Center, true, true});
         }
     endScroll((float)lines * tileH_ + 16);
 }

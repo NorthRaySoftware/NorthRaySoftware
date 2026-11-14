@@ -9,6 +9,7 @@
 
 #include "settings.hpp"
 #include "shell.hpp"
+#include "thumbnails.hpp"
 
 #include "nrf/listing.hpp"
 
@@ -123,7 +124,8 @@ private:
     float listTop_ = 0;         // y of the first row (moves with scrolling)
     float rowH_ = 30;
     int columns_ = 1;           // icons per row in Icons view
-    float tileW_ = 112, tileH_ = 112;
+    float tileW_ = 156, tileH_ = 172;
+    std::unique_ptr<Thumbnails> thumbs_;   // pictures of image files (Icons view)
     float listX_ = 0;
     std::vector<std::pair<std::wstring, cjui::Rect>> driveRects_;
 

@@ -1,6 +1,6 @@
 # NorthRay Files
 
-A file manager for Windows in the NorthRay design language. Version 0.1 browses folders and opens files; it doesn't
+A file manager for Windows in the NorthRay design language. Version 0.1 browses folders, opens files and shows pictures of image files; it doesn't
 change anything yet. See `docs/ARCHITECTURE.md`.
 
 ## Build

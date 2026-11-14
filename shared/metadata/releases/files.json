@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.1.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Pictures now show the image itself in Icons view: JPEG, PNG, GIF, BMP, TIFF and icon files, plus WebP, HEIC and AVIF where Windows has their codecs.",
+        "Phone and camera photos are turned the right way up, and pictures are never stretched.",
+        "Bigger tiles in Icons view. Pictures are made in the background, the ones on screen first, so big folders stay quick.",
+        "Online-only files (OneDrive and similar) keep their normal icon, so browsing never downloads them."
+      ]
+    },
+    {
       "version": "0.1.0",
       "date": "2026-11-14",
       "notes": [

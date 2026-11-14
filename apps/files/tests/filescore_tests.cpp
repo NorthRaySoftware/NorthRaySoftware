@@ -1,9 +1,11 @@
 // Unit tests for NorthRay Files' portable core. Dependency-free like the other
 // suites: run it, it prints each group and exits non-zero on failure.
+#include "nrf/exif.hpp"
 #include "nrf/listing.hpp"
 #include "nrf/paths.hpp"
 
 #include <cstdio>
+#include <vector>
 #include <string>
 
 using namespace nrf;
@@ -199,12 +201,96 @@ static void testSelection() {
     CHECK(s.focus() == -1);
 }
 
+// A JPEG start with an EXIF block holding one tag (orientation), in either byte order.
+static std::vector<unsigned char> jpegWithOrientation(int o, bool little, bool withApp0 = true) {
+    std::vector<unsigned char> d = {0xFF, 0xD8};
+    if (withApp0) { unsigned char a0[] = {0xFF, 0xE0, 0x00, 0x06, 'J', 'F', 'I', 'F'}; d.insert(d.end(), a0, a0 + 8); }
+    std::vector<unsigned char> t;
+    auto u16 = [&](unsigned v) { if (little) { t.push_back(v & 0xFF); t.push_back(v >> 8); } else { t.push_back(v >> 8); t.push_back(v & 0xFF); } };
+    auto u32 = [&](unsigned v) { if (little) for (int k = 0; k < 4; ++k) t.push_back((v >> (8 * k)) & 0xFF); else for (int k = 3; k >= 0; --k) t.push_back((v >> (8 * k)) & 0xFF); };
+    t.push_back(little ? 'I' : 'M'); t.push_back(little ? 'I' : 'M');
+    u16(42); u32(8);
+    u16(2);                                         // two entries: something else, then orientation
+    u16(271); u16(2); u32(4); u32(0);               // Make (ASCII), ignored
+    u16(274); u16(3); u32(1); u16((unsigned)o); u16(0);
+    u32(0);
+    const std::size_t len = 2 + 6 + t.size();
+    d.push_back(0xFF); d.push_back(0xE1); d.push_back((unsigned char)(len >> 8)); d.push_back((unsigned char)(len & 0xFF));
+    unsigned char ex[] = {'E', 'x', 'i', 'f', 0, 0};
+    d.insert(d.end(), ex, ex + 6);
+    d.insert(d.end(), t.begin(), t.end());
+    unsigned char sos[] = {0xFF, 0xDA, 0x00, 0x02, 0x12, 0x34};
+    d.insert(d.end(), sos, sos + 6);
+    return d;
+}
+
+static void testExif() {
+    for (int o = 1; o <= 8; ++o) {
+        auto le = jpegWithOrientation(o, true), be = jpegWithOrientation(o, false, false);
+        CHECK(jpegOrientation(le.data(), le.size()) == o);
+        CHECK(jpegOrientation(be.data(), be.size()) == o);
+    }
+    // Not a JPEG, empty, no EXIF, an out-of-range value.
+    const unsigned char png[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    CHECK(jpegOrientation(png, sizeof png) == 1);
+    CHECK(jpegOrientation(nullptr, 0) == 1);
+    const unsigned char bare[] = {0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02};
+    CHECK(jpegOrientation(bare, sizeof bare) == 1);
+    auto bad = jpegWithOrientation(9, true);
+    CHECK(jpegOrientation(bad.data(), bad.size()) == 1);
+    // Cut short at every length: never reads past the end, never guesses.
+    auto full = jpegWithOrientation(6, true);
+    int found = 0;
+    for (std::size_t cut = 0; cut <= full.size(); ++cut) {
+        std::vector<unsigned char> part(full.begin(), full.begin() + (long)cut);
+        const int o = jpegOrientation(part.data(), part.size());
+        CHECK(o == 1 || o == 6);
+        if (o == 6) ++found;
+    }
+    CHECK(found > 0);
+    // Lengths and offsets that point nowhere.
+    auto lie = jpegWithOrientation(6, true);
+    lie[20 + 4] = 0xFF; lie[20 + 5] = 0xFF; lie[20 + 6] = 0xFF; lie[20 + 7] = 0x7F;   // IFD offset far away
+    const int o = jpegOrientation(lie.data(), lie.size());
+    CHECK(o == 1 || o == 6);
+
+    // Turning pixels: a 3x2 picture with a different value in each pixel.
+    auto pic = [] {
+        std::vector<unsigned char> p;
+        for (int i = 0; i < 6; ++i) for (int k = 0; k < 4; ++k) p.push_back((unsigned char)(i * 10 + k));
+        return p;
+    };
+    auto at = [](const std::vector<unsigned char>& p, int w, int x, int y) { return p[((std::size_t)y * w + x) * 4] / 10; };
+    // Stored:  0 1 2
+    //          3 4 5
+    struct Case { int o, w, h; int expect[6]; };
+    const Case cases[] = {
+        {1, 3, 2, {0, 1, 2, 3, 4, 5}}, {2, 3, 2, {2, 1, 0, 5, 4, 3}}, {3, 3, 2, {5, 4, 3, 2, 1, 0}}, {4, 3, 2, {3, 4, 5, 0, 1, 2}},
+        {5, 2, 3, {0, 3, 1, 4, 2, 5}}, {6, 2, 3, {3, 0, 4, 1, 5, 2}}, {7, 2, 3, {5, 2, 4, 1, 3, 0}}, {8, 2, 3, {2, 5, 1, 4, 0, 3}},
+    };
+    for (const Case& c : cases) {
+        auto p = pic();
+        int w = 3, h = 2;
+        applyOrientation(p, w, h, c.o);
+        CHECK(w == c.w && h == c.h);
+        bool same = true;
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) if (at(p, w, x, y) != c.expect[y * w + x]) same = false;
+        CHECK(same);
+        CHECK(p[1] % 10 == 1);   // channels stay together
+    }
+    std::vector<unsigned char> wrong(5);
+    int ww = 3, wh = 2;
+    applyOrientation(wrong, ww, wh, 6);   // the wrong size: left alone
+    CHECK(ww == 3 && wh == 2 && wrong.size() == 5);
+}
+
 int main() {
     testNormalize();
     testPathParts();
     testSorting();
     testSizes();
     testSelection();
+    testExif();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }
