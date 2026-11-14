@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "browser",
+  "name": "NorthRay Browser",
+  "tagline": "A web browser for Windows in the NorthRay look, with creative tools planned.",
+  "description": "NorthRay Browser is a desktop web browser for Windows. Web pages are shown by Microsoft Edge WebView2, the Chromium engine that comes with Windows 11 and is kept up to date by Windows, with its sandbox left fully on. This first version is the foundation: tabs, an address bar that opens addresses, local files and searches (and never sends a file path or a local network address to a search engine), back, forward, reload and home, a NorthRay start page, plain-words error pages, a padlock or \"Not secure\" for every site, full screen, printing and the developer tools. Certificate errors are always refused, and saved passwords and form autofill are off until NorthRay has designed secure storage for them. Bookmarks, history, a downloads panel, profiles, private windows and the creative tools (collections, notes, boards and more) come in later versions.",
+  "features": [
+    "Tabs: open, close, reopen closed tabs, switch with the keyboard; links that open new windows open as tabs",
+    "Address bar: web addresses, local files and searches with DuckDuckGo, Google, Bing or another engine; file paths and local network addresses are never searched for",
+    "A padlock for secure sites and a plain \"Not secure\" for others; certificate problems are refused with an explanation",
+    "NorthRay start page and plain-words error pages, with a \"Search for it instead\" option",
+    "Full screen, printing, developer tools, and light and dark themes that follow Windows",
+    "Edge's sandbox and SmartScreen protection against phishing and harmful downloads; no telemetry of NorthRay's own"
+  ],
+  "category": "Web browser",
+  "status": "preview",
+  "version": "0.1.0",
+  "accent": "#2FC6A0",
+  "artwork": {
+    "fallbackStyle": "sketchbook",
+    "banner": "",
+    "icon": "icons/browser.png",
+    "screenshots": []
+  },
+  "credits": {
+    "developer": "",
+    "publisher": "",
+    "associatedCreator": "",
+    "comment": "Empty developer and publisher mean the central identity in brand/identity.json."
+  },
+  "launch": {
+    "executable": "NorthRayBrowser.exe",
+    "canOpenInsideLauncher": false,
+    "keepsRunningWithoutLauncher": true
+  },
+  "website": {
+    "slug": "browser"
+  },
+  "installer": {
+    "file": "NorthRayBrowser-Setup",
+    "name": "NorthRay Browser"
+  }
+}

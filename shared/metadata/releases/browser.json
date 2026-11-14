@@ -1,0 +1,13 @@
+{
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-14",
+      "notes": [
+        "First preview: tabs, the address bar, back, forward, reload and home, a NorthRay start page and plain-words error pages.",
+        "Web pages are shown by Microsoft Edge WebView2 (part of Windows 11), with its sandbox on. Certificate errors are refused; saved passwords and autofill are off for now.",
+        "Not in this version yet: bookmarks, history, a downloads panel, profiles, private windows and the creative tools."
+      ]
+    }
+  ]
+}

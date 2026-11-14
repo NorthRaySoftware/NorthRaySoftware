@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.18.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Lists NorthRay Browser, an early preview of NorthRay's web browser, to install and update like the other apps."
+      ]
+    },
+    {
       "version": "0.18.0",
       "date": "2026-11-13",
       "notes": [

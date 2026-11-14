@@ -12,7 +12,7 @@ const noteFiles = import.meta.glob('../../../shared/metadata/releases/*.json', {
 const releaseFiles = import.meta.glob('../generated/releases.json', { eager: true, import: 'default' });
 
 // Catalogue order: the Writing Studio, CJ Radio, then the optional community app.
-const order = ['writing-studio', 'cj-radio', 'cj-philip-community'];
+const order = ['writing-studio', 'browser', 'cj-radio', 'cj-philip-community'];
 function allApps() {
   return Object.values(appFiles).sort((a, b) => (order.indexOf(a.id) + 99) % 99 - (order.indexOf(b.id) + 99) % 99);
 }
