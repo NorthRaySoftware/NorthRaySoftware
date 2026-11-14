@@ -181,4 +181,6 @@ ends with: what was built, what was actually tested (and how), what isn't done, 
   about real hardware; Wine's Media Foundation lists no encoders, so the encoder list has only been
   seen empty.
 - Drag a panel header to reorder: implemented, not exercised in Wine.
-- No installer or Launcher entry yet, deliberately, until Capture captures something (M2+).
+- Released as 0.1.0 in NorthRay Launcher and on the website (suite 0.46.0, 14 Nov 2026) at CJ's request,
+  marked "In development" with a description that says it doesn't capture, record or stream yet.
+  Installing it through the Launcher hasn't been tried here (the test machine can't reach the live site).
