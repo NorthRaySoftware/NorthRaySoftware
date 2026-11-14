@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -53,7 +54,7 @@ static std::wstring initials(const std::string& name) {
 // Each kind's colour (the editor's links and name cards use the same ones).
 static cjui::Color kindColor(const std::string& kind, bool dark) {
     struct K { const char* k; const char* light; const char* dark; };
-    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"},
+    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"}, {"race", "#6B8E23", "#A5C76A"},
                            {"group", "#7D5BD0", "#AE93F2"},     {"thing", "#B08A1E", "#E0BE55"},    {"lore", "#1E97A6", "#55C6D4"},
                            {"event", "#C9476A", "#F07C98"}};
     for (auto& x : ks) if (kind == x.k) return cjui::hexColor(dark ? x.dark : x.light);
@@ -157,6 +158,10 @@ static std::string withFacet(const Entry& e, const Facet& f, const std::string& 
 // The choices for a facet: for open lists, what this world already uses comes first.
 static std::vector<std::wstring> facetChoices(const Facet& f, const std::vector<const Entry*>& scope, const std::string& kind) {
     std::vector<std::wstring> out;
+    // Race: the bible's own races (Races entries) come first.
+    if (f.key == "race")
+        for (const Entry* x : scope)
+            if (x->kind == "race" && std::find(out.begin(), out.end(), widen(x->name)) == out.end()) out.push_back(widen(x->name));
     if (f.openList)
         for (const Entry* x : scope)
             if (x->kind == kind) {
@@ -166,7 +171,7 @@ static std::vector<std::wstring> facetChoices(const Facet& f, const std::vector<
                     out.push_back(v);
             }
     std::sort(out.begin(), out.end());
-    for (auto& o : f.options) out.push_back(o);
+    for (auto& o : f.options) if (std::find(out.begin(), out.end(), o) == out.end()) out.push_back(o);
     return out;
 }
 // wb_.facet is "key=value" ("key=-" for not set).
@@ -177,6 +182,34 @@ static bool facetMatches(const Entry& e, const std::string& filter) {
     if (!f || eq == std::string::npos) return true;
     const std::string v = facetOf(e, *f), want = filter.substr(eq + 1);
     return want == "-" ? v.empty() : v == want;
+}
+
+// ------------------------------------------------------------- the bible by book
+
+// The world's books in reading order: each series in turn (its reading order), then books in no series.
+static std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const Id& book) {
+    std::vector<Id> out;
+    if (world.empty()) { if (!book.empty()) out.push_back(book); return out; }
+    for (const Series* s : lib.seriesIn(world))
+        for (const studio::Book* b : lib.booksInSeries(s->id))
+            if (std::find(out.begin(), out.end(), b->id) == out.end()) out.push_back(b->id);
+    for (const studio::Book* b : lib.standaloneBooksIn(world))
+        if (std::find(out.begin(), out.end(), b->id) == out.end()) out.push_back(b->id);
+    return out;
+}
+
+// The place a place is in ("Located in" / "Part of" from it, or "Contains" / "Includes" to it), if any.
+static Id parentPlace(const Library& lib, const Entry& e) {
+    if (e.kind != "place") return {};
+    for (const EntryLink& l : lib.linksOf(e.id)) {
+        const bool up = (l.from == e.id && (l.label == "Located in" || l.label == "Part of")) ||
+                        (l.to == e.id && (l.label == "Contains" || l.label == "Includes"));
+        if (!up) continue;
+        const Id other = l.from == e.id ? l.to : l.from;
+        const Entry* o = lib.entry(other);
+        if (o && !o->deleted && o->kind == "place") return other;
+    }
+    return {};
 }
 
 // ------------------------------------------------------------- opening
@@ -541,11 +574,62 @@ void StudioApp::drawWorldPage(const Rect& r) {
             button("wb:first", {m.x, y, 180, 34}, wb_.kind.empty() ? L"Add the first entry" : L"Add one", [this] { newEntry(wb_.kind); }, true);
             y += 50;
         } else {
+            // Each entry's first book, worked out again when the library has changed.
+            const std::string key = wb_.world + "|" + wb_.book + "|" + std::to_string(lib_->changesMade());
+            if (key != wb_.firstBookKey) {
+                wb_.firstBookKey = key;
+                wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+                wb_.firstBook.clear();
+                for (size_t bi = 0; bi < wb_.bookOrder.size(); ++bi)
+                    for (auto& [node, ids] : lib_->appearancesIn(wb_.bookOrder[bi]))
+                        for (const Id& eid : ids) wb_.firstBook.emplace(eid, bi);
+            }
+            // Places inside other places follow them (depth-first), and go in their outermost place's book.
+            std::map<Id, Id> parentOf;
+            std::set<Id> inList;
+            for (const Entry* x : list) inList.insert(x->id);
+            for (const Entry* x : list) if (Id p = parentPlace(*lib_, *x); !p.empty() && inList.count(p)) parentOf[x->id] = p;
+            auto rootOf = [&](Id id) { for (int guard = 0; guard < 32 && parentOf.count(id); ++guard) id = parentOf[id]; return id; };
+            struct Item { const Entry* e; int depth; };
+            std::map<size_t, std::vector<Item>> groups;   // book index (npos: in no book yet) -> entries
+            std::set<Id> placed;
+            std::function<void(const Entry*, int, size_t)> addTree = [&](const Entry* x, int depth, size_t g) {
+                if (!placed.insert(x->id).second || depth > 8) return;
+                groups[g].push_back({x, depth});
+                for (const Entry* c : list) if (auto it = parentOf.find(c->id); it != parentOf.end() && it->second == x->id) addTree(c, depth + 1, g);
+            };
+            for (const Entry* x : list) {
+                if (parentOf.count(x->id)) continue;   // comes with its parent
+                const auto it = wb_.firstBook.find(rootOf(x->id));
+                addTree(x, 0, it == wb_.firstBook.end() ? std::string::npos : it->second);
+            }
+            for (const Entry* x : list) if (!placed.count(x->id)) addTree(x, 0, std::string::npos);   // a loop of "Located in"
+
             const float gap = 16;
             const int cols = std::max(1, (int)((cw + gap) / (240 + gap)));
             const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 96;
-            for (size_t i = 0; i < list.size(); ++i) {
-                const Entry* x = list[i];
+            const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
+            for (auto& [g, items] : groups) {
+            if (headings) {
+                std::wstring head = L"Not in a book yet", note;
+                if (g != std::string::npos && g < wb_.bookOrder.size())
+                    if (const studio::Book* b = lib_->book(wb_.bookOrder[g])) {
+                        head = w(b->title);
+                        const auto ss = lib_->seriesOfBook(b->id);
+                        if (!ss.empty()) {
+                            note = w(ss.front()->name);
+                            if (const Membership* mb = lib_->membership(ss.front()->id, b->id); mb && !mb->number.empty())
+                                note += L", book " + w(mb->number);
+                        }
+                    }
+                gfx_.text(upper(head), {m.x, y + 4, cw, 18}, Font::Label, pal_.inkMuted, {Align::Left, false, true});
+                if (!note.empty()) gfx_.text(note, {m.x, y + 4, cw, 18}, Font::Small, pal_.inkFaint, {Align::Right, false, true});
+                gfx_.line(m.x, y + 26.5f, m.right(), y + 26.5f, pal_.rule);
+                y += 38;
+            }
+            for (size_t i = 0; i < items.size(); ++i) {
+                const Entry* x = items[i].e;
+                const int depth = items[i].depth;
                 const int col = (int)i % cols;
                 const Rect cr{m.x + col * (cardW + gap), y, cardW, cardH};
                 const std::string id = "wb:card:" + x->id;
@@ -570,10 +654,20 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
                     gfx_.text(label, {tx, cr.y + 13, tw, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
+                // A place inside another: "in Akunda", and a mark per level.
+                if (depth > 0)
+                    if (auto pit = parentOf.find(x->id); pit != parentOf.end())
+                        if (const Entry* par = lib_->entry(pit->second)) {
+                            for (int d = 0; d < depth && d < 4; ++d) gfx_.circle(cr.right() - 14 - d * 9, cr.y + 14, 2.5f, kc.withAlpha(0.6f), true);
+                            gfx_.text(L"in " + w(par->name), {tx, cr.y + 52, tw, 18}, Font::Small, kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
+                        }
                 gfx_.text(w(x->name), {tx, cr.y + 30, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-                if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + 52, tw, 34}, Font::Small, pal_.inkMuted);
+                if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 18 : 34}, Font::Small, pal_.inkMuted,
+                                                   {Align::Left, false, true});
                 if (focused(id)) focusRing(cr);
-                if (col == cols - 1 || i + 1 == list.size()) y += cardH + gap;
+                if (col == cols - 1 || i + 1 == items.size()) y += cardH + gap;
+            }
+            y += headings ? 10 : 0;
             }
         }
     } else {
@@ -794,6 +888,13 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 Entry u = *lib_->entry(wb_.entry);
                 u.details = withFacet(u, *f, i < (int)n ? narrow(items[i]) : std::string());
                 lib_->updateEntry(u);
+                // A race that isn't in the bible yet goes in as one of its Races.
+                if (f->key == "race" && i < (int)n) {
+                    bool known = false;
+                    for (const Entry* r : lib_->entriesOf(wb_.world, wb_.book)) if (r->kind == "race" && w(r->name) == items[i]) known = true;
+                    if (!known && items[i] != L"Other" && !lib_->createEntry(wb_.world, wb_.book, "race", narrow(items[i])).empty())
+                        flash(L"Added " + items[i] + L" to the bible's races.", 4);
+                }
                 loadedFocus_ = {Focus::None, "-", ""};   // the details field shows the new line
                 invalidate();
             });
@@ -826,7 +927,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         panelHeading(c, y, L"KINDS", false);
         for (auto& k : entryKinds()) {
             static const std::map<std::string, const wchar_t*> what = {
-                {"character", L"The people in the story."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
+                {"character", L"The people in the story."}, {"race", L"Peoples and species: elves, dwarves, the Fluxians."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
                 {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
                 {"lore", L"History, magic, beliefs, languages, rules of the world."}, {"event", L"Battles, festivals, disasters, turning points."}};
             gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});

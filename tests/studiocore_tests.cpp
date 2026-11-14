@@ -868,6 +868,54 @@ static void testTypeset() {
     size_t mapped = 0, glyphs = 0;
     for (auto& p : tb.pages) for (auto& r : p.runs) for (auto g : r.glyphs) { ++glyphs; if (tb.fonts[r.font].toUnicode.count(g)) ++mapped; }
     CHECK(glyphs > 1000 && mapped == glyphs);
+    // A comic script: pages, panels and balloons numbered; each comic page on a new page.
+    {
+        const Id cb = lib->createBook("Bone Boys #1", {});
+        const Id issue = lib->createNode(cb, {}, NodeKind::Chapter, "Issue One");
+        auto para = [](const char* style, const char* text) {
+            return std::string(R"({"type":"paragraph","attrs":{"style":")") + style + R"("},"content":[{"type":"text","text":")" + text + R"("}]})";
+        };
+        const std::string docs = std::string(R"({"type":"doc","content":[)") +
+            para("page", "") + "," + para("panel", "Wide shot. A cave mouth under a red moon.") + "," +
+            para("caption", "Akunda. The dry season.") + "," + para("dialogue", "TOM: Hey mate, how's life?") + "," +
+            para("panel", "Close on Snarf.") + "," + para("dialogue", "Snarf (whisper): Terrible. How's death?") + "," +
+            para("sfx", "CLATTER") + "," + para("page", "") + "," + para("panel", "The skeletons, loud.") + "," +
+            para("dialogue", "SKELETON: OI!") + "]}";
+        CHECK(lib->saveNodeContent(issue, docs));
+        auto ts = typesetBook(*lib, cb, preset("comic-script").design, res);
+        CHECK(ts.error.empty());
+        std::vector<std::string> pageText;
+        for (auto& p : ts.pages) {
+            std::string t;
+            for (auto& r : p.runs) for (auto g : r.glyphs) t += ts.fonts[r.font].toUnicode[g];
+            std::string squeezed;   // spaces (and the balloon numbers' no-break spaces) left out
+            for (size_t k = 0; k < t.size(); ++k) {
+                if (t[k] == ' ') continue;
+                if ((unsigned char)t[k] == 0xC2 && k + 1 < t.size() && (unsigned char)t[k + 1] == 0xA0) { ++k; continue; }
+                squeezed += t[k];
+            }
+            pageText.push_back(squeezed);
+        }
+        int first = -1, second = -1;
+        for (size_t i = 0; i < pageText.size(); ++i) {
+            if (pageText[i].find("PAGEONE") != std::string::npos) first = (int)i;
+            if (pageText[i].find("PAGETWO") != std::string::npos) second = (int)i;
+        }
+        CHECK(first >= 0 && second > first);
+        if (first >= 0) {
+            const std::string& t = pageText[first];
+            CHECK(t.find("(right,twopanels)") != std::string::npos);                  // page side and panel count
+            CHECK(t.find("Panel1") != std::string::npos && t.find("Panel2") != std::string::npos);
+            CHECK(t.find("1.CAPTION:Akunda") != std::string::npos);                    // balloons numbered
+            CHECK(t.find("2.TOM:Hey") != std::string::npos);
+            CHECK(t.find("3.SNARF(WHISPER):Terrible") != std::string::npos);
+            CHECK(t.find("SFX:CLATTER") != std::string::npos && t.find("4.SFX") == std::string::npos);
+        }
+        if (second >= 0) CHECK(pageText[second].find("(left,onepanel)") != std::string::npos && pageText[second].find("1.SKELETON:OI!") != std::string::npos);
+        bool courier = false;
+        for (auto& f : ts.fonts) if (f.path.find("courier-prime") != std::string::npos) courier = true;
+        CHECK(courier);
+    }
     // Symbols the book font lacks (point-of-view marks) come from the symbol fonts, not as empty boxes.
     {
         const Id sb = lib->createBook("Marks", {});
@@ -1240,7 +1288,7 @@ static void testWorldbuilding() {
                   "Steinriket and Steinriket's gate, not Stienriketan." && c == 2);
         }
         // Relationships: each kind's list reads both ways, and places don't offer family ties.
-        for (const char* k : {"character", "creature", "place", "group", "thing", "lore", "event"})
+        for (const char* k : {"character", "race", "creature", "place", "group", "thing", "lore", "event"})
             for (auto& rc : relationsFor(k)) {
                 const std::string back = reverseRelation(rc.label);
                 CHECK(reverseRelation(back) == rc.label);

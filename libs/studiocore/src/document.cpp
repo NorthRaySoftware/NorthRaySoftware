@@ -15,6 +15,9 @@ const std::vector<StyleInfo> kParagraphStyles = {
     {"body", "Body"},         {"first", "First paragraph (no indent)"}, {"centered", "Centred"},
     {"epigraph", "Epigraph"}, {"attribution", "Attribution"},           {"verse", "Verse"},
     {"letter", "Letter"},     {"note", "Note"},
+    // Comic scripts
+    {"page", "Page"},         {"panel", "Panel"},                       {"dialogue", "Dialogue"},
+    {"caption", "Caption"},   {"sfx", "SFX"},
 };
 
 namespace {

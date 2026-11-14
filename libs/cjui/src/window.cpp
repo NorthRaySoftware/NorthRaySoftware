@@ -262,9 +262,9 @@ void AppWindow::disabledButton(const Rect& r, const std::wstring& label) {
 
 bool AppWindow::linkText(const std::string& id, float x, float y, const std::wstring& label,
                          std::function<void()> action, Font f) {
-    // A quiet link: accent text with no underline; pointing at it lifts a soft tint behind it.
-    // "‹ Back" and "+ Add" get a drawn chevron or plus in place of the characters (same width,
-    // so callers that measure the label to right-align it stay right).
+    // A small button: plain text in a soft frame, lifting when pointed at. It's laid out where a
+    // link would be (callers measure the label), with its frame 7 DIPs around the text.
+    // "‹ Back" and "+ Add" get a drawn chevron or plus in place of the characters.
     const Font strong = f;
     std::wstring text = label;
     int icon = 0;   // 1 chevron, 2 plus
@@ -276,11 +276,14 @@ bool AppWindow::linkText(const std::string& id, float x, float y, const std::wst
     const float h = gfx_.measureHeight(text, tw + 2, strong);
     const float w = iw + tw;
     Rect r{x, y, w, h};
-    addHit(id, r.inset(-4), std::move(action));
+    const Rect box{x - 7, y - 3.5f, w + 14, h + 7};
+    addHit(id, box, std::move(action));
     const bool hov = hovered(id);
     const float a = hoverAmount(id);
-    const Color ink = pal_.ribbon.mix(pal_.ink, pal_.dark ? 0.12f : 0.18f).mix(pal_.ribbon, a);
-    if (a > 0.01f) gfx_.fillRounded({x - 6, y - 2, w + 12, h + 4}, 6, pal_.ribbon.withAlpha((pal_.dark ? 0.14f : 0.10f) * a));
+    const bool down = pressed(id);
+    gfx_.fillRounded(box, 6, pal_.ink.withAlpha((pal_.dark ? 0.06f : 0.04f) + (down ? 0.10f : 0.06f) * a));
+    gfx_.strokeRounded(box, 6, pal_.rule.mix(pal_.inkFaint, 0.6f * a), 1);
+    const Color ink = pal_.ink.mix(pal_.inkMuted, 0.15f * (1 - a));
     const float cy = y + h / 2;
     if (icon == 1) {
         const float cx = x + 4;
@@ -292,7 +295,7 @@ bool AppWindow::linkText(const std::string& id, float x, float y, const std::wst
         gfx_.line(cx, cy - 3.5f, cx, cy + 3.5f, ink, 1.5f);
     }
     gfx_.text(text, {x + iw, y, tw + 2, h}, strong, ink, {Align::Left, false});
-    if (focused(id)) focusRing(r.inset(-4));
+    if (focused(id)) focusRing(box);
     return hov;
 }
 

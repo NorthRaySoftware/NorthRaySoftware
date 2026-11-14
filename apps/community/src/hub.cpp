@@ -395,7 +395,7 @@ void CommunityApp::drawCard(const Rect& r, const AppItem& a) {
         float lx = tx + 14 + sw + 14;
         if (a.updateAvailable()) {
             linkText("upd:" + appId, lx, y, L"Update", [this, appId] { install(appId); });
-            lx += gfx_.measureWidth(L"Update", Font::Small) + 14;
+            lx += gfx_.measureWidth(L"Update", Font::Small) + 24;
         }
         if (!running) linkText("rm:" + appId, lx, y, L"Uninstall", [this, appId] { uninstall(appId); });
     }

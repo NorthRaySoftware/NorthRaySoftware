@@ -566,7 +566,7 @@ void BrowserWindow::drawBookmarksPage(const Rect& r) {
             const std::wstring del = L"Delete", ren = L"Rename";
             ax -= gfx_.measureWidth(del, Font::Small);
             linkText("bmr:del:" + std::to_string(b.id), ax, row.y + 15, del, [this, bid = b.id] { deleteBookmark(bid); });
-            ax -= 16 + gfx_.measureWidth(ren, Font::Small);
+            ax -= 26 + gfx_.measureWidth(ren, Font::Small);
             linkText("bmr:ren:" + std::to_string(b.id), ax, row.y + 15, ren, [this, bid = b.id] { startRename(bid); });
         }
         if (focused(id)) focusRing(row);

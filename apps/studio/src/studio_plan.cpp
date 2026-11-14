@@ -444,7 +444,7 @@ void StudioApp::drawPlanPanel(const Rect& r) {
         auto link = [&](const std::string& id, const std::wstring& t, std::function<void()> act) {
             linkText(id, lx, y, t, std::move(act));
             lw = gfx_.measureWidth(t, Font::Small);
-            lx += lw + 18;
+            lx += lw + 26;
         };
         link("pl:up", L"Move earlier", [this] { moveNodeBy(pl_.node, -1); pl_.appearances = lib_->appearancesIn(pl_.book); });
         link("pl:down", L"Move later", [this] { moveNodeBy(pl_.node, 1); pl_.appearances = lib_->appearancesIn(pl_.book); });

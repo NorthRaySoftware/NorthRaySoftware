@@ -1297,7 +1297,7 @@ void StudioApp::drawPanel(const Rect& r) {
         float lx = c.x;
         auto link = [&](const std::string& id, const std::wstring& t, std::function<void()> act) {
             linkText(id, lx, y, t, std::move(act));
-            lx += gfx_.measureWidth(t, Font::Small) + 18;
+            lx += gfx_.measureWidth(t, Font::Small) + 26;
         };
         if (focus_.kind == Focus::Node) {
             link("panel:up", L"Move up", [this] { moveNodeBy(focus_.id, -1); });

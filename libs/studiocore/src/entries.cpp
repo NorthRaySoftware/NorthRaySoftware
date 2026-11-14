@@ -16,10 +16,11 @@ using namespace detail;
 using nlohmann::json;
 
 const std::vector<std::string>& entryKinds() {
-    static const std::vector<std::string> k{"character", "creature", "place", "group", "thing", "lore", "event"};
+    static const std::vector<std::string> k{"character", "race", "creature", "place", "group", "thing", "lore", "event"};
     return k;
 }
 const char* entryKindLabel(const std::string& k) {
+    if (k == "race") return "Race";
     if (k == "creature") return "Creature";
     if (k == "place") return "Place";
     if (k == "group") return "Group";
@@ -29,6 +30,7 @@ const char* entryKindLabel(const std::string& k) {
     return "Character";
 }
 const char* entryKindPlural(const std::string& k) {
+    if (k == "race") return "Races";
     if (k == "creature") return "Creatures";
     if (k == "place") return "Places";
     if (k == "group") return "Groups";
@@ -89,10 +91,15 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Partner of", "character"}, {"Married to", "character"}, {"Loves", "character"}, {"Friend of", "character"},
         {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
         {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
-        {"Member of", "group"}, {"Leader of", "group"}, {"Rules", "place group"}, {"Lives in", "place"}, {"Born in", "place"},
+        {"Member of", "group race"}, {"Leader of", "group race"}, {"Rules", "place group"}, {"Lives in", "place"}, {"Born in", "place"},
         {"Founded", "place group"}, {"Owns", "thing place"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore"},
         {"Rides", "creature"}, {"Tames", "creature"}, {"Hunts", "creature character"},
         {"Took part in", "event"}, {"Caused", "event"}, {"Related to", ""}};
+    static const std::vector<RelationChoice> race{
+        {"Has member", "character"}, {"Led by", "character group"}, {"Native to", "place"}, {"Lives in", "place"},
+        {"Rules", "place"}, {"Ally of", "race group place"}, {"Rival of", "race group"}, {"Enemy of", "race group place"},
+        {"Kind of", "race"}, {"Has kind", "race"}, {"Comes from", "place lore"}, {"Believes in", "lore"}, {"Practises", "lore"},
+        {"Made by", "character race"}, {"Took part in", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> creature{
         {"Native to", "place"}, {"Lives in", "place"}, {"Ridden by", "character"}, {"Tamed by", "character group"},
         {"Hunts", "creature character"}, {"Hunted by", "character group creature"}, {"Guards", "place thing character"},
@@ -125,6 +132,7 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Involved", "character group thing"}, {"Took place in", "place"}, {"Caused by", "character group event thing"},
         {"Led to", "event"}, {"Followed from", "event"}, {"Part of", "event"}, {"Includes", "event"},
         {"Origin of", "lore thing"}, {"Related to", ""}};
+    if (kind == "race") return race;
     if (kind == "creature") return creature;
     if (kind == "place") return place;
     if (kind == "group") return group;

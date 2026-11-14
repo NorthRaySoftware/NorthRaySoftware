@@ -499,6 +499,11 @@ private:
         std::string mentionsKey;   // the names they were found for
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
         std::vector<const studio::Entry*> scopeEntries;   // this frame's entries, for links
+        // The bible by book: each entry's first book (in series reading order), worked out from the text
+        // when anything in the library changes.
+        std::vector<Id> bookOrder;
+        std::map<Id, size_t> firstBook;   // entry -> index into bookOrder
+        std::string firstBookKey;
         // Image boards
         std::string board;         // the board open ("" = none)
         std::string item;          // the picture selected on it

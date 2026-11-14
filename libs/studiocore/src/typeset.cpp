@@ -53,6 +53,23 @@ const std::vector<Preset>& presets() {
         large.marginInside = 0.9;
         large.marginOutside = 0.65;
         p.push_back({"large-print", "Large print", "Gentium Book at 14 pt for easier reading.", large});
+        Design comic;
+        comic.comicScript = true;
+        comic.trim = "8.5x11in";
+        comic.font = "courier-prime";
+        comic.fontSize = 12;
+        comic.leading = 14.4;
+        comic.marginTop = comic.marginBottom = comic.marginInside = comic.marginOutside = 1.0;
+        comic.indentEm = 0;
+        comic.justify = false;
+        comic.hyphenate = false;
+        comic.copyrightPage = false;
+        comic.contents = false;
+        comic.leadIn = false;
+        comic.frontRoman = false;
+        comic.chapterStyle = "title";
+        comic.chapterSinkLines = 0;
+        p.push_back({"comic-script", "Comic script", "Courier Prime on US Letter, the layout artists and letterers expect: each comic page on a new page, panels and balloons numbered.", comic});
         return p;
     }();
     return v;
@@ -89,6 +106,7 @@ struct Block {
     int spaceBefore = 0, spaceAfter = 0;   // blank lines
     bool keepWithNext = false;
     bool heading = false;
+    bool breakBefore = false;      // starts a new page (a comic script's PAGE)
     // Drop cap: the letter(s) set large in the first lines (taken out of spans).
     std::string drop;
     int dropLines = 0;
@@ -222,6 +240,130 @@ std::string roman(int n) {
 std::string lowerAscii(std::string s) {
     for (auto& c : s) c = (char)std::tolower((unsigned char)c);
     return s;
+}
+
+// ------------------------------------------------------- comic scripts
+
+static std::string upperAscii(std::string s) {
+    for (auto& c : s) c = (char)std::toupper((unsigned char)c);
+    return s;
+}
+static std::string trimmedText(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && std::isspace((unsigned char)s[a])) ++a;
+    while (b > a && std::isspace((unsigned char)s[b - 1])) --b;
+    return s.substr(a, b - a);
+}
+
+// How many panels each comic page has, for "PAGE ONE (four panels)".
+std::vector<int> comicPanelCounts(const json& content) {
+    std::vector<int> out;
+    if (!content.is_array()) return out;
+    for (const json& n : content) {
+        if (n.value("type", "") != "paragraph") continue;
+        const std::string st = n.value("attrs", json::object()).value("style", "body");
+        if (st == "page") out.push_back(0);
+        else if (st == "panel") { if (out.empty()) out.push_back(0); ++out.back(); }
+    }
+    return out;
+}
+
+// A chapter (an issue) of a comic script as blocks: pages, panels and balloons are numbered here,
+// so the writer never types a number. Page numbers carry on through the book (`pageNo`).
+void comicBlocks(const json& content, std::vector<Block>& out, int& pageNo) {
+    if (!content.is_array()) return;
+    const std::vector<int> panels = comicPanelCounts(content);
+    int panelNo = 0, balloonNo = 0, pageIndex = -1;
+    bool firstPage = true;
+    for (const json& n : content) {
+        const std::string t = n.value("type", "");
+        if (t != "paragraph") { collectBlocks(json::array({n}), out, Block{}, 0); continue; }
+        const std::string st = n.value("attrs", json::object()).value("style", "body");
+        std::vector<Span> spans;
+        inlineSpans(n.value("content", json::array()), spans, Span{});
+        std::string text;
+        for (auto& s : spans) text += s.text;
+        Block b;
+        b.align = Align::Left;
+        b.indent = false;
+        b.spaceAfter = 1;
+        if (st == "page") {
+            ++pageNo;
+            ++pageIndex;
+            panelNo = balloonNo = 0;
+            const int count = pageIndex < (int)panels.size() ? panels[pageIndex] : 0;
+            std::string note = pageNo % 2 ? "right" : "left";
+            if (count) note += ", " + lowerAscii(spelled(count)) + (count == 1 ? " panel" : " panels");
+            Span s;
+            s.bold = s.underline = true;
+            s.text = "PAGE " + upperAscii(spelled(pageNo));
+            b.spans.push_back(s);
+            Span r;
+            r.bold = true;
+            r.text = " (" + note + ")";
+            b.spans.push_back(r);
+            if (!trimmedText(text).empty()) { Span x; x.text = "  " + trimmedText(text); b.spans.push_back(x); }
+            b.breakBefore = !firstPage;
+            b.keepWithNext = true;
+            b.heading = true;
+            firstPage = false;
+            out.push_back(std::move(b));
+            continue;
+        }
+        if (st == "panel") {
+            ++panelNo;
+            Block l = b;
+            Span s;
+            s.bold = true;
+            s.text = "Panel " + std::to_string(panelNo);
+            l.spans = {s};
+            l.spaceAfter = 0;
+            l.keepWithNext = true;
+            l.heading = true;
+            out.push_back(std::move(l));
+            if (!trimmedText(text).empty()) { b.spans = spans; out.push_back(std::move(b)); }
+            continue;
+        }
+        if (st == "dialogue" || st == "caption" || st == "sfx") {
+            // "TOM: Hey mate." -> "1. TOM: Hey mate." (the name in bold capitals). SFX aren't numbered.
+            b.leftEm = 4;
+            b.firstEm = st == "sfx" ? 0 : -2;
+            std::string who;
+            size_t cut = std::string::npos;
+            if (st == "dialogue") {
+                const size_t colon = text.find(':');
+                if (colon != std::string::npos && colon < 48) { who = trimmedText(text.substr(0, colon)); cut = colon + 1; }
+            } else {
+                who = st == "caption" ? "CAPTION" : "SFX";
+                const std::string up = upperAscii(text.substr(0, std::min<size_t>(text.size(), 8)));
+                if (up.rfind(who, 0) == 0) {
+                    const size_t colon = text.find(':');
+                    cut = colon != std::string::npos && colon < 12 ? colon + 1 : who.size();
+                } else cut = 0;
+            }
+            std::vector<Span> rest;
+            if (cut == std::string::npos) rest = spans;
+            else {
+                size_t skip = cut;
+                for (auto s : spans) {
+                    if (skip >= s.text.size()) { skip -= s.text.size(); continue; }
+                    s.text = s.text.substr(skip);
+                    skip = 0;
+                    rest.push_back(s);
+                }
+                while (!rest.empty() && !rest.front().text.empty() && rest.front().text[0] == ' ') rest.front().text.erase(0, 1);
+            }
+            if (st != "sfx") { Span num; num.text = std::to_string(++balloonNo) + ". "; b.spans.push_back(num); }
+            if (!who.empty()) { Span name; name.bold = true; name.text = upperAscii(who) + ": "; b.spans.push_back(name); }
+            for (auto& s : rest) b.spans.push_back(s);
+            out.push_back(std::move(b));
+            continue;
+        }
+        // Anything else (notes to the artist, body text): plain, left-aligned.
+        b.spans = spans;
+        if (st == "note") for (auto& s : b.spans) s.italic = true;
+        out.push_back(std::move(b));
+    }
 }
 
 // A chapter title split into its label and the rest: "Chapter 3: The Storm" ->
@@ -867,6 +1009,7 @@ Design designFromJson(const std::string& text) {
     d.runningHeads = j.value("runningHeads", d.runningHeads);
     d.chapterSinkLines = std::clamp(j.value("chapterSinkLines", d.chapterSinkLines), 0, 20);
     d.sceneBreak = j.value("sceneBreak", d.sceneBreak);
+    d.comicScript = j.value("comicScript", d.comicScript);
     return d;
 }
 
@@ -875,7 +1018,7 @@ std::string designToJson(const Design& d) {
                 {"marginBottom", d.marginBottom}, {"marginInside", d.marginInside}, {"marginOutside", d.marginOutside},
                 {"indentEm", d.indentEm}, {"justify", d.justify}, {"hyphenate", d.hyphenate}, {"titlePage", d.titlePage}, {"copyrightPage", d.copyrightPage}, {"contents", d.contents}, {"leadIn", d.leadIn}, {"dropCap", d.dropCap}, {"frontRoman", d.frontRoman}, {"chapterStyle", d.chapterStyle},
                 {"chaptersOnRecto", d.chaptersOnRecto}, {"runningHeads", d.runningHeads}, {"chapterSinkLines", d.chapterSinkLines},
-                {"sceneBreak", d.sceneBreak}}
+                {"sceneBreak", d.sceneBreak}, {"comicScript", d.comicScript}}
         .dump();
 }
 
@@ -1029,13 +1172,17 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
     std::string currentChapter;
     bool firstInChapter = true;
     bool afterBreak = true;
+    int comicPage = 0;   // comic scripts: page numbers run on through the book
     if (src.sections.empty()) { book.error = "This book has no chapters yet."; return book; }
     for (const Source::Section& sec : src.sections) {
         const Source::Section* n = &sec;
         const std::string& title = sec.title;
         const json docj = json::parse(sec.content, nullptr, false);
         std::vector<Block> blocks;
-        if (docj.is_object()) collectBlocks(docj.value("content", json::array()), blocks, Block{}, 0);
+        if (docj.is_object()) {
+            if (d.comicScript) comicBlocks(docj.value("content", json::array()), blocks, comicPage);
+            else collectBlocks(docj.value("content", json::array()), blocks, Block{}, 0);
+        }
         // Drop empty paragraphs (they'd be blank lines).
         blocks.erase(std::remove_if(blocks.begin(), blocks.end(), [](const Block& b) {
             if (b.type != Block::Para) return false;
@@ -1180,6 +1327,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 continue;
             }
             // Paragraph.
+            if (b.breakBefore && !firstInChapter) newPage(Page::Text, false, title);
             if (b.spaceBefore && !firstInChapter) space(b.spaceBefore);
             bool loose = false;
             Block lead;

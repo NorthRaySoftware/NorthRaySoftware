@@ -482,7 +482,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
             const float ay = y + 46;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
                 linkText(id, ax, ay, t, std::move(f));
-                ax += gfx_.measureWidth(t, Font::Small) + 18;
+                ax += gfx_.measureWidth(t, Font::Small) + 26;
             };
             if (!is.nodes.empty())
                 act("rv:nm:open:" + is.name, L"Show it", [this, nid = is.nodes.front(), nm = is.name] {

@@ -43,6 +43,9 @@ struct Design {
     bool chaptersOnRecto = false;       // chapters start on a right-hand page
     bool runningHeads = true;           // book title on left pages, chapter title on right pages
     int chapterSinkLines = 7;           // how far down the page a chapter opens
+    // A comic script: Page, Panel, Dialogue, Caption and SFX paragraphs set in the industry layout
+    // (PAGE ONE (four panels), Panel 1, numbered balloons), each comic page on a new page.
+    bool comicScript = false;
     std::string sceneBreak = "* * *";
 };
 

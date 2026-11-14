@@ -1041,7 +1041,7 @@ float StudioApp::pageImport(const Rect& r0) {
         });
         lx -= 16 + wn;
         linkText("imp:none", lx, y - 2, L"None", [this] { for (auto& s : importPlan_->sections) s.include = false; });
-        lx -= 16 + wa;
+        lx -= 26 + wa;
         linkText("imp:all", lx, y - 2, L"All", [this] { for (auto& s : importPlan_->sections) s.include = true; });
     }
     y += 26;
