@@ -676,7 +676,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += 40;
         }
         y = drawKindSuggestions(m, y);
-        if (wb_.kind == "creature" && wb_.facet.empty()) {
+        if (wb_.kind == "creature" && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
             y = drawCreatureTree(m, y);
         } else if (list.empty()) {
             const std::wstring hint = wb_.kind.empty()
@@ -1327,7 +1327,8 @@ float StudioApp::drawKindSuggestions(const Rect& m, float y) {
     return card.bottom() + 22;
 }
 
-// Creatures as an indented list: species, their breeds, and the named ones (characters) under them.
+// Creatures, one level at a time: the species as cards; a species' card shows its kinds; a kind's card
+// shows the named ones (characters) of that kind. Each level can be dragged onto a card to move it.
 float StudioApp::drawCreatureTree(const Rect& m, float y) {
     const auto all = lib_->entriesOf(wb_.world, wb_.book);
     std::map<Id, std::vector<const Entry*>> kids, named;
@@ -1342,92 +1343,130 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
         if (e->kind == "creature") {
             if (up.empty()) roots.push_back(e);
             else kids[up].push_back(e);
-        } else if (!up.empty()) named[up].push_back(e);   // a named creature
+        } else if (!up.empty()) named[up].push_back(e);
     }
-    std::function<int(const Id&)> under = [&](const Id& id) {
-        int n = 0;
-        for (const Entry* k : kids[id]) n += 1 + under(k->id);
-        return n + (int)named[id].size();
+    // Where we are: the species list, or under one species or kind.
+    const Id at = wb_.facet.rfind("under=", 0) == 0 ? Id(wb_.facet.substr(6)) : Id{};
+    const Entry* here = at.empty() ? nullptr : lib_->entry(at);
+    if (!at.empty() && (!here || here->deleted)) { wb_.facet.clear(); return y; }
+    auto parentOfE = [&](const Entry* e) -> const Entry* {
+        for (const EntryLink& l : lib_->linksOf(e->id))
+            if (l.from == e->id && l.label == "Kind of") if (const Entry* o = lib_->entry(l.to); o && !o->deleted && o->kind == "creature") return o;
+        return nullptr;
     };
+    auto go = [this](const Id& id) { wb_.kind = "creature"; wb_.facet = id.empty() ? std::string() : "under=" + id; wb_.scroll = 0; invalidate(); };
+
+    // The path back up: Creatures › Dragon › Wyvern.
+    if (here) {
+        std::vector<const Entry*> path;
+        for (const Entry* p = here; p && path.size() < 12; p = parentOfE(p)) path.insert(path.begin(), p);
+        float bx = m.x;
+        linkText("wb:crumb:root", bx + 7, y, L"Creatures", [go] { go({}); });
+        bx += gfx_.measureWidth(L"Creatures", Font::Small) + 22;
+        for (const Entry* p : path) {
+            gfx_.text(L"›", {bx, y, 14, 22}, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+            bx += 18;
+            if (p == here) {
+                gfx_.text(w(p->name), {bx, y, 300, 22}, Font::SmallStrong, pal_.ink, {Align::Left, false, true, true});
+            } else {
+                linkText("wb:crumb:" + p->id, bx + 7, y, w(p->name), [go, id = p->id] { go(id); });
+                bx += gfx_.measureWidth(w(p->name), Font::Small) + 22;
+            }
+        }
+        y += 36;
+    }
+    // What can be done here.
     if (drag_.active && drag_.kind == DragState::Entry) {
-        // Dropping here (in place of the buttons, so nothing moves): a species of its own.
         const Rect zone{m.x, y - 4, m.w, 38};
         gfx_.fillRounded(zone, 6, pal_.surface);
         gfx_.strokeRounded(zone, 6, pal_.inkFaint, 1);
         gfx_.text(L"Drop here to make it a species of its own", zone, Font::Small, pal_.inkMuted, {Align::Center, false, false, true});
         addDrop({Drop::KindOf, zone, Id{}, {}, false, false, {}});
     } else {
-        const std::wstring add = L"+ New species";
-        button("wb:newspecies", {m.x, y, gfx_.measureWidth(add, Font::Small) + 28, 30}, add, [this] { newEntry("creature"); }, false);
-        gfx_.text(L"Drag a kind onto another to put it under it. Right-click to change what kind of entry it is.",
-                  {m.x + gfx_.measureWidth(add, Font::Small) + 44, y, m.w - 200, 30}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
+        float bx = m.x;
+        const std::wstring add = here ? L"+ Add a kind of " + w(here->name) : L"+ New species";
+        const float aw = gfx_.measureWidth(add, Font::Small) + 28;
+        button("wb:tree:addhere", {bx, y, aw, 30}, add, [this, at] { if (at.empty()) newEntry("creature"); else addKindUnder(at); }, false);
+        bx += aw + 8;
+        if (here) {
+            const std::wstring open = L"Open " + w(here->name) + L"'s page";
+            const float ow = gfx_.measureWidth(open, Font::Small) + 28;
+            button("wb:tree:openhere", {bx, y, ow, 30}, open, [this, at] { openEntry(at); }, false);
+            bx += ow + 8;
+        }
+        gfx_.text(L"Click a card to go in. Drag a card onto another to move it under that one.", {bx + 8, y, m.right() - bx - 8, 30}, Font::Small,
+                  pal_.inkFaint, {Align::Left, false, true, true});
     }
     y += 46;
-    if (roots.empty())
-        return y + gfx_.text(L"No creatures yet. Add a species (a Dragon, say), then its kinds under it (a Wyvern), and the named ones "
-                             L"(Bluebolt) as characters that are a kind of it.", {m.x, y, std::min(m.w, 640.0f), 80}, Font::Body, pal_.inkMuted) + 16;
-    std::function<void(const Entry*, int, bool, const Entry*)> row = [&](const Entry* e, int depth, bool individual, const Entry* parent) {
-        // A card per entry, indented under its species or kind; the arrow at its left opens and closes the family.
-        const float indent = depth * 34.0f, ch = 76;
-        const Rect cr{m.x + 26 + indent, y, std::min(m.w - 26 - indent, 640.0f), ch};
+
+    // The cards at this level: kinds first, then the named ones.
+    std::vector<std::pair<const Entry*, bool>> cards;   // entry, named (a character)
+    for (const Entry* e : here ? kids[at] : roots) cards.push_back({e, false});
+    if (here) for (const Entry* e : named[at]) cards.push_back({e, true});
+    if (cards.empty()) {
+        const std::wstring hint = here ? L"Nothing under " + w(here->name) + L" yet. Add its kinds, or make a character one of them (on the "
+                                         L"character's page, choose “A creature?”)."
+                                       : L"No creatures yet. Add a species (a Dragon, say), then its kinds (a Wyvern), then the named ones.";
+        return y + gfx_.text(hint, {m.x, y, std::min(m.w, 640.0f), 80}, Font::Body, pal_.inkMuted) + 16;
+    }
+    const float gap = 16;
+    const int cols = std::max(1, (int)((m.w + gap) / (240 + gap)));
+    const float cardW = (m.w - gap * (cols - 1)) / cols, cardH = 104;
+    bool namedHeading = false;
+    int col = 0;
+    for (size_t i = 0; i < cards.size(); ++i) {
+        const Entry* e = cards[i].first;
+        const bool isNamed = cards[i].second;
+        if (isNamed && !namedHeading) {
+            if (col) { y += cardH + gap; col = 0; }
+            if (i > 0) y += 8;
+            gfx_.text(L"NAMED " + upper(w(here->name)), {m.x, y, m.w, 18}, Font::Label, pal_.inkMuted, {Align::Left, false});
+            gfx_.line(m.x, y + 24.5f, m.right(), y + 24.5f, pal_.rule);
+            y += 36;
+            namedHeading = true;
+        } else if (!isNamed && i == 0 && here) {
+            gfx_.text(L"KINDS OF " + upper(w(here->name)), {m.x, y, m.w, 18}, Font::Label, pal_.inkMuted, {Align::Left, false});
+            gfx_.line(m.x, y + 24.5f, m.right(), y + 24.5f, pal_.rule);
+            y += 36;
+        }
+        const Rect cr{m.x + col * (cardW + gap), y, cardW, cardH};
         const std::string id = "wb:tree:" + e->id;
-        const bool hasKids = !kids[e->id].empty() || !named[e->id].empty();
-        const bool open = !wb_.collapsed.count(e->id);
-        if (depth > 0) {   // the line joining it to its parent
-            const float lx = m.x + 26 + indent - 20;
-            gfx_.line(lx, y - 8, lx, y + ch / 2, pal_.rule, 1.2f);
-            gfx_.line(lx, y + ch / 2, cr.x, y + ch / 2, pal_.rule, 1.2f);
-        }
-        if (hasKids) {
-            const Rect chev{cr.x - 24, cr.y + ch / 2 - 10, 20, 20};
-            addHit("wb:tree:fold:" + e->id, chev, [this, eid = e->id] {
-                if (wb_.collapsed.count(eid)) wb_.collapsed.erase(eid); else wb_.collapsed.insert(eid);
-                invalidate();
-            }, false);
-            gfx_.fillRounded(chev, 10, pal_.paper);
-            const float cx = chev.x + 10, cy = chev.y + 10;
-            if (open) { gfx_.line(cx - 4, cy - 2, cx, cy + 2.5f, pal_.inkMuted, 1.6f); gfx_.line(cx + 4, cy - 2, cx, cy + 2.5f, pal_.inkMuted, 1.6f); }
-            else { gfx_.line(cx - 2, cy - 4, cx + 2.5f, cy, pal_.inkMuted, 1.6f); gfx_.line(cx - 2, cy + 4, cx + 2.5f, cy, pal_.inkMuted, 1.6f); }
-        }
-        addHit(id, cr, [this, eid = e->id] { openEntry(eid); });
-        if (!individual) addDrop({Drop::KindOf, cr, e->id, {}, false, false, {}});
+        const int nKinds = (int)kids[e->id].size(), nNamed = (int)named[e->id].size();
+        const bool deeper = !isNamed;   // a species or kind goes in; a named one opens
+        addHit(id, cr, [this, go, eid = e->id, deeper] { if (deeper) go(eid); else openEntry(eid); });
+        if (!isNamed) addDrop({Drop::KindOf, cr, e->id, {}, false, false, {}});
         const float hv = hoverAmount(id);
         softShadow(cr, 4, hv);
         const cjui::Color kc = kindColor(e->kind, pal_.dark);
         gfx_.fillRounded(cr, 4, pal_.surface);
         gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
         gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
-        const Rect pic{cr.x + 14, cr.y + 10, 56, 56};
+        const Rect pic{cr.x + 14, cr.y + 14, 72, 72};
         if (e->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), pic, true)) {
-            gfx_.fillRounded(pic, 28, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-            gfx_.strokeRounded(pic.inset(0.75f), 27.25f, kc.withAlpha(0.45f), individual ? 2.0f : 1.5f);
-            gfx_.text(initials(e->name), pic, Font::BodyStrong, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+            gfx_.fillRounded(pic, 36, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+            gfx_.strokeRounded(pic.inset(0.75f), 35.25f, kc.withAlpha(0.45f), 1.5f);
+            gfx_.text(initials(e->name), pic, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
         }
         const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
-        std::wstring label = individual ? L"NAMED " + upper(w(parent ? parent->name : std::string())) + L"  ·  " + upper(w(entryKindLabel(e->kind)))
-                           : depth == 0 ? std::wstring(L"SPECIES") : L"KIND OF " + upper(w(parent ? parent->name : std::string()));
-        gfx_.text(label, {tx, cr.y + 11, tw - 90, 16}, Font::Label, kc, {Align::Left, false, true});
-        gfx_.text(w(e->name), {tx, cr.y + 28, tw - 90, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-        if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 50, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-        if (!individual) {
-            if (hv > 0.01f) {
-                const std::wstring add = L"+ Add a kind";
-                linkText("wb:tree:add:" + e->id, cr.right() - 14 - gfx_.measureWidth(add, Font::Small), cr.y + 10, add,
-                         [this, eid = e->id] { addKindUnder(eid); });
-            } else if (const int n = under(e->id)) {
-                gfx_.text(std::to_wstring(n) + (n == 1 ? L" under it" : L" under it"), {cr.right() - 110, cr.y + 10, 96, 18}, Font::Small, pal_.inkFaint,
-                          {Align::Right, false, false, true});
-            }
+        std::wstring label = isNamed ? upper(w(entryKindLabel(e->kind))) : here ? L"KIND OF " + upper(w(here->name)) : std::wstring(L"SPECIES");
+        if (isNamed)
+            for (const Facet* f : facetsFor(e->kind))
+                if (const std::string v = facetOf(*e, *f); !v.empty()) label += L"  ·  " + upper(w(v));
+        gfx_.text(label, {tx, cr.y + 14, tw, 16}, Font::Label, kc, {Align::Left, false, true});
+        gfx_.text(w(e->name), {tx, cr.y + 31, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 53, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        if (!isNamed) {
+            std::wstring counts;
+            if (nKinds) counts += std::to_wstring(nKinds) + (nKinds == 1 ? L" kind" : L" kinds");
+            if (nNamed) counts += (counts.empty() ? L"" : L"  ·  ") + std::to_wstring(nNamed) + L" named";
+            if (counts.empty()) counts = L"Nothing under it yet";
+            gfx_.text(counts + L"  ›", {tx, cr.y + 76, tw, 18}, Font::Small, kc.mix(pal_.inkMuted, 0.3f), {Align::Left, false, true});
         }
         if (focused(id)) focusRing(cr);
-        y += ch + 10;
-        if (!open) return;
-        for (const Entry* k : kids[e->id]) row(k, depth + 1, false, e);
-        for (const Entry* n : named[e->id]) row(n, depth + 1, true, e);
-    };
-    for (const Entry* r : roots) {
-        row(r, 0, false, nullptr);
-        y += 10;
+        if (++col == cols || i + 1 == cards.size() || (cards[i + 1].second && !isNamed)) {
+            y += cardH + gap;
+            col = 0;
+        }
     }
     return y + 20;
 }
