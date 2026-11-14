@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.34.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Choosing who a relationship is with (and a parent, partner, brother or sister, or child) now has a search field: type part of a name and the list narrows. Long lists scroll with the mouse wheel or Page Up and Page Down, so every entry can be reached.",
+        "Any long pop-up list in Writing Studio works the same way."
+      ]
+    },
+    {
       "version": "0.34.0",
       "date": "2026-11-14",
       "notes": [

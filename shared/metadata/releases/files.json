@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Search: type in the search box (Ctrl+F or F3) and results come straight away from the folder and every folder in it, with a Folder column saying where each one is. More letters narrow the results instantly; Esc goes back to the folder.",
+        "Search for a phrase in quotes, wildcards (*.png), a kind of file (kind:picture, video, music, document, archive or folder) or an extension (ext:psd, or just .psd).",
+        "“Search the whole PC” asks the Windows Search index, as File Explorer does. If Windows Search isn't available, Files says so and reads the drives instead.",
+        "Search results can be opened, copied, cut, renamed, deleted and dragged like anything else.",
+        "Long pop-up menus have a search field and scroll."
+      ]
+    },
+    {
       "version": "0.3.0",
       "date": "2026-11-14",
       "notes": [

@@ -54,7 +54,10 @@ private:
     struct Location {
         bool thisPC = false;
         std::wstring path;
-        bool operator==(const Location& o) const { return thisPC == o.thisPC && path == o.path; }
+        std::wstring query;       // a search in `path` (and its sub-folders) when not empty
+        bool everywhere = false;  // the search is of the whole PC (the Windows Search index)
+        bool operator==(const Location& o) const { return thisPC == o.thisPC && path == o.path && query == o.query && everywhere == o.everywhere; }
+        bool searching() const { return !query.empty(); }
     };
 
     // Tabs and panes (0.3). Each tab is a View: where it is, its history, its listing, selection and
@@ -78,6 +81,8 @@ private:
         float listTop = 0, tileW = 156, listX = 0;
         int columns = 1;
         ScrollState scroll{};
+        bool searchLimited = false, searchNoIndex = false, searchReplace = false;
+        std::uint64_t searchFolders = 0;
     };
     void swapView(View& v);
     View* viewForRequest(std::uint64_t request);
@@ -163,6 +168,24 @@ private:
     void typeAhead(wchar_t c);
     std::wstring rowPath(std::size_t row) const;
 
+    // Searching (0.4)
+    void searchTyped();                     // the search box changed: narrow at once, search again after a moment
+    void runSearch(const std::wstring& text, bool everywhere);
+    void endSearch();                       // back to the folder
+    void focusSearch();
+    void showSearchText();                  // the box shows the current tab's search
+    void drawSearchBox(const cjui::Rect& r);
+    float drawSearchBar(const cjui::Rect& r);   // above the results: what's searched, how many, where else to look
+    HWND search_ = nullptr;
+    bool settingSearch_ = false;
+    cjui::Rect searchRect_{};
+    bool searchLimited_ = false, searchNoIndex_ = false;
+    bool searchReplace_ = false;            // the next results replace what's shown (searching again)
+    void startListing();                    // reads here_ (a folder, This PC or a search) on a worker
+    static std::wstring nameFor(const Location& l);
+    std::uint64_t searchFolders_ = 0;
+    std::wstring searchFolderOf(std::size_t row) const;   // where a result is, below the searched folder
+
     // Drawing
     void drawSidebar(const cjui::Rect& r);
     void drawToolbar(const cjui::Rect& r);
@@ -229,7 +252,7 @@ private:
     // Renaming in place: a text field over the item's name.
     HWND rename_ = nullptr;
     int renameRow_ = -1;
-    std::wstring renameName_;
+    std::wstring renameName_, renameIn_;
     cjui::Rect renameRect_{};
     bool renaming_ = false;
     std::set<std::wstring> cutPaths_;          // waiting to be moved by Paste (drawn faded); lower case

@@ -5,6 +5,8 @@
 #include "nrf/paths.hpp"
 #include "operations.hpp"
 #include "resource.h"
+#include "search.hpp"
+#include "nrf/search.hpp"
 #include "version.hpp"
 
 #include "cjui/northray.hpp"
@@ -39,6 +41,7 @@ constexpr float kToolbarH = 56;
 constexpr float kHeaderH = 32;
 constexpr UINT_PTR kSpinTimer = 1;
 constexpr UINT_PTR kRefreshTimer = 2;   // the folder changed: list it again after a moment
+constexpr UINT_PTR kSearchTimer = 3;    // typing in the search box: search once it pauses
 constexpr UINT WM_APP_CHANGED = WM_APP + 50;
 
 enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes };
@@ -112,6 +115,10 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     address_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(address_, quietEditProc, 1, 0);
     SendMessageW(address_, EM_SETLIMITTEXT, 32767, 0);
+
+    search_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
+    SetWindowSubclass(search_, quietEditProc, 3, 0);
+    SendMessageW(search_, EM_SETLIMITTEXT, 260, 0);
 
     rename_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(rename_, quietEditProc, 2, 0);
@@ -218,31 +225,59 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
     }
     loadedOnce_ = true;
     if (thumbs_) thumbs_->forgetQueue();
+    // Searching again for something else in the same place: what's shown stays (narrowed to the new
+    // words) until the first new results come, so the list doesn't blink empty at every pause in typing.
+    const bool again = to.searching() && here_.searching() && !here_.thisPC && samePath(to.path, here_.path) && to.everywhere == here_.everywhere;
     here_ = to;
-    listed_.clear();
-    shown_.clear();
-    sel_.reset(0);
+    searchReplace_ = again;
+    if (!again) {
+        listed_.clear();
+        shown_.clear();
+        sel_.reset(0);
+    }
     error_ = ListError::None;
     errorCode_ = 0;
     partial_ = false;
     selectAfterLoad_ = select;
     typed_.clear();
-    resetScroll();
+    if (!again) resetScroll();
     loading_ = true;
     loadStarted_ = GetTickCount();
     request_ = nextRequest();
     latest_->store(request_);
-    if (to.thisPC) listDrivesAsync(hwnd(), request_, latest_);
-    else listFolderAsync(hwnd(), to.path, request_, latest_);
+    searchLimited_ = searchNoIndex_ = false;
+    searchFolders_ = 0;
+    KillTimer(hwnd(), kSearchTimer);
+    startListing();
     SetTimer(hwnd(), kSpinTimer, 120, nullptr);
+    if (!swappedIn_) showSearchText();
 
-    const std::wstring name = to.thisPC ? L"This PC" : (isDriveRoot(to.path) ? to.path.substr(0, 2) : nameOf(to.path));
+    const std::wstring name = nameFor(to);
     const std::wstring title = name + L" – NorthRay Files";
     if (title != windowTitle_ && !swappedIn_) {
         windowTitle_ = title;
         SetWindowTextW(hwnd(), title.c_str());
     }
     invalidate();
+}
+
+void FilesWindow::startListing() {
+    const Visibility vis{settings_.showHidden, settings_.showProtected};
+    if (here_.thisPC) listDrivesAsync(hwnd(), request_, latest_);
+    else if (here_.searching() && here_.everywhere) {
+        // The whole PC: the Windows Search index, or every drive's folders when it can't be asked.
+        std::vector<std::wstring> roots;
+        for (const Drive& d : drives_) if (d.ready && (d.type == DRIVE_FIXED || d.type == DRIVE_REMOVABLE)) roots.push_back(d.root);
+        if (roots.empty()) roots.push_back(here_.path);
+        searchIndexAsync(hwnd(), L"", here_.query, vis, roots, request_, latest_);
+    } else if (here_.searching()) searchFoldersAsync(hwnd(), {here_.path}, here_.query, vis, request_, latest_);
+    else listFolderAsync(hwnd(), here_.path, request_, latest_);
+}
+
+std::wstring FilesWindow::nameFor(const Location& l) {
+    if (l.searching()) return L"\u201C" + l.query + L"\u201D";
+    if (l.thisPC) return L"This PC";
+    return isDriveRoot(l.path) ? l.path.substr(0, 2) : nameOf(l.path);
 }
 
 void FilesWindow::back() {
@@ -265,6 +300,7 @@ void FilesWindow::forward() {
 
 void FilesWindow::up() {
     if (here_.thisPC) return;
+    if (here_.searching()) { endSearch(); return; }
     if (isRoot(here_.path)) {
         if (isDriveRoot(here_.path)) go({true, L""}, true, here_.path);
         return;
@@ -280,7 +316,7 @@ void FilesWindow::refresh() {
 
 std::wstring FilesWindow::rowPath(std::size_t row) const {
     if (here_.thisPC || row >= shown_.size()) return L"";
-    return join(here_.path, shown_[row].name);
+    return join(shown_[row].location.empty() ? here_.path : shown_[row].location, shown_[row].name);
 }
 
 void FilesWindow::open(std::size_t row) {
@@ -321,6 +357,11 @@ void FilesWindow::receive(ListBatch* b) {
         return;
     }
     if (here_.thisPC) return;
+    if (here_.searching()) {
+        searchLimited_ = searchLimited_ || b->limited;
+        searchNoIndex_ = b->noIndex;
+        searchFolders_ = std::max(searchFolders_, b->foldersRead);
+    }
     if (b->error == ListError::NotAFolder) {
         // A file's path: its folder, with it selected.
         here_.path = parentOf(here_.path);
@@ -343,6 +384,7 @@ void FilesWindow::receive(ListBatch* b) {
         if (b->error == ListError::None || !pending_.empty()) listed_.swap(pending_);
         pending_.clear();
     } else {
+        if (searchReplace_ && (!b->entries.empty() || b->done)) { listed_.clear(); searchReplace_ = false; }
         for (Entry& e : b->entries) listed_.push_back(std::move(e));
     }
     if (b->done) {
@@ -354,7 +396,7 @@ void FilesWindow::receive(ListBatch* b) {
             error_ = ListError::None;
         }
         // Changes made here or by any other program show by themselves.
-        if (error_ == ListError::None) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
+        if (error_ == ListError::None && !here_.searching()) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
     }
     showHere();
     if (b->done && !selectNames_.empty()) {
@@ -388,8 +430,10 @@ void FilesWindow::showHere() {
     const Visibility vis{settings_.showHidden, settings_.showProtected};
     shown_.clear();
     shown_.reserve(listed_.size());
+    // A search narrows what it found as more is typed (before it searches again).
+    const search::Query q = search::parse(here_.query);
     for (const Entry& e : listed_)
-        if (isVisible(e, vis)) shown_.push_back(e);
+        if (isVisible(e, vis) && (!here_.searching() || search::matches(q, e.name, e.folder()))) shown_.push_back(e);
     sortEntries(shown_, {(SortKey)settings_.sortKey, settings_.sortDescending});
 
     sel_.reset(shown_.size());
@@ -453,6 +497,20 @@ bool FilesWindow::preTranslate(MSG& msg) {
     if (msg.hwnd == rename_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) { endRename(true); return true; }
         if (msg.wParam == VK_ESCAPE) { endRename(false); return true; }
+    }
+    if (msg.hwnd == search_ && msg.message == WM_KEYDOWN) {
+        if (msg.wParam == VK_RETURN) {
+            KillTimer(hwnd(), kSearchTimer);
+            if (here_.searching()) go(here_, false);   // search again now
+            return true;
+        }
+        if (msg.wParam == VK_ESCAPE) { endSearch(); SetFocus(hwnd()); return true; }
+        if (msg.wParam == VK_DOWN && !shown_.empty()) {
+            SetFocus(hwnd());
+            if (sel_.focus() < 0) sel_.select(0);
+            invalidate();
+            return true;
+        }
     }
     if (msg.hwnd == address_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) { endEditingAddress(true); return true; }
@@ -520,6 +578,8 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
             case VK_OEM_5: setTwoPanes(!twoPanes_); return true;   // Ctrl and the backslash key
             case 'V': paste(); return true;
             case 'L': beginEditingAddress(); return true;
+            case 'F': focusSearch(); return true;
+            case 'E': focusSearch(); return true;
             case 'R': refresh(); return true;
             case VK_SPACE: sel_.toggleFocused(); return true;
             default: break;
@@ -537,6 +597,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     }
     switch (vk) {
         case VK_F4: beginEditingAddress(); return true;
+        case VK_F3: focusSearch(); return true;
         case VK_F2: beginRename(); return true;
         case VK_F6: if (twoPanes_) { activate(1 - pane_, activeTab_[1 - pane_]); return true; } break;
         case VK_DELETE: deleteSelection(shift); return true;
@@ -546,7 +607,10 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         case VK_BROWSER_FORWARD: forward(); return true;
         case VK_BROWSER_REFRESH: refresh(); return true;
         case VK_RETURN: openSelection(); return true;
-        case VK_ESCAPE: sel_.clear(); return true;
+        case VK_ESCAPE:
+            if (sel_.count() == 0 && here_.searching()) endSearch();
+            else sel_.clear();
+            return true;
         case VK_DOWN: moveTo(focus < 0 ? 0 : focus + cols); return true;
         case VK_UP: moveTo(focus < 0 ? 0 : focus - cols); return true;
         case VK_RIGHT: if (icons) { moveTo(focus < 0 ? 0 : focus + 1); return true; } break;
@@ -740,6 +804,16 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 handled = true;
                 return 0;
             }
+            if ((HWND)lp == search_ && HIWORD(wp) == EN_CHANGE) {
+                if (!settingSearch_) searchTyped();
+                handled = true;
+                return 0;
+            }
+            if ((HWND)lp == search_ && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) {
+                invalidate();
+                handled = true;
+                return 0;
+            }
             if ((HWND)lp == address_ && HIWORD(wp) == EN_KILLFOCUS) {
                 endEditingAddress(false);
                 handled = true;
@@ -747,7 +821,7 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             break;
         case WM_CTLCOLOREDIT:
-            if ((HWND)lp == address_ || (HWND)lp == rename_) {
+            if ((HWND)lp == address_ || (HWND)lp == rename_ || (HWND)lp == search_) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
                 SetBkColor(dc, toColorRef(pal_.sunken));
@@ -761,6 +835,11 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 }
 
 void FilesWindow::onTimer(UINT_PTR id) {
+    if (id == kSearchTimer) {
+        KillTimer(hwnd(), kSearchTimer);
+        if (here_.searching()) go(here_, false);
+        return;
+    }
     if (id == kRefreshTimer) {
         KillTimer(hwnd(), kRefreshTimer);
         if (!renaming_) reloadQuietly();
@@ -990,7 +1069,7 @@ void FilesWindow::copyOrCut(bool cut) {
 }
 
 void FilesWindow::paste(const std::wstring& into) {
-    if (here_.thisPC && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
+    if ((here_.thisPC || here_.searching()) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
     const std::wstring dest = into.empty() ? here_.path : into;
     const auto clip = ops::readClipboard(hwnd());
     if (clip.paths.empty()) { flash(L"There are no files on the clipboard. Copy (Ctrl+C) or cut (Ctrl+X) some first.", 6); return; }
@@ -1059,7 +1138,7 @@ void FilesWindow::deleteSelection(bool permanently) {
 }
 
 void FilesWindow::newFolder() {
-    if (here_.thisPC) { flash(L"Open a folder to make a new one in it.", 5); return; }
+    if (here_.thisPC || here_.searching()) { flash(L"Open a folder to make a new one in it.", 5); return; }
     const std::wstring name = uniqueName(L"New folder", namesHere(), true);
     const ops::Result r = ops::newFolder(join(here_.path, name));
     if (!r.ok) { flash(L"A folder couldn't be made here. " + r.message, 8); return; }
@@ -1084,6 +1163,7 @@ void FilesWindow::beginRename() {
     if (renaming_) endRename(false);
     renameRow_ = (int)rows[0];
     renameName_ = shown_[rows[0]].name;
+    renameIn_ = shown_[rows[0]].location.empty() ? here_.path : shown_[rows[0]].location;
     ensureVisible(rows[0]);
     renaming_ = true;
     renameRect_ = {};
@@ -1112,10 +1192,11 @@ void FilesWindow::endRename(bool commit) {
     while (!text.empty() && text.front() == L' ') text.erase(0, 1);
     if (!commit || text == renameName_) return;
     std::vector<std::wstring> others;
-    for (const Entry& e : listed_) if (e.name != renameName_) others.push_back(e.name);
+    for (const Entry& e : listed_)
+        if (e.name != renameName_ && (e.location.empty() ? here_.path : e.location) == renameIn_) others.push_back(e.name);
     const std::wstring problem = renameProblem(renameName_, text, others);
     if (!problem.empty()) { flash(problem, 7); return; }
-    const ops::Result r = ops::rename(hwnd(), join(here_.path, renameName_), text);
+    const ops::Result r = ops::rename(hwnd(), join(renameIn_, renameName_), text);
     if (!r.ok && !r.cancelled) { flash(L"It couldn't be renamed. " + r.message, 8); return; }
     if (r.ok) reloadQuietly({text});
 }
@@ -1128,13 +1209,23 @@ void FilesWindow::reloadQuietly(std::vector<std::wstring> select) {
     for (auto& n : select) selectNames_.insert(n);
     request_ = nextRequest();
     latest_->store(request_);
-    listFolderAsync(hwnd(), here_.path, request_, latest_);
+    searchReplace_ = false;
+    startListing();
 }
 
 void FilesWindow::moreOptions(POINT screen) {
     if (here_.thisPC) return;
     const bool extended = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    ops::showShellMenu(hwnd(), here_.path, selectedPaths(), screen, extended);
+    const auto paths = selectedPaths();
+    std::wstring folder = here_.path;
+    if (here_.searching()) {
+        // Windows' menu is for things in one folder.
+        if (paths.empty()) return;
+        folder = parentOf(paths[0]);
+        for (auto& p : paths)
+            if (!samePath(parentOf(p), folder)) { flash(L"Windows' own menu needs things from one folder. Select fewer.", 6); return; }
+    }
+    ops::showShellMenu(hwnd(), folder, paths, screen, extended);
     // Whatever it did (a new file, Send to, Properties...) shows when the folder changes.
 }
 
@@ -1270,6 +1361,155 @@ void FilesWindow::drawTree(const Rect& r, float& y, float bottom) {
     y = area.bottom();
 }
 
+// ---------------------------------------------------------------- searching
+
+void FilesWindow::showSearchText() {
+    if (!search_) return;
+    const int n = GetWindowTextLengthW(search_);
+    std::wstring cur((size_t)n, L'\0');
+    if (n) GetWindowTextW(search_, cur.data(), n + 1);
+    if (cur == here_.query) return;   // (setting it again would move the caret)
+    settingSearch_ = true;
+    SetWindowTextW(search_, here_.query.c_str());
+    settingSearch_ = false;
+    invalidate();
+}
+
+void FilesWindow::focusSearch() {
+    if (searchRect_.w <= 0) { flash(L"Make the window a little wider to search.", 5); return; }
+    if (editing_) endEditingAddress(false);
+    ShowWindow(search_, SW_SHOW);
+    SetFocus(search_);
+    SendMessageW(search_, EM_SETSEL, 0, -1);
+    invalidate();
+}
+
+void FilesWindow::searchTyped() {
+    const int n = GetWindowTextLengthW(search_);
+    std::wstring text((size_t)n, L'\0');
+    if (n) GetWindowTextW(search_, text.data(), n + 1);
+    std::wstring trimmed = text;
+    while (!trimmed.empty() && iswspace(trimmed.back())) trimmed.pop_back();
+    while (!trimmed.empty() && iswspace(trimmed.front())) trimmed.erase(0, 1);
+    if (search::parse(trimmed).empty()) {
+        // Nothing to look for (yet): the folder, as it was.
+        KillTimer(hwnd(), kSearchTimer);
+        if (here_.searching()) endSearch();
+        return;
+    }
+    if (!here_.searching()) {
+        // The first letter: results start at once (the folder and its sub-folders; from This PC, the whole PC).
+        if (here_.thisPC) {
+            std::wstring root = L"C:\\";
+            for (const Drive& d : drives_) if (d.ready) { root = d.root; break; }
+            go({false, root, trimmed, true});
+        } else {
+            go({false, here_.path, trimmed, false});
+        }
+        return;
+    }
+    const std::wstring old = here_.query;
+    here_.query = trimmed;
+    windowTitle_ = nameFor(here_) + L" \u2013 NorthRay Files";
+    SetWindowTextW(hwnd(), windowTitle_.c_str());
+    // More letters on the end of plain words only narrow what's found: no need to look again.
+    const bool narrows = trimmed.size() > old.size() && trimmed.compare(0, old.size(), old) == 0 &&
+                         old.find_first_of(L":*?\".") == std::wstring::npos && trimmed.find_first_of(L":*?\".") == std::wstring::npos &&
+                         !searchLimited_;
+    showHere();
+    if (!narrows) SetTimer(hwnd(), kSearchTimer, 220, nullptr);
+}
+
+void FilesWindow::runSearch(const std::wstring& text, bool everywhere) {
+    if (text.empty() || here_.thisPC) return;
+    go({false, here_.path, text, everywhere}, false);
+}
+
+void FilesWindow::endSearch() {
+    KillTimer(hwnd(), kSearchTimer);
+    if (!here_.searching()) { showSearchText(); return; }
+    const Location folder{false, here_.path};
+    if (!backStack_.empty() && backStack_.back() == folder) {
+        backStack_.pop_back();
+        go(folder, false);
+    } else {
+        go(folder, true);
+    }
+    showSearchText();
+}
+
+std::wstring FilesWindow::searchFolderOf(std::size_t row) const {
+    if (row >= shown_.size()) return L"";
+    const std::wstring& at = shown_[row].location;
+    if (at.empty()) return L"";
+    if (here_.everywhere) return at;
+    const std::wstring rel = search::relativeFolder(here_.path, at);
+    return rel.empty() ? (isDriveRoot(here_.path) ? here_.path : nameOf(here_.path)) : rel;
+}
+
+void FilesWindow::drawSearchBox(const Rect& r) {
+    searchRect_ = r;
+    const bool focusedBox = GetFocus() == search_;
+    const bool hasText = GetWindowTextLengthW(search_) > 0;
+    gfx_.fillRounded(r, 8, pal_.sunken);
+    gfx_.strokeRounded(r, 8, focusedBox ? pal_.focus : pal_.rule, focusedBox ? 1.5f : 1);
+    // A magnifying glass.
+    const float cx = r.x + 17, cy = r.y + r.h / 2 - 1;
+    gfx_.circle(cx, cy, 5.5f, pal_.inkMuted, false, 1.4f);
+    gfx_.line(cx + 4, cy + 4, cx + 8, cy + 8, pal_.inkMuted, 1.6f);
+    const float s = gfx_.dpiScale();
+    const float th = 20;
+    const float clearW = hasText ? 26 : 0;
+    if (focusedBox || hasText) {
+        SetWindowPos(search_, nullptr, (int)std::lround((r.x + 32) * s), (int)std::lround((r.y + (r.h - th) / 2) * s),
+                     (int)std::lround((r.w - 40 - clearW) * s), (int)std::lround(th * s), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else {
+        ShowWindow(search_, SW_HIDE);
+        const std::wstring where = here_.thisPC ? L"this PC" : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
+        gfx_.text(L"Search " + where, {r.x + 32, r.y, r.w - 40, r.h}, Font::Body, pal_.inkFaint, {Align::Left, false, true, true});
+        addHit("tb:search", r, [this] { focusSearch(); });
+    }
+    if (hasText) {
+        const Rect xb{r.right() - 28, r.y + (r.h - 22) / 2, 22, 22};
+        addHit("tb:search:clear", xb, [this] { endSearch(); });
+        const float hv = hoverAmount("tb:search:clear");
+        if (hv > 0.01f) gfx_.fillRounded(xb, 5, pal_.ink.withAlpha(0.08f * hv));
+        const float xc = xb.x + 11, yc = xb.y + 11;
+        gfx_.line(xc - 4, yc - 4, xc + 4, yc + 4, pal_.inkMuted, 1.3f);
+        gfx_.line(xc + 4, yc - 4, xc - 4, yc + 4, pal_.inkMuted, 1.3f);
+    }
+}
+
+float FilesWindow::drawSearchBar(const Rect& r) {
+    const float h = 46;
+    const Rect bar{r.x, r.y, r.w, h};
+    gfx_.fill(bar, pal_.surface.mix(pal_.paper, 0.6f));
+    gfx_.line(bar.x, bar.bottom() - 0.5f, bar.right(), bar.bottom() - 0.5f, pal_.rule);
+    const std::wstring folder = isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path);
+    const std::size_t n = shown_.size();
+    std::wstring found = n == 1 ? L"1 result" : std::to_wstring(n) + L" results";
+    if (searchLimited_) found = L"The first " + std::to_wstring(n) + L" results";
+    std::wstring where = here_.everywhere ? L" on this PC" : L" in \u201C" + folder + L"\u201D and the folders in it";
+    std::wstring text = (loading_ ? L"Searching" + where + L"\u2026 " + found + L" so far" : found + where);
+    if (here_.everywhere && searchNoIndex_)
+        text += loading_ ? L" (Windows Search isn't available, so the drives are being read)" : L" (Windows Search isn't available, so the drives were read)";
+    else if (here_.everywhere && !loading_)
+        text += L", from Windows Search (places it indexes)";
+    // The other place to look.
+    const std::wstring other = here_.everywhere ? L"Only in \u201C" + folder + L"\u201D" : L"Search the whole PC";
+    const float bw = std::min(gfx_.measureWidth(other, Font::Small) + 28, 240.0f);
+    const Rect b{bar.right() - bw - 14, bar.y + 8, bw, h - 16};
+    button(idPrefix_ + "tb:search:scope", b, other, [this] { runSearch(here_.query, !here_.everywhere); });
+    if (loading_) {
+        const double secs = (double)GetTickCount64() / 1000.0;
+        const float a0 = (float)std::fmod(secs * 6.0, 6.2831853);
+        gfx_.circle(bar.x + 26, bar.y + h / 2, 7, pal_.inkFaint.withAlpha(0.3f), false, 2);
+        arcLines(gfx_, bar.x + 26, bar.y + h / 2, 7, a0, a0 + 1.9f, pal_.ribbon, 2);
+    }
+    gfx_.text(text, {bar.x + (loading_ ? 42 : 18), bar.y, b.x - bar.x - 30, h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+    return h;
+}
+
 // ---------------------------------------------------------------- tabs and panes
 
 void FilesWindow::swapView(View& v) {
@@ -1297,6 +1537,10 @@ void FilesWindow::swapView(View& v) {
     swap(tileW_, v.tileW);
     swap(listX_, v.listX);
     swap(columns_, v.columns);
+    swap(searchLimited_, v.searchLimited);
+    swap(searchNoIndex_, v.searchNoIndex);
+    swap(searchReplace_, v.searchReplace);
+    swap(searchFolders_, v.searchFolders);
     const ScrollState mine = scrollState();
     setScrollState(v.scroll);
     v.scroll = mine;
@@ -1339,8 +1583,8 @@ void FilesWindow::activate(int pane, int tab) {
     activeTab_[pane] = tab;
     swapView(tabs_[pane][(size_t)tab]);   // ...and the chosen one comes out of its slot
     swappedIn_ = 0;
-    const std::wstring name = here_.thisPC ? L"This PC" : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
-    windowTitle_ = name + L" – NorthRay Files";
+    windowTitle_ = nameFor(here_) + L" – NorthRay Files";
+    showSearchText();
     SetWindowTextW(hwnd(), windowTitle_.c_str());
     invalidate();
 }
@@ -1430,7 +1674,7 @@ void FilesWindow::drawTabs(const Rect& r, int pane) {
     float x = r.x + 8;
     for (int t = 0; t < n; ++t) {
         const Location& l = tabLocation(pane, t);
-        const std::wstring name = l.thisPC ? L"This PC" : (isDriveRoot(l.path) ? l.path.substr(0, 2) : nameOf(l.path));
+        const std::wstring name = nameFor(l);
         const Rect tr{x, r.y + 4, tw - 4, r.h - 4};
         const std::string id = "tab:" + std::to_string(pane) + ":" + std::to_string(t);
         addHit(id, {tr.x, tr.y, tr.w - 24, tr.h}, [this, pane, t] { activate(pane, t); });
@@ -1522,7 +1766,7 @@ std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
         bool dragged = false;
         for (auto& d : drag_.paths) if (samePath(d, rowFolder)) dragged = true;
         if (!rowFolder.empty() && !dragged) out = rowFolder;
-        else if (p != drag_.fromPane) out = here_.path;   // the other pane's folder
+        else if (p != drag_.fromPane && !here_.searching()) out = here_.path;   // the other pane's folder
     }
     if (swapped) swapView(tabs_[p][(size_t)activeTab_[p]]);
     return out;
@@ -1677,6 +1921,7 @@ void FilesWindow::drawFrame(float W, float H) {
         addressFont_ = CreateFontW(-(int)std::lround(14 * addressScale_), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         SendMessageW(address_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
+        SendMessageW(search_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
     }
     const float side = W >= 760 ? kSidebarW : 0;   // a narrow window gives the files the room
     sidebarRect_ = {0, 0, side, H};
@@ -1831,7 +2076,11 @@ void FilesWindow::drawToolbar(const Rect& r) {
     x += bs + 10;
     const float right = r.right() - drawCaptionButtons(r, false) - 8;
     const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs;
-    drawAddress({x, by - 1, panesX - 12 - x, bs + 2});
+    const float avail = panesX - 12 - x;
+    const float searchW = avail >= 380 ? std::clamp(avail * 0.36f, 170.0f, 280.0f) : 0;   // a narrow window keeps the address
+    drawAddress({x, by - 1, avail - (searchW > 0 ? searchW + 8 : 0), bs + 2});
+    if (searchW > 0) drawSearchBox({x + avail - searchW, by - 1, searchW, bs + 2});
+    else { searchRect_ = {}; ShowWindow(search_, SW_HIDE); }
     if (twoPanes_) gfx_.fillRounded({panesX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
     navButton("tb:panes", {panesX, by, bs, bs}, IconPanes, true, [this] { setTwoPanes(!twoPanes_); });
     // Views: the current one is marked.
@@ -1924,11 +2173,11 @@ void FilesWindow::drawMessage(const Rect& r, const std::wstring& title, const st
     }
 }
 
-void FilesWindow::drawContent(const Rect& r) {
-    gfx_.fill(r, pal_.paper);
+void FilesWindow::drawContent(const Rect& rIn) {
+    gfx_.fill(rIn, pal_.paper);
     listClip_ = {};
     driveRects_.clear();
-    if (here_.thisPC) { drawThisPC(r); return; }
+    if (here_.thisPC) { drawThisPC(rIn); return; }
     if (error_ != ListError::None) {
         std::wstring title;
         std::wstring text = describeListError(error_, errorCode_, here_.path, &title);
@@ -1937,7 +2186,21 @@ void FilesWindow::drawContent(const Rect& r) {
             title = L"There's no " + here_.path.substr(0, 2) + L" drive";
             text = L"No drive on this PC is using that letter right now. A USB drive or network drive may have been disconnected.";
         }
-        drawMessage(r, title, text, true);
+        drawMessage(rIn, title, text, true);
+        return;
+    }
+    Rect r = rIn;
+    if (here_.searching()) {
+        const float bh = drawSearchBar(r);
+        r = {r.x, r.y + bh, r.w, r.h - bh};
+    }
+    if (shown_.empty() && here_.searching()) {
+        if (!loading_)
+            drawMessage(r, L"Nothing found",
+                        here_.everywhere ? L"No names on this PC match “" + here_.query + L"”. Try fewer or shorter words."
+                                         : L"No names in this folder or the folders in it match “" + here_.query +
+                                               L"”. Try fewer or shorter words, or search the whole PC.",
+                        false);
         return;
     }
     if (shown_.empty()) {
@@ -1977,7 +2240,9 @@ void FilesWindow::drawDetails(const Rect& r) {
     const float x0 = r.x + pad, w = r.w - pad * 2;
     // Columns: Name takes what's left; Type then Date go when it's narrow.
     const bool showType = w >= 620, showDate = w >= 430;
-    const float sizeW = 100, typeW = showType ? 170 : 0, dateW = showDate ? 170 : 0;
+    // Search results: where each one is, in place of its type.
+    const bool folderCol = here_.searching();
+    const float sizeW = 100, typeW = showType ? (folderCol ? std::min(260.0f, w * 0.3f) : 170) : 0, dateW = showDate ? 170 : 0;
     const float nameW = w - sizeW - typeW - dateW;
     const float xName = x0, xDate = xName + nameW, xType = xDate + dateW, xSize = xType + typeW;
 
@@ -2004,7 +2269,11 @@ void FilesWindow::drawDetails(const Rect& r) {
     };
     head(idPrefix_ + "tb:sort:name", L"Name", xName, nameW, SortKey::Name, false);
     head(idPrefix_ + "tb:sort:date", L"Date modified", xDate, dateW, SortKey::Modified, false);
-    head(idPrefix_ + "tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
+    if (folderCol) {
+        if (typeW > 0) gfx_.text(L"Folder", {xType + 10, hr.y, typeW - 24, hr.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+    } else {
+        head(idPrefix_ + "tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
+    }
     head(idPrefix_ + "tb:sort:size", L"Size", xSize, sizeW - 14, SortKey::Size, true);
 
     const Rect clip{r.x, hr.bottom() + 2, r.w, r.h - kHeaderH - 2};
@@ -2033,7 +2302,9 @@ void FilesWindow::drawDetails(const Rect& r) {
         const Color ink = fade < 1 ? pal_.inkMuted : pal_.ink;
         gfx_.text(e.name, {xName + 30, row.y, nameW - 40, row.h}, Font::Body, ink, {Align::Left, false, true, true});
         if (dateW > 0) gfx_.text(dateText(e.modified), {xDate + 10, row.y, dateW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-        if (typeW > 0) gfx_.text(e.type, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        if (typeW > 0)
+            gfx_.text(folderCol ? searchFolderOf(i) : e.type, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted,
+                      {Align::Left, false, true, true});
         if (!e.folder())
             gfx_.text(formatSizeKb(e.size), {xSize, row.y, sizeW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Right, false, true, true});
     }
@@ -2141,7 +2412,7 @@ std::wstring FilesWindow::statusText() const {
     } else if (error_ == ListError::None) {
         const std::size_t n = shown_.size(), hidden = listed_.size() - shown_.size();
         left = std::to_wstring(n) + (n == 1 ? L" item" : L" items");
-        if (hidden) left += L" (" + std::to_wstring(hidden) + L" hidden)";
+        if (hidden && !here_.searching()) left += L" (" + std::to_wstring(hidden) + L" hidden)";
         if (loading_) left += L"\nStill reading...";
         const auto sel = sel_.indices();
         if (!sel.empty()) {

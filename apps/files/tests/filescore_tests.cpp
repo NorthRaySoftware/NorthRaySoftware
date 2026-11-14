@@ -1,9 +1,11 @@
 // Unit tests for NorthRay Files' portable core. Dependency-free like the other
 // suites: run it, it prints each group and exits non-zero on failure.
+#include "nrf/art.hpp"
 #include "nrf/exif.hpp"
 #include "nrf/listing.hpp"
 #include "nrf/operations.hpp"
 #include "nrf/paths.hpp"
+#include "nrf/search.hpp"
 
 #include <cstdio>
 #include <vector>
@@ -320,6 +322,152 @@ static void testOperations() {
     }
 }
 
+
+static void testSearch() {
+    std::printf("search\n");
+    using namespace nrf::search;
+    Query q = parse(L"Cover  Sketch");
+    CHECK(q.words.size() == 2);
+    CHECK(matches(q, L"old sketch for the COVER.png", false));
+    CHECK(!matches(q, L"cover.png", false));
+    q = parse(L"\"dragon map\" final");
+    CHECK(q.words.size() == 2);
+    CHECK_EQ(q.words[0], L"dragon map");
+    CHECK(matches(q, L"Dragon Map (final).psd", false));
+    CHECK(!matches(q, L"map of the dragon final.psd", false));
+    q = parse(L"*.png");
+    CHECK(q.patterns.size() == 1 && q.words.empty());
+    CHECK(matches(q, L"Cover.PNG", false));
+    CHECK(!matches(q, L"cover.png.txt", false));
+    CHECK(wildcardMatch(L"ch?pter*", L"Chapter 12.docx"));
+    CHECK(!wildcardMatch(L"ch?pter*", L"Chpter 12.docx"));
+    CHECK(wildcardMatch(L"*a*b*c*", L"xxaxxbxxcxx"));
+    CHECK(!wildcardMatch(L"*a*b*c", L"xxaxxbxxcxx"));
+    CHECK(wildcardMatch(L"*", L""));
+    q = parse(L"kind:picture tree");
+    CHECK(q.kind == Kind::Picture);
+    CHECK(matches(q, L"Tree study.psd", false));
+    CHECK(matches(q, L"tree.procreate", false));
+    CHECK(!matches(q, L"tree notes.txt", false));
+    CHECK(!matches(q, L"Trees", true));
+    q = parse(L"type:folder");
+    CHECK(matches(q, L"Anything", true) && !matches(q, L"Anything.txt", false));
+    q = parse(L"ext:PSD");
+    CHECK(q.exts.size() == 1 && q.exts[0] == L".psd");
+    CHECK(matches(q, L"a.Psd", false) && !matches(q, L"a.png", false));
+    q = parse(L".kra");
+    CHECK(q.exts.size() == 1 && matches(q, L"study.kra", false));
+    q = parse(L"kind:wizard");
+    CHECK(q.kind == Kind::Any && q.words.size() == 1);
+    CHECK(parse(L"   ").empty());
+    CHECK(parse(L"*").empty());
+    CHECK(kindOf(L".MP4") == Kind::Video && kindOf(L".flac") == Kind::Music && kindOf(L".epub") == Kind::Document && kindOf(L".xyz") == Kind::Any);
+
+    const std::wstring sql = indexSql(parse(L"o'brien 50% *.png kind:picture"), L"C:\\Users\\CJ", 500);
+    CHECK(sql.find(L"SELECT TOP 500 System.ItemPathDisplay") == 0);
+    CHECK(sql.find(L"SCOPE='file:C:\\Users\\CJ'") != std::wstring::npos);
+    CHECK(sql.find(L"System.FileName LIKE '%o''brien%'") != std::wstring::npos);
+    CHECK(sql.find(L"System.FileName LIKE '%50[%]%'") != std::wstring::npos);
+    CHECK(sql.find(L"System.FileName LIKE '%.png'") != std::wstring::npos);
+    CHECK(sql.find(L"System.Kind = 'picture'") != std::wstring::npos);
+    CHECK(indexSql(parse(L"x"), L"", 10).find(L"SCOPE='file:'") != std::wstring::npos);
+    CHECK(indexSql(parse(L"ext:psd ext:kra"), L"", 10).find(L"(System.FileExtension = '.psd' OR System.FileExtension = '.kra')") != std::wstring::npos);
+
+    CHECK_EQ(relativeFolder(L"C:\\Art", L"C:\\Art\\Sketches\\Old"), L"Sketches\\Old");
+    CHECK_EQ(relativeFolder(L"C:\\Art", L"c:\\art\\x"), L"x");
+    CHECK_EQ(relativeFolder(L"C:\\Art", L"C:\\Art"), L"");
+    CHECK_EQ(relativeFolder(L"C:\\", L"C:\\Users"), L"Users");
+    CHECK_EQ(relativeFolder(L"C:\\Art", L"D:\\Other\\Place"), L"D:\\Other\\Place");
+}
+
+
+// A small Photoshop file: 4x2 RGB, 8 bits, with a preview resource and the flattened picture.
+static std::vector<unsigned char> makePsd(bool rle, bool withPreview) {
+    std::vector<unsigned char> f;
+    auto be = [&](unsigned long long v, int bytes) { for (int i = bytes - 1; i >= 0; --i) f.push_back((unsigned char)(v >> (8 * i))); };
+    for (char c : std::string("8BPS")) f.push_back((unsigned char)c);
+    be(1, 2); be(0, 6); be(3, 2); be(2, 4); be(4, 4); be(8, 2); be(3, 2);
+    be(0, 4);   // colour mode data
+    std::vector<unsigned char> res;
+    if (withPreview) {
+        const unsigned char jpeg[] = {0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9};
+        auto rbe = [&](unsigned long long v, int bytes) { for (int i = bytes - 1; i >= 0; --i) res.push_back((unsigned char)(v >> (8 * i))); };
+        for (char c : std::string("8BIM")) res.push_back((unsigned char)c);
+        rbe(1005, 2); rbe(0, 2); rbe(4, 4); rbe(7, 4);   // another resource first
+        for (char c : std::string("8BIM")) res.push_back((unsigned char)c);
+        rbe(1036, 2); rbe(0, 2); rbe(28 + sizeof jpeg, 4);
+        for (int i = 0; i < 28; ++i) res.push_back(0);
+        for (unsigned char b : jpeg) res.push_back(b);
+        if (res.size() % 2) res.push_back(0);
+    }
+    be(res.size(), 4);
+    f.insert(f.end(), res.begin(), res.end());
+    be(0, 4);   // no layers
+    // Channels: R, G, B; 2 rows of 4.
+    const unsigned char R[8] = {255, 255, 0, 0, 10, 10, 10, 10}, G[8] = {0, 0, 255, 255, 20, 20, 20, 20}, B[8] = {0, 0, 0, 0, 30, 30, 30, 30};
+    const unsigned char* ch[3] = {R, G, B};
+    if (!rle) {
+        be(0, 2);
+        for (auto* c : ch) for (int i = 0; i < 8; ++i) f.push_back(c[i]);
+    } else {
+        be(1, 2);
+        // Each row as PackBits: a literal pair then a run of two (first row), one run of four (second).
+        std::vector<std::vector<unsigned char>> rows;
+        for (auto* c : ch) {
+            rows.push_back({1, c[0], c[1], (unsigned char)(signed char)-1, c[2]});
+            rows.push_back({(unsigned char)(signed char)-3, c[4]});
+        }
+        for (auto& r : rows) be(r.size(), 2);
+        for (auto& r : rows) f.insert(f.end(), r.begin(), r.end());
+    }
+    return f;
+}
+
+static void testArt() {
+    std::printf("art files\n");
+    using namespace nrf::art;
+    for (bool rle : {false, true}) {
+        const auto f = makePsd(rle, true);
+        const PsdInfo info = psdInfo(f.data(), f.size());
+        CHECK(info.ok && info.width == 4 && info.height == 2 && info.channels == 3 && info.mode == 3 && info.imageDataStart > 0);
+        Image img;
+        CHECK(psdComposite(f.data(), f.size(), 100, img));
+        CHECK(img.w == 4 && img.h == 2);
+        if (img.w == 4 && img.h == 2) {
+            CHECK(img.rgba[0] == 255 && img.rgba[1] == 0 && img.rgba[2] == 0 && img.rgba[3] == 255);    // red
+            CHECK(img.rgba[8] == 0 && img.rgba[9] == 255 && img.rgba[10] == 0);                          // green
+            CHECK(img.rgba[16] == 10 && img.rgba[17] == 20 && img.rgba[18] == 30);                       // second row
+        }
+        Image small;
+        CHECK(psdComposite(f.data(), f.size(), 2, small));
+        CHECK(small.w == 2 && small.h == 1);
+        if (small.w == 2) CHECK(small.rgba[0] == (255 + 255 + 10 + 10) / 4 && small.rgba[1] == 10);   // averaged
+    }
+    const auto f = makePsd(false, true);
+    const std::string jpeg = psdPreviewJpeg(f.data(), f.size());
+    CHECK(jpeg.size() == 9 && (unsigned char)jpeg[0] == 0xFF && (unsigned char)jpeg[1] == 0xD8);
+    // Just the start of the file is enough for the preview, not for the picture.
+    CHECK(psdPreviewJpeg(f.data(), 104).size() == 9);
+    Image none;
+    CHECK(!psdComposite(f.data(), 104, 100, none));
+    const auto g = makePsd(true, false);
+    CHECK(psdPreviewJpeg(g.data(), g.size()).empty());
+    CHECK(!psdInfo((const unsigned char*)"not a psd at all, really not", 28).ok);
+
+    const std::string utf8 = "caf\xC3\xA9\r\nline two\n\tthree\nfour";
+    bool cut = false;
+    std::wstring t = decodeText((const unsigned char*)utf8.data(), utf8.size(), 3, &cut);
+    CHECK_EQ(t, L"café\nline two\n    three");
+    CHECK(cut);
+    const std::string ansi = "na\xEFve \x93quoted\x94";
+    CHECK_EQ(decodeText((const unsigned char*)ansi.data(), ansi.size(), 10), L"naïve “quoted”");
+    const unsigned char u16[] = {0xFF, 0xFE, 'h', 0, 'i', 0};
+    CHECK_EQ(decodeText(u16, sizeof u16, 10), L"hi");
+    CHECK(looksLikeText((const unsigned char*)utf8.data(), utf8.size()));
+    const unsigned char bin[] = {'P', 'K', 3, 4, 0, 0, 1, 2};
+    CHECK(!looksLikeText(bin, sizeof bin));
+}
+
 int main() {
     testNormalize();
     testPathParts();
@@ -328,6 +476,8 @@ int main() {
     testSelection();
     testExif();
     testOperations();
+    testSearch();
+    testArt();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

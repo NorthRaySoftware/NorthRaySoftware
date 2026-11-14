@@ -25,6 +25,7 @@ struct Entry {
     std::uint32_t reparseTag = 0;    // what kind of link, for reparse points
     std::wstring type;               // "Text Document", filled in by the Windows layer
     int icon = -1;                   // system image list index, filled in by the Windows layer
+    std::wstring location;           // search results: the folder it's in ("" = the folder shown)
 
     bool folder() const { return (attributes & attr::Directory) != 0; }
     bool hidden() const { return (attributes & attr::Hidden) != 0; }

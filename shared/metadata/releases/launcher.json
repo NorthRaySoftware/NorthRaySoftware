@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.40.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Files 0.4.0: search as you type, in a folder or across the whole PC.",
+        "Writing Studio 0.34.1: search and scroll when choosing who a relationship is with."
+      ]
+    },
+    {
       "version": "0.39.0",
       "date": "2026-11-14",
       "notes": [

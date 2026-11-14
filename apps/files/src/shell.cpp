@@ -71,6 +71,19 @@ void post(HWND w, UINT msg, void* p, const std::function<void()>& discard) {
 
 }  // namespace
 
+void describeEntry(Entry& e, const std::wstring& path) {
+    const std::wstring x = e.folder() ? L"" : extensionOf(e.name);
+    const TypeInfo t = typeFor(x, e.folder());
+    e.type = t.name;
+    e.icon = t.icon;
+    if (!e.folder() && iconFromFile(x) && !e.cloudOnly()) {
+        SHFILEINFOW fi{};
+        if (SHGetFileInfoW(extendedPath(path).c_str(), 0, &fi, sizeof fi, SHGFI_SYSICONINDEX)) e.icon = fi.iIcon;
+    }
+}
+
+void postToWindow(HWND w, UINT msg, void* p, const std::function<void()>& discard) { post(w, msg, p, discard); }
+
 void listFolderAsync(HWND window, std::wstring folder, std::uint64_t request, std::shared_ptr<std::atomic<std::uint64_t>> latest) {
     std::thread([window, folder = std::move(folder), request, latest] {
         const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

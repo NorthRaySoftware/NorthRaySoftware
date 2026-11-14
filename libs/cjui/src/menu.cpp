@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <memory>
 
 namespace cjui {
@@ -55,6 +56,8 @@ constexpr float kMinW = 200, kMaxW = 440;
 constexpr float kRadius = 8;
 constexpr UINT_PTR kSubmenuTimer = 1;
 constexpr UINT kSubmenuDelayMs = 200;
+constexpr int kSearchFrom = 13;       // a menu with more choices than this has a search field
+constexpr int kMostRowsShown = 14;    // and longer ones scroll (by wheel or keys)
 
 const wchar_t* kClass = L"CJUIMenu";
 
@@ -67,7 +70,19 @@ struct Level {
     RECT screen{};            // pixels
     int hover = -1;
     int open = -1;            // item whose submenu is showing
+    // Long menus: a search field at the top, and the rows scroll under it.
+    bool searchable = false;
+    std::wstring filter;
+    float listTop = kPad, scroll = 0, content = 0;
+    std::vector<float> heights;   // per item (0 = hidden by the search)
+    float viewH() const { return h - listTop - kPad; }
 };
+
+bool matchesFilter(const std::wstring& label, const std::wstring& filter) {
+    if (filter.empty()) return true;
+    auto low = [](std::wstring t) { for (auto& c : t) c = (wchar_t)towlower(c); return t; };
+    return low(label).find(low(filter)) != std::wstring::npos;
+}
 
 struct Session {
     HWND owner = nullptr;
@@ -80,16 +95,84 @@ struct Session {
     int pendingLevel = -1, pendingItem = -1;   // submenu to open (or deeper menus to close) when the timer fires
 
     bool selectable(const MenuItem& m) const { return !m.separator; }
+    bool shown(const Level& L, size_t i) const { return L.heights.empty() || L.heights[i] > 0; }
+
+    // Where each row is, after the search and the scroll.
+    void layout(Level& L) {
+        const auto& items = *L.items;
+        L.heights.assign(items.size(), 0);
+        for (size_t i = 0; i < items.size(); ++i) {
+            const MenuItem& m = items[i];
+            if (!L.filter.empty() && (m.separator || !matchesFilter(m.label, L.filter))) continue;
+            L.heights[i] = m.separator ? kSepH : kRowH;
+        }
+        L.content = 0;
+        for (float hh : L.heights) L.content += hh;
+        L.scroll = std::clamp(L.scroll, 0.0f, std::max(0.0f, L.content - L.viewH()));
+        float y = L.listTop - L.scroll;
+        L.rows.assign(items.size(), Rect{});
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (L.heights[i] <= 0) continue;
+            L.rows[i] = {kPad, y, L.w - kPad * 2, L.heights[i]};
+            y += L.heights[i];
+        }
+    }
+
+    void ensureVisible(Level& L, int i) {
+        if (i < 0) return;
+        const Rect r = L.rows[(size_t)i];
+        if (r.y < L.listTop) L.scroll -= L.listTop - r.y;
+        else if (r.bottom() > L.listTop + L.viewH()) L.scroll += r.bottom() - (L.listTop + L.viewH());
+        layout(L);
+    }
+
+    void scrollBy(Level& L, float d) {
+        L.scroll += d;
+        layout(L);
+        redraw(L);
+    }
+
+    void typed(wchar_t c) {
+        Level& L = *levels[0];
+        if (!L.searchable || levels.size() > 1) return;
+        if (c == 8) { if (L.filter.empty()) return; L.filter.pop_back(); }
+        else if (c >= 32 && c != 127) L.filter += c;
+        else return;
+        L.scroll = 0;
+        layout(L);
+        L.hover = -1;
+        for (size_t i = 0; i < L.items->size(); ++i)
+            if (shown(L, i) && selectable((*L.items)[i])) { L.hover = (int)i; break; }
+        redraw(L);
+    }
 
     void paint(Level& L) {
         if (!L.gfx.begin()) return;
         const Color bg = pal.surface;
         L.gfx.clear(bg);
         L.gfx.strokeRounded({0, 0, L.w, L.h}, kRadius, pal.rule.mix(pal.inkFaint, pal.dark ? 0.25f : 0.15f), 1);
+        if (L.searchable) {
+            // The search field: what's been typed, or a hint that typing searches.
+            const Rect f{kPad + 2, kPad + 2, L.w - kPad * 2 - 4, kRowH - 4};
+            L.gfx.fillRounded(f, 6, pal.sunken);
+            L.gfx.strokeRounded(f, 6, L.filter.empty() ? pal.rule : pal.focus, 1);
+            const float cx = f.x + 15, cy = f.y + f.h / 2 - 1;
+            L.gfx.circle(cx, cy, 4.5f, pal.inkMuted, false, 1.3f);
+            L.gfx.line(cx + 3.2f, cy + 3.2f, cx + 6.5f, cy + 6.5f, pal.inkMuted, 1.5f);
+            if (L.filter.empty())
+                L.gfx.text(L"Type to search", {f.x + 28, f.y, f.w - 34, f.h}, Font::Small, pal.inkFaint, {Align::Left, false, true, true});
+            else
+                L.gfx.text(L.filter + L"\u2502", {f.x + 28, f.y, f.w - 34, f.h}, Font::Body, pal.ink, {Align::Left, false, true, true});
+        }
+        const Rect view{0, L.listTop, L.w, L.viewH()};
+        L.gfx.pushClip(view);
         const auto& items = *L.items;
+        bool any = false;
         for (size_t i = 0; i < items.size(); ++i) {
             const MenuItem& m = items[i];
             const Rect r = L.rows[i];
+            if (!shown(L, i) || r.bottom() < view.y || r.y > view.bottom()) continue;
+            any = any || !m.separator;
             if (m.separator) {
                 const float y = std::floor((r.y + r.h / 2) * scale) / scale + 0.5f / scale;
                 L.gfx.line(r.x + 8, y, r.right() - 8, y, pal.rule, 1);
@@ -115,6 +198,23 @@ struct Session {
                            m.enabled ? pal.inkMuted : pal.inkFaint, {Align::Right, false, false, true});
             }
         }
+        L.gfx.popClip();
+        if (!any && !L.filter.empty())
+            L.gfx.text(L"Nothing matches", {kPad, L.listTop, L.w - kPad * 2, kRowH}, Font::Small, pal.inkFaint, {Align::Center, false, true, true});
+        // More above or below (there are no scroll bars): a small arrow at that edge.
+        const Color hint = pal.inkMuted;
+        if (L.scroll > 0.5f) {
+            const float cx = L.w / 2, cy = L.listTop + 6;
+            L.gfx.fill({kPad, L.listTop, L.w - kPad * 2, 12}, pal.surface);
+            L.gfx.line(cx - 5, cy + 2, cx, cy - 2, hint, 1.4f);
+            L.gfx.line(cx, cy - 2, cx + 5, cy + 2, hint, 1.4f);
+        }
+        if (L.scroll < L.content - L.viewH() - 0.5f) {
+            const float cx = L.w / 2, cy = L.h - kPad - 6;
+            L.gfx.fill({kPad, L.h - kPad - 12, L.w - kPad * 2, 12}, pal.surface);
+            L.gfx.line(cx - 5, cy - 2, cx, cy + 2, hint, 1.4f);
+            L.gfx.line(cx, cy + 2, cx + 5, cy - 2, hint, 1.4f);
+        }
         L.gfx.end();
     }
 
@@ -122,8 +222,9 @@ struct Session {
 
     int itemAt(const Level& L, POINT pt) const {
         const float x = (pt.x - L.screen.left) / scale, y = (pt.y - L.screen.top) / scale;
+        if (y < L.listTop || y > L.listTop + L.viewH()) return -1;   // the search field, or past the rows
         for (size_t i = 0; i < L.rows.size(); ++i)
-            if (L.rows[i].contains(x, y)) return (*L.items)[i].separator ? -1 : (int)i;
+            if (shown(L, i) && L.rows[i].contains(x, y)) return (*L.items)[i].separator ? -1 : (int)i;
         return -1;
     }
 
@@ -155,21 +256,28 @@ struct Session {
         }
         float w = kPad * 2 + kGutter + label + (shortcut > 0 ? kShortcutGap + shortcut : 0) + (anySub ? kArrowW : 0) + kRight;
         w = std::clamp(std::ceil(w), kMinW, kMaxW);
-        float y = kPad;
+        // The screen it goes on (a submenu: its parent's).
+        MONITORINFO mi{sizeof mi};
+        POINT onScreen = at;
+        if (parent >= 0) onScreen = {levels[(size_t)parent]->screen.right, levels[(size_t)parent]->screen.top};
+        GetMonitorInfoW(MonitorFromPoint(onScreen, MONITOR_DEFAULTTONEAREST), &mi);
+        const RECT wa = mi.rcWork;
+        int choices = 0;
+        float content = 0;
         for (const MenuItem& m : items) {
-            const float h = m.separator ? kSepH : kRowH;
-            L->rows.push_back({kPad, y, w - kPad * 2, h});
-            y += h;
+            choices += m.separator ? 0 : 1;
+            content += m.separator ? kSepH : kRowH;
         }
-        const float h = y + kPad;
+        L->searchable = parent < 0 && choices >= kSearchFrom;
+        L->listTop = kPad + (L->searchable ? kRowH + 4 : 0);
+        // As tall as it needs, up to a screenful (and long lists to a comfortable number of rows).
+        float most = (float)(wa.bottom - wa.top) / scale - 16;
+        if (L->searchable) most = std::min(most, L->listTop + kPad + kRowH * kMostRowsShown);
+        const float h = std::min(L->listTop + content + kPad, std::max(L->listTop + kPad + kRowH * 3, most));
         L->w = w;
         L->h = h;
+        layout(*L);
         const int pw = (int)std::lround(w * scale), ph = (int)std::lround(h * scale);
-
-        // Place it on the screen the point is on, inside its work area.
-        MONITORINFO mi{sizeof mi};
-        GetMonitorInfoW(MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST), &mi);
-        const RECT wa = mi.rcWork;
         int x, top;
         if (parent < 0) {
             x = anchor == MenuAnchor::TopRight ? at.x - pw : at.x;
@@ -273,9 +381,10 @@ struct Session {
         int i = D.hover;
         for (int k = 0; k < n; ++k) {
             i = i < 0 ? (dir > 0 ? 0 : n - 1) : (i + dir + n) % n;
-            if (selectable((*D.items)[(size_t)i])) break;
+            if (selectable((*D.items)[(size_t)i]) && shown(D, (size_t)i)) break;
         }
         D.hover = i;
+        if (i >= 0 && shown(D, (size_t)i)) ensureVisible(D, i);
         redraw(D);
     }
 
@@ -293,12 +402,17 @@ struct Session {
             case VK_LEFT:
                 if (depth > 0) closeFrom((size_t)depth);
                 break;
+            case VK_PRIOR: scrollBy(D, -D.viewH()); break;
+            case VK_NEXT: scrollBy(D, D.viewH()); break;
             case VK_ESCAPE:
+                if (depth == 0 && !D.filter.empty()) { D.filter.clear(); D.scroll = 0; layout(D); redraw(D); break; }
                 if (depth > 0) closeFrom((size_t)depth);
                 else done = true;
                 break;
-            case VK_RETURN:
             case VK_SPACE:
+                if (D.searchable) break;   // a space typed in the search
+                [[fallthrough]];
+            case VK_RETURN:
                 if (D.hover >= 0) {
                     if (!(*D.items)[(size_t)D.hover].submenu.empty()) openSubmenu(depth, D.hover, true);
                     else choose(depth, D.hover);
@@ -384,12 +498,27 @@ UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Pa
                         if (it >= 0) s.choose(li, it);
                     }
                     break;
-                default: break;   // wheel, double-clicks: ignored while the menu is open
+                case WM_MOUSEWHEEL: {
+                    // Over a long menu: it scrolls.
+                    const int at = li >= 0 ? li : (int)s.levels.size() - 1;
+                    Level& L = *s.levels[(size_t)at];
+                    if (L.content > L.viewH()) {
+                        s.scrollBy(L, -(float)GET_WHEEL_DELTA_WPARAM(msg.wParam) / WHEEL_DELTA * kRowH * 3);
+                        s.mouseMove(pt);
+                    }
+                    break;
+                }
+                default: break;   // double-clicks: ignored while the menu is open
             }
             continue;
         }
-        if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN) { s.key(msg.wParam); continue; }
-        if (m == WM_KEYUP || m == WM_SYSKEYUP || m == WM_CHAR || m == WM_SYSCHAR || m == WM_DEADCHAR) continue;
+        if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN) {
+            s.key(msg.wParam);
+            if (m == WM_KEYDOWN && s.levels[0]->searchable) TranslateMessage(&msg);   // letters for the search
+            continue;
+        }
+        if (m == WM_CHAR) { s.typed((wchar_t)msg.wParam); continue; }
+        if (m == WM_KEYUP || m == WM_SYSKEYUP || m == WM_SYSCHAR || m == WM_DEADCHAR) continue;
         if (m == WM_TIMER && msg.hwnd == s.levels[0]->hwnd && msg.wParam == kSubmenuTimer) { s.onTimer(); continue; }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);

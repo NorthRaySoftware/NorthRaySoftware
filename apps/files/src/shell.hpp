@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -32,6 +33,10 @@ struct ListBatch {
     DWORD code = 0;               // the Windows error, for "Other"
     std::wstring fileToSelect;    // set when the path was a file: show its folder with it selected
     std::wstring canonical;       // the folder's path with each name as it's actually written (first batch)
+    // Searches (0.4)
+    bool limited = false;         // stopped at the most results it keeps
+    bool noIndex = false;         // Windows Search couldn't be asked: these come from reading the folders
+    std::uint64_t foldersRead = 0;
 };
 
 // Drives for This PC.
@@ -76,6 +81,11 @@ struct IconPixels {
 };
 const IconPixels* systemIcon(int index, int size);
 IconPixels iconPixels(HICON icon);
+
+// An entry's type name and icon, as a listing fills them in (`path` is where it is).
+void describeEntry(Entry& e, const std::wstring& path);
+// Posts `p` to `window`, or calls `discard` if it can't be delivered.
+void postToWindow(HWND window, UINT msg, void* p, const std::function<void()>& discard);
 
 std::wstring describeListError(ListError e, DWORD code, const std::wstring& path, std::wstring* title);
 
