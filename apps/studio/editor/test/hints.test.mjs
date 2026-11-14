@@ -47,8 +47,14 @@ test("fancy dialogue tags: only when overdone, and only next to dialogue", () =>
   // The same one a third time.
   assert.deepEqual(of(run(["“A,” she hissed.", "“B,” she hissed.", "“C,” she hissed.", "“D,” he said."]), "bookism"), ["hissed"]);
   // More fancy than plain (five or more): all of them.
-  const many = run(["“A,” she hissed.", "“B,” he growled.", "“C,” she snapped.", "“D,” he barked.", "“E,” she yelled.", "“F,” he said."]);
-  assert.equal(of(many, "bookism").length, 5);
+  const many = run(["“A,” she hissed.", "“B,” he growled.", "“C,” she snapped.", "“D,” he barked.", "“E,” she yelled.", "“G,” he roared.", "“F,” he said."]);
+  assert.equal(of(many, "bookism").length, 6);
+  // Five fancy against three plain: not overdone.
+  assert.deepEqual(of(run(["“A,” she hissed.", "“B,” he growled.", "“C,” she snapped.", "“D,” he barked.", "“E,” she yelled.", "“F,” he said.", "“G,” I said.", "“H,” she said."]), "bookism"), []);
+  // After a full stop or an interrupted line it's an action, not a tag.
+  assert.deepEqual(of(run(["“Then I just-” Bluebolt roared, his jaws snapping.", "“Fine.” I laughed warmly.", "“Yes.” She smiled."]), "bookism"), []);
+  // Before the speech, joined by a comma: a tag.
+  assert.deepEqual(of(run(["She smiled, “Fine.”"]), "bookism"), ["smiled"]);
   // Mostly said: fine.
   assert.deepEqual(of(run(["“A,” she hissed.", "“B,” he growled.", "“C,” she said.", "“D,” he said.", "“E,” she said."]), "bookism"), []);
 });
@@ -216,4 +222,15 @@ test("fixes: stronger verbs, active voice, long sentences, there was, repeated s
   assert.equal(apply(t, one(t, "starts").fixes[0]), "She ran. She fell and rose.");
   t = "She saw the door open.";
   assert.match(one(t, "filter").msg, /swung open/);
+});
+
+test("adverbs only on real dialogue tags", () => {
+  assert.deepEqual(of(run(["“Yeah. Fine,” I said quietly."]), "tagAdverb"), ["quietly"]);
+  assert.deepEqual(of(run(["“We need this.” I laughed warmly."]), "tagAdverb"), []);
+});
+
+test("hedges: 'seemed to know' becomes 'knew'", () => {
+  const t = "He seemed to know the way.";
+  const h = one(t, "hedge");
+  assert.equal(apply(t, h.fixes[0]), "He knew the way.");
 });

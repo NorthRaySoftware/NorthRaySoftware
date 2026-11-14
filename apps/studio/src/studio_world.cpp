@@ -97,7 +97,7 @@ static const Facet* findFacet(const std::string& key) {
 static std::vector<const Facet*> facetsFor(const std::string& kind) {
     std::vector<std::string> keys;
     if (kind == "character") keys = {"gender", "race", "realm"};
-    else if (kind == "creature") keys = {"ctype", "realm"};
+    else if (kind == "creature") keys = {"realm"};   // what kind of creature it is: "Kind of" another creature
     else if (kind == "place") keys = {"type", "realm"};
     std::vector<const Facet*> out;
     for (auto& k : keys) out.push_back(findFacet(k));
@@ -214,18 +214,31 @@ static cjui::Color genderColor(const std::wstring& g, const cjui::Palette& p) {
     return cjui::hexColor(p.dark ? dark : light);
 }
 
-// The place a place is in ("Located in" / "Part of" from it, or "Contains" / "Includes" to it), if any.
+// What an entry sits under in the bible: the place a place is in ("Located in" / "Part of" from it, or
+// "Contains" / "Includes" to it), or the creature a creature is a kind of (Dragon > Glimmerwyrm > Bluebolt).
 static Id parentPlace(const Library& lib, const Entry& e) {
-    if (e.kind != "place") return {};
+    if (e.kind != "place" && e.kind != "creature") return {};
+    const bool place = e.kind == "place";
     for (const EntryLink& l : lib.linksOf(e.id)) {
-        const bool up = (l.from == e.id && (l.label == "Located in" || l.label == "Part of")) ||
-                        (l.to == e.id && (l.label == "Contains" || l.label == "Includes"));
+        const bool up = place ? (l.from == e.id && (l.label == "Located in" || l.label == "Part of")) ||
+                                    (l.to == e.id && (l.label == "Contains" || l.label == "Includes"))
+                              : (l.from == e.id && l.label == "Kind of") || (l.to == e.id && l.label == "Has kind");
         if (!up) continue;
         const Id other = l.from == e.id ? l.to : l.from;
         const Entry* o = lib.entry(other);
-        if (o && !o->deleted && o->kind == "place") return other;
+        if (o && !o->deleted && o->kind == e.kind) return other;
     }
     return {};
+}
+// Whether `e` is `root` or sits somewhere under it.
+static bool isUnder(const Library& lib, const Entry& e, const Id& root) {
+    const Entry* x = &e;
+    for (int guard = 0; x && guard < 16; ++guard) {
+        if (x->id == root) return true;
+        const Id p = parentPlace(lib, *x);
+        x = p.empty() ? nullptr : lib.entry(p);
+    }
+    return false;
 }
 
 // ------------------------------------------------------------- opening
@@ -468,6 +481,36 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         int n = 0;
         for (auto* e : all) if (e->kind == k) ++n;
         row(k, w(entryKindPlural(k)), n);
+        // Creatures: the top-level kinds (Dragon, ...), each with everything under it.
+        if (wb_.kind == k && k == "creature" && n > 0) {
+            std::vector<std::pair<const Entry*, int>> roots;
+            for (auto* e : all)
+                if (e->kind == "creature" && parentPlace(*lib_, *e).empty()) {
+                    int under = 0;
+                    for (auto* o : all) if (o->kind == "creature" && o != e && isUnder(*lib_, *o, e->id)) ++under;
+                    if (under) roots.push_back({e, under + 1});
+                }
+            if (!roots.empty()) {
+                gfx_.text(L"KINDS", {tx0 + 14, y + 4, cw - 14, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 22;
+                for (auto& [e, cnt] : roots) {
+                    const std::string filter = "under=" + e->id;
+                    const std::string id = "side:wb:under:" + e->id;
+                    const Rect rr{x + 14, y, wd - 14, 26};
+                    addHit(id, rr, [this, filter] { wb_.kind = "creature"; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
+                    const bool sel = wb_.facet == filter && wb_.entry.empty() && wb_.board.empty();
+                    const float hv = hoverAmount(id);
+                    if (sel) gfx_.fillRounded(rr, 3, pal_.surface);
+                    else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                    gfx_.text(w(e->name), {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
+                              {Align::Left, false, true, true});
+                    gfx_.text(std::to_wstring(cnt), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+                    if (focused(id)) focusRing(rr);
+                    y += 27;
+                }
+                y += 4;
+            }
+        }
         // The selected kind's entries by gender, race, realm or type: the values in use, with counts.
         if (wb_.kind == k && n > 0)
             for (const Facet* f : facetsFor(k)) {
@@ -569,7 +612,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
         std::vector<const Entry*> list;
         for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) {
             if (!wb_.kind.empty() && x->kind != wb_.kind) continue;
-            if (!facetMatches(*x, wb_.facet)) continue;
+            if (wb_.facet.rfind("under=", 0) == 0) { if (!isUnder(*lib_, *x, wb_.facet.substr(6))) continue; }
+            else if (!facetMatches(*x, wb_.facet)) continue;
             list.push_back(x);
         }
         std::wstring title = wb_.kind.empty() ? scopeName : w(entryKindPlural(wb_.kind));
@@ -577,6 +621,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             const Facet* f = findFacet(wb_.facet.substr(0, eq));
             const std::string v = wb_.facet.substr(eq + 1);
             if (f) title += L": " + (v == "-" ? f->title + L" not set" : w(v));
+            else if (wb_.facet.rfind("under=", 0) == 0) if (const Entry* r = lib_->entry(v)) title += L": " + w(r->name);
         }
         std::wstring sub = std::to_wstring(list.size()) + (list.size() == 1 ? L" entry" : L" entries");
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
@@ -700,7 +745,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     if (auto pit = parentOf.find(x->id); pit != parentOf.end())
                         if (const Entry* par = lib_->entry(pit->second)) {
                             for (int d = 0; d < depth && d < 4; ++d) gfx_.circle(cr.right() - 14 - d * 9, cr.y + 14, 2.5f, kc.withAlpha(0.6f), true);
-                            gfx_.text(L"in " + w(par->name), {tx, cr.y + 52, tw, 18}, Font::Small, kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
+                            gfx_.text((x->kind == "creature" ? L"a kind of " : L"in ") + w(par->name), {tx, cr.y + 52, tw, 18}, Font::Small,
+                                      kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
                         }
                 gfx_.text(w(x->name), {tx, cr.y + 30, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
                 if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 18 : 34}, Font::Small, pal_.inkMuted,
@@ -914,6 +960,31 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             lib_->updateEntry(u);
             invalidate();
         });
+        if (e->kind == "creature") {
+            // What it's a kind of: another creature in the bible (Dragon > Glimmerwyrm > Bluebolt).
+            const Entry* parent = lib_->entry(parentPlace(*lib_, *e));
+            panelChoice("wb:kindof", c, y, L"A kind of", parent ? w(parent->name) : L"Nothing (a kind of its own)", [this] {
+                const Entry* x = lib_->entry(wb_.entry);
+                if (!x) return;
+                std::vector<const Entry*> options;
+                for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
+                    if (o->kind == "creature" && o->id != x->id && !isUnder(*lib_, *o, x->id)) options.push_back(o);   // never under itself
+                std::vector<std::wstring> items;
+                const Id now = parentPlace(*lib_, *x);
+                int checked = (int)options.size();
+                for (size_t i = 0; i < options.size(); ++i) { items.push_back(w(options[i]->name)); if (options[i]->id == now) checked = (int)i; }
+                items.push_back(L"Nothing (a kind of its own)");
+                if (options.empty()) { flash(L"Add the kinds of creature to the bible first (a Dragon, say), then choose one here.", 6); return; }
+                const int i = popupAt(hwnd(), items, checked);
+                if (i < 0 || i == checked) return;
+                for (const EntryLink& l : lib_->linksOf(x->id)) {
+                    if (l.from == x->id && l.label == "Kind of") lib_->removeLink(l.from, l.to, l.label);
+                    if (l.to == x->id && l.label == "Has kind") lib_->removeLink(l.from, l.to, l.label);
+                }
+                if (i < (int)options.size()) lib_->addLink(x->id, options[(size_t)i]->id, "Kind of");
+                invalidate();
+            });
+        }
         for (const Facet* f : facetsFor(e->kind)) {
             const std::string cur = facetOf(*e, *f);
             panelChoice("wb:facet:" + f->key, c, y, f->title, cur.empty() ? L"Not set" : w(cur), [this, f] {

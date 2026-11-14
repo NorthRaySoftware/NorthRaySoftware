@@ -260,3 +260,9 @@ Name parts also include every in-order selection of the named words that keeps t
 ## The NorthRay look (0.27.0)
 
 The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) instead of its own warm paper and ink blue; the top bar is the night sky with the aurora band (`northray::nightSky`, `auroraBand`, caption buttons on night), with the app mark (`web/studio-mark.png`, from `resources/writing-studio.svg`) and "NorthRay / WRITING STUDIO" like the Launcher. The editor's CSS variables follow the same palette. The icon (`writing-studio.svg/.ico`, `shared/metadata/icons/writing-studio.png`) shares Browser's and Files' sky, aurora and north star, with an open book and a ribbon on the horizon; the installer art matches Files'.
+
+## 0.27.1
+
+- The hint card's fix buttons call `styleApi.replaceWord` (the object passed to `initStyleUi` is now named, so its own methods can reach each other; before, `api` was undefined and every fix silently failed). Checked in Chromium by clicking every kind of fix.
+- `attachedTo(block, from, to)`: a verb is a dialogue tag only when it's within three words after a closing quote whose line ends in , ? or ! or right before an opening quote with a comma between. Fancy tags and tag adverbs use it; fancy tags are then marked for action tags, a third use of the same one, or 6+ at over twice the plain tags.
+- Creatures nest by "Kind of" / "Has kind" (`parentPlace` covers places and creatures; `isUnder`); the creature panel has "A kind of"; the sidebar lists top-level kinds with everything under them (`wb_.facet` = "under=<id>").

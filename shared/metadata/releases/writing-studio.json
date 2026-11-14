@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.27.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Fixed: the fix buttons on style hints (\"Change to…\", \"Remove…\", rewrites) didn't change anything. They all work now.",
+        "Fancy dialogue tags and tag adverbs are only marked on real tags, verbs attached to the speech (“Go,” he hissed / She hissed, “Go.”), not actions after it (“Then I just-” Bluebolt roared; “Fine.” I laughed warmly). And only when it's overdone: an action as a tag (she smiled), the same tag a third time, or six or more and over twice the plain ones.",
+        "\"seemed to know\" is offered as \"knew\" instead of being cut.",
+        "Creatures are a family tree of your own: each can be \"A kind of\" another creature in the bible (Dragon › Glimmerwyrm › Bluebolt). They nest that way in Worldbuilding, and your top-level kinds are filters in the sidebar. The fixed list of creature types is gone."
+      ]
+    },
+    {
       "version": "0.27.0",
       "date": "2026-11-14",
       "notes": [

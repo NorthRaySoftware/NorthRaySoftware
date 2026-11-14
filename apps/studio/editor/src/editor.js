@@ -1100,7 +1100,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 buildToolbar();
 buildViewMenu();
 initNameCard(send);
-initStyleUi({
+const styleApi = {
   view: () => viewSettings,
   changeView,
   counts: () => lastHints.counts,
@@ -1141,7 +1141,7 @@ initStyleUi({
     view.focus();
   },
   // A hint's fix: replaces the text it was worked out on, if that's still there.
-  applyFix: (h, f) => api.replaceWord({ from: f.from, to: f.to, text: f.orig }, f.text),
+  applyFix: (h, f) => styleApi.replaceWord({ from: f.from, to: f.to, text: f.orig }, f.text),
   synonyms: (text) => spell.synonyms(text),
   notice: (t) => notice(t),
   loadThesaurus: (cb) => spell.loadThesaurus(cb),
@@ -1186,7 +1186,8 @@ initStyleUi({
     saveStyle();
     rehintNow();
   },
-});
+};
+initStyleUi(styleApi);
 applyView();
 setTheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
 send({ type: "ready" });

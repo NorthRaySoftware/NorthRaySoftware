@@ -66,6 +66,24 @@ const BOOKISMS = ["whispered", "murmured", "muttered", "hissed", "growled", "sna
   "purred", "spat", "gasped", "stammered", "stuttered", "blurted", "interjected", "opined", "intoned", "chided", "scolded",
   "admonished", "implored", "pleaded", "begged", "demanded", "insisted", "queried", "enquired", "inquired", "wondered",
   "mused", "smirked", "grinned", "smiled", "beamed", "huffed", "sniffed", "scoffed", "drawled", "rasped", "croaked", "squeaked"];
+// The dialogue a verb is attached to as its tag, or null: right after a closing quote whose line ends
+// with a comma, ? or ! (“Go,” he hissed; “Go,” Tom said quietly), or right before an opening quote,
+// joined by a comma (She hissed, “Go.”). Up to three words (the speaker) may sit between.
+function attachedTo(b, from, to) {
+  const t = b.text;
+  for (const [a, z] of b.dialogue) {
+    if (z <= from) {
+      const between = t.slice(z, from);
+      if (!/^\s+(?:[\p{L}'’.]+\s+){0,3}$/u.test(between) || between.length > 40) continue;
+      const inside = t.slice(a, z).replace(/['"’”»]+\s*$/u, "");
+      if (/[,?!]$/.test(inside)) return [a, z];
+    } else if (a >= to) {
+      if (/^,\s*$/.test(t.slice(to, a))) return [a, z];
+    }
+  }
+  return null;
+}
+
 // Tags that are actions, not ways of speaking: always worth a look ("she smiled" can't carry words).
 const ACTION_TAGS = new Map([["smiled", "smile"], ["grinned", "grin"], ["smirked", "smirk"], ["beamed", "beam"], ["laughed", "laugh"],
   ["chuckled", "chuckle"], ["giggled", "giggle"], ["sighed", "sigh"], ["sniffed", "sniff"], ["huffed", "huff"], ["scoffed", "scoff"]]);
@@ -567,7 +585,7 @@ export function analyse(blocks, opts) {
         for (const re of [RX.speechThenAdverb, RX.adverbThenSpeech])
           for (const m of t.matchAll(re)) {
             const adv = m[1].toLocaleLowerCase();
-            if (NOT_ADVERBS.has(adv) || !narration(b, m.index, m.index + m[0].length) || !nearDialogue(m.index, m.index + m[0].length)) continue;
+            if (NOT_ADVERBS.has(adv) || !narration(b, m.index, m.index + m[0].length) || !attachedTo(b, m.index, m.index + m[0].length)) continue;
             const at = m.index + m[0].toLocaleLowerCase().lastIndexOf(adv);
             const from = re === RX.adverbThenSpeech ? m.index : at;
             const verbs = STRONGER[adv] || [];
@@ -579,11 +597,11 @@ export function analyse(blocks, opts) {
                                   : `"${m[1]}" on a dialogue tag. Can the words themselves, or an action, show how it was said?`, fx);
           }
       if (enabled("bookism")) {
-        for (const m of t.matchAll(RX.bookism))
-          if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length)) {
-            const q = b.dialogue.find(([a, z]) => z <= m.index && m.index - z <= 40) || b.dialogue.find(([a]) => a >= m.index);
-            tagUses.push({ b, m, asked: !!(q && /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1]))) });
-          }
+        for (const m of t.matchAll(RX.bookism)) {
+          if (!narration(b, m.index, m.index + m[0].length)) continue;
+          const q = attachedTo(b, m.index, m.index + m[0].length);
+          if (q) tagUses.push({ b, m, asked: /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1])) });
+        }
         for (const m of t.matchAll(RX.plainTag))
           if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length)) plainTags++;
       }
@@ -595,7 +613,18 @@ export function analyse(blocks, opts) {
     }
     if (enabled("hedge"))
       for (const m of t.matchAll(RX.hedge)) if (narration(b, m.index, m.index + m[0].length))
-        cat(b, m.index, m.index + m[0].length, "hedge", `"${m[0]}" softens this.`, [removal(b, m.index, m.index + m[0].length)]);
+      {
+        // "seemed to know" -> "knew", "seems to know" -> "knows"; other hedges simply go.
+        let fx = removal(b, m.index, m.index + m[0].length);
+        const v = /^(seem(?:ed|s)|appear(?:ed|s)) to$/i.exec(m[0]);
+        const next = /^\s+(\p{L}+)/u.exec(t.slice(m.index + m[0].length));
+        if (v && next) {
+          const verb = next[1].toLocaleLowerCase();
+          const form = /ed$/i.test(v[1]) ? pastOf(verb, opts.isWord) : thirdOf(verb);
+          if (form) fx = swap(b, m.index, m.index + m[0].length + next[0].length, form, `Change to "${form}"`);
+        }
+        cat(b, m.index, m.index + m[0].length, "hedge", `"${m[0]}" softens this.`, [fx]);
+      }
     if (enabled("filter"))
       for (const m of t.matchAll(RX.filter)) if (narration(b, m.index, m.index + m[0].length))
         cat(b, m.index, m.index + m[0].length, "filter", filterAdvice(m[0]));
@@ -637,11 +666,12 @@ export function analyse(blocks, opts) {
       }
   }
 
-  // Fancy dialogue tags: only when it's overdone. A tag that's an action ("she smiled") always;
-  // otherwise when fancy tags outnumber said and asked (and there are at least five), or the same
-  // one keeps coming back (its third use on). One "he screamed" in a tense scene is left alone.
+  // Fancy dialogue tags: only verbs attached to the speech count (“Go,” he hissed / She hissed, “Go.”);
+  // after a full stop it's an action ("Bluebolt roared, his jaws snapping") and left alone. Even then,
+  // only when it's overdone: a tag that's an action ("she smiled"), the same tag a third time, or six
+  // or more and over twice the plain ones. One "he screamed" in a tense scene is left alone.
   if (tagUses.length) {
-    const many = tagUses.length >= 5 && tagUses.length > plainTags;
+    const many = tagUses.length >= 6 && tagUses.length > plainTags * 2;
     const seenTag = new Map();
     for (const { b, m, asked } of tagUses) {
       const word = m[0].toLocaleLowerCase();
