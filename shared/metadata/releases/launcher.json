@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.44.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Files 0.6.0: the Recycle Bin inside Files, and drag and drop with other programs."
+      ]
+    },
+    {
       "version": "0.43.0",
       "date": "2026-11-14",
       "notes": [

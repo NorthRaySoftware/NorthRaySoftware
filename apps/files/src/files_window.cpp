@@ -6,6 +6,7 @@
 #include "operations.hpp"
 #include "resource.h"
 #include "search.hpp"
+#include "dragdrop.hpp"
 #include "nrf/search.hpp"
 #include "nrf/art.hpp"
 #include "nrf/labels.hpp"
@@ -72,7 +73,7 @@ enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
-    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
 };
 
 constexpr UINT CmdColour0 = 1000;   // + labels::Colour
@@ -163,6 +164,40 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     SetWindowSubclass(ask_, quietEditProc, 4, 0);
     SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
     loadLabels();
+    {
+        // Files dragged in from other programs.
+        dnd::DropHandlers h;
+        auto toClient = [this](POINT screen) {
+            ScreenToClient(hwnd(), &screen);
+            const float s = gfx_.dpiScale();
+            return std::pair<float, float>{screen.x / s, screen.y / s};
+        };
+        h.over = [this, toClient](const std::vector<std::wstring>& paths, POINT screen, DWORD keys, DWORD) -> DWORD {
+            const auto [x, y] = toClient(screen);
+            if (!drag_.active) {
+                drag_ = Drag{};
+                drag_.paths = paths;
+                drag_.fromPane = -1;
+                drag_.external = true;
+            }
+            drag_.armed = drag_.active = true;
+            drag_.x = x;
+            drag_.y = y;
+            invalidate();
+            return dropAt(drag_.paths, x, y, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, false);
+        };
+        h.leave = [this] {
+            if (drag_.external) drag_ = Drag{};
+            invalidate();
+        };
+        h.drop = [this, toClient](const std::vector<std::wstring>& paths, POINT screen, DWORD keys, DWORD) -> DWORD {
+            const auto [x, y] = toClient(screen);
+            drag_ = Drag{};
+            invalidate();
+            return dropAt(paths, x, y, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, true);
+        };
+        dnd::registerTarget(hwnd(), std::move(h));
+    }
 
     rename_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(rename_, quietEditProc, 2, 0);
@@ -186,6 +221,7 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     // Tabs from last time (each pane), unless a folder was asked for.
     auto toLocation = [&](const std::wstring& t) -> std::optional<Location> {
         if (t == L"::thispc") return Location{true, L""};
+        if (t == L"::bin") { Location b; b.bin = true; return b; }
         if (t.rfind(L"::collection:", 0) == 0) {
             Location c;
             c.collection = labels::toUtf8(t.substr(13));
@@ -236,13 +272,14 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
 }
 
 void FilesWindow::onDestroy() {
+    dnd::revokeTarget(hwnd());
     settings_.lastFolder = here_.thisPC ? L"::thispc" : here_.path;
-    if (!here_.collection.empty()) settings_.lastFolder.clear();
+    if (!here_.collection.empty() || here_.bin) settings_.lastFolder.clear();
     for (int p = 0; p < 2; ++p) {
         settings_.tabs[p].clear();
         for (int t = 0; t < (int)tabs_[p].size(); ++t) {
             const Location& l = tabLocation(p, t);
-            settings_.tabs[p].push_back(l.thisPC ? L"::thispc" : !l.collection.empty() ? L"::collection:" + labels::fromUtf8(l.collection) : l.path);
+            settings_.tabs[p].push_back(l.thisPC ? L"::thispc" : l.bin ? L"::bin" : !l.collection.empty() ? L"::collection:" + labels::fromUtf8(l.collection) : l.path);
         }
         settings_.activeTab[p] = activeTab_[p];
     }
@@ -315,7 +352,39 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
 void FilesWindow::startListing() {
     const Visibility vis{settings_.showHidden, settings_.showProtected};
     if (here_.thisPC) listDrivesAsync(hwnd(), request_, latest_);
-    else if (!here_.collection.empty()) {
+    else if (here_.bin) {
+        // The Recycle Bin, as the Shell keeps it.
+        HWND win = hwnd();
+        const std::uint64_t request = request_;
+        auto latest = latest_;
+        std::thread([win, request, latest] {
+            const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            auto* b = new ListBatch;
+            b->request = request;
+            b->done = true;
+            std::vector<ops::BinItem> items;
+            std::wstring problem;
+            if (!ops::listRecycleBin(items, problem)) {
+                b->error = ListError::Other;
+                b->code = ERROR_ACCESS_DENIED;
+            }
+            for (auto& it : items) {
+                if (latest->load() != request) break;
+                Entry e;
+                e.name = it.name;
+                e.location = it.from;
+                e.size = it.folder ? 0 : it.size;
+                e.modified = it.deleted;
+                e.attributes = it.folder ? attr::Directory : 0;
+                e.binId = it.id;
+                e.binFile = it.file;
+                describeEntry(e, it.file);
+                b->entries.push_back(std::move(e));
+            }
+            postToWindow(win, WM_APP_LIST, b, [b] { delete b; });
+            if (SUCCEEDED(co)) CoUninitialize();
+        }).detach();
+    } else if (!here_.collection.empty()) {
         // A collection: its things, wherever they are (and the ones that aren't there any more).
         const labels::Collection* c = labels_.collection(here_.collection);
         listPathsAsync(hwnd(), c ? c->items : std::vector<std::wstring>{}, L"", vis, true, request_, latest_);
@@ -340,6 +409,7 @@ void FilesWindow::startListing() {
 }
 
 std::wstring FilesWindow::nameFor(const Location& l) const {
+    if (l.bin) return L"Recycle Bin";
     if (!l.collection.empty()) {
         const labels::Collection* c = labels_.collection(l.collection);
         return c ? c->name : L"Collection";
@@ -368,7 +438,7 @@ void FilesWindow::forward() {
 }
 
 void FilesWindow::up() {
-    if (here_.thisPC || !here_.collection.empty()) return;
+    if (here_.thisPC || !here_.collection.empty() || here_.bin) return;
     if (here_.searching()) { endSearch(); return; }
     if (isRoot(here_.path)) {
         if (isDriveRoot(here_.path)) go({true, L""}, true, here_.path);
@@ -385,11 +455,13 @@ void FilesWindow::refresh() {
 
 std::wstring FilesWindow::rowPath(std::size_t row) const {
     if (here_.thisPC || row >= shown_.size()) return L"";
+    if (!shown_[row].binFile.empty()) return shown_[row].binFile;   // in the Recycle Bin: where its contents are kept
     return join(shown_[row].location.empty() ? here_.path : shown_[row].location, shown_[row].name);
 }
 
 void FilesWindow::open(std::size_t row) {
     if (here_.thisPC || row >= shown_.size()) return;
+    if (here_.bin) { flash(L"Restore it to open it (right-click, or Restore in the preview pane).", 6); return; }
     const Entry& e = shown_[row];
     const std::wstring path = rowPath(row);
     if (e.folder()) { goPath(path); return; }
@@ -465,7 +537,7 @@ void FilesWindow::receive(ListBatch* b) {
             error_ = ListError::None;
         }
         // Changes made here or by any other program show by themselves.
-        if (error_ == ListError::None && !here_.searching() && here_.collection.empty()) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
+        if (error_ == ListError::None && !here_.searching() && here_.collection.empty() && !here_.bin) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
     }
     showHere();
     if (b->done && !selectNames_.empty()) {
@@ -762,7 +834,7 @@ bool FilesWindow::onMouseDown(float x, float y) {
     drag_.armed = true;
     drag_.sx = drag_.x = x;
     drag_.sy = drag_.y = y;
-    drag_.paths = selectedPaths();
+    drag_.paths = here_.bin ? std::vector<std::wstring>{} : selectedPaths();   // nothing is dragged out of the Recycle Bin
     drag_.fromPane = pane_;
     drag_.clickRow = keep ? (int)row : -1;
     return true;
@@ -770,6 +842,14 @@ bool FilesWindow::onMouseDown(float x, float y) {
 
 bool FilesWindow::onRightClick(float x, float y) {
     if (const int p = paneAt(x, y); p >= 0 && p != pane_) activate(p, activeTab_[p]);
+    // The Recycle Bin in the sidebar.
+    if (binRect_.contains(x, y)) {
+        const float s = gfx_.dpiScale();
+        POINT pt{(LONG)(x * s), (LONG)(y * s)};
+        ClientToScreen(hwnd(), &pt);
+        recycleBinMenu(pt);
+        return true;
+    }
     // A collection in the sidebar.
     for (auto& [id, rr] : collectionRects_)
         if (rr.contains(x, y)) {
@@ -1085,6 +1165,27 @@ void FilesWindow::showItemMenu(POINT screen) {
     const std::size_t n = sel_.count();
     const bool canPaste = ops::clipboardHasFiles();
     std::vector<MenuItem> items;
+    if (here_.bin) {
+        // The Recycle Bin's own menu.
+        if (n > 0) {
+            items.push_back(MenuItem::item(L"Restore", CmdBinRestore));
+            items.push_back(MenuItem::item(L"Delete permanently\u2026", CmdBinDelete, L"Delete"));
+            items.push_back(MenuItem::sep());
+        }
+        items.push_back(MenuItem::item(L"Empty the Recycle Bin\u2026", CmdBinEmpty, {}, !shown_.empty()));
+        items.push_back(MenuItem::item(L"Refresh", CmdRefresh, L"F5"));
+        const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+        if (cmd == CmdBinRestore) binCommand(true);
+        else if (cmd == CmdBinDelete) binCommand(false);
+        else if (cmd == CmdBinEmpty) {
+            const ops::Result r = ops::emptyRecycleBin(hwnd());
+            if (!r.ok) flash(L"The Recycle Bin couldn't be emptied. " + r.message, 8);
+            updateRecycleBin();
+            reloadQuietly();
+        } else if (cmd == CmdRefresh) refresh();
+        invalidate();
+        return;
+    }
     if (n > 0) {
         const auto rows = sel_.indices();
         const bool oneFolder = n == 1 && shown_[rows[0]].folder();
@@ -1217,6 +1318,7 @@ static std::wstring lowerPath(std::wstring s) {
 void FilesWindow::copyOrCut(bool cut) {
     const auto paths = selectedPaths();
     if (paths.empty() || here_.thisPC) return;
+    if (here_.bin) { flash(L"Restore things from the Recycle Bin before copying or moving them.", 6); return; }
     if (!ops::putOnClipboard(hwnd(), paths, cut)) { flash(L"The clipboard is busy. Try again.", 5); return; }
     cutPaths_.clear();
     if (cut) for (auto& p : paths) cutPaths_.insert(lowerPath(p));
@@ -1226,7 +1328,7 @@ void FilesWindow::copyOrCut(bool cut) {
 }
 
 void FilesWindow::paste(const std::wstring& into) {
-    if ((here_.thisPC || here_.searching() || !here_.collection.empty()) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
+    if ((here_.thisPC || here_.searching() || !here_.collection.empty() || here_.bin) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
     const std::wstring dest = into.empty() ? here_.path : into;
     const auto clip = ops::readClipboard(hwnd());
     if (clip.paths.empty()) { flash(L"There are no files on the clipboard. Copy (Ctrl+C) or cut (Ctrl+X) some first.", 6); return; }
@@ -1273,7 +1375,20 @@ void FilesWindow::paste(const std::wstring& into) {
     (void)before;
 }
 
+void FilesWindow::binCommand(bool restore) {
+    std::vector<std::wstring> ids;
+    for (std::size_t r : sel_.indices()) ids.push_back(shown_[r].binId);
+    if (ids.empty()) return;
+    const std::size_t n = ids.size();
+    const ops::Result r = ops::recycleBinCommand(hwnd(), ids, restore);
+    if (!r.ok && !r.cancelled) flash((restore ? L"It couldn't be restored. " : L"It couldn't be deleted. ") + r.message, 8);
+    else if (r.ok && restore) flash(n == 1 ? L"Restored to where it was." : L"Restored " + std::to_wstring(n) + L" items to where they were.", 5);
+    updateRecycleBin();
+    reloadQuietly();
+}
+
 void FilesWindow::deleteSelection(bool permanently) {
+    if (here_.bin) { binCommand(false); return; }
     const auto paths = selectedPaths();
     if (paths.empty() || here_.thisPC) return;
     const std::wstring what = paths.size() == 1 ? L"\u201C" + nameOf(paths[0]) + L"\u201D" : std::to_wstring(paths.size()) + L" items";
@@ -1297,7 +1412,7 @@ void FilesWindow::deleteSelection(bool permanently) {
 }
 
 void FilesWindow::newFolder() {
-    if (here_.thisPC || here_.searching() || !here_.collection.empty()) { flash(L"Open a folder to make a new one in it.", 5); return; }
+    if (here_.thisPC || here_.searching() || !here_.collection.empty() || here_.bin) { flash(L"Open a folder to make a new one in it.", 5); return; }
     const std::wstring name = uniqueName(L"New folder", namesHere(), true);
     const ops::Result r = ops::newFolder(join(here_.path, name));
     if (!r.ok) { flash(L"A folder couldn't be made here. " + r.message, 8); return; }
@@ -1319,6 +1434,7 @@ void FilesWindow::newFolder() {
 void FilesWindow::beginRename() {
     const auto rows = sel_.indices();
     if (rows.size() != 1 || here_.thisPC) return;
+    if (here_.bin) { flash(L"Restore it to rename it.", 5); return; }
     if (renaming_) endRename(false);
     renameRow_ = (int)rows[0];
     renameName_ = shown_[rows[0]].name;
@@ -1378,7 +1494,7 @@ void FilesWindow::reloadQuietly(std::vector<std::wstring> select) {
 }
 
 void FilesWindow::moreOptions(POINT screen) {
-    if (here_.thisPC) return;
+    if (here_.thisPC || here_.bin) return;
     const bool extended = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     const auto paths = selectedPaths();
     std::wstring folder = here_.path;
@@ -1396,7 +1512,10 @@ void FilesWindow::moreOptions(POINT screen) {
 void FilesWindow::updateRecycleBin() {
     std::uint64_t items = 0, bytes = 0;
     if (ops::recycleBinInfo(items, bytes)) {
-        if (items != recycleItems_ || bytes != recycleBytes_) invalidate();
+        if (items != recycleItems_ || bytes != recycleBytes_) {
+            invalidate();
+            if (here_.bin && !loading_) reloadQuietly();
+        }
         recycleItems_ = items;
         recycleBytes_ = bytes;
     }
@@ -1405,15 +1524,18 @@ void FilesWindow::updateRecycleBin() {
 void FilesWindow::recycleBinMenu(POINT screen) {
     updateRecycleBin();
     const std::vector<MenuItem> items = {
-        MenuItem::item(L"Open the Recycle Bin", CmdBinOpen),
+        MenuItem::item(L"Open", CmdBinRestore),
+        MenuItem::item(L"Open in File Explorer", CmdBinOpen),
         MenuItem::item(L"Empty the Recycle Bin\u2026", CmdBinEmpty, {}, recycleItems_ > 0),
     };
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd == CmdBinRestore) { Location b; b.bin = true; go(b); }
     if (cmd == CmdBinOpen) ShellExecuteW(hwnd(), L"open", L"shell:RecycleBinFolder", nullptr, nullptr, SW_SHOWNORMAL);
     if (cmd == CmdBinEmpty) {
         const ops::Result r = ops::emptyRecycleBin(hwnd());
         if (!r.ok) flash(L"The Recycle Bin couldn't be emptied. " + r.message, 8);
         updateRecycleBin();
+        if (here_.bin) reloadQuietly();
     }
     invalidate();
 }
@@ -1648,13 +1770,18 @@ void FilesWindow::drawPreview(const Rect& r) {
     line(L"Type", e.type);
     if (!e.folder()) line(L"Size", formatSize(e.size));
     line(L"Modified", dateText(e.modified));
-    if (here_.searching()) line(L"Folder", e.location.empty() ? here_.path : e.location);
+    if (here_.bin) line(L"Deleted from", e.location);
+    else if (here_.searching()) line(L"Folder", e.location.empty() ? here_.path : e.location);
     if (e.cloudOnly()) line(L"Online only", L"Opening it downloads it.");
     if (e.icon < 0 && e.attributes == 0 && !here_.collection.empty()) line(L"Missing", L"It isn't there any more (moved, renamed or deleted outside NorthRay Files).");
     y += 4;
     y = drawPreviewLabels(x, y, w, path);
     if (textual && previewState_ == PreviewText && previewTruncated_) line(L"", L"Only the start is shown.");
     y += 8;
+    if (here_.bin) {
+        button("tb:preview:restore", {x, y, 110, 34}, L"Restore", [this] { binCommand(true); }, true);
+        return;
+    }
     button("tb:preview:open", {x, y, 96, 34}, L"Open", [this, row] { open(row); }, true);
     if (here_.searching())
         button("tb:preview:where", {x + 106, y, 150, 34}, L"Open its folder", [this, row] {
@@ -2031,8 +2158,8 @@ void FilesWindow::searchTyped() {
     std::wstring trimmed = text;
     while (!trimmed.empty() && iswspace(trimmed.back())) trimmed.pop_back();
     while (!trimmed.empty() && iswspace(trimmed.front())) trimmed.erase(0, 1);
-    if (!here_.collection.empty()) {
-        // In a collection the box narrows what's in it.
+    if (!here_.collection.empty() || here_.bin) {
+        // In a collection (or the Recycle Bin) the box narrows what's in it.
         here_.query = search::parse(trimmed).empty() ? std::wstring() : trimmed;
         showHere();
         return;
@@ -2073,7 +2200,7 @@ void FilesWindow::runSearch(const std::wstring& text, bool everywhere) {
 
 void FilesWindow::endSearch() {
     KillTimer(hwnd(), kSearchTimer);
-    if (!here_.collection.empty()) {
+    if (!here_.collection.empty() || here_.bin) {
         here_.query.clear();
         showHere();
         showSearchText();
@@ -2094,7 +2221,7 @@ std::wstring FilesWindow::searchFolderOf(std::size_t row) const {
     if (row >= shown_.size()) return L"";
     const std::wstring& at = shown_[row].location;
     if (at.empty()) return L"";
-    if (here_.everywhere || !here_.collection.empty()) return at;
+    if (here_.everywhere || !here_.collection.empty() || here_.bin) return at;
     const std::wstring rel = search::relativeFolder(here_.path, at);
     return rel.empty() ? (isDriveRoot(here_.path) ? here_.path : nameOf(here_.path)) : rel;
 }
@@ -2117,7 +2244,7 @@ void FilesWindow::drawSearchBox(const Rect& r) {
                      (int)std::lround((r.w - 40 - clearW) * s), (int)std::lround(th * s), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
         ShowWindow(search_, SW_HIDE);
-        const std::wstring where = here_.thisPC ? L"this PC" : !here_.collection.empty() ? nameFor(here_) : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
+        const std::wstring where = here_.thisPC ? L"this PC" : (!here_.collection.empty() || here_.bin) ? nameFor(here_) : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
         gfx_.text(L"Search " + where, {r.x + 32, r.y, r.w - 40, r.h}, Font::Body, pal_.inkFaint, {Align::Left, false, true, true});
         addHit("tb:search", r, [this] { focusSearch(); });
     }
@@ -2419,7 +2546,7 @@ std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
         bool dragged = false;
         for (auto& d : drag_.paths) if (samePath(d, rowFolder)) dragged = true;
         if (!rowFolder.empty() && !dragged) out = rowFolder;
-        else if (p != drag_.fromPane && !here_.searching() && here_.collection.empty()) out = here_.path;   // the other pane's folder
+        else if (p != drag_.fromPane && !here_.searching() && here_.collection.empty() && !here_.bin) out = here_.path;   // the other pane's folder
     }
     if (swapped) swapView(tabs_[p][(size_t)activeTab_[p]]);
     return out;
@@ -2431,6 +2558,23 @@ void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
     drag_.x = x;
     drag_.y = y;
     if (!drag_.active && std::hypot(x - drag_.sx, y - drag_.sy) > 6 && !drag_.paths.empty()) drag_.active = true;
+    if (drag_.active && !drag_.external) {
+        // Out of the window: Windows takes the drag over, so any program that takes files can have them.
+        RECT rc;
+        GetClientRect(hwnd(), &rc);
+        const float s = gfx_.dpiScale();
+        if (x < 0 || y < 0 || x * s >= rc.right || y * s >= rc.bottom) {
+            const auto paths = drag_.paths;
+            drag_ = Drag{};
+            invalidate();
+            ReleaseCapture();
+            const DWORD effect = dnd::dragOut(paths);
+            if (effect & DROPEFFECT_MOVE) reloadQuietly();   // moved by the other program
+            drag_ = Drag{};
+            invalidate();
+            return;
+        }
+    }
     if (drag_.active) invalidate();
 }
 
@@ -2445,42 +2589,57 @@ bool FilesWindow::onMouseUp(float x, float y) {
         return false;
     }
     invalidate();
+    dropAt(d.paths, x, y, (GetKeyState(VK_CONTROL) & 0x8000) != 0, (GetKeyState(VK_SHIFT) & 0x8000) != 0, true);
+    return true;
+}
+
+// Things dropped at (x, y), from inside Files or from another program: onto a collection (added), the
+// sidebar (folders pinned), a folder row or a pane's folder (moved or copied as File Explorer would).
+// Returns what was done (DROPEFFECT_...); with `doIt` false, only what would be.
+DWORD FilesWindow::dropAt(const std::vector<std::wstring>& paths, float x, float y, bool ctrl, bool shift, bool doIt) {
     for (auto& [id, rr] : collectionRects_)
         if (rr.contains(x, y)) {
-            const int added = labels_.addToCollection(id, d.paths);
+            if (!doIt) return DROPEFFECT_LINK;
+            const int added = labels_.addToCollection(id, paths);
             saveLabels();
             const labels::Collection* c = labels_.collection(id);
             flash(added ? L"Added to \u201C" + (c ? c->name : std::wstring()) + L"\u201D. They stay where they are." : L"They're in that collection already.", 5);
-            return true;
+            invalidate();
+            return DROPEFFECT_LINK;
         }
     if (sidebarRect_.contains(x, y)) {
-        int pinned = 0;
-        for (auto& p : d.paths) {
+        bool anyFolder = false;
+        for (auto& p : paths) {
             const DWORD a = GetFileAttributesW(extendedPath(p).c_str());
-            if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) { pinFolder(p); ++pinned; }
+            if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+                anyFolder = true;
+                if (doIt) pinFolder(p);
+            }
         }
-        if (!pinned) flash(L"Only folders can be pinned to the sidebar.", 5);
-        return true;
+        if (doIt && !anyFolder) flash(L"Only folders can be pinned to the sidebar.", 5);
+        return anyFolder ? DROPEFFECT_LINK : DROPEFFECT_NONE;
     }
-    drag_ = d;   // dropTargetFolder looks at what's dragged
+    const Drag keep = drag_;
+    drag_.paths = paths;   // dropTargetFolder looks at what's dragged
     int tp = -1;
     const std::wstring target = dropTargetFolder(x, y, &tp);
-    drag_ = Drag{};
-    if (target.empty()) return true;
+    drag_ = keep;
+    if (target.empty()) return DROPEFFECT_NONE;
     // As in File Explorer: a move on the same drive, a copy to another (Ctrl copies, Shift moves).
-    const bool ctrl = GetKeyState(VK_CONTROL) & 0x8000, shift = GetKeyState(VK_SHIFT) & 0x8000;
-    const bool sameDrive = !d.paths.empty() && towupper(d.paths[0][0]) == towupper(target[0]) && d.paths[0][1] == L':' && target[1] == L':';
+    const bool sameDrive = !paths.empty() && paths[0].size() > 1 && target.size() > 1 && towupper(paths[0][0]) == towupper(target[0]) &&
+                           paths[0][1] == L':' && target[1] == L':';
     const bool move = shift || (!ctrl && sameDrive);
-    const TransferPlan plan = planTransfer(d.paths, target, move);
-    if (plan.nothingToDo || plan.sources.empty()) { if (!plan.problem.empty()) flash(plan.problem, 6); return true; }
+    if (!doIt) return move ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+    const TransferPlan plan = planTransfer(paths, target, move);
+    if (plan.nothingToDo || plan.sources.empty()) { if (!plan.problem.empty()) flash(plan.problem, 6); return DROPEFFECT_NONE; }
     if (!plan.problem.empty()) flash(plan.problem, 6);
     const ops::Result r = ops::transfer(hwnd(), plan.sources, target, move);
     if (move) noteMoved(plan.sources, target);
     if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
                                                 L"NorthRay Files", MB_OK | MB_ICONWARNING);
-    else if (r.ok) flash((move ? L"Moved to “" : L"Copied to “") + (isDriveRoot(target) ? target : nameOf(target)) + L"”.", 5);
+    else if (r.ok) flash((move ? L"Moved to \u201C" : L"Copied to \u201C") + (isDriveRoot(target) ? target : nameOf(target)) + L"\u201D.", 5);
     reloadQuietly();
-    return true;
+    return r.ok ? (move ? DROPEFFECT_MOVE : DROPEFFECT_COPY) : DROPEFFECT_NONE;
 }
 
 bool FilesWindow::onWheel(float x, float y, float deltaLines) {
@@ -2729,10 +2888,11 @@ void FilesWindow::drawSidebar(const Rect& r) {
     y += 22;
     for (const Place& p : places_)
         row("tb:place:" + narrow(p.label), p.label, p.icon, !here_.thisPC && samePath(here_.path, p.path), [this, p] { goPath(p.path); });
-    row("tb:bin", L"Recycle Bin", recycleIcon_, false, [this] {
-        POINT pt;
-        GetCursorPos(&pt);
-        recycleBinMenu(pt);
+    binRect_ = {r.x + 10, y, r.w - 20, 32};
+    row("tb:bin", L"Recycle Bin", recycleIcon_, here_.bin, [this] {
+        Location b;
+        b.bin = true;
+        go(b);
     }, recycleItems_ ? std::to_wstring(recycleItems_) : L"");
     y += 12;
     // Collections, then the colour labels and tags (0.5).
@@ -2846,6 +3006,8 @@ void FilesWindow::drawAddress(const Rect& r) {
     std::vector<Part> parts;
     if (here_.thisPC) {
         parts.push_back({L"This PC", {true, L""}});
+    } else if (here_.bin) {
+        parts.push_back({L"Recycle Bin", here_});
     } else if (!here_.collection.empty()) {
         parts.push_back({L"Collections", here_});
         parts.push_back({nameFor(here_), here_});
@@ -2931,9 +3093,27 @@ void FilesWindow::drawContent(const Rect& rIn) {
         return;
     }
     Rect r = rIn;
-    if (here_.searching() && here_.collection.empty()) {
+    if (here_.searching() && here_.collection.empty() && !here_.bin) {
         const float bh = drawSearchBar(r);
         r = {r.x, r.y + bh, r.w, r.h - bh};
+    }
+    if (shown_.empty() && here_.bin && !loading_) {
+        if (!here_.searching() && recycleItems_ > 0) {
+            // Windows says there's something in it, but its Recycle Bin folder didn't list it.
+            drawMessage(r, L"The Recycle Bin couldn't be listed here",
+                        L"Windows says it holds " + std::to_wstring(recycleItems_) +
+                            (recycleItems_ == 1 ? L" item" : L" items") + L", but didn't say what. File Explorer can show them.",
+                        false);
+            const float bw = 190;
+            button("tb:bin:explorer", {r.x + (r.w - bw) / 2, r.y + std::max(40.0f, r.h * 0.2f) + 110, bw, 36}, L"Open in File Explorer",
+                   [this] { ShellExecuteW(hwnd(), L"open", L"shell:RecycleBinFolder", nullptr, nullptr, SW_SHOWNORMAL); }, true);
+            return;
+        }
+        drawMessage(r, here_.searching() ? L"Nothing found" : L"The Recycle Bin is empty",
+                    here_.searching() ? L"Nothing in the Recycle Bin matches \u201C" + here_.query + L"\u201D."
+                                      : L"Things you delete wait here until you empty it, so they can be put back.",
+                    false);
+        return;
     }
     if (shown_.empty() && !here_.collection.empty() && !loading_) {
         drawMessage(r, here_.searching() ? L"Nothing found" : L"This collection is empty",
@@ -2989,7 +3169,7 @@ void FilesWindow::drawDetails(const Rect& r) {
     // Columns: Name takes what's left; Type then Date go when it's narrow.
     const bool showType = w >= 620, showDate = w >= 430;
     // Search results: where each one is, in place of its type.
-    const bool folderCol = here_.searching() || !here_.collection.empty();
+    const bool folderCol = here_.searching() || !here_.collection.empty() || here_.bin;
     const float sizeW = 100, typeW = showType ? (folderCol ? std::min(260.0f, w * 0.3f) : 170) : 0, dateW = showDate ? 170 : 0;
     const float nameW = w - sizeW - typeW - dateW;
     const float xName = x0, xDate = xName + nameW, xType = xDate + dateW, xSize = xType + typeW;
@@ -3016,9 +3196,9 @@ void FilesWindow::drawDetails(const Rect& r) {
         if (focused(id)) focusRing(c);
     };
     head(idPrefix_ + "tb:sort:name", L"Name", xName, nameW, SortKey::Name, false);
-    head(idPrefix_ + "tb:sort:date", L"Date modified", xDate, dateW, SortKey::Modified, false);
+    head(idPrefix_ + "tb:sort:date", here_.bin ? L"Date deleted" : L"Date modified", xDate, dateW, SortKey::Modified, false);
     if (folderCol) {
-        if (typeW > 0) gfx_.text(L"Folder", {xType + 10, hr.y, typeW - 24, hr.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        if (typeW > 0) gfx_.text(here_.bin ? L"Deleted from" : L"Folder", {xType + 10, hr.y, typeW - 24, hr.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
     } else {
         head(idPrefix_ + "tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
     }

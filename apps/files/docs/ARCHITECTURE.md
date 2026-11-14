@@ -225,11 +225,29 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
 - Tested in Wine: colours, tags, the ask card, collections (make, drag in, open), the red-dot search, gallery, labels
   following a rename and surviving a restart.
 
-## 7f. Next
+## 7f. 0.6.0: the Recycle Bin inside Files, drag and drop with other programs
 
-The first rebuild (0.2–0.5) is complete. Candidates: browsing the Recycle Bin inside Files, drag and drop to and from
-other apps (OLE), column resizing, UI Automation for screen readers, labels that follow moves made by other programs
-(NTFS file ids).
+- **Recycle Bin**: a `Location` with `bin`. `ops::listRecycleBin` (worker thread, STA) enumerates the Shell's
+  `CSIDL_BITBUCKET` folder (`IShellFolder2`): id (in-folder parsing name), contents file (absolute parsing name, used by
+  `rowPath` for previews), original name, `PID_DISPLACED_FROM`/`PID_DISPLACED_DATE` from the displaced property set
+  (`GetDetailsEx`, with `GetDetailsOf` column 1 as a fallback), size. Items with neither an original folder nor a date
+  are dropped (Wine's bin folder lists the desktop instead); when Windows reports items but none are listed, Files says
+  so and offers File Explorer. `ops::recycleBinCommand` re-parses the ids in the bin folder and invokes the canonical
+  verbs `undelete` (Restore) or `delete` (Windows asks) through `IContextMenu`. Columns: Date deleted, Deleted from,
+  Size. Copy, cut, rename, drag and paste are refused with a reason; the search box narrows; tabs persist as `::bin`.
+- **Drag and drop** (`dragdrop.*`; the app now calls `OleInitialize`): a registered `IDropTarget` reads `CF_HDROP` and
+  routes to `dropAt` (shared with Files' own drags: collection → add, sidebar → pin, folder row or pane → move/copy by
+  File Explorer's rules, effect shown while hovering). A Files drag that leaves the window becomes `DoDragDrop` with
+  the Shell's data object (`IShellFolder::GetUIObjectOf(IID_IDataObject)` for one folder, `IShellItemArray` +
+  `BHID_DataObject` across folders).
+- Tested in Wine: the bin's honest fallback; the data object is made and `DoDragDrop` runs; Files' own drag onto a
+  collection through `dropAt`. Not verifiable here (Wine's bin folder and cross-window OLE under xdotool): real bin
+  listing/restore and drops between programs.
+
+## 7g. Next
+
+Column resizing, UI Automation for screen readers, labels that follow moves made by other programs (NTFS file ids),
+File Explorer replacement as an optional setting (roadmap: later).
 
 ## (Earlier plan) 0.2, core file operations
 

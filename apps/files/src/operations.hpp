@@ -49,6 +49,21 @@ void watchFolder(HWND window, UINT message, std::wstring folder, std::uint64_t r
 
 // The Recycle Bin: how many items it holds and how big they are; emptying it (Windows asks first).
 bool recycleBinInfo(std::uint64_t& items, std::uint64_t& bytes);
+
+// What's in the Recycle Bin (0.6), read through the Shell's own Recycle Bin folder, as File Explorer
+// shows it. Slow on a big bin, so it's called on a worker thread (with COM started there).
+struct BinItem {
+    std::wstring id;          // its name inside the Recycle Bin folder (for restoring or deleting it)
+    std::wstring file;        // where its contents are kept now (C:\$Recycle.Bin\...\$R...), for previews
+    std::wstring name;        // its name as it was
+    std::wstring from;        // the folder it was deleted from
+    std::uint64_t size = 0, deleted = 0;   // bytes; FILETIME
+    bool folder = false;
+};
+bool listRecycleBin(std::vector<BinItem>& out, std::wstring& problem);
+// Puts items back where they were deleted from ("undelete"), or deletes them for good ("delete";
+// Windows asks first). `ids` are BinItem::id values.
+Result recycleBinCommand(HWND owner, const std::vector<std::wstring>& ids, bool restore);
 Result emptyRecycleBin(HWND owner);
 
 }  // namespace nrf::ops

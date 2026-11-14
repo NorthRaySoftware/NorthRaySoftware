@@ -40,7 +40,7 @@ std::wstring commandLinePath() {
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     cjui::installCrashReport(L"NorthRay Files", L"Files");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) return 1;
+    if (FAILED(OleInitialize(nullptr))) return 1;   // COM, and OLE for drag and drop with other programs
     // No "insert a disk" or "drive not ready" dialogs when a drive is empty: the window says so instead.
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
 
@@ -65,6 +65,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
             code = (int)msg.wParam;
         }
     }
-    CoUninitialize();
+    OleUninitialize();
     return code;
 }

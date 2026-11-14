@@ -40,10 +40,11 @@ add_executable(NorthRayFiles WIN32
   src/thumbnails.cpp
   src/operations.cpp
   src/search.cpp
+  src/dragdrop.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayFiles PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayFiles PRIVATE filescore miniz cjui cjcore ole32 shell32 comctl32 uuid windowscodecs propsys oleaut32)
+target_link_libraries(NorthRayFiles PRIVATE filescore miniz cjui cjcore ole32 shell32 comctl32 uuid windowscodecs propsys oleaut32 shlwapi)
 if(MSVC)
   target_compile_options(NorthRayFiles PRIVATE /W4 /utf-8)
 else()

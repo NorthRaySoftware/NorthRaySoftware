@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.6.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The Recycle Bin opens inside Files: what's in it, where each thing was deleted from and when, with Restore and Delete permanently (right-click, the Delete key, or the preview pane) and Empty the Recycle Bin. It uses Windows' own Recycle Bin, so it matches File Explorer; its right-click menu in the sidebar still offers File Explorer's view. If Windows doesn't list what's in it, Files says so and offers File Explorer.",
+        "Drag and drop with other programs: drag files out of Files into any program that takes files from File Explorer (an email, a chat, an art program), and drop files from File Explorer or the desktop onto a folder, a pane, a collection or the sidebar in Files. Moves and copies follow File Explorer's rules (Ctrl copies, Shift moves)."
+      ]
+    },
+    {
       "version": "0.5.0",
       "date": "2026-11-14",
       "notes": [

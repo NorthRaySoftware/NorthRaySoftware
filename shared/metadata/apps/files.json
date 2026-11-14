@@ -10,6 +10,7 @@
     "Details and Icons views with Windows' own icons and file types; in Icons view, pictures show the image itself, turned the right way up; sort by name, date, type or size, in natural order",
     "Select with Click, Ctrl+Click, Shift+Click and the keyboard; type a name to jump to it",
     "Copy, cut, paste, rename (F2), new folder and delete to the Recycle Bin, through Windows' own file operations; Windows' own right-click menu; folders refresh themselves",
+    "Drag and drop with other programs, both ways, and the Recycle Bin inside Files (restore, delete permanently, empty)",
     "Tabs (Ctrl+T) and two panes side by side (Ctrl+\\); drag files between panes or onto a folder, and drag a folder to the sidebar to pin it",
     "A folder tree under This PC that opens to the folder you're in",
     "Search the folder and the folders in it as you type, or the whole PC through Windows Search; phrases, wildcards, kind: and ext:",
@@ -20,7 +21,7 @@
   ],
   "category": "File manager",
   "status": "preview",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "accent": "#3A8FD8",
   "artwork": {
     "fallbackStyle": "sketchbook",

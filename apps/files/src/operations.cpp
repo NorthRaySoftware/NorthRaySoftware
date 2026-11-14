@@ -6,6 +6,8 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shellapi.h>
+#include <propkey.h>
+#include <propvarutil.h>
 
 #include <thread>
 
@@ -345,6 +347,123 @@ Result emptyRecycleBin(HWND owner) {
     const HRESULT hr = SHEmptyRecycleBinW(owner, nullptr, 0);
     if (FAILED(hr) && hr != E_UNEXPECTED) { r.ok = false; r.message = describe(hr); }
     if (hr == E_UNEXPECTED) r.cancelled = true;   // nothing to empty, or the person said no
+    return r;
+}
+
+
+namespace {
+
+Com<IShellFolder2> recycleBinFolder() {
+    Com<IShellFolder2> bin;
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHGetSpecialFolderLocation(nullptr, CSIDL_BITBUCKET, &pidl)) || !pidl) return bin;
+    SHBindToObject(nullptr, pidl, nullptr, IID_PPV_ARGS(bin.put()));
+    CoTaskMemFree(pidl);
+    return bin;
+}
+
+std::wstring strRet(IShellFolder* f, PCUITEMID_CHILD child, SHGDNF how) {
+    STRRET sr{};
+    if (FAILED(f->GetDisplayNameOf(child, how, &sr))) return L"";
+    wchar_t* s = nullptr;
+    if (FAILED(StrRetToStrW(&sr, child, &s)) || !s) return L"";
+    std::wstring out = s;
+    CoTaskMemFree(s);
+    return out;
+}
+
+// The Recycle Bin's own columns: where it came from, and when it was deleted.
+const PROPERTYKEY kDisplacedFrom = {{0x9B174B33, 0x40FF, 0x11D2, {0xA2, 0x7E, 0x00, 0xC0, 0x4F, 0xC3, 0x08, 0x71}}, 2};
+const PROPERTYKEY kDisplacedDate = {{0x9B174B33, 0x40FF, 0x11D2, {0xA2, 0x7E, 0x00, 0xC0, 0x4F, 0xC3, 0x08, 0x71}}, 3};
+const PROPERTYKEY kSize = {{0xB725F130, 0x47EF, 0x101A, {0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC}}, 12};
+
+}  // namespace
+
+bool listRecycleBin(std::vector<BinItem>& out, std::wstring& problem) {
+    Com<IShellFolder2> bin = recycleBinFolder();
+    if (!bin) { problem = L"The Recycle Bin couldn't be opened."; return false; }
+    Com<IEnumIDList> en;
+    if (bin->EnumObjects(nullptr, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, en.put()) != S_OK || !en) return true;   // empty
+    PITEMID_CHILD child = nullptr;
+    while (en->Next(1, &child, nullptr) == S_OK) {
+        BinItem it;
+        it.id = strRet(bin.p, child, SHGDN_INFOLDER | SHGDN_FORPARSING);
+        it.file = strRet(bin.p, child, SHGDN_FORPARSING);
+        it.name = strRet(bin.p, child, SHGDN_INFOLDER);
+        SFGAOF a = SFGAO_FOLDER;
+        PCUITEMID_CHILD c = child;
+        if (SUCCEEDED(bin->GetAttributesOf(1, &c, &a))) it.folder = (a & SFGAO_FOLDER) != 0;
+        VARIANT v;
+        VariantInit(&v);
+        if (SUCCEEDED(bin->GetDetailsEx(child, &kDisplacedFrom, &v))) {
+            if (v.vt == VT_BSTR && v.bstrVal) it.from = v.bstrVal;
+            VariantClear(&v);
+        }
+        if (SUCCEEDED(bin->GetDetailsEx(child, &kDisplacedDate, &v))) {
+            if (v.vt == VT_DATE) {
+                SYSTEMTIME st;
+                FILETIME ft, utc;
+                if (VariantTimeToSystemTime(v.date, &st) && SystemTimeToFileTime(&st, &ft) && LocalFileTimeToFileTime(&ft, &utc))
+                    it.deleted = ((std::uint64_t)utc.dwHighDateTime << 32) | utc.dwLowDateTime;
+            }
+            VariantClear(&v);
+        }
+        if (SUCCEEDED(bin->GetDetailsEx(child, &kSize, &v))) {
+            if (v.vt == VT_UI8) it.size = v.ullVal;
+            else if (v.vt == VT_UI4) it.size = v.ulVal;
+            else if (v.vt == VT_I8) it.size = (std::uint64_t)v.llVal;
+            VariantClear(&v);
+        }
+        // Older shells only give the columns as text.
+        if (it.from.empty()) {
+            SHELLDETAILS d{};
+            if (SUCCEEDED(bin->GetDetailsOf(child, 1, &d))) {
+                wchar_t* s = nullptr;
+                if (SUCCEEDED(StrRetToStrW(&d.str, child, &s)) && s) { it.from = s; CoTaskMemFree(s); }
+            }
+        }
+        if (it.size == 0 && !it.folder && !it.file.empty()) {
+            WIN32_FILE_ATTRIBUTE_DATA fa{};
+            if (GetFileAttributesExW(it.file.c_str(), GetFileExInfoStandard, &fa)) it.size = ((std::uint64_t)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
+        }
+        CoTaskMemFree(child);
+        // Only what the Recycle Bin says it holds (where it came from, or when it was deleted): a shell that
+        // answers with something else (Wine's lists the desktop) isn't shown as if it were deleted things.
+        if (!it.id.empty() && (!it.from.empty() || it.deleted != 0)) out.push_back(std::move(it));
+    }
+    return true;
+}
+
+Result recycleBinCommand(HWND owner, const std::vector<std::wstring>& ids, bool restore) {
+    Result r;
+    Com<IShellFolder2> bin = recycleBinFolder();
+    if (!bin) { r.ok = false; r.message = L"The Recycle Bin couldn't be opened."; return r; }
+    std::vector<PITEMID_CHILD> kids;
+    for (const auto& id : ids) {
+        PIDLIST_RELATIVE rel = nullptr;
+        if (SUCCEEDED(bin->ParseDisplayName(owner, nullptr, const_cast<LPWSTR>(id.c_str()), nullptr, &rel, nullptr)) && rel)
+            kids.push_back(reinterpret_cast<PITEMID_CHILD>(rel));
+    }
+    if (kids.empty()) { r.ok = false; r.message = L"They aren't in the Recycle Bin any more."; return r; }
+    Com<IContextMenu> cm;
+    std::vector<PCUITEMID_CHILD> constKids(kids.begin(), kids.end());
+    HRESULT hr = bin->GetUIObjectOf(owner, (UINT)constKids.size(), constKids.data(), IID_IContextMenu, nullptr, reinterpret_cast<void**>(cm.put()));
+    if (SUCCEEDED(hr)) {
+        HMENU m = CreatePopupMenu();
+        cm->QueryContextMenu(m, 0, 1, 0x7FFF, CMF_NORMAL);
+        CMINVOKECOMMANDINFOEX ci{};
+        ci.cbSize = sizeof ci;
+        ci.fMask = CMIC_MASK_UNICODE;
+        ci.hwnd = owner;
+        ci.lpVerb = restore ? "undelete" : "delete";
+        ci.lpVerbW = restore ? L"undelete" : L"delete";
+        ci.nShow = SW_SHOWNORMAL;
+        hr = cm->InvokeCommand(reinterpret_cast<CMINVOKECOMMANDINFO*>(&ci));
+        DestroyMenu(m);
+    }
+    for (auto k : kids) CoTaskMemFree(k);
+    if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) r.cancelled = true;
+    else if (FAILED(hr)) { r.ok = false; r.message = describe(hr); }
     return r;
 }
 

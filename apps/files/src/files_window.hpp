@@ -58,8 +58,9 @@ private:
         std::wstring query;       // a search in `path` (and its sub-folders) when not empty
         bool everywhere = false;  // the search is of the whole PC (the Windows Search index)
         std::string collection;   // a collection (0.5) instead of a folder
+        bool bin = false;         // the Recycle Bin (0.6)
         bool operator==(const Location& o) const {
-            return thisPC == o.thisPC && path == o.path && query == o.query && everywhere == o.everywhere && collection == o.collection;
+            return thisPC == o.thisPC && path == o.path && query == o.query && everywhere == o.everywhere && collection == o.collection && bin == o.bin;
         }
         bool searching() const { return !query.empty(); }
     };
@@ -124,7 +125,7 @@ private:
     float treeScroll_ = 0, treeContent_ = 0;
     cjui::Rect treeRect_{};
     cjui::Rect sidebarRect_{};
-    struct Drag { bool armed = false, active = false; float sx = 0, sy = 0, x = 0, y = 0; std::vector<std::wstring> paths; int fromPane = 0, clickRow = -1; } drag_;
+    struct Drag { bool armed = false, active = false, external = false; float sx = 0, sy = 0, x = 0, y = 0; std::vector<std::wstring> paths; int fromPane = 0, clickRow = -1; } drag_;
     std::wstring dropTargetFolder(float x, float y, int* pane = nullptr);   // a folder row under the pointer, or a pane's folder
 
     // Navigation
@@ -165,6 +166,9 @@ private:
     void reloadQuietly(std::vector<std::wstring> select = {});   // the folder changed: list it again, keeping the place
     void moreOptions(POINT screen);                                // Windows' own right-click menu
     void recycleBinMenu(POINT screen);
+    DWORD dropAt(const std::vector<std::wstring>& paths, float x, float y, bool ctrl, bool shift, bool doIt);
+    void binCommand(bool restore);   // the selection in the Recycle Bin: put back, or deleted for good
+    cjui::Rect binRect_{};
     void updateRecycleBin();
     std::vector<std::wstring> selectedPaths() const;
     std::vector<std::wstring> namesHere() const;
