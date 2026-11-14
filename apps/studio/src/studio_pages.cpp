@@ -25,11 +25,14 @@ static std::wstring plural(size_t n, const wchar_t* one, const wchar_t* many) {
 
 void StudioApp::drawFrame(float W, float H) {
     drops_.clear();
-    const bool panel = settings_.showPanel && lib_ && !(ws_ == Workspace::Library && view_ == View::Settings);
-    const float centreW = W - kSideW - (panel ? kPanelW : 0);
-    sideRect_ = {0, kTopH, kSideW, H - kTopH - kStatusH};
+    // Focus mode (Writing): the text alone, without the outline and the details panel.
+    const bool focusing = focusMode() && lib_ && lib_->book(writingBook_);
+    const float sideW = focusing ? 0 : kSideW;
+    const bool panel = !focusing && settings_.showPanel && lib_ && !(ws_ == Workspace::Library && view_ == View::Settings);
+    const float centreW = W - sideW - (panel ? kPanelW : 0);
+    sideRect_ = {0, kTopH, sideW, H - kTopH - kStatusH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH - kStatusH} : Rect{};
-    pageRect_ = {kSideW, kTopH, centreW, H - kTopH - kStatusH};
+    pageRect_ = {sideW, kTopH, centreW, H - kTopH - kStatusH};
 
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = centreW > 900 ? 40 : 28;
@@ -137,7 +140,7 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.text(L"Opening the editor...", {m.x, m.y + 20, 400, 30}, Font::Body, pal_.inkFaint);
         }
         placeEditor();
-        drawBinder(sideRect_);
+        if (!focusing) drawBinder(sideRect_);
         if (panel) drawPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H - kStatusH, W, kStatusH});
@@ -1282,7 +1285,7 @@ float StudioApp::pageSettings(const Rect& r0) {
     section(L"LIBRARY");
     y += gfx_.text(w(lib_->folder()), {r.x, y, r.w, 40}, Font::BodyStrong, pal_.ink) + 4;
     y += gfx_.text(L"Your library is a folder. library.db holds your worlds, series, books and text (every change is saved at once); "
-                   L"objects holds covers and pictures; backups has a full copy made each time the library opens (the newest 10). "
+                   L"objects holds covers and pictures; backups has full copies (see Backups below). "
                    L"Keep it out of OneDrive or Dropbox while the Studio is open.",
                    {r.x, y, r.w, 100}, Font::Small, pal_.inkMuted) + 14;
     {
@@ -1293,6 +1296,30 @@ float StudioApp::pageSettings(const Rect& r0) {
         }, &bw); bx += bw + 8;
         smallButton("set:export", bx, y, L"Export...", [this] { exportLibrary(); }, &bw); bx += bw + 8;
         smallButton("set:backup", bx, y, L"Back up now", [this] { backupNow(); }, &bw);
+        y += 48;
+    }
+
+    section(L"BACKUPS");
+    y += gfx_.text(L"A full copy of the library is made when it opens, every 30 minutes while you're working (if anything changed) "
+                   L"and when you close the Studio. The newest are kept in the library's backups folder.",
+                   {r.x, y, r.w, 80}, Font::Small, pal_.inkMuted) + 10;
+    if (settings_.backupFolder.empty()) {
+        y += gfx_.text(L"For safety, keep copies somewhere else too: another drive, a USB stick or a synced folder such as OneDrive. "
+                       L"Only finished backups are copied there, so syncing them is safe.",
+                       {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 10;
+        float bw = 0;
+        smallButton("set:bkfolder", r.x, y, L"Also copy backups to a folder...", [this] { chooseBackupFolder(); }, &bw);
+        y += 48;
+    } else {
+        gfx_.text(L"Also copied to", {r.x, y, r.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 20;
+        y += gfx_.text(w(settings_.backupFolder), {r.x, y, r.w, 40}, Font::BodyStrong, pal_.ink) + 8;
+        float bx = r.x, bw = 0;
+        smallButton("set:bkshow", bx, y, L"Show the folder", [this] {
+            ShellExecuteW(hwnd(), L"open", w(settings_.backupFolder).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }, &bw); bx += bw + 8;
+        smallButton("set:bkfolder", bx, y, L"Change...", [this] { chooseBackupFolder(); }, &bw); bx += bw + 8;
+        smallButton("set:bkstop", bx, y, L"Stop copying", [this] { settings_.backupFolder.clear(); saveSettings(); }, &bw);
         y += 48;
     }
 
@@ -1347,7 +1374,7 @@ float StudioApp::pageSettings(const Rect& r0) {
                        {L"Alt+Up / Alt+Down", L"Move a chapter or scene up or down"}, {L"Enter", L"From the outline or a title, go to the text"}});
     group(L"Typesetting", {{L"Left / Right, Page Up / Page Down", L"Previous / next pages"}, {L"Home / End", L"First / last pages"}});
     group(L"Text", {{L"Ctrl+B / Ctrl+I / Ctrl+U", L"Bold / italic / underline"}, {L"Ctrl+Shift+K", L"Small capitals"},
-                    {L"Ctrl+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
+                    {L"Ctrl+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Shift+F", L"Focus mode (the text alone)"}, {L"Ctrl+Shift+T", L"Typewriter scrolling"}, {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
                     {L"Ctrl+Alt+0", L"Body text"}, {L"Ctrl+Alt+1 / 2 / 3", L"Headings"}, {L"Ctrl+Z / Ctrl+Y", L"Undo / redo"}});
 
     section(L"ABOUT");

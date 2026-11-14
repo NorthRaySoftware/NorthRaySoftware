@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.20.0",
+      "date": "2026-11-14",
+      "notes": [
+        "A Writing view panel (Aa in the editor's toolbar): Serif, Book, Sans or Typewriter type, four sizes, and a narrow, normal or wide page. Your choices are remembered.",
+        "Focus mode (Ctrl+Shift+F): the outline and details panel step aside, and everything but the paragraph you're in fades back.",
+        "Typewriter scrolling (Ctrl+Shift+T): the line you're typing stays near the middle of the window.",
+        "Spell check can be turned off and on (it uses Windows' own dictionaries; right-click a word for suggestions).",
+        "Style hints (off until you turn them on): doubled words, filler words, maybe-passive verbs and long sentences get a gentle underline. Hover one to see why. They never change your text.",
+        "Names from your Worldbuilding bible are linked in the text: Ctrl+click one to open its page.",
+        "Backups: a copy every 30 minutes while you work (when something changed) and when you close the Studio, as well as when the library opens. In Settings you can have them copied to a second folder too, such as another drive or a synced folder."
+      ]
+    },
+    {
       "version": "0.19.0",
       "date": "2026-11-14",
       "notes": [

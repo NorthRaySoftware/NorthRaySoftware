@@ -12,6 +12,7 @@
 #include <commctrl.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <cstring>
 #include <dwmapi.h>
 #include <cmath>
@@ -29,6 +30,7 @@ static const UINT_PTR kSaveTimer = 1;
 static const UINT_PTR kTickTimer = 2;
 static const UINT_PTR kCloseTimer = 3;   // waiting for the editor's last save
 static const UINT_PTR kTypesetTimer = 4; // a pause after a design change: set the pages again
+static const UINT_PTR kBackupTimer = 5;  // every 30 minutes: a backup if anything changed
 
 
 enum Cmd {
@@ -109,6 +111,8 @@ void StudioApp::loadSettings() {
     settings_.lastBook = cj::valueOr(j, "lastBook", "");
     settings_.lastNode = cj::valueOr(j, "lastNode", "");
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
+    if (j.contains("writingView") && j["writingView"].is_object()) settings_.writingView = j["writingView"].dump();
+    settings_.backupFolder = cj::valueOr(j, "backupFolder", "");
 }
 
 void StudioApp::saveSettings() {
@@ -127,6 +131,11 @@ void StudioApp::saveSettings() {
     j["lastBook"] = settings_.lastBook;
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
+    {
+        json v = json::parse(settings_.writingView, nullptr, false);
+        j["writingView"] = v.is_object() ? v : json::object();
+    }
+    j["backupFolder"] = settings_.backupFolder;
     std::string err;
     atomicWrite(narrow(stateDir() + L"\\settings.json"), j.dump(2), err);
 }
@@ -157,6 +166,7 @@ bool StudioApp::create(HINSTANCE inst, int show) {
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     SetTimer(hwnd(), kTickTimer, 30000, nullptr);
+    SetTimer(hwnd(), kBackupTimer, 30 * 60 * 1000, nullptr);
     return true;
 }
 
@@ -180,6 +190,7 @@ void StudioApp::onDestroy() {
     preview_.destroy();
     rememberPlace();
     saveSettings();
+    backupTick();   // what changed since the last backup isn't left without one
     lib_.reset();  // closes the database cleanly (checkpoints the journal)
     if (fieldFont_) DeleteObject(fieldFont_);
     if (fieldBrush_) DeleteObject(fieldBrush_);
@@ -216,6 +227,8 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
         return false;
     }
     lib_ = std::move(lib);
+    changesAtBackup_ = 0;
+    mirrorBackups();   // the backup made as it opened, copied to the backup folder too
     if (settings_.libraryFolder != folder) { settings_.lastBook.clear(); settings_.lastNode.clear(); settings_.lastInWriting = false; }
     settings_.libraryFolder = folder;
     saveSettings();
@@ -312,8 +325,84 @@ void StudioApp::backupNow() {
     if (!lib_) return;
     commitFields();
     std::string err;
-    if (lib_->backup(err)) flash(L"Backup made in the library's backups folder.", 5);
+    if (lib_->backup(err)) {
+        changesAtBackup_ = lib_->changesMade();
+        mirrorBackups();
+        flash(settings_.backupFolder.empty() ? L"Backup made in the library's backups folder."
+                                             : L"Backup made in the library's backups folder and copied to your backup folder.", 5);
+    }
     else MessageBoxW(hwnd(), w("The backup couldn't be made.\n\n" + err).c_str(), L"Back up", MB_OK | MB_ICONWARNING);
+}
+
+// Every 30 minutes, a backup if anything has changed since the last one (kept: the newest 20).
+void StudioApp::backupTick() {
+    if (!lib_) return;
+    const long long now = lib_->changesMade();
+    if (now == changesAtBackup_) return;
+    commitFields();
+    std::string err;
+    if (lib_->backup(err, 20)) {
+        changesAtBackup_ = now;
+        mirrorBackups();
+    }
+}
+
+// Copies backups the backup folder doesn't have yet into <folder>\<library name> backups, keeping the newest 20 there.
+void StudioApp::mirrorBackups() {
+    if (!lib_ || settings_.backupFolder.empty()) return;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path from = fs::path(w(lib_->folder())) / L"backups";
+    std::wstring name = fs::path(w(lib_->folder())).filename().wstring();
+    if (name.empty()) name = L"Library";
+    const fs::path to = fs::path(w(settings_.backupFolder)) / (name + L" backups");
+    if (!fs::is_directory(fs::path(w(settings_.backupFolder)), ec)) {
+        flash(L"Your backup folder isn't available (is the drive connected?), so this backup is only in the library folder.", 8);
+        return;
+    }
+    fs::create_directories(to, ec);
+    for (auto& e : fs::directory_iterator(from, ec)) {
+        if (e.path().extension() != L".db") continue;
+        const fs::path target = to / e.path().filename();
+        if (fs::exists(target, ec)) continue;
+        // Copied under a temporary name first, so a half-copied file never looks like a backup.
+        const fs::path tmp = target.wstring() + L".part";
+        if (fs::copy_file(e.path(), tmp, fs::copy_options::overwrite_existing, ec)) fs::rename(tmp, target, ec);
+        else fs::remove(tmp, ec);
+    }
+    std::vector<fs::path> all;
+    for (auto& e : fs::directory_iterator(to, ec))
+        if (e.path().extension() == L".db" && e.path().filename().wstring().rfind(L"library-", 0) == 0) all.push_back(e.path());
+    std::sort(all.begin(), all.end());
+    while (all.size() > 20) { fs::remove(all.front(), ec); all.erase(all.begin()); }
+}
+
+void StudioApp::chooseBackupFolder() {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    dlg->SetTitle(L"Choose a folder to keep copies of your backups in");
+    std::string path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = narrow(p); CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    if (lib_ && w(path).rfind(w(lib_->folder()), 0) == 0) {
+        flash(L"Choose a folder outside the library, so the copies are safe if the library folder is lost.", 8);
+        return;
+    }
+    settings_.backupFolder = path;
+    saveSettings();
+    mirrorBackups();
+    flash(L"Backups will also be copied to that folder.", 5);
 }
 
 // ------------------------------------------------------------------- menus
@@ -940,6 +1029,7 @@ void StudioApp::onTimer(UINT_PTR id) {
         return;
     }
     if (id == kTypesetTimer) { startTypeset(); return; }
+    if (id == kBackupTimer) { backupTick(); return; }
     if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
         commitFields();

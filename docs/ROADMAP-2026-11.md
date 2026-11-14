@@ -17,6 +17,8 @@ Done in 0.19.0 (14 November 2026): all ten. Also, at CJ's request, every app now
 10. Priority: **all** (auto-updates + tray, look and feel, install location + safety).
 
 ## NorthRay Writing Studio
+Stage 1 done in 0.20.0: focus/typewriter mode, font and page width (9), spell check switch and first style hints (2; better hints and custom rules after research), linked names (4, in the text), backups every 30 minutes and to a chosen folder (6). Version history per chapter already existed (Review > Changes, and the details panel).
+
 1. Used for **novels/series and comics/scripts equally**.
 2. Next tools: **focus/typewriter mode, version history per chapter, spell check + style hints**.
 3. Exports: **EPUB (improve styling and covers), print-ready PDF, comic script format**.

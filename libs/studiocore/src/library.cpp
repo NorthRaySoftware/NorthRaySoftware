@@ -1139,7 +1139,9 @@ bool Library::exportJson(const std::string& path, std::string& err) const {
     return atomicWrite(path, j.dump(2), err);
 }
 
-bool Library::backup(std::string& err, int keep) {
+long long Library::changesMade() const { return db_ ? (long long)sqlite3_total_changes64(db_) : 0; }
+
+bool Library::backup(std::string& err, int keep, std::string* madePath) {
     const fs::path dir = u8(folder_) / "backups";
     std::error_code ec;
     fs::create_directories(dir, ec);
@@ -1158,6 +1160,7 @@ bool Library::backup(std::string& err, int keep) {
     Stmt s(db_, "VACUUM INTO ?1");
     s.bind(1, fromPath(target));
     if (!s || !s.run()) { err = sqlite3_errmsg(db_); return false; }
+    if (madePath) *madePath = fromPath(target);
     // Keep the newest `keep` copies.
     std::vector<fs::path> all;
     for (auto& e : fs::directory_iterator(dir, ec))

@@ -24,12 +24,48 @@
   <span class="sep"></span>
   <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">&#x21B6;</button>
   <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo">&#x21B7;</button>
+  <span class="sep"></span>
+  <button id="viewbtn" title="Writing view: font, page width, focus, typewriter, hints" aria-label="Writing view" aria-haspopup="true" aria-expanded="false">Aa</button>
   <span class="grow"></span>
+  <span id="hints" aria-live="polite"></span>
   <button id="prev" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter">&#x2039;</button>
   <button id="next" title="Next chapter (Ctrl+Down)" aria-label="Next chapter">&#x203A;</button>
   <span class="sep"></span>
   <span id="count" aria-live="polite"></span>
   <span id="saved" aria-live="polite"></span>
+</div>
+<div id="viewmenu" role="dialog" aria-label="Writing view" hidden>
+  <div class="vm-label">Font</div>
+  <div class="vm-row">
+    <button data-set="font" data-value="serif" class="f-serif">Serif</button>
+    <button data-set="font" data-value="book" class="f-book">Book</button>
+    <button data-set="font" data-value="sans" class="f-sans">Sans</button>
+    <button data-set="font" data-value="typewriter" class="f-typewriter">Typewriter</button>
+  </div>
+  <div class="vm-label">Size</div>
+  <div class="vm-row">
+    <button data-set="size" data-value="0" title="Small">A<span class="vm-s0"></span></button>
+    <button data-set="size" data-value="1" title="Medium" class="vm-s1">A</button>
+    <button data-set="size" data-value="2" title="Large" class="vm-s2">A</button>
+    <button data-set="size" data-value="3" title="Extra large" class="vm-s3">A</button>
+  </div>
+  <div class="vm-label">Page width</div>
+  <div class="vm-row">
+    <button data-set="width" data-value="narrow">Narrow</button>
+    <button data-set="width" data-value="normal">Normal</button>
+    <button data-set="width" data-value="wide">Wide</button>
+  </div>
+  <div class="vm-rule"></div>
+  <label class="vm-check"><input type="checkbox" name="focus"> Focus mode <span class="vm-key">Ctrl+Shift+F</span>
+    <span class="vm-note">Hides the side panels and fades everything but the paragraph you're in.</span></label>
+  <label class="vm-check"><input type="checkbox" name="typewriter"> Typewriter scrolling <span class="vm-key">Ctrl+Shift+T</span>
+    <span class="vm-note">Keeps the line you're typing in the middle of the window.</span></label>
+  <label class="vm-check"><input type="checkbox" name="spellcheck"> Check spelling
+    <span class="vm-note">Uses Windows' own spelling dictionaries. Right-click a word for suggestions.</span></label>
+  <label class="vm-check"><input type="checkbox" name="hints"> Style hints
+    <span class="vm-note">Underlines doubled words, filler words, maybe-passive verbs and long sentences. Hover one for why.</span></label>
+  <label class="vm-check"><input type="checkbox" name="names"> Link names to the bible
+    <span class="vm-note">Names from Worldbuilding are underlined; Ctrl+click one to open its page.</span></label>
 </div>
 <div id="scroller">
   <article>

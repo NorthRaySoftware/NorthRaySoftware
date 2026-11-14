@@ -417,7 +417,9 @@ public:
     // A whole-library JSON file (without images) for moving or archiving.
     bool exportJson(const std::string& path, std::string& error) const;
     // Makes a backup copy of the database now. Keeps the newest `keep`.
-    bool backup(std::string& error, int keep = 10);
+    bool backup(std::string& error, int keep = 10, std::string* madePath = nullptr);
+    // Rows changed through this library since it was opened (for "back up if anything changed").
+    long long changesMade() const;
 
     const std::string& lastError() const { return error_; }
 

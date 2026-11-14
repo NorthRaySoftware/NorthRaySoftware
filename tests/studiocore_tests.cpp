@@ -1351,7 +1351,36 @@ static void testReview() {
     fs::remove_all(dir);
 }
 
+// Backups: a complete copy that opens as a library, its path reported, and changes counted.
+static void testBackup() {
+    const std::string dir = tempLibrary("backup");
+    auto lib = openOk(dir);
+    const long long before = lib->changesMade();
+    const Id b = lib->createBook("Backed Up", {});
+    CHECK(lib->changesMade() > before);
+    std::string err, made;
+    CHECK(lib->backup(err, 3, &made));
+    CHECK(!made.empty() && fs::exists(fs::path(made)));
+    // The copy opens as a library and holds the book.
+    const std::string copyDir = tempLibrary("backup-copy");
+    fs::create_directories(copyDir);
+    fs::copy_file(fs::path(made), fs::path(copyDir) / "library.db");
+    {
+        auto copy = openOk(copyDir);
+        CHECK(copy && copy->book(b) && copy->book(b)->title == "Backed Up");
+    }
+    // Only the newest `keep` are kept.
+    for (int i = 0; i < 5; ++i) CHECK(lib->backup(err, 3));
+    int n = 0;
+    for (auto& e : fs::directory_iterator(fs::path(dir) / "backups")) if (e.path().extension() == ".db") ++n;
+    CHECK(n == 3);
+    lib.reset();
+    fs::remove_all(dir);
+    fs::remove_all(copyDir);
+}
+
 int main() {
+    testBackup();
     testReview();
     testWorldbuilding();
     testPublish();

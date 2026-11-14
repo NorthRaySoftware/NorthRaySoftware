@@ -85,6 +85,7 @@ void StudioApp::sendLoad() {
     const char* placeholder = n->kind == NodeKind::Scene ? "Start writing this scene."
                             : n->kind == NodeKind::Part ? "A part can open with a page of its own, such as an epigraph. Leave it empty if it doesn't."
                                                          : "Start writing this chapter.";
+    sendView();   // the names for this book's world, before its text arrives
     json msg = {{"type", "load"}, {"id", n->id}, {"title", n->title}, {"language", b ? b->language : "en-GB"}, {"dark", pal_.dark},
                 {"readOnly", n->deleted != 0}, {"focus", loadFocus_}, {"placeholder", placeholder}};
     loadFocus_ = true;
@@ -106,6 +107,7 @@ void StudioApp::editorMessage(const std::string& text) {
     const std::string type = m.value("type", "");
     if (type == "ready") {
         editor_.send(json{{"type", "theme"}, {"dark", pal_.dark}}.dump());
+        sendView();
         if (loadPending_ || !currentNode_.empty()) sendLoad();
     } else if (type == "change") {
         const std::string id = m.value("id", "");
@@ -131,6 +133,20 @@ void StudioApp::editorMessage(const std::string& text) {
     } else if (type == "comment" || type == "commentFocus") {
         commentMessage(text);
         return;
+    } else if (type == "view") {
+        // The writer changed the writing view: remember it; focus mode changes the layout.
+        if (m.contains("settings") && m["settings"].is_object()) {
+            settings_.writingView = m["settings"].dump();
+            saveSettings();
+            invalidate();
+        }
+    } else if (type == "entry") {
+        // Ctrl+click on a name from the bible: its page in Worldbuilding.
+        if (const Entry* e = lib_->entry(m.value("id", "")); e && !e->deleted) {
+            const Id id = e->id;
+            openWorldbuilding(e->worldId, e->worldId.empty() ? e->bookId : Id{});
+            openEntry(id);
+        }
     } else if (type == "link") {
         cjui::openInBrowser(m.value("href", ""));
     } else if (type == "insertImage") {
@@ -169,6 +185,27 @@ void StudioApp::editorMessage(const std::string& text) {
         editorStarted_ = false;
     }
     invalidate();
+}
+
+bool StudioApp::focusMode() const {
+    if (ws_ != Workspace::Writing) return false;
+    json v = json::parse(settings_.writingView, nullptr, false);
+    return v.is_object() && v.value("focus", false);
+}
+
+// The writing view, and every name (and other name) in the book's world bible, for the editor to link.
+void StudioApp::sendView() {
+    if (!editor_.ready() || !lib_) return;
+    json v = json::parse(settings_.writingView, nullptr, false);
+    json msg = {{"type", "view"}, {"settings", v.is_object() ? v : json::object()}, {"names", json::array()}};
+    if (const Book* b = lib_->book(writingBook_)) {
+        for (const Entry* e : lib_->entriesOf(b->worldId, b->worldId.empty() ? b->id : Id{})) {
+            json names = json::array({e->name});
+            for (auto& a : e->aliases) names.push_back(a);
+            msg["names"].push_back({{"id", e->id}, {"names", names}});
+        }
+    }
+    editor_.send(msg.dump());
 }
 
 void StudioApp::placeEditor() {

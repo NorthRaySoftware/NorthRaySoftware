@@ -69,6 +69,10 @@ struct Settings {
     // Where you were: reopened on the next start.
     std::string lastBook, lastNode;
     bool lastInWriting = false;
+    // The editor's writing view (font, size, width, focus, typewriter, spellcheck, hints, names), kept as the editor sends it.
+    std::string writingView = "{}";   // JSON
+    // Backups: also copied to this folder (another drive, a USB stick, a synced folder), if set.
+    std::string backupFolder;
 };
 
 class StudioApp : public AppWindow {
@@ -146,6 +150,12 @@ private:
     void drawBinder(const Rect& r);
     void drawNodePanel(const Rect& r, const Rect& c, float& y);
     void placeEditor();
+    void sendView();                  // the writing view and the bible's names, to the editor
+    bool focusMode() const;           // Writing in focus mode: no side panels
+    void backupTick();                // every 30 minutes: a backup if anything changed
+    void mirrorBackups();             // copy new backups to settings_.backupFolder
+    void chooseBackupFolder();
+    long long changesAtBackup_ = 0;
     std::int64_t nodeTotalWords(const Id& nodeId) const;
     std::wstring nodeLabel(const studio::ManuscriptNode& n) const;
     // Import (studio_writing.cpp)

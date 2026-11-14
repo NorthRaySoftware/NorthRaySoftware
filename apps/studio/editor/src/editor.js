@@ -15,6 +15,9 @@
 //                         {type:"commentFocus", id, node} (the cursor is in a comment; id null when it isn't)
 // Comments from the app:  {type:"comments", resolved:[ids]} {type:"selectComment", id} {type:"stripComment", id}
 // Pictures from the app:  {type:"image", blob, alt, width} {type:"setPicture", pos, attrs} {type:"removePicture", pos}
+// Writing view:           {type:"view", settings, names:[{id, names:[...]}]} from the app; {type:"view", settings} back when
+//                         the writer changes it (font, size, width, focus, typewriter, spellcheck, hints, names).
+//                         {type:"entry", id} (Ctrl+click on a name from the world's bible)
 
 import { Schema } from "prosemirror-model";
 import { EditorState, Plugin, TextSelection, NodeSelection } from "prosemirror-state";
@@ -347,6 +350,7 @@ const keys = {
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
   "Enter": splitListItem(S.list_item), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
   "Mod-[": lift,
+  "Mod-Shift-f": toggleFocus, "Mod-Shift-t": toggleTypewriter,
 };
 
 const rules = inputRules({
@@ -365,6 +369,219 @@ const rules = inputRules({
     }),
   ],
 });
+
+// -------------------------------------------------------------- writing view
+
+const VIEW_DEFAULTS = { font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: false, names: true };
+let viewSettings = { ...VIEW_DEFAULTS };
+const FONTS = {
+  serif: '"Cambria", "Georgia", "Times New Roman", serif',
+  book: '"Palatino Linotype", "Book Antiqua", "Palatino", "Georgia", serif',
+  sans: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  typewriter: '"Courier New", "Consolas", monospace',
+};
+const SIZES = [1.0, 1.12, 1.26, 1.42];
+const WIDTHS = { narrow: "36rem", normal: "44rem", wide: "56rem" };
+
+function applyView() {
+  const v = viewSettings, root = document.documentElement;
+  root.style.setProperty("--text-font", FONTS[v.font] || FONTS.serif);
+  root.style.setProperty("--text-size", (SIZES[v.size] ?? SIZES[1]) + "rem");
+  root.style.setProperty("--page-width", WIDTHS[v.width] || WIDTHS.normal);
+  root.classList.toggle("focus-mode", !!v.focus);
+  root.classList.toggle("typewriter", !!v.typewriter);
+  if (view) {
+    view.dom.setAttribute("spellcheck", v.spellcheck ? "true" : "false");
+    view.dispatch(view.state.tr.setMeta("view", true));
+    keepCaretCentred();
+  }
+  syncViewMenu();
+}
+
+function changeView(patch) {
+  viewSettings = { ...viewSettings, ...patch };
+  applyView();
+  send({ type: "view", settings: viewSettings });
+}
+
+// Focus mode: everything but the paragraph you're in fades back.
+const focusLook = new Plugin({
+  props: {
+    decorations(state) {
+      if (!viewSettings.focus) return null;
+      const here = state.selection.$from.index(0);
+      const decos = [];
+      let i = 0;
+      state.doc.forEach((node, pos) => {
+        if (i++ !== here) decos.push(Decoration.node(pos, pos + node.nodeSize, { class: "dim" }));
+      });
+      return DecorationSet.create(state.doc, decos);
+    },
+  },
+});
+
+// Typewriter scrolling: the line you're typing stays a little above the middle of the window.
+function keepCaretCentred() {
+  if (!view || !viewSettings.typewriter) return;
+  const scroller = document.getElementById("scroller");
+  let c;
+  try { c = view.coordsAtPos(view.state.selection.head); } catch (e) { return; }
+  const box = scroller.getBoundingClientRect();
+  const target = box.top + box.height * 0.42;
+  const delta = (c.top + c.bottom) / 2 - target;
+  if (Math.abs(delta) > 2) {
+    scroller.style.scrollBehavior = "auto";
+    scroller.scrollTop += delta;
+    scroller.style.scrollBehavior = "";
+  }
+}
+
+// Style hints: doubled words, filler words, long sentences and maybe-passive verbs, gently underlined.
+// They're suggestions, never changes; hovering one says why.
+const FILLERS = /(?<![\p{L}\p{N}'’])(very|really|just|actually|basically|suddenly|literally|quite|somewhat|totally|completely|simply)(?![\p{L}\p{N}])/giu;
+const DOUBLED = /(?<![\p{L}\p{N}'’])([\p{L}\p{N}]+)\s+\1(?![\p{L}\p{N}])/giu;
+const PASSIVE = /(?<![\p{L}\p{N}'’])(am|is|are|was|were|be|been|being)\s+(\p{L}{3,}ed)(?![\p{L}\p{N}])/giu;
+const SENTENCE = /[^.!?…]+(?:[.!?…]+["'’”)\]]*|$)/gu;
+const LONG_SENTENCE = 40;
+const HINT_TEXT = {
+  doubled: "The same word twice in a row.",
+  filler: "A word that often adds little. Fine if it's wanted.",
+  passive: "Maybe a passive verb. Would an active one be stronger?",
+  long: "A long sentence (over " + LONG_SENTENCE + " words). Could it be split?",
+};
+let hintCount = 0;
+
+function hintDecorations(doc) {
+  const decos = [];
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    const text = node.textBetween(0, node.content.size, " ", " ");
+    const base = pos + 1;
+    // Positions in `text` match positions in the block, because every inline leaf is one character.
+    const add = (from, to, kind) =>
+      decos.push(Decoration.inline(base + from, base + to, { class: "hint hint-" + kind, title: HINT_TEXT[kind] }));
+    for (const m of text.matchAll(DOUBLED)) {
+      if (/^\d+$/.test(m[1])) continue;
+      add(m.index, m.index + m[0].length, "doubled");
+    }
+    for (const m of text.matchAll(FILLERS)) add(m.index, m.index + m[0].length, "filler");
+    for (const m of text.matchAll(PASSIVE)) add(m.index, m.index + m[0].length, "passive");
+    for (const m of text.matchAll(SENTENCE)) if (countWords(m[0]) > LONG_SENTENCE) {
+      const lead = m[0].length - m[0].trimStart().length;
+      add(m.index + lead, m.index + m[0].trimEnd().length, "long");
+    }
+    return false;
+  });
+  hintCount = decos.length;
+  return DecorationSet.create(doc, decos);
+}
+
+// Names from the world's bible: a dotted underline; Ctrl+click opens the entry in Worldbuilding.
+let nameList = [];        // [{id, names: [...]}]
+let namePattern = null;   // one regular expression for all of them
+let nameIds = new Map();  // lower-cased name -> entry id
+function setNames(list) {
+  nameList = Array.isArray(list) ? list : [];
+  nameIds = new Map();
+  const all = [];
+  for (const e of nameList) for (const n of e.names || []) {
+    const t = String(n).trim();
+    if (t.length < 2 || nameIds.has(t.toLocaleLowerCase())) continue;
+    nameIds.set(t.toLocaleLowerCase(), e.id);
+    all.push(t);
+  }
+  all.sort((a, b) => b.length - a.length);   // "Maren Holt" before "Maren"
+  const esc = all.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  namePattern = esc.length ? new RegExp("(?<![\\p{L}\\p{N}])(" + esc.join("|") + ")(?![\\p{L}\\p{N}])", "gu") : null;
+}
+
+function nameDecorations(doc) {
+  if (!namePattern) return DecorationSet.empty;
+  const decos = [];
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    const text = node.textBetween(0, node.content.size, " ", " ");
+    for (const m of text.matchAll(namePattern)) {
+      const id = nameIds.get(m[1].toLocaleLowerCase());
+      if (!id) continue;
+      decos.push(Decoration.inline(pos + 1 + m.index, pos + 1 + m.index + m[0].length,
+        { class: "wl", "data-entry": id, title: m[1] + ": Ctrl+click to open it in Worldbuilding" }));
+    }
+    return false;
+  });
+  return DecorationSet.create(doc, decos);
+}
+
+// Hints and names are worked out again only when the text (or the view's settings) change.
+const lookups = new Plugin({
+  state: {
+    init: (_, state) => ({
+      hints: viewSettings.hints ? hintDecorations(state.doc) : (hintCount = 0, DecorationSet.empty),
+      names: viewSettings.names ? nameDecorations(state.doc) : DecorationSet.empty,
+      doc: state.doc,
+    }),
+    apply(tr, old, _prev, state) {
+      if (!tr.docChanged && !tr.getMeta("view") && old.doc === state.doc) return old;
+      return {
+        hints: viewSettings.hints ? hintDecorations(state.doc) : (hintCount = 0, DecorationSet.empty),
+        names: viewSettings.names ? nameDecorations(state.doc) : DecorationSet.empty,
+        doc: state.doc,
+      };
+    },
+  },
+  props: {
+    decorations(state) {
+      const s = lookups.getState(state);
+      if (s.hints === DecorationSet.empty) return s.names;
+      if (s.names === DecorationSet.empty) return s.hints;
+      return DecorationSet.create(state.doc, [...s.hints.find(), ...s.names.find()]);
+    },
+  },
+});
+
+// The View panel: the "Aa" button in the toolbar.
+function buildViewMenu() {
+  const btn = document.getElementById("viewbtn"), menu = document.getElementById("viewmenu");
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    menu.hidden = !menu.hidden;
+    btn.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+    if (!menu.hidden) {
+      const r = btn.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 352)) + "px";
+      menu.style.top = (r.bottom + 6) + "px";
+      syncViewMenu();
+    }
+  });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
+  menu.querySelectorAll("[data-set]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const key = el.dataset.set;
+      let val = el.dataset.value;
+      if (key === "size") val = +val;
+      changeView({ [key]: val });
+    });
+  });
+  menu.querySelectorAll("input[type=checkbox]").forEach((el) => {
+    el.addEventListener("change", () => changeView({ [el.name]: el.checked }));
+  });
+}
+
+function syncViewMenu() {
+  const menu = document.getElementById("viewmenu");
+  if (!menu) return;
+  menu.querySelectorAll("[data-set]").forEach((el) => {
+    const v = viewSettings[el.dataset.set];
+    el.setAttribute("aria-pressed", String(v) === el.dataset.value ? "true" : "false");
+  });
+  menu.querySelectorAll("input[type=checkbox]").forEach((el) => { el.checked = !!viewSettings[el.name]; });
+  document.getElementById("viewbtn").setAttribute("aria-pressed", viewSettings.focus || viewSettings.typewriter ? "true" : "false");
+}
+
+const toggleFocus = () => { changeView({ focus: !viewSettings.focus }); return true; };
+const toggleTypewriter = () => { changeView({ typewriter: !viewSettings.typewriter }); return true; };
 
 // ------------------------------------------------------------------- state
 
@@ -400,6 +617,8 @@ function stats() {
   const words = docWords(view.state.doc);
   document.getElementById("count").textContent =
     (sel ? sel.toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
+  const h = document.getElementById("hints");
+  if (h) h.textContent = viewSettings.hints ? (hintCount === 1 ? "1 hint" : hintCount + " hints") : "";
   send({ type: "stats", id: currentId, words, selectionWords: sel });
 }
 
@@ -413,7 +632,9 @@ const watcher = new Plugin({
         clearTimeout(timer);
         timer = setTimeout(flush, 800);
       }
-      if (!v.state.doc.eq(prev.doc) || !v.state.selection.eq(prev.selection)) { stats(); updateToolbar(v.state); reportPicture(v.state); reportComment(v.state); }
+      if (!v.state.doc.eq(prev.doc) || !v.state.selection.eq(prev.selection)) {
+        stats(); updateToolbar(v.state); reportPicture(v.state); reportComment(v.state); keepCaretCentred();
+      }
     },
   }),
 });
@@ -465,7 +686,7 @@ function makeState(docJSON) {
   catch (e) { doc = schema.node("doc", null, [schema.node("paragraph")]); }
   return EditorState.create({
     doc,
-    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook],
+    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups],
   });
 }
 
@@ -482,13 +703,15 @@ function load(msg) {
     view = new EditorView(document.getElementById("page"), {
       state,
       editable: () => !readOnly,
-      attributes: { spellcheck: "true", "aria-label": "Manuscript text" },
+      attributes: { spellcheck: viewSettings.spellcheck ? "true" : "false", "aria-label": "Manuscript text" },
       nodeViews: { image: (node) => new ImageView(node) },
       handleDOMEvents: {
         blur: () => { flush(); return false; },
         click: (v, e) => {
           const a = e.target.closest && e.target.closest("a[href]");
           if (a && (e.ctrlKey || e.metaKey)) { send({ type: "link", href: a.getAttribute("href") }); e.preventDefault(); return true; }
+          const n = e.target.closest && e.target.closest(".wl[data-entry]");
+          if (n && (e.ctrlKey || e.metaKey)) { flush(); send({ type: "entry", id: n.dataset.entry }); e.preventDefault(); return true; }
           return false;
         },
       },
@@ -594,6 +817,12 @@ function receive(msg) {
     if (view) { view.dispatch(view.state.tr.setMeta("comments", true)); reportedComment = null; reportComment(view.state); }
   }
   else if (msg.type === "selectComment") selectComment(msg.id);
+  else if (msg.type === "view") {
+    if (msg.settings && typeof msg.settings === "object") viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
+    if ("names" in msg) setNames(msg.names);
+    applyView();
+    stats();
+  }
   else if (msg.type === "stripComment") stripComment(msg.id);
   else if (msg.type === "saved") { if (msg.id === currentId && !dirty) setSaved(msg.ok === false ? "failed" : "saved"); }
   else if (msg.type === "command") {
@@ -608,5 +837,7 @@ window.addEventListener("beforeunload", flush);
 document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); });
 
 buildToolbar();
+buildViewMenu();
+applyView();
 setTheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
 send({ type: "ready" });
