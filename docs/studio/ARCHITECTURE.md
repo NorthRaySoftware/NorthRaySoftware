@@ -348,3 +348,10 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
   - `exportWebsite` writes index.html, glossary.html, an `e-<id>.html` page per entry, style.css (light and dark) and images/ (the type is sniffed from the bytes). Names are linked with `findNames`, and map pins are positioned by percentage.
   - `printableSource` builds a `typeset::Source`: a Part per kind, a chapter per entry (matter 2, so it's headed by the name with no number, built with `doc::Builder`), and a Glossary at the back. The app typesets it with the first preset (`chapterSinkLines` at most 3) and writes the PDF.
   - `pictureSize` reads PNG, GIF, JPEG and WebP headers.
+
+## 0.34.1: searchable, scrolling pickers
+
+Choosing who a relationship (or a family member) is with used a plain pop-up list that could run off the screen.
+cjui's `showMenu` (and so `trackMenu`) now gives any top-level menu with 13 or more choices a type-to-search field
+(letters filter by label, Backspace and Esc clear) and caps it at 14 rows, scrolling by wheel, arrow keys and Page Up/Down,
+with small arrows at the edges instead of scroll bars. Every long pop-up list in the suite gets this.

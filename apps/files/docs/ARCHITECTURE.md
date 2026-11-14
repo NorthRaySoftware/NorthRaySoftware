@@ -168,10 +168,30 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
 - Not done (yet): browsing the Recycle Bin inside Files (it opens File Explorer's Recycle Bin), dragging out to other apps
   (OLE drag source) and dropping in from them.
 
-## 7c. Next: 0.4, search and previews
+## 7c. 0.4.0: search (done 14 November 2026)
 
-Instant search in the current folder, whole-PC search through the Windows Search index, a preview pane, thumbnails for
-videos, PDFs and PSD/Procreate files.
+- Rules in the portable core (`nrf/search.hpp`, tested): `parse` (words, "phrases", wildcards, `kind:`, `ext:`/`.psd`),
+  `matches`, `wildcardMatch` (iterative, no blow-up), `kindOf`, `indexSql` (Windows Search SQL with LIKE escaping and
+  SCOPE), `relativeFolder`.
+- A search is a `Location` with `query` (and `everywhere`), so tabs, history, Back and the title all work as for
+  folders. `searchFoldersAsync` walks breadth-first (not through links, only into folders that would be shown), posting
+  `ListBatch`es with `Entry::location` set; `searchIndexAsync` asks `Search.CollatorDSO` over OLE DB (IDataInitialize →
+  ICommandText → IRowset) and, if that can't be done, walks the ready fixed/removable drives and marks the batches
+  `noIndex` so the bar says so. At most 20,000 results.
+- Typing narrows the shown results at once (`showHere` filters by the query); more letters on plain words never search
+  again, anything else searches again 220 ms after typing pauses, keeping the old results until the first new batch
+  (`searchReplace_`).
+- Results: a Folder column (relative to the searched folder), and copy/cut/rename/delete/drag work by each result's own
+  path; paste and new folder ask for a folder; Windows' menu needs one folder's items.
+- Tested in Wine: instant results, narrowing, the folder scope, the whole-PC fallback (Wine has no Windows Search), Esc.
+  The index path itself needs real Windows to verify.
+- cjui menus with 13+ choices gained a type-to-search field and scrolling (used across the suite).
+
+## 7d. Next: previews and art thumbnails (0.4.x)
+
+Already in the core (tested): `nrf/art.hpp` reads Photoshop's flattened picture (8/16-bit grey, RGB, CMYK; raw or RLE,
+box-averaged down) and its JPEG preview resource, and decodes text for previews. Still to do: the preview pane (Alt+P),
+Procreate/Krita/OpenRaster previews from their zips (miniz), and video/PDF pictures from Windows' own thumbnail handlers.
 
 ## (Earlier plan) 0.2, core file operations
 
@@ -182,5 +202,5 @@ and drag and drop with File Explorer. The Shell context menu (`IContextMenu`) be
 
 ## 8. Known limitations in 0.1
 
-(Updated for 0.3.) No search or previews (0.4), thumbnails in Icons view only (none in Details), no network locations
+(Updated for 0.4.0.) No previews yet, thumbnails in Icons view only (none in Details), no network locations
 in the sidebar, no column resizing, no drag and drop to or from other apps, and no UI Automation for screen readers.
