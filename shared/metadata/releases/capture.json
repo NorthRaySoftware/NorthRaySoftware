@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Video capture: add a whole display, a window or a camera or capture card from + in Sources, and see it live in the preview.",
+        "Displays are captured with Desktop Duplication, or Windows Graphics Capture or a slower compatibility mode where that isn't available; you can choose the method and whether to show the mouse pointer from a source's right-click menu.",
+        "Windows are captured with Windows Graphics Capture (they can be covered by other windows). Capture remembers the program and finds its window again when it restarts; minimised windows keep their last picture.",
+        "Arrange sources on the preview: drag to move, drag the handles to resize (Shift for any shape), Alt+drag a handle to crop, with snapping to the edges and centre of the canvas (hold Ctrl to place freely). The arrow keys nudge (Shift for 10 pixels).",
+        "Each source's right-click menu: rename, hide, lock, fit to the canvas (Ctrl+F), stretch (Ctrl+S), centre (Ctrl+D), reset (Ctrl+R), rotate, flip, remove the crop, and order. The eye and lock buttons in Sources hide and lock.",
+        "A source can be shown in several scenes (“A source from another scene” under +) and is captured once.",
+        "The status bar shows how long the graphics card takes for each frame, and the preview shows the frame rate being kept.",
+        "Not yet: sound, recording and streaming."
+      ]
+    },
+    {
       "version": "0.1.0",
       "date": "2026-11-14",
       "notes": [

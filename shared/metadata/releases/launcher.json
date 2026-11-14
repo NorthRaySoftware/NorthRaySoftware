@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.47.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.2.0: captures displays, windows and cameras into a live preview, where you can move, resize, crop and rotate them. Sound, recording and streaming are still to come."
+      ]
+    },
+    {
       "version": "0.46.0",
       "date": "2026-11-14",
       "notes": [

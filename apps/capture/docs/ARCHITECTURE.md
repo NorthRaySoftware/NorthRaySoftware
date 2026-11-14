@@ -184,3 +184,49 @@ ends with: what was built, what was actually tested (and how), what isn't done, 
 - Released as 0.1.0 in NorthRay Launcher and on the website (suite 0.46.0, 14 Nov 2026) at CJ's request,
   marked "In development" with a description that says it doesn't capture, record or stream yet.
   Installing it through the Launcher hasn't been tried here (the test machine can't reach the live site).
+
+## 9. Milestone 2: Video capture (status: done, 14 Nov 2026; released as 0.2.0)
+
+**Built**
+- `src/video/gpu.*`: one D3D11 device (BGRA + video support where the driver allows, multithread-protected), one
+  runtime-compiled shader (d3dcompiler_47, loaded at run time) drawing a textured or solid four-cornered shape,
+  alpha and invert blending, render-target textures.
+- `src/video/wgc.*`: Windows.Graphics.Capture through its ABI interfaces (declared from Microsoft's metadata; MinGW's
+  header lacks them), activated through combase at run time; free-threaded frame pool polled with TryGetNextFrame
+  (no event handler, no dispatcher queue); cursor on/off; the Windows 11 yellow border turned off where allowed.
+- `src/video/sources.*`: Display (Desktop Duplication → WGC → GDI), Window (WGC → GDI PrintWindow, BitBlt when
+  PrintWindow draws nothing; found again by program, class and title with `matchWindow`), Camera (Media Foundation
+  source reader: the largest format up to 1080p that keeps ≥ 29 fps, converted to RGB32 by the reader on the CPU).
+  Duplication draws the pointer itself (colour, masked-colour and monochrome shapes; the inverting parts in a second
+  pass with an invert blend) and turns the picture for rotated monitors. CPU-picture threads (GDI, cameras) skip their
+  work when the source hasn't been asked for in 0.5 s.
+- `src/video/engine.*`: the video thread on a high-resolution waitable timer at the output rate; per frame it updates
+  each shown source once, composes the current scene into the canvas texture, and at the preview rate draws the
+  letterboxed canvas, the selection (handles; grey when locked), hover outline and snapping guides into the preview's
+  own swap chain (flip-discard → flip-sequential → discard). GPU time per frame from timestamp queries. Nothing is
+  composed while the preview is hidden and no output is running (`setOutputsActive` for Milestone 5).
+- `core/placement`: frames, rotated corners, hit tests, handles, resize keeping the opposite side fixed (rotated too),
+  crop by Alt+drag (scale kept, mirrored items handled), snapping, fit/stretch/centre/reset/rotate, window matching.
+  `SceneCollection`: transforms, visibility, lock, order, source rename and settings.
+- UI (`capture_sources.cpp`): + menu with displays, windows (searchable when long), cameras and sources from other
+  scenes; rows with status, eye and lock; item menu (rename, hide, lock, transform, order, capture method, pointer,
+  remove); preview mouse (select, move with snapping, resize, Alt-crop, cursors per handle and rotation); keys (arrows
+  nudge, Ctrl+F/S/D/R, Ctrl+Up/Down order, Delete, F2). New items are fitted (if bigger than the canvas) or centred
+  once their size is known. Removing the last item showing a source deletes the source and stops its capture.
+
+**Tested**
+- capturecore: 110 tests (placement and crop maths, item editing, window matching, plus Milestone 1's).
+- In Wine (software rendering, no WGC, no Duplication, no cameras): display capture in compatibility mode, window
+  capture of Notepad (PrintWindow drew nothing there, so the BitBlt fallback), the live preview, select, move with
+  snapping, resize keeping the shape, Alt+drag crop, rotate 90°, fit to the canvas with the rotation, hide, the item
+  menus, saving, restarting (the window found again; "Waiting for notepad.exe to open" when it's closed), 150% scaling.
+  Hiding the preview took Capture from ~72% to ~7% CPU in Wine (where the GPU work runs on the CPU).
+
+**Not tested / limits**
+- Desktop Duplication, Windows Graphics Capture (and the declared WGC interfaces), cameras, rotated monitors, the
+  pointer shapes and GPU timing have not run on real Windows yet. They need CJ's PC.
+- Cameras convert on the CPU (fine at 1080p30 on most PCs; a GPU path is Milestone 12). HDR displays are captured
+  as SDR (DuplicateOutput, not DuplicateOutput1). Scaling uses bilinear filtering; better downscaling is later.
+- A graphics-driver reset stops the preview with a message; recovering without a restart is later (Milestone 13).
+- Window capture captures the whole window including its frame; Alt+drag crops it. A "client area only" option is
+  a possible later addition.

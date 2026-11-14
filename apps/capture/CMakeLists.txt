@@ -6,7 +6,7 @@ string(STRIP "${NCAP_VERSION}" NCAP_VERSION)
 string(REPLACE "." "," NCAP_VERSION_COMMAS "${NCAP_VERSION}.0")
 
 # The portable core: scenes, routing and leak checks, log redaction, layouts. Tested everywhere.
-add_library(capturecore STATIC core/src/scenes.cpp core/src/routing.cpp core/src/diag.cpp)
+add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/routing.cpp core/src/diag.cpp)
 target_include_directories(capturecore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
   target_compile_options(capturecore PRIVATE /W4 /utf-8)
@@ -33,13 +33,19 @@ configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc 
 add_executable(NorthRayCapture WIN32
   src/main.cpp
   src/capture_window.cpp
+  src/capture_sources.cpp
+  src/video/gpu.cpp
+  src/video/wgc.cpp
+  src/video/devices.cpp
+  src/video/sources.cpp
+  src/video/engine.cpp
   src/settings.cpp
   src/system.cpp
   src/log.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayCapture PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi)
+target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm)
 if(MSVC)
   target_compile_options(NorthRayCapture PRIVATE /W4 /utf-8)
 else()

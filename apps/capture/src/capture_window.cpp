@@ -107,6 +107,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
     applyTheme();
     loadScenes();
+    startEngine();
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
@@ -117,6 +118,8 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
 }
 
 void CaptureWindow::onDestroy() {
+    engine_.stop();
+    live_.clear();   // stops the captures
     saveScenes();
     saveLayout();
 }
@@ -235,22 +238,6 @@ void CaptureWindow::sceneMenu(const Id& id, POINT screen) {
     else if (cmd == CmdNewScene) newScene();
 }
 
-void CaptureWindow::addSourceMenu(POINT screen) {
-    // The source types, as they arrive. Nothing here pretends to work before it does.
-    const std::vector<MenuItem> items = {
-        MenuItem::item(L"Display (whole monitor)", 1, L"Milestone 2", false),
-        MenuItem::item(L"Window", 2, L"Milestone 2", false),
-        MenuItem::item(L"Camera or capture card", 3, L"Milestone 2", false),
-        MenuItem::item(L"Image", 4, L"Milestone 8", false),
-        MenuItem::item(L"Text", 5, L"Milestone 8", false),
-        MenuItem::sep(),
-        MenuItem::item(L"Application audio", 6, L"Milestone 3", false),
-        MenuItem::item(L"Microphone or input", 7, L"Milestone 3", false),
-        MenuItem::item(L"Desktop audio", 8, L"Milestone 3", false),
-    };
-    cjui::showMenu(hwnd(), items, screen, pal_);
-}
-
 // ---------------------------------------------------------------- layout commands
 
 void CaptureWindow::layoutMenu(POINT screen) {
@@ -330,7 +317,7 @@ void CaptureWindow::openSettings(bool on) {
 }
 
 void CaptureWindow::showAbout() {
-    std::wstring text = L"NorthRay Capture " CJ_VERSION_WSTR L" (in development: Milestone 1, the foundation)\n\n"
+    std::wstring text = L"NorthRay Capture " CJ_VERSION_WSTR L" (in development: Milestone 2, video capture)\n\n"
                         L"Livestreaming and recording for Windows.\n\n"
                         L"Developed by " CJ_DEVELOPER_WSTR L".\nNorthRaySoftware@protonmail.com\n\n"
                         L"Licences: the licences folder next to NorthRay Capture.";
@@ -366,10 +353,10 @@ bool CaptureWindow::preTranslate(MSG& msg) {
 }
 
 bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
-    (void)shift;
     if (vk == VK_ESCAPE && settingsOpen_) { openSettings(false); return true; }
     if (ctrl && vk == VK_OEM_COMMA) { openSettings(!settingsOpen_); return true; }
     if (settingsOpen_) return false;
+    if (sourceKey(vk, ctrl, shift)) return true;
     const auto& all = scenes_.scenes();
     auto at = std::find_if(all.begin(), all.end(), [&](const Scene& s) { return s.id == scenes_.current(); });
     switch (vk) {
@@ -414,6 +401,7 @@ bool CaptureWindow::onMouseDown(float x, float y) {
             dragStart_ = x;
             return true;
         }
+    if (previewMouseDown(x, y)) return true;
     // A panel's header: dragged sideways, it trades places with its neighbours.
     for (auto& [p, r] : panelRects_)
         if (Rect{r.x, r.y, r.w - 80, kHeaderH}.contains(x, y)) {
@@ -433,13 +421,33 @@ bool CaptureWindow::onMouseDown(float x, float y) {
             }
             lastClickScene_ = id;
             lastClickTime_ = now;
+            focus_ = Focus::Scenes;
             if (scenes_.setCurrent(id)) scenesChanged();
+            return true;
+        }
+    // Sources: a click selects (the eye and lock buttons at the right work on their own); a quick
+    // second click renames.
+    for (auto& [id, r] : sourceRows_)
+        if (r.contains(x, y)) {
+            focus_ = Focus::Sources;
+            if (x > r.right() - 64) return false;
+            const DWORD now = GetMessageTime();
+            if (id == lastClickItem_ && now - lastClickItemTime_ <= GetDoubleClickTime()) {
+                lastClickItem_.clear();
+                if (const SceneItem* i = scenes_.item(scenes_.current(), id)) renameSource(i->source);
+                return true;
+            }
+            lastClickItem_ = id;
+            lastClickItemTime_ = now;
+            selected_ = id;
+            invalidate();
             return true;
         }
     return false;
 }
 
 void CaptureWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (drag_ == Drag::None && !asking_ && !settingsOpen_ && previewMouseMove(x, y, leftDown)) return;
     if (!leftDown) {
         if (drag_ != Drag::None) { drag_ = Drag::None; saveLayout(); }
         // The resize cursor over a divider.
@@ -475,6 +483,13 @@ void CaptureWindow::onMouseMove(float x, float y, bool leftDown) {
 }
 
 bool CaptureWindow::onMouseUp(float, float) {
+    if (pdrag_ != PreviewDrag::None) {
+        pdrag_ = PreviewDrag::None;
+        guidesX_.clear();
+        guidesY_.clear();
+        scenesChanged();
+        return true;
+    }
     if (drag_ == Drag::None) return false;
     const bool consumed = drag_ != Drag::Panel;
     drag_ = Drag::None;
@@ -494,6 +509,20 @@ bool CaptureWindow::onRightClick(float x, float y) {
             sceneMenu(id, pt);
             return true;
         }
+    for (auto& [id, r] : sourceRows_)
+        if (r.contains(x, y)) {
+            focus_ = Focus::Sources;
+            itemMenu(id, pt);
+            return true;
+        }
+    if (previewLive_ && previewInner_.contains(x, y)) {
+        focus_ = Focus::Preview;
+        if (const Scene* sc = scenes_.scene(scenes_.current())) {
+            const Id hit = itemAt(sc->items, sizesOf(*sc), toCanvas(x, y));
+            if (!hit.empty()) itemMenu(hit, pt);
+        }
+        return true;
+    }
     for (auto& [p, r] : panelRects_)
         if (Rect{r.x, r.y, r.w, kHeaderH}.contains(x, y)) {
             panelMenu(p, pt);
@@ -530,6 +559,7 @@ LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
 void CaptureWindow::onTimer(UINT_PTR id) {
     if (id == kStatsTimer) {
         usage_ = sampler_.sample();
+        checkPendingFits();
         invalidate();
     } else if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
@@ -598,10 +628,19 @@ void CaptureWindow::drawFrame(float W, float H) {
     gfx_.clear(pal_.paper);
     drawTopBar({0, 0, W, kTopH});
     const Rect body{0, kTopH, W, H - kTopH - kStatusH};
-    previewRect_ = dockRect_ = hSplit_ = {};
+    previewRect_ = dockRect_ = hSplit_ = previewInner_ = {};
     panelRects_.clear();
     vSplits_.clear();
     sceneRows_.clear();
+    sourceRows_.clear();
+    // The selection belongs to the current scene.
+    if (!selected_.empty() && !scenes_.item(scenes_.current(), selected_)) selected_.clear();
+    if (!hoverItem_.empty() && !scenes_.item(scenes_.current(), hoverItem_)) hoverItem_.clear();
+    const Scene* cur = scenes_.scene(scenes_.current());
+    const int previewFps = settings_.lowResource ? std::min(settings_.previewFps, 10) : settings_.previewFps;
+    // The live preview window covers the preview area; it hides whenever something is drawn over it.
+    previewLive_ = !settingsOpen_ && !asking_ && layout_.previewVisible && engine_.running() && engineError_.empty() && cur && !cur->items.empty() &&
+                   previewFps > 0;
     if (settingsOpen_) {
         gfx_.pushClip(body);
         drawSettings(body);
@@ -639,6 +678,9 @@ void CaptureWindow::drawFrame(float W, float H) {
     drawStatusBar({0, H - kStatusH, W, kStatusH});
     drawToast({0, kTopH, W, H - kTopH - kStatusH});
     if (asking_) drawAsk(W, H);
+    if (previewInner_.w <= 0) previewLive_ = false;
+    placePreview();
+    pushSnapshot();
 }
 
 void CaptureWindow::drawTopBar(const Rect& r) {
@@ -709,23 +751,36 @@ void CaptureWindow::drawTopBar(const Rect& r) {
 
 void CaptureWindow::drawPreview(const Rect& r) {
     gfx_.fillRounded(r, 10, pal_.dark ? cjui::hexColor("#05080F") : cjui::hexColor("#0B1120"));
-    // The canvas, its shape kept, centred.
-    const float cw = (float)scenes_.canvasWidth, ch = (float)scenes_.canvasHeight;
-    const float s = std::min((r.w - 24) / cw, (r.h - 44) / ch);
-    if (s <= 0) return;
-    const float w = std::floor(cw * s), h = std::floor(ch * s);
-    const Rect c{std::floor(r.x + (r.w - w) / 2), std::floor(r.y + 12 + (r.h - 44 - h) / 2), w, h};
-    gfx_.fill(c, cjui::hexColor("#000000"));
-    gfx_.stroke({c.x - 0.5f, c.y - 0.5f, c.w + 1, c.h + 1}, cjui::hexColor("#2A3550"), 1);
+    previewInner_ = {r.x + 12, r.y + 12, std::max(0.0f, r.w - 24), std::max(0.0f, r.h - 44)};
     const Scene* sc = scenes_.scene(scenes_.current());
     const std::wstring name = sc ? widen(sc->name) : L"";
-    if (sc && sc->items.empty())
-        gfx_.text(L"“" + name + L"” has nothing in it yet.\nThe live preview starts with video capture (Milestone 2, in development).",
-                  {c.x + 20, c.y + c.h / 2 - 22, c.w - 40, 60}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Center});
-    // Under it: the scene, the canvas, the rate.
-    const std::wstring info = name + L"   ·   " + std::to_wstring(scenes_.canvasWidth) + L" × " + std::to_wstring(scenes_.canvasHeight) +
-                              L"   ·   " + std::to_wstring(settings_.outputFps) + L" fps";
-    gfx_.text(info, {r.x + 14, r.bottom() - 28, r.w - 28, 20}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
+    if (!previewLive_) {
+        // The canvas, its shape kept, with a word on why there's no live picture.
+        const video::Fit f = video::fitCanvas((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, 0);
+        const Rect c{previewInner_.x + f.x, previewInner_.y + f.y, std::floor(scenes_.canvasWidth * f.scale), std::floor(scenes_.canvasHeight * f.scale)};
+        if (c.w > 4 && c.h > 4) {
+            gfx_.fill(c, cjui::hexColor("#000000"));
+            gfx_.stroke({c.x - 0.5f, c.y - 0.5f, c.w + 1, c.h + 1}, cjui::hexColor("#2A3550"), 1);
+            const int pfps = settings_.lowResource ? std::min(settings_.previewFps, 10) : settings_.previewFps;
+            std::wstring msg;
+            if (!engineError_.empty()) msg = L"Video capture couldn’t start: " + engineError_;
+            else if (sc && sc->items.empty()) msg = L"“" + name + L"” is empty.\nAdd a display, a window or a camera with + in Sources.";
+            else if (pfps <= 0) msg = L"The preview is off (Settings › Preview frame rate).\nWhat you stream and record isn’t affected.";
+            if (!msg.empty())
+                gfx_.text(msg, {c.x + 20, c.y + c.h / 2 - 24, c.w - 40, 64}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Center});
+        }
+    }
+    // Under it: the scene, the canvas, the rate, and how the video thread is keeping up.
+    std::wstring info = name + L"   ·   " + std::to_wstring(scenes_.canvasWidth) + L" × " + std::to_wstring(scenes_.canvasHeight) +
+                        L"   ·   " + std::to_wstring(settings_.outputFps) + L" fps";
+    if (engine_.running()) {
+        const video::EngineStats st = engine_.stats();
+        wchar_t b[96];
+        swprintf(b, 96, L"   ·   composing at %.0f fps", st.fps);
+        info += b;
+        if (st.late > 0) info += L", " + std::to_wstring(st.late) + L" late";
+    }
+    gfx_.text(info, {r.x + 14, r.bottom() - 28, r.w - 100, 20}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
     gfx_.text(L"PREVIEW", {r.x + 14, r.bottom() - 28, r.w - 28, 20}, Font::Label, cjui::hexColor("#5A6680"), {Align::Right, false, false, true});
 }
 
@@ -816,16 +871,61 @@ void CaptureWindow::drawSources(const Rect& b) {
     const Scene* s = scenes_.scene(scenes_.current());
     if (!s || s->items.empty()) {
         note(b, L"Nothing in this scene yet",
-             L"Screens, windows and cameras can be added once video capture is built (Milestone 2, in development). "
-             L"The + above lists every kind of source and when it arrives.");
+             L"Use + above to add a whole display, a window (a game, a browser) or a camera or capture card. "
+             L"Images, text and sound arrive in later versions; + shows when.");
         return;
     }
     float y = b.y + 6;
     for (auto it = s->items.rbegin(); it != s->items.rend(); ++it) {   // top of the scene first
         const Source* src = scenes_.source(it->source);
         if (!src) continue;
-        gfx_.text(widen(src->name), {b.x + 14, y, b.w - 28, 30}, Font::Body, it->visible ? pal_.ink : pal_.inkFaint, {Align::Left, false, true, true});
-        y += 32;
+        const Rect row{b.x + 6, y, b.w - 12, 44};
+        if (row.y > b.bottom()) break;
+        sourceRows_.push_back({it->id, row});
+        const std::string id = "src:" + it->id;
+        addHit(id, row, nullptr, false);
+        const bool on = it->id == selected_;
+        const float hv = hoverAmount(id);
+        if (on) {
+            gfx_.fillRounded(row, 7, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
+            gfx_.fillRounded({row.x, row.y + 10, 3, row.h - 20}, 1.5f, pal_.ribbon);
+        } else if (hv > 0.01f || it->id == hoverItem_) {
+            gfx_.fillRounded(row, 7, pal_.ink.withAlpha(0.05f * std::max(hv, it->id == hoverItem_ ? 0.7f : 0.0f)));
+        }
+        const cjui::Color ink = it->visible ? pal_.ink : pal_.inkFaint;
+        gfx_.text(widen(src->name), {row.x + 14, row.y + 4, row.w - 84, 20}, on ? Font::BodyStrong : Font::Body, ink, {Align::Left, false, true, true});
+        bool problem = false;
+        std::wstring st = sourceStatus(src->id, &problem);
+        if (!it->visible) st = L"Hidden" + (st.empty() ? L"" : L" · " + st);
+        gfx_.text(st, {row.x + 14, row.y + 23, row.w - 84, 17}, Font::Small, problem ? cjui::hexColor("#E0566A") : pal_.inkMuted,
+                  {Align::Left, false, true, true});
+        // Show/hide and lock.
+        const Id item = it->id;
+        const Rect eye{row.right() - 60, row.y + 9, 26, 26}, lock{row.right() - 31, row.y + 9, 26, 26};
+        addHit(id + ":eye", eye, [this, item, vis = it->visible] {
+            scenes_.setItemVisible(scenes_.current(), item, !vis);
+            scenesChanged();
+        });
+        addHit(id + ":lock", lock, [this, item, locked = it->locked] {
+            scenes_.setItemLocked(scenes_.current(), item, !locked);
+            scenesChanged();
+        });
+        const float he = hoverAmount(id + ":eye"), hl = hoverAmount(id + ":lock");
+        if (he > 0.01f) gfx_.fillRounded(eye, 6, pal_.ink.withAlpha(0.08f * he));
+        if (hl > 0.01f) gfx_.fillRounded(lock, 6, pal_.ink.withAlpha(0.08f * hl));
+        const cjui::Color ic = pal_.inkMuted.mix(pal_.ink, std::max(he, 0.0f));
+        // The eye: an outline with a pupil; crossed out when hidden.
+        gfx_.strokeRounded({eye.x + 5, eye.y + 8, 16, 10}, 5, ic, 1.4f);
+        gfx_.circle(eye.x + 13, eye.y + 13, 2.4f, ic, true);
+        if (!it->visible) gfx_.line(eye.x + 5, eye.y + 20, eye.x + 21, eye.y + 6, ic, 1.6f);
+        // The lock: solid when locked, faint and open when not.
+        const cjui::Color lc = it->locked ? pal_.ink : pal_.inkFaint.mix(pal_.ink, hl);
+        gfx_.strokeRounded({lock.x + 9, lock.y + (it->locked ? 5 : 3), 8, 9}, 4, lc, 1.4f);
+        gfx_.fillRounded({lock.x + 7, lock.y + 11, 12, 9}, 2, it->locked ? lc : pal_.surface);
+        if (!it->locked) gfx_.strokeRounded({lock.x + 7, lock.y + 11, 12, 9}, 2, lc, 1.4f);
+        if (focused(id + ":eye")) focusRing(eye);
+        if (focused(id + ":lock")) focusRing(lock);
+        y += 46;
     }
 }
 
@@ -879,7 +979,17 @@ void CaptureWindow::drawStatusBar(const Rect& r) {
     item(L"Recording", L"off", &pal_.inkFaint);
     item(L"CPU", percent(usage_.processCpu) + L" (system " + percent(usage_.systemCpu) + L")");
     item(L"Memory", megabytes(usage_.privateBytes ? usage_.privateBytes : usage_.workingSet));
-    item(L"GPU", L"measured from Milestone 2");
+    {
+        std::wstring gpu = L"not running";
+        if (engine_.running()) {
+            const video::EngineStats st = engine_.stats();
+            wchar_t b[64];
+            if (st.gpuMs >= 0) swprintf(b, 64, L"%.1f ms a frame", st.gpuMs);
+            else swprintf(b, 64, L"timing not available");
+            gpu = b;
+        }
+        item(L"GPU", gpu);
+    }
     std::wstring enc = encodersKnown_ ? L"none found" : L"checking…";
     if (encodersKnown_) {
         int hw = 0;
@@ -950,7 +1060,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
             log::info(std::string("Low-resource mode ") + (settings_.lowResource ? "on" : "off"));
         });
         y += std::max(h, 34.0f) + 14;
-        const float h2 = row(L"Preview frame rate", L"How often the preview redraws (from Milestone 2). Off saves the most.", 300);
+        const float h2 = row(L"Preview frame rate", L"How often the preview redraws. Off saves the most; streams and recordings aren\u2019t affected.", 300);
         const int fps[] = {0, 10, 30, 60};
         int sel = 2;
         for (int i = 0; i < 4; ++i) if (settings_.previewFps == fps[i]) sel = i;
@@ -985,6 +1095,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
             const int v[] = {24, 30, 50, 60};
             settings_.outputFps = v[i];
             settings_.save(settingsPath_);
+            engine_.setOutputFps(v[i]);
         });
         y += std::max(h2, 34.0f) + 14;
     }
@@ -1026,7 +1137,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
 
     section(L"ABOUT");
     {
-        const std::wstring t = L"NorthRay Capture " CJ_VERSION_WSTR L", in development (Milestone 1: the foundation). "
+        const std::wstring t = L"NorthRay Capture " CJ_VERSION_WSTR L", in development (Milestone 2: video capture). "
                                L"Developed by " CJ_DEVELOPER_WSTR L" · NorthRaySoftware@protonmail.com";
         y += gfx_.text(t, {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 30;
     }

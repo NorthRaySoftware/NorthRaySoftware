@@ -8,11 +8,18 @@
 #include "system.hpp"
 
 #include "ncap/diag.hpp"
+#include "ncap/placement.hpp"
 #include "ncap/scenes.hpp"
+
+#include "video/devices.hpp"
+#include "video/engine.hpp"
 
 #include "cjui/window.hpp"
 
 #include <functional>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -65,6 +72,29 @@ private:
     void sceneMenu(const Id& id, POINT screen);
     void addSourceMenu(POINT screen);
 
+    // Sources and the preview (capture_sources.cpp)
+    void startEngine();
+    void syncSources();                       // capture objects follow the scene collection
+    void pushSnapshot();                      // what the video thread draws
+    void placePreview();                      // the preview window over the preview area
+    ItemSize sizeOf(const Id& source) const;  // the source's picture size (0x0 before the first)
+    std::vector<ItemSize> sizesOf(const Scene& s) const;
+    const SceneItem* selectedItem() const;
+    const Source* selectedSource() const;
+    Vec2 toCanvas(float x, float y) const;    // window DIPs to canvas pixels
+    void addCapture(SourceKind kind, const std::string& name, const std::string& settings);
+    void addExisting(const Id& source);
+    void itemMenu(const Id& item, POINT screen);
+    void removeItem(const Id& item);
+    void renameSource(const Id& source);
+    void setTransform(const Id& item, const Transform& t, bool save = true);
+    void transformCommand(UINT cmd);
+    void checkPendingFits();
+    bool previewMouseDown(float x, float y);
+    bool previewMouseMove(float x, float y, bool leftDown);
+    bool sourceKey(WPARAM vk, bool ctrl, bool shift);
+    std::wstring sourceStatus(const Id& source, bool* problem = nullptr) const;
+
     // Layout
     void layoutMenu(POINT screen);
     void panelMenu(int panel, POINT screen);
@@ -97,6 +127,26 @@ private:
     float dragPanelX_ = 0;
     Id lastClickScene_;
     DWORD lastClickTime_ = 0;
+
+    // Capture and the preview
+    video::Engine engine_;
+    std::wstring engineError_;
+    struct Live { std::shared_ptr<video::VideoSource> capture; std::string settings; };
+    std::map<Id, Live> live_;                 // by source id
+    Id selected_, hoverItem_;                 // items in the current scene
+    enum class Focus { Scenes, Sources, Preview } focus_ = Focus::Scenes;
+    enum class PreviewDrag { None, Move, Resize, Crop } pdrag_ = PreviewDrag::None;
+    Transform dragStartT_{};
+    Vec2 dragStartCanvas_{};
+    Handle dragHandle_ = Handle::None;
+    ItemSize dragSize_{};
+    std::vector<float> guidesX_, guidesY_;
+    std::set<Id> pendingFit_;                 // new items: placed once their size is known
+    cjui::Rect previewInner_{};               // where the preview window sits (DIPs)
+    bool previewLive_ = false;                // the preview window is showing
+    std::vector<std::pair<Id, cjui::Rect>> sourceRows_;   // item id, row
+    Id lastClickItem_;
+    DWORD lastClickItemTime_ = 0;
 
     // Status
     sys::UsageSampler sampler_;

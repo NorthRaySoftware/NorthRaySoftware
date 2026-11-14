@@ -1,6 +1,9 @@
 // Unit tests for NorthRay Capture's portable core. Dependency-free like the other suites.
 #include "ncap/diag.hpp"
+#include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
+
+#include <cmath>
 #include "ncap/scenes.hpp"
 
 #include <cstdio>
@@ -41,6 +44,121 @@ static void testItemEditing() {
     const SceneItem* back = d.item(sc, ia);
     CHECK(back && back->transform.x == 10 && back->transform.flipH && !back->transform.flipV && back->locked);
     CHECK(d.source(b)->name == "Face cam" && !d.item(sc, ib)->visible);
+}
+
+static bool near(float a, float b, float eps = 0.01f) { return std::fabs(a - b) <= eps; }
+
+static void testPlacement() {
+    std::printf("placement\n");
+    Transform t;
+    // The source's own size, less the crop, when the transform has none.
+    t.cropLeft = 100;
+    t.cropRight = 20;
+    Box f = frameOf(t, 1920, 1080);
+    CHECK(near(f.w, 1800) && near(f.h, 1080));
+    CHECK(frameOf(Transform{}, 0, 0).w == 0);   // nothing captured yet: no size
+    t = {};
+    t.x = 100;
+    t.y = 50;
+    t.width = 400;
+    t.height = 200;
+    CHECK(hits(t, 0, 0, {110, 60}) && !hits(t, 0, 0, {90, 60}) && !hits(t, 0, 0, {510, 60}));
+    // Rotated a quarter turn about its centre (300, 150): it now stands 200 wide, 400 tall.
+    Transform r = rotateBy(t, 0, 0, 90);
+    Box b = boundsOf(r, 0, 0);
+    CHECK(near(b.x, 200) && near(b.y, -50) && near(b.w, 200) && near(b.h, 400));
+    CHECK(hits(r, 0, 0, {300, 0}) && !hits(r, 0, 0, {120, 150}));
+    CHECK(near(rotateBy(r, 0, 0, -180).rotation, 270) && near(rotateBy(r, 0, 0, 270).rotation, 0));
+
+    // Topmost visible item under the point.
+    SceneItem a, c;
+    a.id = "a";
+    a.transform = t;
+    c.id = "c";
+    c.transform = t;
+    c.transform.x = 300;
+    std::vector<SceneItem> items{a, c};
+    std::vector<ItemSize> sizes{{0, 0}, {0, 0}};
+    CHECK(itemAt(items, sizes, {350, 100}) == "c" && itemAt(items, sizes, {150, 100}) == "a" && itemAt(items, sizes, {5, 5}).empty());
+    items[1].visible = false;
+    CHECK(itemAt(items, sizes, {350, 100}) == "a");
+
+    // Handles.
+    CHECK(handleAt(t, 0, 0, {102, 52}, 8) == Handle::TopLeft);
+    CHECK(handleAt(t, 0, 0, {300, 250}, 8) == Handle::Bottom);
+    CHECK(handleAt(t, 0, 0, {300, 150}, 8) == Handle::None);
+    CHECK(handleCursor(Handle::Right, 0) == 0 && handleCursor(Handle::Right, 90) == 1 && handleCursor(Handle::TopLeft, 0) == 2 &&
+          handleCursor(Handle::TopRight, 0) == 3 && handleCursor(Handle::TopLeft, 90) == 3);
+
+    // Dragging the bottom-right corner keeps the shape; the top-left stays put.
+    Transform g = resizeBy(t, 0, 0, Handle::BottomRight, {200, 10}, false);
+    CHECK(near(g.x, 100) && near(g.y, 50) && near(g.width, 600) && near(g.height, 300));
+    // Free (Shift): each way on its own.
+    g = resizeBy(t, 0, 0, Handle::BottomRight, {200, 10}, true);
+    CHECK(near(g.width, 600) && near(g.height, 210));
+    // The left edge: the right edge stays at 500.
+    g = resizeBy(t, 0, 0, Handle::Left, {-50, 99}, false);
+    CHECK(near(g.x, 50) && near(g.width, 450) && near(g.height, 200) && near(g.y, 50));
+    // Never inside out.
+    g = resizeBy(t, 0, 0, Handle::Right, {-1000, 0}, false);
+    CHECK(near(g.width, 2) && near(g.x, 100));
+    // Rotated: dragging the (rotated) right edge outwards along its own direction, the left edge stays.
+    Transform rot = rotateBy(t, 0, 0, 90);
+    const Vec2 leftBefore = handlePoint(rot, 0, 0, Handle::Left);
+    g = resizeBy(rot, 0, 0, Handle::Right, {0, 100}, false);   // the frame's right edge points down after +90°
+    const Vec2 leftAfter = handlePoint(g, 0, 0, Handle::Left);
+    CHECK(near(g.width, 500) && near(leftBefore.x, leftAfter.x) && near(leftBefore.y, leftAfter.y));
+
+    // Alt+drag crops: a 1920x1080 source shown at half size (960x540 at 0,0).
+    Transform half;
+    half.width = 960;
+    half.height = 540;
+    Transform k = cropBy(half, 1920, 1080, Handle::Left, {100, 0});   // 100 frame px = 200 source px
+    CHECK(near(k.cropLeft, 200) && near(k.x, 100) && near(k.width, 860) && near(k.cropRight, 0));
+    k = cropBy(k, 1920, 1080, Handle::Left, {-500, 0});   // uncropping stops at the source's edge
+    CHECK(near(k.cropLeft, 0) && near(k.x, 0) && near(k.width, 960));
+    Transform mirrored = half;
+    mirrored.flipH = true;
+    k = cropBy(mirrored, 1920, 1080, Handle::Left, {100, 0});   // mirrored: the frame's left is the source's right
+    CHECK(near(k.cropRight, 200) && near(k.cropLeft, 0));
+    k = cropBy(half, 1920, 1080, Handle::BottomRight, {-2000, -2000});   // never below 1 source pixel
+    CHECK(k.width > 0 && near(k.cropRight, 1919, 0.5f) && near(k.cropBottom, 1079, 0.5f));
+
+    // Snapping to the canvas's edges and centre lines.
+    Vec2 s = snapOffset({3, 500, 100, 80}, 1920, 1080, 8);
+    CHECK(near(s.x, -3) && near(s.y, 0));
+    s = snapOffset({905, 497, 100, 80}, 1920, 1080, 8);   // centre at 955 → 960; centre 537 → 540
+    CHECK(near(s.x, 5) && near(s.y, 3));
+    CHECK(near(snapOffset({300, 300, 100, 100}, 1920, 1080, 8).x, 0));
+
+    // Quick placements.
+    Transform q;
+    q = fitToCanvas(q, 1280, 1024, 1920, 1080);   // a 5:4 picture on a 16:9 canvas: full height, centred
+    CHECK(near(q.height, 1080) && near(q.width, 1350) && near(q.x, 285) && near(q.y, 0));
+    Transform side = rotateBy(Transform{}, 1920, 1080, 90);
+    side = fitToCanvas(side, 1920, 1080, 1920, 1080);   // on its side: 1080 tall when stood up
+    b = boundsOf(side, 1920, 1080);
+    CHECK(near(b.h, 1080, 0.1f) && near(b.y, 0, 0.1f) && near(b.x + b.w / 2, 960, 0.1f));
+    q = stretchToCanvas(Transform{}, 640, 480, 1920, 1080);
+    CHECK(near(q.width, 1920) && near(q.height, 1080) && near(q.x, 0));
+    q = centreOnCanvas(Transform{}, 640, 480, 1920, 1080);
+    CHECK(near(q.x, 640) && near(q.y, 300) && q.width == 0);
+    Transform messy = t;
+    messy.rotation = 33;
+    messy.flipH = true;
+    messy.opacity = 0.5f;
+    q = resetTransform(messy);
+    CHECK(q.x == 0 && q.width == 0 && q.rotation == 0 && !q.flipH && near(q.opacity, 0.5f));
+
+    // Finding a window again.
+    std::vector<WindowIdentity> wins{{"Notepad", "Notepad", "notepad.exe"},
+                                     {"Minecraft 1.21.4 - Singleplayer", "GLFW30", "javaw.exe"},
+                                     {"Minecraft 1.21.4", "GLFW30", "javaw.exe"},
+                                     {"Minecraft* launcher", "Chrome_WidgetWin_1", "MinecraftLauncher.exe"}};
+    CHECK(matchWindow({"Minecraft 1.21.4", "GLFW30", "javaw.exe"}, wins) == 2);
+    CHECK(matchWindow({"Minecraft 1.21.4 - Multiplayer (3rd-party Server)", "GLFW30", "JAVAW.EXE"}, wins) == 1);
+    CHECK(matchWindow({"Discord", "Chrome_WidgetWin_1", "Discord.exe"}, wins) == -1);
+    CHECK(matchWindow({"Notepad", "", ""}, wins) == 0 && matchWindow({"Something", "", ""}, wins) == -1);
 }
 
 static void testScenes() {
@@ -210,6 +328,7 @@ static void testDiagnostics() {
 int main() {
     testScenes();
     testItemEditing();
+    testPlacement();
     testRouting();
     testDiagnostics();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
