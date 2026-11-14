@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.51.1",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.6.1: signing in to Twitch and YouTube to get the stream key automatically (switched on once NorthRay's app registrations are in place)."
+      ]
+    },
+    {
       "version": "0.51.0",
       "date": "2026-11-14",
       "notes": [

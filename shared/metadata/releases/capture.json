@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.6.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Sign in to Twitch or YouTube (Settings › Streaming › Account) and Capture gets your stream key itself each time you go live, and for YouTube the server too, so a key reset on the website is picked up.",
+        "Twitch: your browser opens Twitch's page with a code to approve; Capture shows the same code so you can check. YouTube: you sign in with Google in your browser.",
+        "Capture asks only to read the stream key (Twitch) or to read your YouTube account (YouTube): it can't post, change your channel or read your messages. Sign-ins are kept in Windows Credential Manager; Sign out removes them and cancels them with Twitch or Google.",
+        "Please note: signing in needs NorthRay Capture to be registered with Twitch and Google, which hasn't happened yet, so in this version the Account row says it isn't set up and the stream key is entered as before. The sign-in itself has been tested here against a stand-in for both services, not the real ones."
+      ]
+    },
+    {
       "version": "0.6.0",
       "date": "2026-11-14",
       "notes": [

@@ -3,6 +3,7 @@
 
 #include "log.hpp"
 #include "output/credentials.hpp"
+#include "oauth_clients.hpp"
 
 #include "ncap/rtmp.hpp"
 
@@ -11,6 +12,8 @@
 #include <mfapi.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 namespace ncap {
 
@@ -39,6 +42,21 @@ const Service kServices[] = {
     {"custom", L"Custom", "", L"Any RTMP or RTMPS server: its address (rtmp:// or rtmps://) and stream key."},
 };
 
+// The services you can sign in to: -1 for the others.
+int accountOf(const std::string& id) {
+    if (id == "twitch") return (int)accounts::Service::Twitch;
+    if (id == "youtube") return (int)accounts::Service::YouTube;
+    return -1;
+}
+
+struct TargetResult {
+    bool ok = false;
+    accounts::Target target;
+    std::wstring error;
+    int service = 0;
+    ~TargetResult() { SecureZeroMemory(target.key.data(), target.key.size()); }
+};
+
 const Service& serviceOf(const std::string& id) {
     for (auto& s : kServices)
         if (id == s.id) return s;
@@ -47,12 +65,85 @@ const Service& serviceOf(const std::string& id) {
 
 }  // namespace
 
+void CaptureWindow::initAccounts() {
+    oauth::Clients c = oauth::parseClients(kBuiltInOAuthClients);
+    // A local copy overrides the built-in registrations (for trying one out without a rebuild).
+    std::ifstream f(std::filesystem::path(stateFolder_) / L"oauth-clients.json", std::ios::binary);
+    if (f) {
+        const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        const oauth::Clients o = oauth::parseClients(text);
+        if (o.twitch()) c.twitchClientId = o.twitchClientId;
+        if (o.google()) {
+            c.googleClientId = o.googleClientId;
+            c.googleClientSecret = o.googleClientSecret;
+        }
+        if (o.twitch() || o.google()) log::info("Using the app registrations in oauth-clients.json (a local override)");
+    }
+    accounts_.init(hwnd(), WM_APP_ACCOUNTS, c);
+    log::info(std::string("Signing in: Twitch ") + (c.twitch() ? "available" : "not set up in this build") + ", YouTube " +
+              (c.google() ? "available" : "not set up in this build"));
+    accounts_.restore();
+}
+
+void CaptureWindow::onAccountChange(int service) {
+    const auto s = (accounts::Service)service;
+    const accounts::State st = accounts_.state(s);
+    if ((int)st.kind != accountKinds_[service]) {
+        accountKinds_[service] = (int)st.kind;
+        const std::string who = narrow(accounts::label(s));
+        if (st.kind == accounts::State::SignedIn) log::info(who + ": signed in as " + narrow(st.name));
+        else if (st.kind == accounts::State::SigningIn) log::info(who + ": signing in");
+        else log::info(who + ": signed out" + (st.message.empty() ? std::string() : " (" + narrow(st.message) + ")"));
+    }
+    invalidate();
+}
+
 void CaptureWindow::startStreaming() {
+    if (streamer_.active() || streamPending_) return;
+    const int acc = accountOf(settings_.streamService);
+    if (acc >= 0 && accounts_.available((accounts::Service)acc) && accounts_.state((accounts::Service)acc).kind == accounts::State::SignedIn) {
+        // The key (and YouTube's server) come fresh from the account: they may have been reset since.
+        streamPending_ = true;
+        invalidate();
+        const HWND h = hwnd();
+        accounts_.targetAsync((accounts::Service)acc, [h, acc](bool ok, const accounts::Target& t, const std::wstring& e) {
+            auto* r = new TargetResult;
+            r->ok = ok;
+            r->target = t;
+            r->error = e;
+            r->service = acc;
+            if (!PostMessageW(h, WM_APP_TARGET, 0, (LPARAM)r)) delete r;
+        });
+        return;
+    }
+    std::string key = secrets::load(kKeyName);
+    startStreamingTo(settings_.streamUrl, key, L"");
+    SecureZeroMemory(key.data(), key.size());
+}
+
+void CaptureWindow::onStreamTarget(LPARAM lp) {
+    std::unique_ptr<TargetResult> r(reinterpret_cast<TargetResult*>(lp));
+    streamPending_ = false;
+    invalidate();
+    const std::wstring who = accounts::label((accounts::Service)r->service);
+    if (!r->ok) {
+        log::error("Streaming couldn't start: no key from " + narrow(who) + ": " + narrow(r->error));
+        cjui::messageBox(hwnd(), L"Capture couldn't get your stream key from " + who + L".\n\n" + r->error, L"Streaming couldn’t start",
+                         MB_OK | MB_ICONWARNING);
+        return;
+    }
+    // Twitch: the chosen server (Twitch's automatic one unless changed); YouTube: the account's own.
+    const bool twitch = r->service == (int)accounts::Service::Twitch;
+    const std::string url = twitch && !settings_.streamUrl.empty() ? settings_.streamUrl : r->target.url;
+    startStreamingTo(url, r->target.key, r->target.note);
+}
+
+void CaptureWindow::startStreamingTo(const std::string& url, const std::string& key, const std::wstring& note) {
     if (streamer_.active()) return;
     output::StreamSettings ss;
     ss.name = narrow(serviceOf(settings_.streamService).label);
-    ss.url = settings_.streamUrl;
-    ss.key = secrets::load(kKeyName);
+    ss.url = url;
+    ss.key = key;
     if (!ss.key.empty()) log::addSecret(ss.key);   // never written to a log, whatever happens
     ss.video.width = scenes_.canvasWidth;
     ss.video.height = scenes_.canvasHeight;
@@ -71,7 +162,8 @@ void CaptureWindow::startStreaming() {
     rtmp::Url u;
     rtmp::parseUrl(ss.url, u);
     log::info("Streaming to " + ss.name + " at " + u.tcUrl + " (" + std::to_string(ss.video.width) + "x" + std::to_string(ss.video.height) + "@" +
-              std::to_string(ss.video.fps) + ", " + std::to_string(ss.video.bitrateKbps) + " kbps CBR)");
+              std::to_string(ss.video.fps) + ", " + std::to_string(ss.video.bitrateKbps) + " kbps CBR)" +
+              (note.empty() ? std::string() : "; " + narrow(note)));
     invalidate();
 }
 
@@ -98,6 +190,58 @@ void CaptureWindow::streamTick() {
         MFShutdown();
         cjui::messageBox(hwnd(), why, L"Streaming stopped", MB_OK | MB_ICONWARNING);
     }
+}
+
+float CaptureWindow::drawAccountRow(int service, float x, float y0, float colW) {
+    const auto s = (accounts::Service)service;
+    const std::wstring who = accounts::label(s);
+    const bool busy = streamer_.active() || streamPending_;
+    float y = y0;
+    auto row = [&](const std::wstring& help, float controlW) {
+        gfx_.text(L"Account", {x, y, colW - controlW - 20, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        float h = 24;
+        if (!help.empty()) h += gfx_.text(help, {x, y + 24, colW - controlW - 20, 80}, Font::Small, pal_.inkMuted);
+        return h;
+    };
+    if (!accounts_.available(s)) {
+        const float h = row(L"Signing in to " + who + L" isn't set up in this version of Capture yet (NorthRay's app registration with " + who +
+                                L" is still to come). Enter the stream key below instead.",
+                            0);
+        return std::max(h, 34.0f) + 14;
+    }
+    const accounts::State st = accounts_.state(s);
+    float h = 0;
+    if (st.kind == accounts::State::SignedIn) {
+        std::wstring help = L"Signed in as " + st.name + L". Capture can only read your stream key" +
+                            (s == accounts::Service::YouTube ? L" and server" : L"") + L": it can't post, change your channel or read your messages.";
+        if (!st.message.empty() && st.message != L"Signed in.") help += L"\n" + st.message;
+        h = row(help, 150);
+        button("acc:out", {x + colW - 150, y - 2, 150, 32}, L"Sign out", [this, s, busy] {
+            if (busy) {
+                flash(L"Stop streaming to sign out.", 4);
+                return;
+            }
+            accounts_.signOut(s);
+        });
+    } else if (st.kind == accounts::State::SigningIn) {
+        std::wstring help = st.message;
+        if (!st.userCode.empty()) help += L"\nIf the page didn't open: twitch.tv/activate, code " + st.userCode + L".";
+        h = row(help, st.userCode.empty() ? 150 : 340);
+        button("acc:cancel", {x + colW - 150, y - 2, 150, 32}, L"Cancel", [this, s] { accounts_.cancel(s); });
+        if (!st.userCode.empty())
+            gfx_.text(st.userCode, {x + colW - 330, y - 2, 170, 32}, Font::Title, pal_.ink, {Align::Right, false, true});
+    } else {
+        std::wstring help = L"Sign in and Capture gets your stream key itself" +
+                            std::wstring(s == accounts::Service::YouTube ? L" (and YouTube's server)" : L"") +
+                            L". It can only read the key: it can't post, change your channel or read your messages.";
+        if (!st.message.empty()) help += L"\n" + st.message;
+        h = row(help, 190);
+        button("acc:in", {x + colW - 190, y - 2, 190, 32}, L"Sign in with " + who + L"…", [this, s, busy] {
+            if (busy) return;
+            accounts_.signIn(s);
+        });
+    }
+    return std::max(h, 34.0f) + 14;
 }
 
 float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
@@ -128,7 +272,14 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
         });
         y += std::max(h, 34.0f) + 14;
     }
-    {
+    const int acc = accountOf(settings_.streamService);
+    const bool fromAccount = acc >= 0 && accounts_.available((accounts::Service)acc) &&
+                             accounts_.state((accounts::Service)acc).kind == accounts::State::SignedIn;
+    if (acc >= 0) y += drawAccountRow(acc, x, y, colW);
+    if (fromAccount && acc == (int)accounts::Service::YouTube) {
+        const float h = row(L"Server", L"From your YouTube account (its secure RTMPS server) each time you go live.", 0);
+        y += std::max(h, 34.0f) + 14;
+    } else {
         const std::wstring url = settings_.streamUrl.empty() ? L"Not set yet" : widen(settings_.streamUrl);
         const float h = row(L"Server", url, 150);
         button("str:url", {x + colW - 150, y - 2, 150, 32}, L"Change…", [this, busy] {
@@ -155,7 +306,13 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
         });
         y += std::max(h, 34.0f) + 14;
     }
-    {
+    if (fromAccount) {
+        const float h = row(L"Stream key",
+                            std::wstring(L"Comes from your ") + accounts::label((accounts::Service)acc) +
+                                L" account each time you go live (so a key reset on the website is picked up). It's never stored.",
+                            0);
+        y += std::max(h, 34.0f) + 14;
+    } else {
         const bool have = secrets::exists(kKeyName);
         const float h = row(L"Stream key",
                             have ? L"Saved in Windows Credential Manager. It's never shown, and never written to settings or logs."

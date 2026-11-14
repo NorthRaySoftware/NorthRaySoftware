@@ -23,11 +23,12 @@
     "Recording to MKV: H.264 video through NVIDIA, AMD or Intel hardware encoders (or Windows' software encoder) and up to six AAC audio tracks named after what's on them; playable even if the PC crashes (new, not yet tried on real hardware)",
     "A sync test source (a white flash and a beep at each second) for checking picture and sound line up in a recording",
     "Streaming to Twitch, YouTube, Kick or a custom RTMP/RTMPS server, with the stream key kept in Windows Credential Manager, the server's certificate checked, and automatic reconnection (new, not yet tried with a real platform)",
+    "Sign in to Twitch or YouTube and Capture gets your stream key (and YouTube's server) itself, with read-only access; sign-ins kept in Windows Credential Manager (available once NorthRay's app registrations are in place)",
     "Not yet: streaming to several platforms at once, and saving recordings as MP4 (each arrives in a later version)"
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

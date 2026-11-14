@@ -3,6 +3,7 @@
 #include "ncap/diag.hpp"
 #include "ncap/media.hpp"
 #include "ncap/mkv.hpp"
+#include "ncap/oauth.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -490,6 +491,89 @@ static void testDiagnostics() {
     CHECK(one.order.size() == 1);
 }
 
+static std::string hexOf(const std::array<std::uint8_t, 32>& d) {
+    static const char* h = "0123456789abcdef";
+    std::string s;
+    for (auto b : d) { s += h[b >> 4]; s += h[b & 15]; }
+    return s;
+}
+
+static void testOAuth() {
+    std::printf("oauth\n");
+    namespace o = ncap::oauth;
+    CHECK(hexOf(o::sha256("", 0)) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    CHECK(hexOf(o::sha256("abc", 3)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    const std::string l = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";   // 56 bytes: needs a second block
+    CHECK(hexOf(o::sha256(l.data(), l.size())) == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    std::string m(1000, 'a');
+    CHECK(hexOf(o::sha256(m.data(), m.size())) == "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3");
+    // RFC 7636 appendix B.
+    const std::uint8_t r[32] = {116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186,
+                                22, 212, 37, 77, 105, 214, 191, 240, 91, 88, 5, 88, 83, 132, 141, 121};
+    CHECK(o::pkceVerifier(r) == "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
+    CHECK(o::pkceChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+    const std::uint8_t b[] = {0xfb, 0xff};
+    CHECK(o::base64url(b, 2) == "-_8" && o::base64url(b, 1) == "-w");
+    CHECK(o::urlEncode("a b&c=d/é~") == "a%20b%26c%3Dd%2F%C3%A9~");
+    CHECK(o::urlDecode("a+b%26c%3d") == "a b&c=");
+    CHECK(o::form({{"scope", "channel:read:stream_key"}, {"x", "1"}}) == "scope=channel%3Aread%3Astream_key&x=1");
+    auto q = o::parseQuery("code=4%2F0Ab&state=xyz&empty&scope=a+b");
+    CHECK(q["code"] == "4/0Ab" && q["state"] == "xyz" && q.count("empty") && q["scope"] == "a b");
+
+    auto c = o::parseClients(R"({"twitch":{"clientId":"abc"},"google":{"clientId":"g.apps","clientSecret":"s"}})");
+    CHECK(c.twitch() && c.google() && c.twitchClientId == "abc" && c.googleClientSecret == "s");
+    CHECK(!o::parseClients("not json").twitch() && !o::parseClients("{}").google());
+
+    // Twitch device flow.
+    auto d = o::parseDeviceCode(200, R"({"device_code":"dc","expires_in":1800,"interval":5,"user_code":"ABCDEFGH","verification_uri":"https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH"})");
+    CHECK(d.error.empty() && d.userCode == "ABCDEFGH" && d.interval == 5);
+    CHECK(!o::parseDeviceCode(200, R"({"device_code":"dc","verification_uri":"https://evil.example/activate"})").error.empty());
+    CHECK(!o::parseDeviceCode(400, R"({"status":400,"message":"invalid client"})").error.empty());
+    auto pending = o::parseTokens(400, R"({"status":400,"message":"authorization_pending"})");
+    CHECK(!pending.ok() && o::classifyPoll(pending) == o::Poll::Pending);
+    CHECK(o::classifyPoll(o::parseTokens(400, R"({"status":400,"message":"invalid device code"})")) == o::Poll::Failed);
+    auto tok = o::parseTokens(200, R"({"access_token":"at","expires_in":14400,"refresh_token":"rt","scope":["channel:read:stream_key"],"token_type":"bearer"})");
+    CHECK(tok.ok() && tok.refresh == "rt" && tok.expiresIn == 14400 && o::classifyPoll(tok) == o::Poll::Done);
+    CHECK(o::classifyPoll(o::parseTokens(0, "")) == o::Poll::Pending);   // a dropped connection: keep polling
+    auto g = o::parseTokens(400, R"({"error":"invalid_grant","error_description":"Token has been expired or revoked."})");
+    CHECK(!g.ok() && g.error == "invalid_grant");
+    auto u = o::parseValidate(200, R"({"client_id":"abc","login":"cjphilip","scopes":["channel:read:stream_key"],"user_id":"141981764","expires_in":5520838})");
+    CHECK(u.valid && u.login == "cjphilip" && u.userId == "141981764");
+    CHECK(!o::parseValidate(401, R"({"status":401,"message":"invalid access token"})").valid);
+    std::string msg;
+    CHECK(o::parseTwitchKey(200, R"({"data":[{"stream_key":"live_44322889_a34ub37c8ajv98a0"}]})", msg) == "live_44322889_a34ub37c8ajv98a0");
+    CHECK(o::parseTwitchKey(403, R"({"error":"Forbidden","status":403,"message":"Phone verification is required"})", msg).empty() &&
+          msg == "Twitch: Phone verification is required");
+    CHECK(o::parseTwitchKey(401, R"({"error":"Unauthorized","status":401,"message":"Invalid OAuth token"})", msg).empty() &&
+          msg.find("Sign in again") != std::string::npos);
+
+    // YouTube streams: the default first, non-RTMP ones left out.
+    auto ys = o::parseYouTubeStreams(200, R"({"items":[
+        {"snippet":{"title":"HLS"},"cdn":{"ingestionType":"hls","ingestionInfo":{"streamName":"h","ingestionAddress":"https://x"}}},
+        {"snippet":{"title":"Other","isDefaultStream":false},"cdn":{"ingestionType":"rtmp","ingestionInfo":{"streamName":"k2","ingestionAddress":"rtmp://a.rtmp.youtube.com/live2","rtmpsIngestionAddress":"rtmps://a.rtmps.youtube.com/live2"}},"contentDetails":{"isReusable":true}},
+        {"snippet":{"title":"Default stream key","isDefaultStream":true},"cdn":{"ingestionType":"rtmp","ingestionInfo":{"streamName":"k1","ingestionAddress":"rtmp://a.rtmp.youtube.com/live2","rtmpsIngestionAddress":"rtmps://a.rtmps.youtube.com/live2"}},"contentDetails":{"isReusable":true}}]})", msg);
+    CHECK(ys.size() == 2 && ys[0].key == "k1" && ys[0].isDefault && ys[0].rtmps == "rtmps://a.rtmps.youtube.com/live2" && ys[1].key == "k2");
+    CHECK(o::parseYouTubeStreams(200, R"({"items":[]})", msg).empty());
+    CHECK(o::parseYouTubeStreams(403, R"({"error":{"code":403,"message":"The user is not enabled for live streaming."}})", msg).empty() &&
+          msg.find("not enabled for live streaming") != std::string::npos);
+
+    CHECK(o::parseYouTubeChannel(200, R"({"items":[{"id":"UC1","snippet":{"title":"CJ Philip"}}]})") == "CJ Philip");
+    CHECK(o::parseYouTubeChannel(200, R"({"items":[]})").empty());
+    // Google's sign-in and the loopback redirect.
+    o::Endpoints e;
+    const std::string url = o::googleAuthUrl(e, c, "http://127.0.0.1:50123/", "st8", "chal");
+    CHECK(url.rfind("https://accounts.google.com/o/oauth2/v2/auth?client_id=g.apps&redirect_uri=http%3A%2F%2F127.0.0.1%3A50123%2F", 0) == 0);
+    CHECK(url.find("code_challenge_method=S256") != std::string::npos && url.find("youtube.readonly") != std::string::npos);
+    auto rd = o::parseRedirect("GET /?state=st8&code=4%2F0AbC&scope=x HTTP/1.1", "st8");
+    CHECK(rd.isCallback && rd.stateOk && rd.code == "4/0AbC");
+    rd = o::parseRedirect("GET /?state=other&code=4%2F0AbC HTTP/1.1", "st8");
+    CHECK(rd.isCallback && !rd.stateOk && rd.code.empty() && rd.error == "state_mismatch");
+    rd = o::parseRedirect("GET /?error=access_denied&state=st8 HTTP/1.1", "st8");
+    CHECK(rd.code.empty() && rd.error == "access_denied");
+    CHECK(!o::parseRedirect("GET /favicon.ico HTTP/1.1", "st8").isCallback);
+    CHECK(!o::parseRedirect("POST /?code=a&state=st8 HTTP/1.1", "st8").isCallback);
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -499,6 +583,7 @@ int main() {
     testRtmp();
     testRouting();
     testDiagnostics();
+    testOAuth();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

@@ -113,6 +113,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
+    initAccounts();
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     log::info("Window open; scene collection \"" + settings_.sceneCollection + "\" with " + std::to_string(scenes_.scenes().size()) + " scene(s)");
@@ -569,6 +570,16 @@ LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
         handled = true;
         return 0;
     }
+    if (msg == WM_APP_ACCOUNTS) {
+        onAccountChange((int)wp);
+        handled = true;
+        return 0;
+    }
+    if (msg == WM_APP_TARGET) {
+        onStreamTarget(lp);
+        handled = true;
+        return 0;
+    }
     if (msg == WM_CTLCOLOREDIT && (HWND)lp == ask_) {
         HDC dc = (HDC)wp;
         SetTextColor(dc, toColorRef(pal_.ink));
@@ -586,6 +597,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         checkPendingFits();
         recordTick();
         streamTick();
+        accounts_.tick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -1013,7 +1025,7 @@ void CaptureWindow::drawControls(const Rect& b) {
         gfx_.fillRounded(r, 8, on ? live.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
         gfx_.strokeRounded(r, 8, on ? live : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
         gfx_.circle(r.x + 18, r.y + r.h / 2, 5, connected ? cjui::hexColor("#3FCF8E") : on ? cjui::hexColor("#E8C547") : live.withAlpha(0.8f), true);
-        gfx_.text(on ? L"Stop streaming" : L"Start streaming", {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        gfx_.text(on ? L"Stop streaming" : streamPending_ ? L"Getting your stream key…" : L"Start streaming", {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
         if (on) {
             std::wstring right;
             if (connected) {

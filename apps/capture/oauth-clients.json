@@ -1,0 +1,5 @@
+{
+  "_comment": "NorthRay Capture's app registrations with Twitch and Google (see docs/ARCHITECTURE.md, 'Signing in'). These IDs are public by design: desktop apps can't keep secrets, and Google treats a desktop client's secret as non-confidential. Empty means sign-in isn't offered for that service. A copy in %LOCALAPPDATA%\\NorthRay\\Capture\\oauth-clients.json overrides these, for testing a registration without rebuilding.",
+  "twitch": { "clientId": "" },
+  "google": { "clientId": "", "clientSecret": "" }
+}

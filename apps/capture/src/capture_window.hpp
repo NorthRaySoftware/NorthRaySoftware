@@ -18,6 +18,7 @@
 #include "video/devices.hpp"
 #include "video/engine.hpp"
 #include "output/recorder.hpp"
+#include "output/accounts.hpp"
 #include "output/streamer.hpp"
 
 #include "cjui/menu.hpp"
@@ -33,6 +34,11 @@
 #include <vector>
 
 namespace ncap {
+
+// Posted by worker threads (capture_stream.cpp).
+constexpr UINT WM_APP_ACCOUNTS = WM_APP + 61;   // wParam: the service whose sign-in changed
+constexpr UINT WM_APP_TARGET = WM_APP + 62;     // lParam: a stream target from an account (owned by the window)
+
 
 class CaptureWindow : public cjui::AppWindow {
 public:
@@ -143,8 +149,13 @@ private:
 
     // Streaming (capture_stream.cpp)
     void startStreaming();
+    void startStreamingTo(const std::string& url, const std::string& key, const std::wstring& note);
     void stopStreaming();
     void streamTick();
+    void initAccounts();
+    void onAccountChange(int service);
+    void onStreamTarget(LPARAM result);
+    float drawAccountRow(int service, float x, float y, float w);
     float drawStreamingSettings(float x, float y, float w);
 
     // Layout
@@ -219,6 +230,9 @@ private:
     // Recording
     output::Recorder recorder_;
     output::Streamer streamer_;
+    accounts::Accounts accounts_;
+    bool streamPending_ = false;            // getting the key from the account before going live
+    int accountKinds_[2] = {0, 0};          // last seen, to log changes
 
     // Status
     sys::UsageSampler sampler_;

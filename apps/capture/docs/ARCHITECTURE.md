@@ -413,3 +413,63 @@ advanced scenes and audio milestones if wanted.
 - One destination at a time; several at once from one encode is Milestone 7. No bandwidth test, and no automatic
   bitrate lowering yet.
 
+## 14. Signing in to Twitch and YouTube (status: built, 14 Nov 2026; released as 0.6.1; waiting for NorthRay's app registrations)
+
+**Built**
+- `core/oauth`: SHA-256, base64url, PKCE (S256), URL/form encoding, and reading every answer used below (device
+  codes, tokens and their errors, Twitch's validate and stream key, YouTube's streams and channel). No network.
+- `src/output/http`: HTTPS requests through WinHTTP (TLS 1.2/1.3, Windows checks certificates, no redirects followed,
+  nothing logged).
+- `src/output/accounts`: one Credential Manager entry per service ("NorthRayCapture/account/twitch|youtube": the
+  refresh token and the account's name); access tokens only in memory.
+  - Twitch: the device code flow for public clients (no client secret anywhere). Capture asks for a code, opens
+    twitch.tv/activate (only a twitch.tv address is ever opened), shows the code to check, and polls. Scope:
+    `channel:read:stream_key` only. Refresh tokens are single-use, so each new one is saved at once. Validated at
+    start and every hour while kept (Twitch requires it). Sign out revokes the token with Twitch.
+  - YouTube: Google's installed-app flow: a one-off listener on 127.0.0.1 (a port Windows picks), the browser
+    sent to Google's sign-in with PKCE and a random state; requests with another state are ignored, other paths
+    get 404, and the listener gives up after 10 minutes. Scope: `youtube.readonly` only. Sign out revokes with Google.
+  - The stream target: Twitch's key (Get Stream Key) with the chosen server; YouTube's streams (liveStreams,
+    mine=true), the default one first: its RTMPS address and stream name.
+- UI: Settings › Streaming › Account for Twitch and YouTube: "Sign in with …", the Twitch code and Cancel while
+  waiting, "Signed in as …" and Sign out after. Signed in, the key (and YouTube's server) come from the account each
+  time you go live, so a key reset on the website is picked up; Capture doesn't store a copy. The Controls button
+  shows "Getting your stream key…" meanwhile. Problems are shown in plain words (Twitch's own message for 403s,
+  as Twitch asks).
+- App registrations: `apps/capture/oauth-clients.json`, built in. Empty means the service shows "isn't set up in
+  this version". A copy in `%LOCALAPPDATA%\NorthRay\Capture\oauth-clients.json` overrides it without a rebuild.
+
+**Tested**
+- capturecore: SHA-256 (FIPS vectors incl. two-block and 1000-byte inputs), the RFC 7636 PKCE example, encoding,
+  every parser with real-shaped answers and errors (36 checks).
+- `tools/check-accounts.sh`: the Windows code in Wine against a local stand-in for Twitch and Google
+  (`tools/accounts-mock.py`): Twitch sign-in, key, an expired access token refreshed (and the rotated refresh token
+  kept, no access token stored), sign-in restored in a new instance, sign out (Credential Manager entry gone,
+  token revoked), a code never approved (expires with a message), cancel; YouTube sign-in through the loopback
+  listener (favicon 404, a forged state ignored, PKCE checked by the stand-in), key and RTMPS server, refresh,
+  sign out with revoke, cancelled in the browser; "not set up" without registrations. 24/24.
+- The app in Wine, with id.twitch.tv and api.twitch.tv pointed at the stand-in over HTTPS (a test authority,
+  removed afterwards): the not-set-up text; "Sign in with Twitch…" with no connection (message shown); the code
+  shown while waiting, the browser opened; signed in as the account; Start streaming took the key from the account
+  (then stopped at "No H.264 encoder", as Wine has none); no key in the log; still signed in after a restart;
+  Sign out revoked the token.
+
+**Not tested / limits**
+- The real Twitch and Google services: there are no app registrations yet (below). YouTube's sign-in in the app
+  itself (as opposed to the test program) wasn't run, since Google's sign-in page can't be stood in for.
+- YouTube: Capture uses the channel's default stream key; going live still follows YouTube's own settings (auto-start
+  in YouTube Studio). Creating or scheduling broadcasts, titles and categories aren't done from Capture.
+
+**To switch it on (CJ, once)**
+1. Twitch: dev.twitch.tv/console › Applications › Register Your Application. Name "NorthRay Capture", OAuth
+   Redirect URL `http://localhost` (required by the form; the device flow doesn't use it), Category "Broadcaster
+   Suite", Client Type **Public**. Copy the Client ID.
+2. Google: console.cloud.google.com › new project "NorthRay Capture" › APIs & Services › enable **YouTube Data API
+   v3**. Google Auth Platform: Branding (app name, support email), Audience External (it starts in Testing: add the
+   Google accounts that may sign in as test users), Data access: add `.../auth/youtube.readonly`. Clients › Create
+   client › **Desktop app**. Copy the client ID and client secret (for desktop apps Google doesn't treat it as secret).
+3. Put them in `apps/capture/oauth-clients.json` and rebuild (or, to try first, in the local override file).
+- While the Google app is in Testing, only listed test users can sign in, they see an "unverified app" notice, and
+  Google ends test sign-ins after 7 days (sign in again). For everyone: publish the app and complete Google's
+  verification for the YouTube scope.
+
