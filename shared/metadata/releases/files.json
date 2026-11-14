@@ -1,0 +1,13 @@
+{
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-14",
+      "notes": [
+        "First preview: browse folders and drives with a NorthRay sidebar, a breadcrumb address bar, and Details and Icons views with Windows' own icons.",
+        "Sort, select with the mouse and keyboard, type a name to jump to it, and open files in their usual app.",
+        "Read-only for now: nothing is copied, moved, renamed or deleted. Those come in the next version."
+      ]
+    }
+  ]
+}

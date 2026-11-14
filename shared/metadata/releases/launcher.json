@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.18.2",
+      "date": "2026-11-14",
+      "notes": [
+        "Lists NorthRay Files, an early preview of NorthRay's file manager, to install and update like the other apps."
+      ]
+    },
+    {
       "version": "0.18.1",
       "date": "2026-11-14",
       "notes": [

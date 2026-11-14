@@ -10,6 +10,7 @@ ROOT=$(pwd)
 VERSION=$(tr -d '[:space:]' < VERSION)
 # NorthRay Browser has its own version numbers.
 BROWSER_VERSION=$(tr -d '[:space:]' < apps/browser/VERSION)
+FILES_VERSION=$(tr -d '[:space:]' < apps/files/VERSION)
 DEVELOPER=$(node -e "process.stdout.write(require('./shared/metadata/brand/identity.json').developer)")
 BUILD=build/windows/launcher
 OUT=build/installers
@@ -31,17 +32,19 @@ app() {  # id name exe icon file-stem [extra makensis flags]; APP_VER overrides 
 }
 app writing-studio "NorthRay Writing Studio" WritingStudio.exe apps/studio/resources/writing-studio.ico WritingStudio
 APP_VER=$BROWSER_VERSION app browser "NorthRay Browser" NorthRayBrowser.exe apps/browser/resources/northray-browser.ico NorthRayBrowser
+APP_VER=$FILES_VERSION app files "NorthRay Files" NorthRayFiles.exe apps/files/resources/northray-files.ico NorthRayFiles
 app cj-radio "CJ Radio" CJRadio.exe apps/cj-radio/resources/cj-radio.ico CJRadio -DNO_SHORTCUT
 app cj-philip-community "CJ Philip Community" CJPhilipCommunity.exe apps/community/resources/cj-community.ico CJPhilipCommunity
 rm -rf "$OUT/stage"
 
-node - "$OUT" "$VERSION" "$BROWSER_VERSION" <<'JS'
+node - "$OUT" "$VERSION" "$BROWSER_VERSION" "$FILES_VERSION" <<'JS'
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
-const [dir, suiteVersion, browserVersion] = process.argv.slice(2);
+const [dir, suiteVersion, browserVersion, filesVersion] = process.argv.slice(2);
 const items = [
   ['launcher', 'NorthRay Launcher', 'NorthRayLauncher', suiteVersion],
   ['writing-studio', 'NorthRay Writing Studio', 'WritingStudio', suiteVersion],
   ['browser', 'NorthRay Browser', 'NorthRayBrowser', browserVersion],
+  ['files', 'NorthRay Files', 'NorthRayFiles', filesVersion],
   ['cj-radio', 'CJ Radio', 'CJRadio', suiteVersion],
   ['cj-philip-community', 'CJ Philip Community', 'CJPhilipCommunity', suiteVersion],
 ].map(([id, name, stem, version]) => {

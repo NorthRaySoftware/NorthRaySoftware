@@ -12,7 +12,7 @@ const inst = rel?.installers.find((i) => i.id === app.id);
 const notes = releaseNotes(app.id);
 const b = brand();
 const shots = screenshots(app.id);
-const current = app.id === 'writing-studio' ? 'writing-studio/' : app.id === 'browser' ? 'browser/' : 'apps/';
+const current = app.id === 'writing-studio' ? 'writing-studio/' : app.id === 'browser' ? 'browser/' : app.id === 'files' ? 'files/' : 'apps/';
 
 // The Writing Studio's plan, stated plainly: what's built and what isn't.
 const milestones = [
