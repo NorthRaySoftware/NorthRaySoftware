@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.34.2",
+      "date": "2026-11-14",
+      "notes": [
+        "Fixed: clicking OK (or any button) in a question box did nothing when Windows' display scaling was above 100%; only Enter worked. The box was drawn smaller than the places it took clicks. This is what stopped Review › Names › “Change to” from working with the mouse.",
+        "Fixed: “Change to” now changes every use of the name, including ones in curly quotes (“Marren, wait!”), with a possessive (Marren’s), or next to a dash or an ellipsis. Before, those were skipped. “Appears in” counts them too."
+      ]
+    },
+    {
       "version": "0.34.1",
       "date": "2026-11-14",
       "notes": [

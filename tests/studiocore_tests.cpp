@@ -1893,6 +1893,15 @@ static void testReview() {
         CHECK(review::replaceName(*lib, book, "Stienriket", "Steinriket", &changed) == 1 && changed.size() == 1);
         CHECK(doc::plainText(lib->nodeContent(ch)).find("Steinriket fell.") != std::string::npos);
         CHECK(!lib->nodeVersions(ch).empty());
+        // Every use, whatever's around it: curly quotes, a possessive, dashes, an ellipsis; never inside another word.
+        CHECK(lib->saveNodeContent(ch, docOf("\u201CMarren, wait!\u201D Marren\u2019s boat. Marren\u2014no. \u2026Marren\u2026 (Marren) Marrenson \u00C9Marren Marren\u00E9.")));
+        int count = 0;
+        const std::string t = review::replaceWholeWord(doc::plainText(lib->nodeContent(ch)), "Marren", "Maren", count);
+        CHECK(count == 5);
+        CHECK(t.find("\u201CMaren, wait!\u201D Maren\u2019s boat. Maren\u2014no. \u2026Maren\u2026 (Maren) Marrenson \u00C9Marren Marren\u00E9.") != std::string::npos);
+        changed.clear();
+        CHECK(review::replaceName(*lib, book, "Marren", "Maren", &changed) == 5 && changed.size() == 1);
+        CHECK(doc::plainText(lib->nodeContent(ch)).find("Maren\u2019s boat") != std::string::npos);
     }
     // Front matter: kept, never numbered, and the story's first chapter is still Chapter 1.
     {

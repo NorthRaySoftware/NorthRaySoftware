@@ -187,6 +187,9 @@ int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, 
     UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
     if (!dpi) dpi = 96;
     d.scale = dpi / 96.0f;
+    // Drawn at the display's scale, so what's seen is where clicks land (without this, at 125% or 150%
+    // the buttons were drawn smaller than their click areas: OK only worked from the keyboard).
+    d.gfx.setDpi(dpi);
     d.layout();
     // Centred over the owner (or the screen).
     RECT o{};

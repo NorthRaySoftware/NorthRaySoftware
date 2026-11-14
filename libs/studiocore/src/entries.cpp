@@ -1,5 +1,6 @@
 // Worldbuilding entries and their relationships (schema 5), and finding where
 // they're mentioned in the manuscripts.
+#include "studio/words.hpp"
 #include "studio/document.hpp"
 #include "studio/library.hpp"
 
@@ -719,9 +720,8 @@ int countNames(const std::string& text, const std::vector<std::string>& namesIn,
         if (name.empty()) continue;
         size_t at = 0;
         while ((at = text.find(name, at)) != std::string::npos) {
-            const bool startOk = at == 0 || !wordByte((unsigned char)text[at - 1]);
             const size_t end = at + name.size();
-            const bool endOk = end >= text.size() || !wordByte((unsigned char)text[end]);
+            const bool startOk = words::wholeWord(text, at, name.size()), endOk = true;
             bool overlaps = false;
             for (auto& [a, z] : taken) if (at < z && end > a) { overlaps = true; break; }
             if (startOk && endOk && !overlaps) {

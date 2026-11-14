@@ -2643,6 +2643,11 @@ DWORD FilesWindow::dropAt(const std::vector<std::wstring>& paths, float x, float
 }
 
 bool FilesWindow::onWheel(float x, float y, float deltaLines) {
+    if (sidebarRect_.contains(x, y) && !treeRect_.contains(x, y) && sideContent_ > sideViewH_) {
+        sideScroll_ = std::clamp(sideScroll_ + deltaLines * 20.0f, 0.0f, std::max(0.0f, sideContent_ - sideViewH_));
+        invalidate();
+        return true;
+    }
     if (treeRect_.contains(x, y)) {
         treeScroll_ = std::clamp(treeScroll_ + deltaLines * 20.0f, 0.0f, std::max(0.0f, treeContent_ - treeRect_.h));
         invalidate();
@@ -2849,7 +2854,15 @@ void FilesWindow::drawSidebar(const Rect& r) {
     gfx_.text(L"NorthRay", {x, r.y + 18, r.w - x, 24}, Font::Wordmark, nr::kNightInk, {Align::Left, false});
     gfx_.text(L"FILES", {x + 1, r.y + 43, r.w - x, 16}, Font::Label, nr::kAuroraGreen.withAlpha(0.85f), {Align::Left, false});
 
-    float y = r.y + 84;
+    // What's here, at the foot of the sidebar; above it the places, collections and labels, which
+    // scroll (with the wheel) when the window is too short for them all, and the folder tree.
+    const std::wstring status = statusText();
+    const float statusH = status.empty() ? 0 : gfx_.measureHeight(status, r.w - 44, Font::Small) + 30;
+    const float top = r.y + 80, limit = r.bottom() - statusH - 6;
+    sideViewH_ = std::max(0.0f, limit - top);
+    gfx_.pushClip({r.x, top, r.w, sideViewH_});
+    setHitClip({r.x, top, r.w, sideViewH_});
+    float y = r.y + 84 - sideScroll_;
     auto row = [&](const std::string& id, const std::wstring& label, int icon, bool selected, std::function<void()> act,
                    const std::wstring& note = L"") {
         const Rect rr{r.x + 10, y, r.w - 20, 32};
@@ -2945,10 +2958,17 @@ void FilesWindow::drawSidebar(const Rect& r) {
     for (const Drive& d : drives_)
         if (d.icon >= 0) { pcIcon = d.icon; break; }
     row("tb:thispc", L"This PC", pcIcon, here_.thisPC, [this] { go({true, L""}); });
-    // What's here, at the foot of the sidebar.
-    const std::wstring status = statusText();
-    const float statusH = status.empty() ? 0 : gfx_.measureHeight(status, r.w - 44, Font::Small) + 30;
-    drawTree(r, y, r.bottom() - statusH - 6);
+    clearHitClip();
+    gfx_.popClip();
+    // The tree has what's left, at least enough for a few folders (scroll the sidebar to reach it).
+    sideContent_ = y + sideScroll_ - (r.y + 84) + 130;
+    sideScroll_ = std::clamp(sideScroll_, 0.0f, std::max(0.0f, sideContent_ - sideViewH_));
+    float ty = std::max(y, top);
+    if (limit - ty >= 40) drawTree(r, ty, limit);
+    else treeRect_ = {};
+    if (sideScroll_ > 0.5f) {   // more above: the night sky fades in under the logo
+        gfx_.line(r.x + 22, top, r.right() - 22, top, nr::kNightInk.withAlpha(0.12f));
+    }
     if (!status.empty()) {
         gfx_.line(r.x + 22, r.bottom() - statusH + 4, r.right() - 22, r.bottom() - statusH + 4, nr::kNightInk.withAlpha(0.10f));
         gfx_.text(status, {r.x + 22, r.bottom() - statusH + 14, r.w - 44, statusH}, Font::Small, nr::kNightMuted);

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.8.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Fixed: buttons in question boxes didn't respond to clicks when Windows' display scaling was above 100%."
+      ]
+    },
+    {
       "version": "0.8.0",
       "date": "2026-11-14",
       "notes": [

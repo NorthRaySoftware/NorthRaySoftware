@@ -355,3 +355,13 @@ Choosing who a relationship (or a family member) is with used a plain pop-up lis
 cjui's `showMenu` (and so `trackMenu`) now gives any top-level menu with 13 or more choices a type-to-search field
 (letters filter by label, Backspace and Esc clear) and caps it at 14 rows, scrolling by wheel, arrow keys and Page Up/Down,
 with small arrows at the edges instead of scroll bars. Every long pop-up list in the suite gets this.
+
+## 0.34.2: question boxes at display scaling; names beside typographer's punctuation
+
+- `cjui::messageBox` sized its window for the display's DPI but drew at 96 DPI (no `Gfx::setDpi`), so above 100%
+  scaling the buttons were drawn smaller than, and away from, their click areas: only the keyboard worked. Fixed for
+  every app (`d.gfx.setDpi(dpi)` before layout); checked in Wine at 144 DPI.
+- Whole-word name matching (`studio/words.hpp`, used by `review::replaceWholeWord` and the mention counts in
+  `entries.cpp`) decodes the UTF-8 character on each side instead of treating every non-ASCII byte as a letter, so
+  curly quotes, apostrophes (possessives), dashes, ellipses and non-breaking spaces end a name; letters in any script
+  still don't. Tested with “Marren, wait!”, Marren’s, Marren—, …Marren…, and not Marrenson, ÉMarren or Marrené.

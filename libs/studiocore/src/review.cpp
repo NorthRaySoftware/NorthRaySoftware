@@ -1,6 +1,7 @@
 // Editorial tools: snapshots and the writing log (Library), comparing texts,
 // and checking names.
 #include "studio/review.hpp"
+#include "studio/words.hpp"
 
 #include "studio/document.hpp"
 #include "studio/typeset.hpp"   // utf32 / utf8
@@ -406,8 +407,6 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId) {
 
 // ------------------------------------------------------------- changing a name everywhere
 
-static bool wordByte(unsigned char c) { return std::isalnum(c) || c >= 0x80 || c == '_'; }
-
 std::string replaceWholeWord(const std::string& text, const std::string& from, const std::string& to, int& count) {
     if (from.empty()) return text;
     std::string out;
@@ -415,11 +414,10 @@ std::string replaceWholeWord(const std::string& text, const std::string& from, c
     for (;;) {
         const size_t i = text.find(from, at);
         if (i == std::string::npos) break;
-        const bool startOk = i == 0 || !wordByte((unsigned char)text[i - 1]);
         const size_t e = i + from.size();
-        const bool endOk = e >= text.size() || !wordByte((unsigned char)text[e]);
+        const bool whole = words::wholeWord(text, i, from.size());
         out.append(text, at, i - at);
-        if (startOk && endOk) { out += to; ++count; } else out += from;
+        if (whole) { out += to; ++count; } else out += from;
         at = e;
     }
     out.append(text, at, std::string::npos);

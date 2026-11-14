@@ -125,6 +125,7 @@ private:
     float treeScroll_ = 0, treeContent_ = 0;
     cjui::Rect treeRect_{};
     cjui::Rect sidebarRect_{};
+    float sideScroll_ = 0, sideContent_ = 0, sideViewH_ = 0;   // the sidebar above the tree, when it doesn't fit
     struct Drag { bool armed = false, active = false, external = false; float sx = 0, sy = 0, x = 0, y = 0; std::vector<std::wstring> paths; int fromPane = 0, clickRow = -1; } drag_;
     std::wstring dropTargetFolder(float x, float y, int* pane = nullptr);   // a folder row under the pointer, or a pane's folder
 

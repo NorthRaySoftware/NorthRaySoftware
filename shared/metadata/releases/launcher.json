@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.45.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Every NorthRay app: buttons in question boxes respond to clicks again when Windows' display scaling is above 100% (Writing Studio 0.34.2, Files 0.6.1, Browser 0.8.1).",
+        "Writing Studio 0.34.2: Review's “Change to” changes names next to curly quotes, possessives and dashes too."
+      ]
+    },
+    {
       "version": "0.44.0",
       "date": "2026-11-14",
       "notes": [

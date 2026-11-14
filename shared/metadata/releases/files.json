@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.6.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Fixed: buttons in question boxes (such as “Delete permanently?”) didn't respond to clicks when Windows' display scaling was above 100%.",
+        "The sidebar fits short windows and large display scaling: the places, collections and labels scroll with the mouse wheel instead of running into the item count at the bottom, and the folder tree keeps room of its own."
+      ]
+    },
+    {
       "version": "0.6.0",
       "date": "2026-11-14",
       "notes": [

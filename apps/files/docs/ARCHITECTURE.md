@@ -244,7 +244,13 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
   collection through `dropAt`. Not verifiable here (Wine's bin folder and cross-window OLE under xdotool): real bin
   listing/restore and drops between programs.
 
-## 7g. Next
+## 7g. 0.6.1
+
+The sidebar above the tree is clipped at the status line and scrolls with the wheel (`sideScroll_`) when it doesn't
+fit (short windows, 150% scaling); the tree keeps at least 40 DIPs. Question boxes respond to clicks at any scaling
+(cjui fix, see the Studio notes).
+
+## 7h. Next
 
 Column resizing, UI Automation for screen readers, labels that follow moves made by other programs (NTFS file ids),
 File Explorer replacement as an optional setting (roadmap: later).
