@@ -1,5 +1,6 @@
 // Drawing: workspace bar, library sidebar, pages, properties panel.
 #include "studio_app.hpp"
+#include "cjui/northray.hpp"
 #include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
@@ -246,14 +247,18 @@ void StudioApp::drawFrame(float W, float H) {
 // ---------------------------------------------------------------- top bar
 
 void StudioApp::drawTopBar(const Rect& r) {
-    gfx_.fill(r, pal_.surface);
-    gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
+    // The night sky with its aurora band, like the other NorthRay apps' title bars; light text on it.
+    namespace nr = cjui::northray;
+    nr::nightSky(gfx_, r, 0, 0.7f, 13);
+    nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
     // Minimise, maximise and close end the row (the window has no separate title bar).
-    const float capW = drawCaptionButtons({r.x, r.y, r.w, r.h - 1}, false);
+    const float capW = drawCaptionButtons({r.x, r.y, r.w, r.h}, true);
     const float tabPad = r.w < 1300 ? 16 : 24;   // a narrower window: tighter tabs, so Settings still fits
-    // Product wordmark with the suite's ribbon, in the Studio's ink blue.
-    gfx_.bookmark({18, 0, 11, 30}, pal_.ribbon);
-    gfx_.text(L"Writing Studio", {38, 0, kSideW - 40, r.h}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+    // The app's mark and name: "NorthRay" over "WRITING STUDIO", as the Launcher has it.
+    float lx = 14;
+    if (gfx_.drawImage(exeDir() + L"\\web\\studio-mark.png", {lx, (r.h - 30) / 2 + 1, 30, 30}, false)) lx += 38;
+    gfx_.text(L"NorthRay", {lx, 5, kSideW - lx, 20}, Font::BodyStrong, nr::kNightInk, {Align::Left, false, true});
+    gfx_.text(L"WRITING STUDIO", {lx + 1, 25, kSideW - lx, 14}, Font::Label, nr::kAuroraGreen.withAlpha(0.9f), {Align::Left, false, true});
 
     struct Tab { const wchar_t* name; int milestone; };
     static const Tab tabs[] = {{L"Library", 1}, {L"Writing", 2}, {L"Planning", 8}, {L"Worldbuilding", 8}, {L"Review", 9},
@@ -350,13 +355,13 @@ void StudioApp::drawTopBar(const Rect& r) {
                       L".", 6);
         }, false);
         if (active) {
-            gfx_.text(t.name, tr, Font::BodyStrong, pal_.ink, {Align::Center, false, false, true});
+            gfx_.text(t.name, tr, Font::BodyStrong, nr::kNightInk, {Align::Center, false, false, true});
             // The underline slides between workspaces.
             const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
-            gfx_.fill({ux, r.bottom() - 3, uw, 3}, pal_.ribbon);
+            gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
         } else {
-            const Color base = built ? pal_.inkMuted : pal_.inkFaint;
-            gfx_.text(t.name, tr, Font::Body, base.mix(built ? pal_.ink : pal_.inkMuted, hoverAmount(id)), {Align::Center, false, false, true});
+            const Color base = built ? nr::kNightMuted : nr::kNightMuted.withAlpha(0.6f);
+            gfx_.text(t.name, tr, Font::Body, base.mix(built ? nr::kNightInk : nr::kNightMuted, hoverAmount(id)), {Align::Center, false, false, true});
         }
         x += tw + 4;
     }
@@ -370,11 +375,11 @@ void StudioApp::drawTopBar(const Rect& r) {
         const bool active = ws_ == Workspace::Library && view_ == View::Settings;
         addHit(id, tr, [this] { openSettings(); }, false);
         if (active) {
-            gfx_.text(lbl, tr, Font::BodyStrong, pal_.ink, {Align::Center, false, false, true});
+            gfx_.text(lbl, tr, Font::BodyStrong, nr::kNightInk, {Align::Center, false, false, true});
             const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
-            gfx_.fill({ux, r.bottom() - 3, uw, 3}, pal_.ribbon);
+            gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
         } else {
-            gfx_.text(lbl, tr, Font::Body, pal_.inkMuted.mix(pal_.ink, hoverAmount(id)), {Align::Center, false, false, true});
+            gfx_.text(lbl, tr, Font::Body, nr::kNightMuted.mix(nr::kNightInk, hoverAmount(id)), {Align::Center, false, false, true});
         }
         // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
         if (lib_ && !active) {
@@ -382,8 +387,8 @@ void StudioApp::drawTopBar(const Rect& r) {
                 const Rect b{bx, (r.h - 30) / 2, 30, 30};
                 addHit(bid, b, std::move(act), false);
                 const float hv = hoverAmount(bid);
-                if (hv > 0.01f) gfx_.fillRounded(b, 6, pal_.ink.withAlpha(0.07f * hv));
-                const Color c = pal_.inkMuted.mix(pal_.ink, hv);
+                if (hv > 0.01f) gfx_.fillRounded(b, 6, nr::kNightInk.withAlpha(0.10f * hv));
+                const Color c = nr::kNightMuted.mix(nr::kNightInk, hv);
                 const Rect fr{b.x + 7, b.y + 9, 16, 12};
                 gfx_.strokeRounded(fr, 2, c, 1.2f);
                 const Rect bar = left ? Rect{fr.x + 1, fr.y + 1, 5, fr.h - 2} : Rect{fr.right() - 6, fr.y + 1, 5, fr.h - 2};

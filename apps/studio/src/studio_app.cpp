@@ -1,4 +1,5 @@
 #include "studio_app.hpp"
+#include "cjui/northray.hpp"
 #include "cjui/menu.hpp"
 
 #include "cjui/packages.hpp"
@@ -203,9 +204,8 @@ void StudioApp::onDestroy() {
 
 void StudioApp::applyTheme() {
     const bool dark = settings_.theme == 2 || (settings_.theme == 0 && systemPrefersDark());
-    Palette p = makePalette(dark);
-    // The Studio's own identity: deep ink blue instead of the suite's ribbon red.
-    p.ribbon = dark ? hexColor("#8FB0D9") : hexColor("#2D4A6E");
+    // The NorthRay look, like the Launcher, Browser and Files: cool neutrals and aurora green.
+    Palette p = cjui::northray::palette(dark);
     applyPalette(p);
     if (fieldBrush_) DeleteObject(fieldBrush_);
     const Color s = pal_.surface;

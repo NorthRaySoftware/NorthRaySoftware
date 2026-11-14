@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.27.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The Writing Studio's new icon."
+      ]
+    },
+    {
       "version": "0.26.0",
       "date": "2026-11-14",
       "notes": [

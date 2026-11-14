@@ -55,17 +55,17 @@ img.ProseMirror-separator {
 }
 
 /* The Writing Studio's editor: a calm page, styled by meaning (Body, Epigraph...)
-   rather than by fonts and sizes. Matches the app's palette. */
+   rather than by fonts and sizes. Matches the app's palette (the NorthRay look). */
 :root {
-  --paper: #F3EFE6; --page: #FBF9F4; --ink: #1E1D1A; --muted: #5E5A50; --faint: #8C8778; --rule: #D6D0C2;
-  --accent: #2D4A6E; --sel: rgba(45, 74, 110, .18); --bar: #EFEAE0;
+  --paper: #F3F5F9; --page: #FFFFFF; --ink: #0E1526; --muted: #4E5A70; --faint: #8590A4; --rule: #D9DEE7;
+  --accent: #0F8F6E; --sel: rgba(15, 143, 110, .16); --bar: #F8F9FC;
   --serif: "Cambria", "Georgia", "Times New Roman", serif;
   --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --paper: #18181A; --page: #202023; --ink: #ECE8DE; --muted: #A9A498; --faint: #76726A; --rule: #34333A;
-  --accent: #8FB0D9; --sel: rgba(143, 176, 217, .25); --bar: #1C1C1F;
+  --paper: #0D1220; --page: #141B2C; --ink: #E9EEF7; --muted: #A4AEC2; --faint: #6B768C; --rule: #232C40;
+  --accent: #5BE3B4; --sel: rgba(91, 227, 180, .20); --bar: #111829;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }

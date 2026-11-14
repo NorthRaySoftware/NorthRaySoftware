@@ -256,3 +256,7 @@ Name parts also include every in-order selection of the named words that keeps t
 - **Bible by book**: `booksInReadingOrder` (each series in reading order, then books in no series); each entry's first book from `appearancesIn`, cached until `changesMade()` moves. Places nest under the place they're "Located in"/"Part of" (or that "Contains"/"Includes" them), depth-first, in their outermost place's book. In Characters, each book's entries are split by gender (listed order, others, Not set) with a sign and colour.
 - **Races and Realms** are entry kinds; the race and realm facets list the bible's own first, and choosing a listed one it lacks creates the entry.
 - **Link buttons** (cjui `linkText`): a framed button 7 DIPs around the label's text, so callers that measure the label still place it.
+
+## The NorthRay look (0.27.0)
+
+The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) instead of its own warm paper and ink blue; the top bar is the night sky with the aurora band (`northray::nightSky`, `auroraBand`, caption buttons on night), with the app mark (`web/studio-mark.png`, from `resources/writing-studio.svg`) and "NorthRay / WRITING STUDIO" like the Launcher. The editor's CSS variables follow the same palette. The icon (`writing-studio.svg/.ico`, `shared/metadata/icons/writing-studio.png`) shares Browser's and Files' sky, aurora and north star, with an open book and a ribbon on the horizon; the installer art matches Files'.

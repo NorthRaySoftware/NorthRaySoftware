@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.27.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The Writing Studio now has the NorthRay look, like the Launcher, Browser and Files: a new icon (an open book under the aurora and the north star), the night sky and aurora along the top with the NorthRay mark, and NorthRay's cool colours with aurora green in the app and the writing page, in light and dark. Everything works as before."
+      ]
+    },
+    {
       "version": "0.26.0",
       "date": "2026-11-14",
       "notes": [
