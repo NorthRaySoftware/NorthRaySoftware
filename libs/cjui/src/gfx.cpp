@@ -83,6 +83,8 @@ void Gfx::resize(UINT w, UINT h) {
 
 bool Gfx::begin() {
     if (!createTarget()) return false;
+    lastText_.swap(text_);
+    text_.clear();
     rt_->BeginDraw();
     rt_->SetTransform(D2D1::Matrix3x2F::Identity());
     return true;
@@ -414,6 +416,7 @@ float Gfx::text(const std::wstring& s, const Rect& r, Font f, Color c, TextOpts 
     rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c),
                         o.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
     tl->Release();
+    if (text_.size() < 4000) text_.push_back({r.x + m.left, r.y + m.top, std::min(m.width, r.w), m.height});
     return m.height;
 }
 

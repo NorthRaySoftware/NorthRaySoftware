@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace cjui::northray {
 
@@ -37,9 +38,16 @@ void nightSky(Gfx& g, const Rect& r, float radius, float intensity, unsigned see
     // Each star twinkles softly at its own pace (3-10 s a breath), brighter and
     // dimmer around where it sits; still when Windows' animations are off.
     const double t = ambientTime();
+    // Text sits above the sky: stars keep a little clear of where text was drawn (last frame's layout).
+    std::vector<Rect> clear;
+    for (const Rect& tr : g.lastTextRects())
+        if (tr.right() > r.x && tr.x < r.right() && tr.bottom() > r.y && tr.y < r.bottom()) clear.push_back({tr.x - 5, tr.y - 4, tr.w + 10, tr.h + 8});
     for (int i = 0; i < n; ++i) {
         const float sx = r.x + rnd() * r.w, sy = r.y + rnd() * r.h, s = 0.5f + rnd() * 0.9f;
         float a = 0.18f + 0.5f * rnd();
+        bool covered = false;
+        for (const Rect& c : clear) if (c.contains(sx, sy)) { covered = true; break; }
+        if (covered) continue;
         if (t >= 0) {
             unsigned h = (seed + 1) * 0x9E3779B9u ^ (unsigned)i * 0x85EBCA6Bu;
             h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12;

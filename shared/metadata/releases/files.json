@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.1.6",
+      "date": "2026-11-14",
+      "notes": [
+        "Text on the night sky stays clear: stars keep away from the words in title bars and sidebars."
+      ]
+    },
+    {
       "version": "0.1.5",
       "date": "2026-11-14",
       "notes": [

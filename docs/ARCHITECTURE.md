@@ -155,3 +155,7 @@ Investigated, not built. The brief wants apps to stay technically independent. T
 - No text input controls (not needed until search, sign-in and messaging).
 - No standard menu bars in any app: commands live in the window itself (the Writing Studio lists its shortcuts on its Settings page).
 - Artwork is drawn by code. Real icons and banners can be dropped in via the metadata `artwork` fields once they exist, but loading image files isn't implemented yet.
+
+## Stars clear of text (0.27.3)
+
+`cjui::Gfx` records the ink rectangle of every `text()` call in a frame (`lastTextRects()`, the previous frame's), and `northray::nightSky` skips stars within 5 DIPs of any of them, so words on the night sky (title bars, sidebars, side tabs) are never crossed by a star. Layouts are stable from frame to frame (the twinkle redraws continuously), so the previous frame's text is where this frame's goes.

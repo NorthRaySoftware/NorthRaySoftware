@@ -11,6 +11,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace cjui {
 
@@ -114,7 +115,12 @@ public:
 
     ID2D1HwndRenderTarget* target() const { return rt_; }
 
+    // Where text was drawn on the previous frame (its ink, in DIPs), so decoration drawn before it
+    // (the night sky's stars) can keep clear of it. Frames rarely move, so last frame's is right.
+    const std::vector<Rect>& lastTextRects() const { return lastText_; }
+
 private:
+    std::vector<Rect> text_, lastText_;
     IDWriteTextFormat* format(Font f);
     IDWriteTextLayout* layout(const std::wstring& s, float w, float h, Font f, const TextOpts& o);
     ID2D1SolidColorBrush* brush(Color c);
