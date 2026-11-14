@@ -1,25 +1,25 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-14T09:47:03Z",
+  "generatedUtc": "2026-11-14T10:05:36Z",
   "apps": [
     {
       "id": "launcher",
       "name": "NorthRay Launcher",
-      "version": "0.18.1",
-      "file": "NorthRayLauncher-Setup-0.18.1.exe",
-      "url": "downloads/NorthRayLauncher-Setup-0.18.1.exe",
-      "size": 1741235,
-      "sha256": "231e71592f81df940e0d962153465b4bd70934abc837308af9c58b611ddf285a"
+      "version": "0.18.2",
+      "file": "NorthRayLauncher-Setup-0.18.2.exe",
+      "url": "downloads/NorthRayLauncher-Setup-0.18.2.exe",
+      "size": 1748848,
+      "sha256": "307c7375dd4a385d059c61930c7893648e1d95c51a7f7b81c7667529a9a081f9"
     },
     {
       "id": "writing-studio",
       "name": "NorthRay Writing Studio",
-      "version": "0.18.1",
-      "file": "WritingStudio-Setup-0.18.1.exe",
-      "url": "downloads/WritingStudio-Setup-0.18.1.exe",
-      "size": 8166180,
-      "sha256": "20e329447107a72351c78574bf6e18a1e793a873b24a5ab4f5091670e93ac3ca"
+      "version": "0.18.2",
+      "file": "WritingStudio-Setup-0.18.2.exe",
+      "url": "downloads/WritingStudio-Setup-0.18.2.exe",
+      "size": 8164467,
+      "sha256": "721e86ab926e33820434840ec4f14b58d1ab56e9d081c70039d146dd47ff2268"
     },
     {
       "id": "browser",
@@ -27,26 +27,35 @@
       "version": "0.2.0",
       "file": "NorthRayBrowser-Setup-0.2.0.exe",
       "url": "downloads/NorthRayBrowser-Setup-0.2.0.exe",
-      "size": 1966830,
-      "sha256": "0e9b974c44656bef59609eee891b0fffaa132b4de01f5cc3bd68c111c0b6c6ff"
+      "size": 1967162,
+      "sha256": "cb0ae412900e37cf2f85c0bec2f295856d285414e63847baa504a7a96152ef5d"
+    },
+    {
+      "id": "files",
+      "name": "NorthRay Files",
+      "version": "0.1.0",
+      "file": "NorthRayFiles-Setup-0.1.0.exe",
+      "url": "downloads/NorthRayFiles-Setup-0.1.0.exe",
+      "size": 1172733,
+      "sha256": "b5757935102387494de0c9e093da3dc51f16c29e9d86240a74525e5bc7ece13f"
     },
     {
       "id": "cj-radio",
       "name": "CJ Radio",
-      "version": "0.18.1",
-      "file": "CJRadio-Setup-0.18.1.exe",
-      "url": "downloads/CJRadio-Setup-0.18.1.exe",
-      "size": 1977176,
-      "sha256": "df1ad96c7700301658c4583627aee831aaec77f8c54c3012798e449f383a50bf"
+      "version": "0.18.2",
+      "file": "CJRadio-Setup-0.18.2.exe",
+      "url": "downloads/CJRadio-Setup-0.18.2.exe",
+      "size": 1984766,
+      "sha256": "3f2730acbfde4c85b35c28507b18fdf71afca4f963b656cb5f824758d767dfd5"
     },
     {
       "id": "cj-philip-community",
       "name": "CJ Philip Community",
-      "version": "0.18.1",
-      "file": "CJPhilipCommunity-Setup-0.18.1.exe",
-      "url": "downloads/CJPhilipCommunity-Setup-0.18.1.exe",
-      "size": 1636530,
-      "sha256": "5db9d3c1e9a2121d9c73c0b2289740512f96d7b68aefda30bb8091d5f465197c"
+      "version": "0.18.2",
+      "file": "CJPhilipCommunity-Setup-0.18.2.exe",
+      "url": "downloads/CJPhilipCommunity-Setup-0.18.2.exe",
+      "size": 1643878,
+      "sha256": "0a42c04fd941509810c1c5f3c97f2f94cfc02d7962032d3f435337cf5943841e"
     }
   ]
 }
