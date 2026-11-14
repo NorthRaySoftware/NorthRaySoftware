@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Copy, cut and paste (Ctrl+C, Ctrl+X, Ctrl+V), and in the right-click menu. It works both ways with File Explorer. A copy in the same folder is named “cover - Copy.png”, as in File Explorer, and what arrives is selected.",
+        "Rename in place (F2): the name without its extension is selected, and a name Windows can't use is explained instead of failing.",
+        "New folder (Ctrl+Shift+N), named as you make it.",
+        "Delete moves things to the Recycle Bin; Shift+Delete deletes them for good, after asking. The Recycle Bin is in the sidebar with how many items it holds, to open or empty.",
+        "All of this goes through Windows' own file operations, so its progress, “replace or skip” and Recycle Bin work as in File Explorer.",
+        "“More options” (and Shift+F10) opens Windows' own right-click menu for the selected items: Open with, Send to, Properties and the rest.",
+        "Folders refresh by themselves when anything in them changes, here or in another program, keeping your place and selection."
+      ]
+    },
+    {
       "version": "0.1.7",
       "date": "2026-11-14",
       "notes": [

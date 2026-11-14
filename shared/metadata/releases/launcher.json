@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.38.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Files 0.2.0: copy, move, rename, new folder and delete (to the Recycle Bin), Windows' own right-click menu, and folders that refresh themselves."
+      ]
+    },
+    {
       "version": "0.37.0",
       "date": "2026-11-14",
       "notes": [

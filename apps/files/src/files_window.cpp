@@ -1,7 +1,9 @@
 #include "files_window.hpp"
 #include "cjui/dialog.hpp"
 
+#include "nrf/operations.hpp"
 #include "nrf/paths.hpp"
+#include "operations.hpp"
 #include "resource.h"
 #include "version.hpp"
 
@@ -10,6 +12,7 @@
 #include <commctrl.h>
 #include <dbt.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -34,12 +37,15 @@ constexpr float kSidebarW = 236;
 constexpr float kToolbarH = 56;
 constexpr float kHeaderH = 32;
 constexpr UINT_PTR kSpinTimer = 1;
+constexpr UINT_PTR kRefreshTimer = 2;   // the folder changed: list it again after a moment
+constexpr UINT WM_APP_CHANGED = WM_APP + 50;
 
 enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu };
 
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
+    CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
 };
 
 COLORREF toColorRef(Color c) {
@@ -101,6 +107,19 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     SetWindowSubclass(address_, quietEditProc, 1, 0);
     SendMessageW(address_, EM_SETLIMITTEXT, 32767, 0);
 
+    rename_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_BORDER | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
+    SetWindowSubclass(rename_, quietEditProc, 2, 0);
+    SendMessageW(rename_, EM_SETLIMITTEXT, 255, 0);
+    {
+        // The Recycle Bin's own icon, for the sidebar.
+        PIDLIST_ABSOLUTE bin = nullptr;
+        if (SUCCEEDED(SHGetSpecialFolderLocation(nullptr, CSIDL_BITBUCKET, &bin)) && bin) {
+            SHFILEINFOW fi{};
+            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(bin), 0, &fi, sizeof fi, SHGFI_PIDL | SHGFI_SYSICONINDEX | SHGFI_SMALLICON)) recycleIcon_ = fi.iIcon;
+            CoTaskMemFree(bin);
+        }
+    }
+    updateRecycleBin();
     thumbs_ = std::make_unique<Thumbnails>(hwnd());
     applyTheme();
     places_ = knownPlaces();
@@ -139,6 +158,10 @@ void FilesWindow::applyTheme() {
 
 void FilesWindow::go(const Location& to, bool remember, const std::wstring& select) {
     if (editing_) endEditingAddress(false);
+    if (renaming_) endRename(false);
+    quiet_ = false;
+    pending_.clear();
+    KillTimer(hwnd(), kRefreshTimer);
     if (remember && loadedOnce_ && !(to == here_)) {
         backStack_.push_back(here_);
         if (backStack_.size() > 200) backStack_.erase(backStack_.begin());
@@ -250,15 +273,38 @@ void FilesWindow::receive(ListBatch* b) {
         windowTitle_ = title;
         SetWindowTextW(hwnd(), title.c_str());
     }
-    for (Entry& e : b->entries) listed_.push_back(std::move(e));
+    if (quiet_) {
+        // Listing again in the background: swap in the new list when it's all here.
+        for (Entry& e : b->entries) pending_.push_back(std::move(e));
+        if (!b->done) return;
+        quiet_ = false;
+        if (b->error == ListError::None || !pending_.empty()) listed_.swap(pending_);
+        pending_.clear();
+    } else {
+        for (Entry& e : b->entries) listed_.push_back(std::move(e));
+    }
     if (b->done) {
         loading_ = false;
         if (b->error != ListError::None) {
             if (listed_.empty()) { error_ = b->error; errorCode_ = b->code; }
             else { partial_ = true; errorCode_ = b->code; }
+        } else {
+            error_ = ListError::None;
         }
+        // Changes made here or by any other program show by themselves.
+        if (error_ == ListError::None) ops::watchFolder(hwnd(), WM_APP_CHANGED, here_.path, request_, latest_);
     }
     showHere();
+    if (b->done && !selectNames_.empty()) {
+        sel_.clear();
+        int lastRow = -1;
+        for (std::size_t i = 0; i < shown_.size(); ++i)
+            for (auto& nm : selectNames_)
+                if (CompareStringOrdinal(shown_[i].name.c_str(), -1, nm.c_str(), -1, TRUE) == CSTR_EQUAL) { sel_.click(i, true, false); lastRow = (int)i; }
+        if (lastRow >= 0) { sel_.moveTo((std::size_t)lastRow, true, false); ensureVisible((std::size_t)lastRow); }
+        selectNames_.clear();
+        invalidate();
+    }
 }
 
 void FilesWindow::receive(DriveBatch* b) {
@@ -342,6 +388,10 @@ void FilesWindow::endEditingAddress(bool goThere) {
 }
 
 bool FilesWindow::preTranslate(MSG& msg) {
+    if (msg.hwnd == rename_ && msg.message == WM_KEYDOWN) {
+        if (msg.wParam == VK_RETURN) { endRename(true); return true; }
+        if (msg.wParam == VK_ESCAPE) { endRename(false); return true; }
+    }
     if (msg.hwnd == address_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) { endEditingAddress(true); return true; }
         if (msg.wParam == VK_ESCAPE) { endEditingAddress(false); return true; }
@@ -400,6 +450,9 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (ctrl && !shift) {
         switch (vk) {
             case 'A': sel_.selectAll(); return true;
+            case 'C': copyOrCut(false); return true;
+            case 'X': copyOrCut(true); return true;
+            case 'V': paste(); return true;
             case 'L': beginEditingAddress(); return true;
             case 'R': refresh(); return true;
             case VK_SPACE: sel_.toggleFocused(); return true;
@@ -409,6 +462,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (ctrl && shift) {
         switch (vk) {
             case 'C': copyPaths(); return true;
+            case 'N': newFolder(); return true;
             case '6': setView(ViewMode::Details); return true;
             case '2': setView(ViewMode::Icons); return true;
             default: break;
@@ -416,6 +470,8 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     }
     switch (vk) {
         case VK_F4: beginEditingAddress(); return true;
+        case VK_F2: beginRename(); return true;
+        case VK_DELETE: deleteSelection(shift); return true;
         case VK_F5: refresh(); return true;
         case VK_BACK: back(); return true;
         case VK_BROWSER_BACK: back(); return true;
@@ -431,10 +487,13 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         case VK_END: moveTo((long long)n - 1); return true;
         case VK_NEXT: moveTo(focus < 0 ? 0 : focus + page); return true;
         case VK_PRIOR: moveTo(focus < 0 ? 0 : focus - page); return true;
-        case VK_APPS: {
+        case VK_APPS:
+        case VK_F10: {
+            if (vk == VK_F10 && !shift) break;
             POINT pt{(LONG)((listClip_.x + 40) * gfx_.dpiScale()), (LONG)((listClip_.y + 40) * gfx_.dpiScale())};
             ClientToScreen(hwnd(), &pt);
-            showItemMenu(pt);
+            if (vk == VK_F10) moreOptions(pt);   // Shift+F10: Windows' own menu
+            else showItemMenu(pt);
             return true;
         }
         default: break;
@@ -444,6 +503,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 
 bool FilesWindow::onMouseDown(float x, float y) {
     if (editing_) endEditingAddress(false);
+    if (renaming_) endRename(true);
     if (here_.thisPC || !listClip_.contains(x, y) || error_ != ListError::None) return false;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     long long row = -1;
@@ -524,6 +584,23 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             handled = true;
             return 0;
         }
+        case WM_APP_CHANGED:
+            // Something in the folder changed (here or in another program): list it again shortly, keeping the place.
+            if ((std::uint64_t)wp == request_ && !here_.thisPC && !renaming_) SetTimer(hwnd(), kRefreshTimer, 350, nullptr);
+            handled = true;
+            return 0;
+        case WM_INITMENUPOPUP:
+        case WM_DRAWITEM:
+        case WM_MEASUREITEM:
+        case WM_MENUCHAR: {
+            // Windows' own right-click menu's submenus ("Send to", "Open with").
+            LRESULT r = 0;
+            if (ops::forwardMenuMessage(msg, wp, lp, r)) { handled = true; return r; }
+            break;
+        }
+        case WM_ACTIVATE:
+            if (LOWORD(wp) != WA_INACTIVE) updateRecycleBin();
+            break;
         case WM_APP_DRIVES: {
             auto* b = reinterpret_cast<DriveBatch*>(lp);
             receive(b);
@@ -560,6 +637,11 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             break;
         case WM_COMMAND:
+            if ((HWND)lp == rename_ && HIWORD(wp) == EN_KILLFOCUS) {
+                endRename(true);
+                handled = true;
+                return 0;
+            }
             if ((HWND)lp == address_ && HIWORD(wp) == EN_KILLFOCUS) {
                 endEditingAddress(false);
                 handled = true;
@@ -567,7 +649,7 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             break;
         case WM_CTLCOLOREDIT:
-            if ((HWND)lp == address_) {
+            if ((HWND)lp == address_ || (HWND)lp == rename_) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
                 SetBkColor(dc, toColorRef(pal_.sunken));
@@ -581,6 +663,11 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 }
 
 void FilesWindow::onTimer(UINT_PTR id) {
+    if (id == kRefreshTimer) {
+        KillTimer(hwnd(), kRefreshTimer);
+        if (!renaming_) reloadQuietly();
+        return;
+    }
     if (id == kSpinTimer) {
         if (!loading_) KillTimer(hwnd(), kSpinTimer);
         invalidate();
@@ -697,8 +784,8 @@ void FilesWindow::showMenu() {
         case CmdAbout:
             cjui::messageBox(hwnd(),
                         L"NorthRay Files " CJ_VERSION_WSTR L" (preview)\n\nDeveloped by the " CJ_DEVELOPER_WSTR
-                        L" project.\nNorthRaySoftware@protonmail.com\n\nThis first version browses folders and opens files. It "
-                        L"doesn't change, move or delete anything yet; copying, moving, renaming and deleting come next.",
+                        L" project.\nNorthRaySoftware@protonmail.com\n\nCopying, moving, renaming and deleting go through Windows' own file "
+                        L"operations, so they behave as in File Explorer and deleted items go to the Recycle Bin.",
                         L"About NorthRay Files", MB_OK | MB_ICONINFORMATION);
             break;
         default: break;
@@ -708,27 +795,254 @@ void FilesWindow::showMenu() {
 
 void FilesWindow::showItemMenu(POINT screen) {
     const std::size_t n = sel_.count();
+    const bool canPaste = ops::clipboardHasFiles();
     std::vector<MenuItem> items;
     if (n > 0) {
+        const auto rows = sel_.indices();
+        const bool oneFolder = n == 1 && shown_[rows[0]].folder();
         items.push_back(MenuItem::item(L"Open", CmdOpen, L"Enter"));
+        items.push_back(MenuItem::sep());
+        items.push_back(MenuItem::item(L"Cut", CmdCut, L"Ctrl+X"));
+        items.push_back(MenuItem::item(L"Copy", CmdCopy, L"Ctrl+C"));
+        if (oneFolder) items.push_back(MenuItem::item(L"Paste into this folder", CmdPasteInto, {}, canPaste));
+        items.push_back(MenuItem::item(L"Rename", CmdRename, L"F2", n == 1));
+        items.push_back(MenuItem::item(L"Delete", CmdDelete, L"Delete"));
+        items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(n > 1 ? L"Copy paths" : L"Copy path", CmdCopyPath, L"Ctrl+Shift+C"));
+        items.push_back(MenuItem::sep());
+        items.push_back(MenuItem::item(L"More options", CmdMore, L"Shift+F10"));
     } else {
+        items.push_back(MenuItem::item(L"Paste", CmdPaste, L"Ctrl+V", canPaste));
+        items.push_back(MenuItem::item(L"New folder", CmdNewFolder, L"Ctrl+Shift+N"));
+        items.push_back(MenuItem::sep());
         items.push_back(MenuItem::sub(L"View", {MenuItem::item(L"Details", CmdViewDetails, {}, true, settings_.view == ViewMode::Details),
                                                 MenuItem::item(L"Icons", CmdViewIcons, {}, true, settings_.view == ViewMode::Icons)}));
         items.push_back(MenuItem::item(L"Refresh", CmdRefresh, L"F5"));
         items.push_back(MenuItem::item(L"Copy this folder's path", CmdCopyPath, L"Ctrl+Shift+C"));
-        items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(L"Show hidden items", CmdHidden, {}, true, settings_.showHidden));
+        items.push_back(MenuItem::sep());
+        items.push_back(MenuItem::item(L"More options", CmdMore, L"Shift+F10"));
     }
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     switch (cmd) {
         case CmdOpen: openSelection(); break;
+        case CmdCut: copyOrCut(true); break;
+        case CmdCopy: copyOrCut(false); break;
+        case CmdPaste: paste(); break;
+        case CmdPasteInto: { const auto rows = sel_.indices(); if (rows.size() == 1) paste(rowPath(rows[0])); break; }
+        case CmdRename: beginRename(); break;
+        case CmdDelete: deleteSelection(false); break;
+        case CmdNewFolder: newFolder(); break;
         case CmdCopyPath: copyPaths(); break;
+        case CmdMore: moreOptions(screen); break;
         case CmdViewDetails: setView(ViewMode::Details); break;
         case CmdViewIcons: setView(ViewMode::Icons); break;
         case CmdRefresh: refresh(); break;
         case CmdHidden: toggleHidden(); break;
         default: break;
+    }
+    invalidate();
+}
+
+// ---------------------------------------------------------------- file actions
+
+std::vector<std::wstring> FilesWindow::selectedPaths() const {
+    std::vector<std::wstring> out;
+    for (std::size_t r : sel_.indices()) out.push_back(rowPath(r));
+    return out;
+}
+
+std::vector<std::wstring> FilesWindow::namesHere() const {
+    std::vector<std::wstring> out;
+    for (const Entry& e : listed_) out.push_back(e.name);
+    return out;
+}
+
+static std::wstring lowerPath(std::wstring s) {
+    for (auto& c : s) c = (wchar_t)towlower(c);
+    return s;
+}
+
+void FilesWindow::copyOrCut(bool cut) {
+    const auto paths = selectedPaths();
+    if (paths.empty() || here_.thisPC) return;
+    if (!ops::putOnClipboard(hwnd(), paths, cut)) { flash(L"The clipboard is busy. Try again.", 5); return; }
+    cutPaths_.clear();
+    if (cut) for (auto& p : paths) cutPaths_.insert(lowerPath(p));
+    const std::wstring what = paths.size() == 1 ? L"\u201C" + nameOf(paths[0]) + L"\u201D" : std::to_wstring(paths.size()) + L" items";
+    flash(cut ? L"Cut " + what + L". Paste (Ctrl+V) in another folder to move it there." : L"Copied " + what + L". Paste (Ctrl+V) where you want it.", 5);
+    invalidate();
+}
+
+void FilesWindow::paste(const std::wstring& into) {
+    if (here_.thisPC && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
+    const std::wstring dest = into.empty() ? here_.path : into;
+    const auto clip = ops::readClipboard(hwnd());
+    if (clip.paths.empty()) { flash(L"There are no files on the clipboard. Copy (Ctrl+C) or cut (Ctrl+X) some first.", 6); return; }
+    const TransferPlan plan = planTransfer(clip.paths, dest, clip.cut);
+    if (plan.nothingToDo) { flash(L"They're in this folder already.", 5); return; }
+    if (!plan.problem.empty()) flash(plan.problem, 6);
+    if (plan.sources.empty()) return;
+    const auto before = namesHere();
+    // Copies of things already in this folder get their own names ("cover - Copy.png"); the rest go as they are.
+    std::vector<std::wstring> plain, arrived;
+    std::vector<std::pair<std::wstring, std::wstring>> beside;
+    std::vector<std::wstring> taken = dest == here_.path ? before : std::vector<std::wstring>{};
+    for (auto& src : plan.sources) {
+        if (!clip.cut && CompareStringOrdinal(parentOf(src).c_str(), -1, dest.c_str(), -1, TRUE) == CSTR_EQUAL) {
+            const DWORD a = GetFileAttributesW(extendedPath(src).c_str());
+            const std::wstring nm = copyName(nameOf(src), taken, a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY));
+            taken.push_back(nm);
+            beside.push_back({src, join(dest, nm)});
+            arrived.push_back(nm);
+        } else {
+            plain.push_back(src);
+            arrived.push_back(nameOf(src));
+        }
+    }
+    ops::Result r = ops::transfer(hwnd(), plain, dest, clip.cut);
+    if (!beside.empty() && !r.cancelled) {
+        const ops::Result r2 = ops::copyAs(hwnd(), beside);
+        if (!r2.ok) r = r2;
+    }
+    if (clip.cut && r.ok) {
+        // Moved: the clipboard's files aren't where it says any more.
+        if (OpenClipboard(hwnd())) { EmptyClipboard(); CloseClipboard(); }
+        cutPaths_.clear();
+    }
+    if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(clip.cut ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
+                                                L"NorthRay Files", MB_OK | MB_ICONWARNING);
+    if (dest == here_.path) {
+        reloadQuietly(arrived);   // what arrived, selected
+    } else if (r.ok) {
+        flash((clip.cut ? L"Moved into \u201C" : L"Copied into \u201C") + nameOf(dest) + L"\u201D.", 5);
+        if (clip.cut) reloadQuietly();
+    }
+    (void)before;
+}
+
+void FilesWindow::deleteSelection(bool permanently) {
+    const auto paths = selectedPaths();
+    if (paths.empty() || here_.thisPC) return;
+    const std::wstring what = paths.size() == 1 ? L"\u201C" + nameOf(paths[0]) + L"\u201D" : std::to_wstring(paths.size()) + L" items";
+    if (permanently &&
+        cjui::messageBox(hwnd(), (L"Delete " + what + L" permanently?\n\nThey won't go to the Recycle Bin, so they can't be brought back.").c_str(),
+                         L"Delete permanently", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
+        return;
+    // The row after the last one deleted keeps the focus.
+    std::wstring after;
+    const auto rows = sel_.indices();
+    if (!rows.empty() && rows.back() + 1 < shown_.size()) after = shown_[rows.back() + 1].name;
+    else if (!rows.empty() && rows.front() > 0) after = shown_[rows.front() - 1].name;
+    const ops::Result r = ops::remove(hwnd(), paths, permanently);
+    if (!r.ok && !r.cancelled)
+        cjui::messageBox(hwnd(), (L"Some items couldn't be deleted.\n\n" + r.message).c_str(), L"NorthRay Files", MB_OK | MB_ICONWARNING);
+    else if (r.ok)
+        flash(permanently ? L"Deleted " + what + L"." : L"Moved " + what + L" to the Recycle Bin.", 5);
+    updateRecycleBin();
+    reloadQuietly(after.empty() ? std::vector<std::wstring>{} : std::vector<std::wstring>{after});
+}
+
+void FilesWindow::newFolder() {
+    if (here_.thisPC) { flash(L"Open a folder to make a new one in it.", 5); return; }
+    const std::wstring name = uniqueName(L"New folder", namesHere(), true);
+    const ops::Result r = ops::newFolder(join(here_.path, name));
+    if (!r.ok) { flash(L"A folder couldn't be made here. " + r.message, 8); return; }
+    // Into the list straight away, selected, with its name ready to type.
+    Entry e;
+    e.name = name;
+    e.attributes = attr::Directory;
+    e.type = L"File folder";
+    for (const Entry& x : listed_) if (x.folder() && x.icon >= 0) { e.icon = x.icon; break; }
+    listed_.push_back(e);
+    showHere();
+    for (std::size_t i = 0; i < shown_.size(); ++i)
+        if (shown_[i].name == name) { sel_.select(i); ensureVisible(i); break; }
+    invalidate();
+    UpdateWindow(hwnd());
+    beginRename();
+}
+
+void FilesWindow::beginRename() {
+    const auto rows = sel_.indices();
+    if (rows.size() != 1 || here_.thisPC) return;
+    if (renaming_) endRename(false);
+    renameRow_ = (int)rows[0];
+    renameName_ = shown_[rows[0]].name;
+    ensureVisible(rows[0]);
+    renaming_ = true;
+    renameRect_ = {};
+    SetWindowTextW(rename_, renameName_.c_str());
+    invalidate();
+    UpdateWindow(hwnd());   // places the field
+    ShowWindow(rename_, SW_SHOW);
+    SetFocus(rename_);
+    // The name without its extension is selected, as in File Explorer.
+    const std::wstring ext = shown_[rows[0]].folder() ? L"" : extensionOf(renameName_);
+    SendMessageW(rename_, EM_SETSEL, 0, (LPARAM)(renameName_.size() - (ext.size() < renameName_.size() ? ext.size() : 0)));
+}
+
+void FilesWindow::endRename(bool commit) {
+    if (!renaming_) return;
+    renaming_ = false;
+    std::wstring text;
+    const int n = GetWindowTextLengthW(rename_);
+    text.assign((size_t)n, L'\0');
+    if (n) GetWindowTextW(rename_, text.data(), n + 1);
+    ShowWindow(rename_, SW_HIDE);
+    if (GetFocus() == rename_) SetFocus(hwnd());
+    invalidate();
+    // Spaces at the ends aren't part of a name.
+    while (!text.empty() && text.back() == L' ') text.pop_back();
+    while (!text.empty() && text.front() == L' ') text.erase(0, 1);
+    if (!commit || text == renameName_) return;
+    std::vector<std::wstring> others;
+    for (const Entry& e : listed_) if (e.name != renameName_) others.push_back(e.name);
+    const std::wstring problem = renameProblem(renameName_, text, others);
+    if (!problem.empty()) { flash(problem, 7); return; }
+    const ops::Result r = ops::rename(hwnd(), join(here_.path, renameName_), text);
+    if (!r.ok && !r.cancelled) { flash(L"It couldn't be renamed. " + r.message, 8); return; }
+    if (r.ok) reloadQuietly({text});
+}
+
+void FilesWindow::reloadQuietly(std::vector<std::wstring> select) {
+    if (here_.thisPC) { refresh(); return; }
+    quiet_ = true;
+    pending_.clear();
+    selectNames_.clear();
+    for (auto& n : select) selectNames_.insert(n);
+    latest_->store(++request_);
+    listFolderAsync(hwnd(), here_.path, request_, latest_);
+}
+
+void FilesWindow::moreOptions(POINT screen) {
+    if (here_.thisPC) return;
+    const bool extended = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    ops::showShellMenu(hwnd(), here_.path, selectedPaths(), screen, extended);
+    // Whatever it did (a new file, Send to, Properties...) shows when the folder changes.
+}
+
+void FilesWindow::updateRecycleBin() {
+    std::uint64_t items = 0, bytes = 0;
+    if (ops::recycleBinInfo(items, bytes)) {
+        if (items != recycleItems_ || bytes != recycleBytes_) invalidate();
+        recycleItems_ = items;
+        recycleBytes_ = bytes;
+    }
+}
+
+void FilesWindow::recycleBinMenu(POINT screen) {
+    updateRecycleBin();
+    const std::vector<MenuItem> items = {
+        MenuItem::item(L"Open the Recycle Bin", CmdBinOpen),
+        MenuItem::item(L"Empty the Recycle Bin\u2026", CmdBinEmpty, {}, recycleItems_ > 0),
+    };
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd == CmdBinOpen) ShellExecuteW(hwnd(), L"open", L"shell:RecycleBinFolder", nullptr, nullptr, SW_SHOWNORMAL);
+    if (cmd == CmdBinEmpty) {
+        const ops::Result r = ops::emptyRecycleBin(hwnd());
+        if (!r.ok) flash(L"The Recycle Bin couldn't be emptied. " + r.message, 8);
+        updateRecycleBin();
     }
     invalidate();
 }
@@ -821,6 +1135,14 @@ void FilesWindow::drawFrame(float W, float H) {
     drawContent({side, kToolbarH, W - side, H - kToolbarH});
     if (side <= 0) drawStatusNote({side, kToolbarH, W - side, H - kToolbarH});
     drawToast({side, kToolbarH, W - side, H - kToolbarH});
+    if (renaming_) {
+        if (renameRect_.w <= 0) { endRename(false); return; }
+        const float s = gfx_.dpiScale();
+        SendMessageW(rename_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), FALSE);
+        SetWindowPos(rename_, HWND_TOP, (int)std::lround(renameRect_.x * s), (int)std::lround(renameRect_.y * s), (int)std::lround(renameRect_.w * s),
+                     (int)std::lround(renameRect_.h * s), SWP_NOACTIVATE);
+        renameRect_ = {};
+    }
 }
 
 void FilesWindow::drawSidebar(const Rect& r) {
@@ -867,6 +1189,11 @@ void FilesWindow::drawSidebar(const Rect& r) {
     y += 22;
     for (const Place& p : places_)
         row("tb:place:" + narrow(p.label), p.label, p.icon, !here_.thisPC && samePath(here_.path, p.path), [this, p] { goPath(p.path); });
+    row("tb:bin", L"Recycle Bin", recycleIcon_, false, [this] {
+        POINT pt;
+        GetCursorPos(&pt);
+        recycleBinMenu(pt);
+    }, recycleItems_ ? std::to_wstring(recycleItems_) : L"");
     y += 12;
     gfx_.text(L"THIS PC", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
     y += 22;
@@ -1090,7 +1417,8 @@ void FilesWindow::drawDetails(const Rect& r) {
         const Rect row{r.x + pad - 6, listTop_ + (float)i * rowH_, r.w - pad * 2 + 12, rowH_ - 2};
         addHit("row:" + std::to_string(i), row, nullptr, false);
         drawRowBackground(row, i, 6);
-        const float fade = (e.hidden() || e.protectedSystem()) ? 0.55f : 1.0f;
+        const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
+        if (renaming_ && (int)i == renameRow_) renameRect_ = {xName + 26, row.y + 2, std::max(120.0f, nameW - 36), row.h - 4};
         drawIcon(e.icon, {xName + 4, row.y + (row.h - 16) / 2, 16, 16}, fade);
         if (e.link()) {
             // A link (shortcut-style arrow), so a junction isn't mistaken for a real folder.
@@ -1136,8 +1464,9 @@ void FilesWindow::drawIcons(const Rect& r) {
             const Rect t{listX_ + (float)c * tileW_ + 3, listTop_ + (float)line * tileH_, tileW_ - 6, tileH_ - 6};
             addHit("row:" + std::to_string(i), t, nullptr, false);
             drawRowBackground(t, i, 8);
-            const float fade = (e.hidden() || e.protectedSystem()) ? 0.55f : 1.0f;
+            const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
             const Rect box{t.x + (t.w - boxW) / 2, t.y + 8, boxW, boxH};
+            if (renaming_ && (int)i == renameRow_) renameRect_ = {t.x + 2, box.bottom() + 4, t.w - 4, 28};
             const Thumb* th = nullptr;
             if (thumbs_ && !e.folder() && !e.cloudOnly() && Thumbnails::isImage(e.name))
                 th = thumbs_->get(rowPath(i), e.modified, e.size, thumbPx);

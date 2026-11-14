@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,19 @@ private:
     void toggleProtected();
     void applyTheme();
     void copyPaths();
+    // File actions (0.2): through the Windows Shell's own operations (operations.hpp).
+    void copyOrCut(bool cut);
+    void paste(const std::wstring& into = L"");
+    void deleteSelection(bool permanently);
+    void newFolder();
+    void beginRename();
+    void endRename(bool commit);
+    void reloadQuietly(std::vector<std::wstring> select = {});   // the folder changed: list it again, keeping the place
+    void moreOptions(POINT screen);                                // Windows' own right-click menu
+    void recycleBinMenu(POINT screen);
+    void updateRecycleBin();
+    std::vector<std::wstring> selectedPaths() const;
+    std::vector<std::wstring> namesHere() const;
     void ensureVisible(std::size_t row);
     void typeAhead(wchar_t c);
     std::wstring rowPath(std::size_t row) const;
@@ -146,6 +160,19 @@ private:
     bool editing_ = false;
     cjui::Rect addressRect_{};
     std::wstring windowTitle_;
+
+    // Renaming in place: a text field over the item's name.
+    HWND rename_ = nullptr;
+    int renameRow_ = -1;
+    std::wstring renameName_;
+    cjui::Rect renameRect_{};
+    bool renaming_ = false;
+    std::set<std::wstring> cutPaths_;          // waiting to be moved by Paste (drawn faded); lower case
+    bool quiet_ = false;                       // listing again in the background (the folder changed)
+    std::vector<Entry> pending_;
+    std::set<std::wstring> selectNames_;       // select these when the listing arrives
+    std::uint64_t recycleItems_ = 0, recycleBytes_ = 0;
+    int recycleIcon_ = -1;
 };
 
 }  // namespace nrf

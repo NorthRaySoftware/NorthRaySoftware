@@ -2,6 +2,7 @@
 // suites: run it, it prints each group and exits non-zero on failure.
 #include "nrf/exif.hpp"
 #include "nrf/listing.hpp"
+#include "nrf/operations.hpp"
 #include "nrf/paths.hpp"
 
 #include <cstdio>
@@ -284,6 +285,41 @@ static void testExif() {
     CHECK(ww == 3 && wh == 2 && wrong.size() == 5);
 }
 
+static void testOperations() {
+    std::printf("operations\n");
+    CHECK_EQ(uniqueName(L"New folder", {L"a.txt"}, true), L"New folder");
+    CHECK_EQ(uniqueName(L"New folder", {L"new FOLDER", L"New folder (2)"}, true), L"New folder (3)");
+    CHECK_EQ(uniqueName(L"Notes.txt", {L"notes.TXT"}, false), L"Notes (2).txt");
+    CHECK_EQ(uniqueName(L"v1.2", {L"v1.2"}, true), L"v1.2 (2)");        // a folder's dot isn't an extension
+    CHECK_EQ(uniqueName(L".gitignore", {L".gitignore"}, false), L".gitignore (2)");
+    CHECK_EQ(copyName(L"cover.png", {L"cover.png"}, false), L"cover - Copy.png");
+    CHECK_EQ(copyName(L"cover.png", {L"cover.png", L"COVER - copy.png"}, false), L"cover - Copy (2).png");
+    CHECK_EQ(copyName(L"Sketches", {L"Sketches"}, true), L"Sketches - Copy");
+    CHECK_EQ(renameProblem(L"a.txt", L"b.txt", {L"a.txt", L"c.txt"}), L"");
+    CHECK_EQ(renameProblem(L"a.txt", L"A.TXT", {L"a.txt"}), L"");            // only the capitals change
+    CHECK(!renameProblem(L"a.txt", L"C.txt", {L"a.txt", L"c.txt"}).empty());
+    CHECK(!renameProblem(L"a", L"", {}).empty());
+    CHECK(!renameProblem(L"a", L"b:c", {}).empty());
+    CHECK(!renameProblem(L"a", L"ends with dot.", {}).empty());
+    CHECK(!renameProblem(L"a", L"con.txt", {}).empty());
+    CHECK(!renameProblem(L"a", L"LPT1", {}).empty());
+    CHECK(renameProblem(L"a", L"console.txt", {}).empty());
+    CHECK(isInside(L"C:\\A\\B", L"C:\\a"));
+    CHECK(isInside(L"C:\\A", L"C:\\A"));
+    CHECK(!isInside(L"C:\\AB", L"C:\\A"));
+    CHECK(isInside(L"C:\\x", L"C:\\"));
+    {
+        auto p = planTransfer({L"C:\\Art\\Sketches", L"C:\\Art\\cover.png"}, L"C:\\Art\\Sketches\\Old", false);
+        CHECK(p.sources.size() == 1 && p.sources[0] == L"C:\\Art\\cover.png" && !p.problem.empty());
+    }
+    {
+        auto p = planTransfer({L"C:\\Art\\cover.png"}, L"C:\\art", true);   // moving where it already is
+        CHECK(p.sources.empty() && p.nothingToDo && p.problem.empty());
+        auto q = planTransfer({L"C:\\Art\\cover.png"}, L"C:\\Art", false);   // copying there makes a copy
+        CHECK(q.sources.size() == 1 && !q.nothingToDo);
+    }
+}
+
 int main() {
     testNormalize();
     testPathParts();
@@ -291,6 +327,7 @@ int main() {
     testSizes();
     testSelection();
     testExif();
+    testOperations();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

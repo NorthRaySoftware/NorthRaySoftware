@@ -126,7 +126,31 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
 - **Not testable here:** access denied (the simulation runs with full rights), network shares, removable drives coming
   and going, high-DPI scaling on a real display, and screen readers. Please check these on a real PC.
 
-## 7. Next: 0.2, core file operations
+## 7. 0.2: file operations (done 14 November 2026)
+
+- `core/operations`: `uniqueName` ("New folder (2)", "Notes (2).txt"), `copyName` ("cover - Copy.png", "cover - Copy (2).png"), `renameProblem` (forbidden characters, trailing space or dot, reserved device names, a clash with another name; a change of capitals only is allowed), `planTransfer` (never into itself; a move into the folder it's already in is nothing to do) and `isInside`. All are tested.
+- `src/operations`:
+  - `IFileOperation` with `FOF_ALLOWUNDO | FOFX_ADDUNDORECORD`: `transfer`, `copyAs` (an exact new name for copies made beside the original), `remove` (`FOFX_RECYCLEONDELETE`, or permanent after NorthRay's own question) and `rename`. Where IFileOperation can't be created or queued, they fall back to `SHFileOperationW`.
+  - The clipboard writes CF_HDROP with "Preferred DropEffect" and the paths as text, the same formats as File Explorer.
+  - `showShellMenu` gets IContextMenu from the parent folder (`GetUIObjectOf`), or the folder background (`CreateViewObject`). `forwardMenuMessage` sends WM_INITMENUPOPUP, DRAWITEM, MEASUREITEM and MENUCHAR on to IContextMenu2/3.
+  - `watchFolder` runs `FindFirstChangeNotificationW` on a detached thread and stops when the request moves on. The window waits 350 ms after a change, then lists the folder again quietly (`reloadQuietly`), keeping the old list until the new one is complete and selecting what changed.
+  - The Recycle Bin uses `SHQueryRecycleBinW` and `SHEmptyRecycleBinW`. Opening it hands over to File Explorer (`shell:RecycleBinFolder`) until NorthRay can browse it itself.
+- Window: Ctrl+C, X and V, F2, Delete and Shift+Delete, Ctrl+Shift+N, Shift+F10. Cut items are drawn faded until they're pasted. The rename field is an EDIT over the name (Enter or focus leaving commits it, Esc cancels).
+- Tested under Wine:
+  - A new folder named as it was made.
+  - A copy beside the original ("cover - Copy.png", selected).
+  - Cut, then "Paste into this folder".
+  - F2 with the extension left out of the selection.
+  - Delete to the Recycle Bin (the sidebar count went to 1), with the next item keeping the focus.
+  - A file made by another program appearing by itself.
+  - "More options" showing the Shell's menu.
+- On real Windows, please check: Windows 11's menu with Open with and Send to, the progress window for a large copy, and undo in File Explorer (Ctrl+Z).
+
+## 7b. Next: 0.3, tabs, panes and the sidebar
+
+Tabs, two side-by-side panes, pinned folders (drag to pin), browsing the Recycle Bin, and a folder tree.
+
+## (Earlier plan) 0.2, core file operations
 
 A `FileOperations` service on `IFileOperation` (copy, move, rename, new folder, delete to the Recycle Bin, permanent
 delete with explicit confirmation), never overwriting silently, reporting the real result of each item, with Windows'
