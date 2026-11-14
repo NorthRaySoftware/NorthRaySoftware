@@ -320,6 +320,7 @@ void Engine::composeItems(const Items& items, Target& into, int w, int h, int de
             v = it.source->view();
             sw = (float)it.source->width();
             sh = (float)it.source->height();
+            opaque = !it.source->hasAlpha();
         }
         if (!v || sw <= 0 || sh <= 0) continue;
         Vec2 c[4];

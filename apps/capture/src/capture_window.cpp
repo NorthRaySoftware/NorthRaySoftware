@@ -800,7 +800,7 @@ void CaptureWindow::drawPreview(const Rect& r) {
             const int pfps = settings_.lowResource ? std::min(settings_.previewFps, 10) : settings_.previewFps;
             std::wstring msg;
             if (!engineError_.empty()) msg = L"Video capture couldn’t start: " + engineError_;
-            else if (sc && sc->items.empty()) msg = L"“" + name + L"” is empty.\nAdd a display, a window or a camera with + in Sources.";
+            else if (sc && sc->items.empty()) msg = L"“" + name + L"” is empty.\nAdd something with + in Sources.";
             else if (pfps <= 0) msg = L"The preview is off (Settings › Preview frame rate).\nWhat you stream and record isn’t affected.";
             if (!msg.empty())
                 gfx_.text(msg, {c.x + 20, c.y + c.h / 2 - 24, c.w - 40, 64}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Center});
@@ -935,8 +935,8 @@ void CaptureWindow::drawSources(const Rect& b) {
     const Scene* s = scenes_.scene(scenes_.current());
     if (!s || s->items.empty()) {
         note(b, L"Nothing in this scene yet",
-             L"Use + above to add a whole display, a window (a game, a browser) or a camera or capture card. "
-             L"Another scene and sound are there too; images and text arrive in the next version.");
+             L"Use + above to add a whole display, a window (a game, a browser), a camera or capture card, an image, text, "
+             L"a slideshow, a colour, part of the screen, another scene, or sound.");
         return;
     }
     float y = b.y + 6;

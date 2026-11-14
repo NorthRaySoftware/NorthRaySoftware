@@ -5,6 +5,7 @@
 #include "ncap/mkv.hpp"
 #include "ncap/oauth.hpp"
 #include "ncap/transition.hpp"
+#include "ncap/sourceutil.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -667,6 +668,41 @@ static void testNesting() {
     CHECK(r.fromJson(c.toJson()) && r.wouldLoop(d, a) && SceneCollection::nestedScene(*r.source(sd2)) == d);
 }
 
+static void testSourceUtil() {
+    std::printf("source helpers\n");
+    namespace su = ncap::sourceutil;
+    su::Rgba c;
+    CHECK(su::parseColour("#FF8000", c) && c.r == 255 && c.g == 128 && c.b == 0 && c.a == 255);
+    CHECK(su::parseColour(" 00ff0080 ", c) && c.g == 255 && c.a == 128);
+    CHECK(su::parseColour("#abc", c) && c.r == 0xAA && c.b == 0xCC);
+    CHECK(!su::parseColour("#12345", c) && !su::parseColour("red", c) && !su::parseColour("", c));
+    CHECK(su::colourText({255, 128, 0, 255}) == "#FF8000" && su::colourText({0, 0, 0, 128}) == "#00000080");
+    su::Placement p;
+    CHECK(su::parsePlacement("120, 80, 640, 360", p) && p.hasX && p.hasY && p.hasSize && p.x == 120 && p.h == 360);
+    CHECK(su::parsePlacement("10 -20.5", p) && !p.hasSize && p.y == -20.5f);
+    CHECK(su::parsePlacement("- 300", p) && !p.hasX && p.hasY && p.y == 300);
+    CHECK(!su::parsePlacement("1, 2, 3", p) && !su::parsePlacement("1, 2, 0, 5", p) && !su::parsePlacement("a, b", p) && !su::parsePlacement("5", p));
+    Transform t;
+    t.x = 12.34f;
+    t.y = 5;
+    CHECK(su::placementText(t, 1920, 1080) == "12.3, 5, 1920, 1080");
+    t.width = 640;
+    t.height = 360;
+    CHECK(su::placementText(t, 1920, 1080) == "12.3, 5, 640, 360");
+    float d = 0;
+    CHECK(su::parseDegrees("45", d) && d == 45);
+    CHECK(su::parseDegrees("270\xC2\xB0", d) && d == -90);
+    CHECK(su::parseDegrees("-540", d) && d == 180);
+    CHECK(!su::parseDegrees("north", d));
+    auto o = su::slideOrder({"img10.png", "img2.png", "Img1.png", "b.jpg", "a.jpg"}, false, 0);
+    CHECK(o.size() == 5 && o[0] == "a.jpg" && o[1] == "b.jpg" && o[2] == "Img1.png" && o[3] == "img2.png" && o[4] == "img10.png");
+    auto s1 = su::slideOrder({"1", "2", "3", "4", "5", "6"}, true, 42), s2 = su::slideOrder({"6", "5", "4", "3", "2", "1"}, true, 42);
+    CHECK(s1 == s2 && s1 != su::slideOrder({"1", "2", "3", "4", "5", "6"}, false, 0));
+    CHECK(su::isImageFile("x.PNG") && su::isImageFile("a.b.jpeg") && !su::isImageFile("notes.txt") && !su::isImageFile("png"));
+    CHECK(su::gifDelayMs(0) == 100 && su::gifDelayMs(1) == 100 && su::gifDelayMs(4) == 40);
+    CHECK(kindFromKey("slideshow") == SourceKind::Slideshow && std::string(kindKey(SourceKind::Slideshow)) == "slideshow");
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -679,6 +715,7 @@ int main() {
     testOAuth();
     testTransitions();
     testNesting();
+    testSourceUtil();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

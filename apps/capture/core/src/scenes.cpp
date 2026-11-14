@@ -14,7 +14,7 @@ const KindName kKinds[] = {
     {SourceKind::Display, "display"}, {SourceKind::Window, "window"},       {SourceKind::Region, "region"},
     {SourceKind::Camera, "camera"},   {SourceKind::Image, "image"},         {SourceKind::Media, "media"},
     {SourceKind::Text, "text"},       {SourceKind::Colour, "colour"},       {SourceKind::Browser, "browser"},
-    {SourceKind::Scene, "scene"},     {SourceKind::InputAudio, "input-audio"}, {SourceKind::DesktopAudio, "desktop-audio"},
+    {SourceKind::Slideshow, "slideshow"}, {SourceKind::Scene, "scene"},     {SourceKind::InputAudio, "input-audio"}, {SourceKind::DesktopAudio, "desktop-audio"},
     {SourceKind::ApplicationAudio, "app-audio"},
 };
 

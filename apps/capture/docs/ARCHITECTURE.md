@@ -559,3 +559,42 @@ then apply, plus wiring the Account row back into Settings › Streaming.
   transition per scene. Part 2: image, text, slideshow, screen-region sources, opacity, numeric transform. Part 3:
   scene import/export, folders, groups.
 
+## 17. Milestone 8, part 2: sources made in Capture, exact controls (status: built, 14 Nov 2026; released as 0.8.1)
+
+**Built** (`src/video/made_sources.cpp`, `src/capture_made.cpp`, `core/sourceutil`)
+- Image: WIC (PNG, JPEG, BMP, GIF, TIFF; WebP and HEIC where Windows has the codecs) to straight-alpha BGRA on a
+  worker thread. Animated GIFs: the logical screen size, each frame's position, delay (0 or 1 hundredths count as
+  a tenth of a second, as browsers do) and disposal (keep, clear its area, restore the previous picture) put
+  together on the CPU, up to 512 MB of frames; played from the video thread by the clock. The file is looked at
+  every 2 s and reloaded when it changes (an overlay edited elsewhere updates by itself).
+- Text: DirectWrite into a WIC bitmap through Direct2D (greyscale antialiasing, so no coloured fringes), then
+  un-premultiplied. Font (16 common families, shown if installed, or any installed family by name), size 6-600,
+  colour, bold, italic, alignment, wrapping width, an outline (the text drawn around itself, under the fill) and its
+  colour. "\\n" in the text box starts a new line.
+- Colour: a solid colour (#RRGGBB or #RRGGBBAA) at a chosen size (the canvas's by default).
+- Slideshow: a folder's images in natural name order (or shuffled each round), each fitted inside a fixed size with
+  see-through margins, for 3-60 s each; files Windows can't read are skipped; the folder is read again each round.
+- Screen region: a picker shows a dimmed still of the whole desktop in a full-screen window (not a layered one: those
+  misbehaved in testing) and the dragged rectangle at full brightness, using each mouse message's own position.
+  The region's monitor is captured by the display source (Desktop Duplication, WGC or GDI) and the rectangle copied
+  out on the graphics card (CopySubresourceRegion).
+- Sources with see-through parts (images, text, colours, slideshows) are blended with their alpha; captures stay opaque.
+- Every item's menu: Position and size... (typed x, y, width, height; "-" keeps one), Rotation... (degrees),
+  Opacity (100-10% or typed), Duplicate (the same source, its own placement). Each made source's own settings are
+  in its menu too (choose another image or folder, the text's font, size, colour and so on, the slideshow's timing,
+  pick the region again). No dialogs with scroll bars: lists in menus, typed values in the ask card; files and folders
+  through Windows' own picker.
+
+**Tested**
+- capturecore: 275 checks, including colours, typed placement and degrees, natural and shuffled slide order, GIF delays.
+- The app in Wine: a colour (#7A5CFF) filling the canvas; two-line outlined text, centred once its size was known,
+  then made italic from its menu; an animated GIF (three frames with transparency and "clear" disposal) playing over
+  the text; a slideshow of three images (landscape and portrait) changing and fitting with see-through margins; a
+  screen region (290x240 exactly as dragged), placed by typing 100, 100, 580, 480, rotated -12 degrees, at 50% opacity,
+  and duplicated.
+
+**Not built yet / limits**
+- Video files and browser sources, part 3 (scene import/export, folders, groups), stinger transitions.
+- The region picker covers one still of the desktop: what moves underneath while picking isn't shown.
+- Wine draws the preview over its own file dialog and the picker; on Windows they sit above it as usual. Not checkable here.
+

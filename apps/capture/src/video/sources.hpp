@@ -33,6 +33,9 @@ public:
     // Video thread. Takes in the newest picture, if there's one.
     virtual void update(Gpu& gpu) = 0;
     ID3D11ShaderResourceView* view() const { return hasPicture_ ? out_.srv.Get() : nullptr; }   // video thread
+    ID3D11Texture2D* texture() const { return hasPicture_ ? out_.tex.Get() : nullptr; }        // video thread
+    // Pictures with see-through parts (images, text): drawn with their alpha. Captures are opaque.
+    virtual bool hasAlpha() const { return false; }
 
     // Any thread.
     int width() const { return w_.load(); }
@@ -65,5 +68,7 @@ private:
 // Null for kinds that aren't pictures captured from the system (images, text and so on arrive in
 // Milestone 8).
 std::shared_ptr<VideoSource> createVideoSource(SourceKind kind, const std::string& settings);
+// The sources made in Capture itself (made_sources.cpp): images, text, colours, slideshows, regions.
+std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings);
 
 }  // namespace ncap::video

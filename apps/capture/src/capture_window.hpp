@@ -95,6 +95,18 @@ private:
     void addCapture(SourceKind kind, const std::string& name, const std::string& settings);
     void addExisting(const Id& source);
     void itemMenu(const Id& item, POINT screen);
+    // Sources made in Capture (capture_made.cpp): adding them, their own settings, and the exact
+    // placement and opacity of any item.
+    void addImage();
+    void addText();
+    void addColour();
+    void addSlideshow();
+    void addRegion();
+    void madeMenuItems(const Source& src, std::vector<cjui::MenuItem>& menu);
+    bool madeCommand(UINT cmd, const Id& source);
+    void itemExtraItems(const SceneItem& item, std::vector<cjui::MenuItem>& menu);
+    bool itemExtraCommand(UINT cmd, const Id& item);
+    void changeSourceSetting(const Id& source, const char* key, const nlohmann::json& value);
     void removeItem(const Id& item);
     void renameSource(const Id& source);
     void setTransform(const Id& item, const Transform& t, bool save = true);

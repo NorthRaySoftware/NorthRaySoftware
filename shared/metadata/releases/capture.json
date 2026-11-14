@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.8.1",
+      "date": "2026-11-14",
+      "notes": [
+        "New sources (+ in Sources): an image (animated GIFs play, and the picture updates by itself when the file is changed), text, a colour, a slideshow of a folder's images, and part of the screen (drag a rectangle over a still of your desktop).",
+        "Text has its own settings in its menu: the words, font, size, colour, bold, italic, alignment, line wrapping, and an outline with its colour.",
+        "Every source's menu now has Position and size (type the numbers), Rotation, Opacity and Duplicate.",
+        "Images, text, colours and slideshows can be partly see-through; what's behind them shows."
+      ]
+    },
+    {
       "version": "0.8.0",
       "date": "2026-11-14",
       "notes": [

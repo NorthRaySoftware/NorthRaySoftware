@@ -33,7 +33,11 @@ enum : UINT {
 
 bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 
-bool isCapture(SourceKind k) { return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour; }
+// Kinds with a picture source of their own (scenes inside scenes are composed from their items instead).
+bool isCapture(SourceKind k) {
+    return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour || k == SourceKind::Image ||
+           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region;
+}
 
 std::string shortTitle(std::string t) {
     // "Document - Program" titles: the program's own part is usually after the last " - ".
@@ -242,13 +246,24 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::sub(L"Scene (another scene inside this one)", sceneItems));
     items.push_back(MenuItem::item(L"Sync test (flash and beep)", 10, L"checks recordings"));
     items.push_back(MenuItem::sep());
-    items.push_back(MenuItem::item(L"Image", 5, L"next version", false));
-    items.push_back(MenuItem::item(L"Text", 6, L"next version", false));
+    items.push_back(MenuItem::item(L"Image or animated GIF\u2026", 5));
+    items.push_back(MenuItem::item(L"Text\u2026", 6));
+    items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
+    items.push_back(MenuItem::item(L"Colour\u2026", 8));
+    items.push_back(MenuItem::item(L"Part of the screen\u2026", 9, L"drag a rectangle"));
     items.push_back(MenuItem::sep());
     const AudioChoices sound = audioChoices();
     for (auto& m : audioAddItems(sound)) items.push_back(m);
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     if (audioAddCommand(cmd, sound)) return;
+    switch (cmd) {
+        case 5: addImage(); return;
+        case 6: addText(); return;
+        case 7: addSlideshow(); return;
+        case 8: addColour(); return;
+        case 9: addRegion(); return;
+        default: break;
+    }
     if (cmd == 10) {
         // The pattern in this scene, and the tone among the sound sources (once).
         addCapture(SourceKind::Colour, "Sync test pattern", nlohmann::json{{"sync", true}}.dump());
@@ -441,9 +456,15 @@ void CaptureWindow::itemMenu(const Id& itemId, POINT screen) {
         MenuItem::item(i->visible ? L"Hide" : L"Show", CmdShow),
         MenuItem::item(i->locked ? L"Unlock" : L"Lock", CmdLock),
         MenuItem::sep(),
-        MenuItem::sub(L"Transform", transform),
-        MenuItem::sub(L"Order", order),
     };
+    if (src) {
+        const std::size_t before = menu.size();
+        madeMenuItems(*src, menu);
+        if (menu.size() > before) menu.push_back(MenuItem::sep());
+    }
+    menu.push_back(MenuItem::sub(L"Transform", transform));
+    menu.push_back(MenuItem::sub(L"Order", order));
+    itemExtraItems(*i, menu);
     if (src && (src->kind == SourceKind::Display || src->kind == SourceKind::Window)) {
         std::vector<MenuItem> how = {MenuItem::item(L"Automatic (recommended)", CmdMethodAuto, {}, true, method == "auto")};
         if (src->kind == SourceKind::Display) how.push_back(MenuItem::item(L"Desktop Duplication", CmdMethodDup, {}, true, method == "duplication"));
@@ -480,7 +501,11 @@ void CaptureWindow::itemMenu(const Id& itemId, POINT screen) {
         case CmdMethodWgc: changeSetting("method", "wgc"); break;
         case CmdMethodGdi: changeSetting("method", "gdi"); break;
         case CmdCursor: changeSetting("cursor", !cursor); break;
-        default: transformCommand(cmd); break;
+        default:
+            if (src && madeCommand(cmd, src->id)) break;
+            if (itemExtraCommand(cmd, itemId)) break;
+            transformCommand(cmd);
+            break;
     }
 }
 

@@ -900,7 +900,7 @@ std::shared_ptr<VideoSource> createVideoSource(SourceKind kind, const std::strin
         case SourceKind::Display: return std::make_shared<DisplaySource>(settings);
         case SourceKind::Window: return std::make_shared<WindowSource>(settings);
         case SourceKind::Camera: return std::make_shared<CameraSource>(settings);
-        default: return nullptr;
+        default: return createMadeSource(kind, settings);
     }
 }
 

@@ -26,6 +26,7 @@ enum class SourceKind {
     Text,
     Colour,
     Browser,
+    Slideshow,        // the images in a folder, one after another
     Scene,            // another scene, nested
     InputAudio,       // microphone, capture card's audio, line in
     DesktopAudio,     // everything an output device plays (loopback), optionally minus some apps

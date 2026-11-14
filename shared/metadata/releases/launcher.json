@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.53.1",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.8.1: image (including animated GIF), text, colour, slideshow and screen-region sources; exact position, rotation and opacity."
+      ]
+    },
+    {
       "version": "0.53.0",
       "date": "2026-11-14",
       "notes": [
