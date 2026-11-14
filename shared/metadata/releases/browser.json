@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.1.2",
+      "date": "2026-11-14",
+      "notes": [
+        "The browser menu and the tab menu now match the browser's light or dark theme, in NorthRay's colours, instead of Windows' plain menus.",
+        "Menus work from the keyboard too: arrow keys to move and open submenus, Enter to choose, Esc to close."
+      ]
+    },
+    {
       "version": "0.1.1",
       "date": "2026-11-14",
       "notes": [

@@ -4,6 +4,7 @@
 #include "resource.h"
 #include "version.hpp"
 
+#include "cjui/menu.hpp"
 #include "cjui/northray.hpp"
 
 #include <commctrl.h>
@@ -853,27 +854,27 @@ bool BrowserWindow::onRightClick(float x, float y) {
 void BrowserWindow::showMenu() {
     TabView* v = activeView();
     const bool hasPage = v && v->page && v->page->ready() && !v->showStart;
-    HMENU m = CreatePopupMenu();
-    AppendMenuW(m, MF_STRING, CmdNewTab, L"New tab\tCtrl+T");
-    AppendMenuW(m, MF_STRING | (model_.hasClosed() ? 0 : MF_GRAYED), CmdReopen, L"Reopen closed tab\tCtrl+Shift+T");
-    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING | (hasPage ? 0 : MF_GRAYED), CmdPrint, L"Print...\tCtrl+P");
-    AppendMenuW(m, MF_STRING | (fullscreen_ ? MF_CHECKED : 0), CmdFullscreen, L"Full screen\tF11");
-    AppendMenuW(m, MF_STRING | (hasPage ? 0 : MF_GRAYED), CmdDevTools, L"Developer tools\tF12");
-    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    HMENU se = CreatePopupMenu();
+    using cjui::MenuItem;
     const auto& engines = builtInSearchEngines();
+    std::vector<MenuItem> searchItems;
     for (size_t i = 0; i < engines.size(); ++i)
-        AppendMenuW(se, MF_STRING | (engines[i].id == settings_.searchEngine ? MF_CHECKED : 0), CmdEngineFirst + (UINT)i,
-                    widen(engines[i].name).c_str());
-    AppendMenuW(m, MF_POPUP, (UINT_PTR)se, L"Search engine");
-    HMENU th = CreatePopupMenu();
-    AppendMenuW(th, MF_STRING | (settings_.theme == Theme::System ? MF_CHECKED : 0), CmdThemeSystem, L"As Windows");
-    AppendMenuW(th, MF_STRING | (settings_.theme == Theme::Light ? MF_CHECKED : 0), CmdThemeLight, L"Light");
-    AppendMenuW(th, MF_STRING | (settings_.theme == Theme::Dark ? MF_CHECKED : 0), CmdThemeDark, L"Dark");
-    AppendMenuW(m, MF_POPUP, (UINT_PTR)th, L"Theme");
-    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING, CmdAbout, L"About NorthRay Browser");
+        searchItems.push_back(MenuItem::item(widen(engines[i].name), CmdEngineFirst + (UINT)i, {}, true,
+                                             engines[i].id == settings_.searchEngine));
+    const std::vector<MenuItem> items = {
+        MenuItem::item(L"New tab", CmdNewTab, L"Ctrl+T"),
+        MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
+        MenuItem::sep(),
+        MenuItem::item(L"Print...", CmdPrint, L"Ctrl+P", hasPage),
+        MenuItem::item(L"Full screen", CmdFullscreen, L"F11", true, fullscreen_),
+        MenuItem::item(L"Developer tools", CmdDevTools, L"F12", hasPage),
+        MenuItem::sep(),
+        MenuItem::sub(L"Search engine", searchItems),
+        MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
+                                 MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
+                                 MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
+        MenuItem::sep(),
+        MenuItem::item(L"About NorthRay Browser", CmdAbout),
+    };
 
     // Below the menu button, right-aligned.
     const float s = gfx_.dpiScale();
@@ -881,8 +882,7 @@ void BrowserWindow::showMenu() {
     GetClientRect(hwnd(), &rc);
     POINT pt{rc.right - (LONG)(10 * s), (LONG)((kStripH + kToolbarH - 6) * s)};
     ClientToScreen(hwnd(), &pt);
-    const UINT cmd = (UINT)TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd(), nullptr);
-    DestroyMenu(m);
+    const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_, cjui::MenuAnchor::TopRight);
     const std::wstring& settingsPath = settingsPath_;
     if (cmd == CmdNewTab) newTab(L"", true, false);
     else if (cmd == CmdReopen) reopenClosedTab();
@@ -908,16 +908,17 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
     TabView* v = view(id);
     if (!v) return;
     const bool hasPage = v->page && !v->page->url().empty() && !v->showStart;
-    HMENU m = CreatePopupMenu();
-    AppendMenuW(m, MF_STRING | (hasPage ? 0 : MF_GRAYED), CmdTabReload, L"Reload");
-    AppendMenuW(m, MF_STRING | (hasPage ? 0 : MF_GRAYED), CmdTabDuplicate, L"Duplicate");
-    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING, CmdTabClose, L"Close tab\tCtrl+W");
-    AppendMenuW(m, MF_STRING | (model_.size() > 1 ? 0 : MF_GRAYED), CmdTabCloseOthers, L"Close other tabs");
-    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(m, MF_STRING | (model_.hasClosed() ? 0 : MF_GRAYED), CmdReopen, L"Reopen closed tab\tCtrl+Shift+T");
-    const UINT cmd = (UINT)TrackPopupMenu(m, TPM_RETURNCMD | TPM_NONOTIFY, screen.x, screen.y, 0, hwnd(), nullptr);
-    DestroyMenu(m);
+    using cjui::MenuItem;
+    const std::vector<MenuItem> items = {
+        MenuItem::item(L"Reload", CmdTabReload, {}, hasPage),
+        MenuItem::item(L"Duplicate", CmdTabDuplicate, {}, hasPage),
+        MenuItem::sep(),
+        MenuItem::item(L"Close tab", CmdTabClose, L"Ctrl+W"),
+        MenuItem::item(L"Close other tabs", CmdTabCloseOthers, {}, model_.size() > 1),
+        MenuItem::sep(),
+        MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
+    };
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     if (cmd == CmdTabReload && hasPage) v->page->reload();
     else if (cmd == CmdTabDuplicate) duplicateTab(id);
     else if (cmd == CmdTabClose) closeTab(id);

@@ -116,7 +116,7 @@ printing, downloads (WebView2's own download bubble appears; NorthRay's comes in
 
 - One window; pop-up windows open as tabs. Tab overflow beyond the strip isn't scrollable yet (Ctrl+Tab reaches them).
 - Closing a tab doesn't run the page's "leave this page?" prompt.
-- Menus are Windows' native popup menus (not NorthRay-drawn); no Settings page yet (theme and search engine are in the menu).
+- No Settings page yet (theme and search engine are in the menu). Menus are NorthRay-drawn (`cjui::showMenu`, 0.1.2) in the app's palette: a modal loop like `TrackPopupMenu(TPM_RETURNCMD)`, with mouse capture on the top menu so a click anywhere else (including on the page) closes it; submenus open after 200 ms or with Right; Windows 11 rounded corners via DWM.
 - No bookmarks, history, downloads panel, profiles, private windows, find-in-page UI or session restore yet (stages 0.2–0.4).
 - cjui has no UI Automation provider, so the drawn controls (tabs, toolbar buttons) aren't announced by screen readers;
   the address bar and the page are.
