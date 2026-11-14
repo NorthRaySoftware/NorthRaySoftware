@@ -104,9 +104,10 @@ public:
     // Pixel size of the original file (0x0 if unreadable).
     std::pair<unsigned, unsigned> imageSize(const std::wstring& path);
     void forgetImage(const std::wstring& path);
-    // Pixels made by the program (straight RGBA, opaque), drawn into dst and kept
-    // under `key` until forgetImage(key). Returns false if the bitmap couldn't be made.
-    bool drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst);
+    // Pixels made by the program (straight RGBA), drawn into dst and kept under
+    // `key` until forgetImage(key). Opaque unless `useAlpha` (then the alpha
+    // channel is kept, e.g. for site icons). Returns false if the bitmap couldn't be made.
+    bool drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha = false);
 
     void pushClip(const Rect& r);
     void popClip();

@@ -34,6 +34,12 @@ endif()
 
 if(CJ_BUILD_TESTS)
   enable_testing()
+endif()
+
+# NorthRay Browser: its portable core and tests build everywhere, the app on Windows.
+add_subdirectory(apps/browser)
+
+if(CJ_BUILD_TESTS)
   add_executable(cjcore_tests tests/cjcore_tests.cpp)
   target_link_libraries(cjcore_tests PRIVATE cjcore)
   add_executable(studiocore_tests tests/studiocore_tests.cpp)

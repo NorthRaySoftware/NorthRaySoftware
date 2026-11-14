@@ -1,6 +1,7 @@
 #include "launcher.hpp"
 
 #include "cjui/http.hpp"
+#include "cjui/northray.hpp"
 #include "cjui/packages.hpp"
 #include "resource.h"
 
@@ -39,27 +40,10 @@ static std::wstring formatSize(unsigned long long bytes) {
 
 // NorthRay's look: a northern night. The sidebar and banners are night sky with
 // aurora light; the pages are cool, quiet neutrals so the apps stand out.
-static Palette northRayPalette(bool dark) {
-    Palette p = makePalette(dark);
-    if (!dark) {
-        p.paper = hexColor("#F3F5F9"); p.surface = hexColor("#FFFFFF"); p.sunken = hexColor("#E8ECF3");
-        p.ink = hexColor("#0E1526"); p.inkMuted = hexColor("#4E5A70"); p.inkFaint = hexColor("#8590A4");
-        p.rule = hexColor("#D9DEE7"); p.ribbon = hexColor("#0F8F6E"); p.focus = hexColor("#2D5BD8");
-    } else {
-        p.paper = hexColor("#0D1220"); p.surface = hexColor("#141B2C"); p.sunken = hexColor("#0A0F1A");
-        p.ink = hexColor("#E9EEF7"); p.inkMuted = hexColor("#A4AEC2"); p.inkFaint = hexColor("#6B768C");
-        p.rule = hexColor("#232C40"); p.ribbon = hexColor("#5BE3B4"); p.focus = hexColor("#8AB4FF");
-    }
-    return p;
-}
+// The palette and the night sky are shared with the other NorthRay apps (cjui/northray).
+using namespace cjui::northray;
+static Palette northRayPalette(bool dark) { return cjui::northray::palette(dark); }
 
-// The night: fixed colours, the same in light and dark themes.
-static const Color kNightTop = {0.039f, 0.063f, 0.125f, 1}, kNightBottom = {0.071f, 0.106f, 0.200f, 1};
-static const Color kNightInk = {0.91f, 0.93f, 0.97f, 1}, kNightMuted = {0.62f, 0.67f, 0.77f, 1};
-static const Color kAuroraGreen = {0.36f, 0.89f, 0.71f, 1}, kAuroraTeal = {0.18f, 0.78f, 0.63f, 1};
-static const Color kAuroraBlue = {0.23f, 0.56f, 0.85f, 1}, kAuroraViolet = {0.61f, 0.48f, 0.88f, 1};
-
-// A night sky in `r`: gradient, curtains of aurora, a scatter of stars (the same every time).
 // A button on the night: aurora green with dark text.
 void Launcher::nightButton(const std::string& id, const Rect& r, const std::wstring& label, std::function<void()> act, bool primary) {
     addHit(id, r, std::move(act));
@@ -73,31 +57,6 @@ void Launcher::nightButton(const std::string& id, const Rect& r, const std::wstr
         gfx_.text(label, r, Font::Body, kNightInk, {Align::Center, false, false, true});
     }
     if (focused(id)) focusRing(r);
-}
-
-static void roundCorners(Gfx& g, const Rect& r, float radius, Color around) {
-    const float t = radius;
-    g.strokeRounded({r.x - t, r.y - t, r.w + 2 * t, r.h + 2 * t}, radius + t / 2, around, t);  // it insets by half the width
-}
-
-static void nightSky(Gfx& g, const Rect& r, float radius, float intensity, unsigned seed, Color around = {}) {
-    g.fillGradient(r, radius, kNightTop, kNightBottom, true);
-    g.pushClip(r);
-    const float cx = r.x + r.w * 0.5f;
-    g.glow(r.x + r.w * 0.18f, r.y + r.h * 0.10f, r.w * 0.55f, r.h * 0.55f, kAuroraTeal.withAlpha(0.32f * intensity));
-    g.glow(r.x + r.w * 0.62f, r.y + r.h * 0.00f, r.w * 0.45f, r.h * 0.45f, kAuroraViolet.withAlpha(0.26f * intensity));
-    g.glow(cx, r.y - r.h * 0.05f, r.w * 0.25f, r.h * 0.65f, kAuroraGreen.withAlpha(0.22f * intensity));
-    unsigned x = seed * 2654435761u + 1;
-    auto rnd = [&] { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return (x % 10000) / 10000.0f; };
-    const int n = (int)(r.w * r.h / 2600);
-    for (int i = 0; i < n; ++i) {
-        const float sx = r.x + rnd() * r.w, sy = r.y + rnd() * r.h, s = 0.5f + rnd() * 0.9f;
-        g.circle(sx, sy, s, kNightInk.withAlpha(0.18f + 0.5f * rnd()), true);
-    }
-    g.popClip();
-    // Round the corners by painting over them with what's around, which works on
-    // every Direct2D (some don't honour rounded clip layers).
-    if (radius > 0 && around.a > 0) roundCorners(g, r, radius, around);
 }
 
 // ---------------------------------------------------------------- lifecycle
@@ -339,14 +298,7 @@ bool Launcher::onKeyDown(WPARAM vk, bool ctrl, bool) {
 
 void Launcher::drawAurora(const Rect& r) {
     // A thin band of northern light: the brand's one ornament.
-    const Color stops[] = {hexColor("#7CF5B0"), hexColor("#2FC6A0"), hexColor("#3A8FD8"), hexColor("#9B7BE0")};
-    const int n = 48;
-    for (int i = 0; i < n; ++i) {
-        const float t = i / (float)(n - 1) * 3;
-        const int k = std::min(2, (int)t);
-        const Color c = stops[k].mix(stops[k + 1], t - k);
-        gfx_.fill({r.x + r.w * i / n, r.y, r.w / n + 1, r.h}, c.withAlpha(pal_.dark ? 0.85f : 0.95f));
-    }
+    auroraBand(gfx_, r, pal_.dark);
 }
 
 void Launcher::drawIcon(const AppItem& a, const Rect& r) {

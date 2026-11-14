@@ -155,17 +155,18 @@ std::pair<unsigned, unsigned> Gfx::imageSize(const std::wstring& path) {
     return img ? std::pair<unsigned, unsigned>{img->w, img->h} : std::pair<unsigned, unsigned>{0, 0};
 }
 
-bool Gfx::drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst) {
+bool Gfx::drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha) {
     if (!rt_) return false;
     auto it = images_.find(key);
     if (it == images_.end() || !it->second.bitmap) {
         if (w <= 0 || h <= 0 || !rgba) return false;
         std::vector<std::uint8_t> bgra((size_t)w * h * 4);
         for (size_t i = 0, n = (size_t)w * h; i < n; ++i) {
-            bgra[i * 4] = rgba[i * 4 + 2];
-            bgra[i * 4 + 1] = rgba[i * 4 + 1];
-            bgra[i * 4 + 2] = rgba[i * 4];
-            bgra[i * 4 + 3] = 255;
+            const unsigned a = useAlpha ? rgba[i * 4 + 3] : 255;   // Direct2D wants premultiplied alpha
+            bgra[i * 4] = (std::uint8_t)(rgba[i * 4 + 2] * a / 255);
+            bgra[i * 4 + 1] = (std::uint8_t)(rgba[i * 4 + 1] * a / 255);
+            bgra[i * 4 + 2] = (std::uint8_t)(rgba[i * 4] * a / 255);
+            bgra[i * 4 + 3] = (std::uint8_t)a;
         }
         CachedImage img;
         const D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));

@@ -42,6 +42,12 @@ struct WindowSpec {
     int width = 1180, height = 760;        // DIPs
     int minWidth = 860, minHeight = 560;   // DIPs
     int show = SW_SHOWNORMAL;
+    // Window style. Apps that host child windows they don't draw themselves
+    // (a browser engine's page) add WS_CLIPCHILDREN so painting skips them.
+    DWORD style = WS_OVERLAPPEDWINDOW;
+    // Post WM_QUIT when the window is destroyed. Apps whose message loop
+    // belongs to someone else (CEF's) turn this off and quit it themselves.
+    bool quitOnDestroy = true;
 };
 
 class AppWindow {

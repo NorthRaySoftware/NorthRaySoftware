@@ -23,3 +23,11 @@ Build tools: CMake ≥ 3.21 and either MSVC (Visual Studio 2022) or MinGW-w64 GC
 ## Development-only
 
 - Wine and Xvfb were used to run the Windows build and take screenshots during testing on Linux. They're not needed on Windows.
+
+## NorthRay Browser (`apps/browser`)
+
+| Dependency | Version | Licence | Why |
+|---|---|---|---|
+| Microsoft Edge WebView2 SDK | 1.0.4314.35 (`libs/third_party/webview2-sdk`: header, generated MinGW uuids, signed `WebView2Loader.dll`) | BSD-3-Clause | The browser engine interface |
+| Microsoft Edge WebView2 Runtime | Evergreen (part of Windows 11, updated by Microsoft) | Microsoft software licence | The engine itself; not shipped |
+| WIC, Shell, COM | system | — | Site icons, folders |

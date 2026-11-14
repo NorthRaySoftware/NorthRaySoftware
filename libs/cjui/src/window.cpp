@@ -70,7 +70,7 @@ bool AppWindow::createWindow(const WindowSpec& spec) {
     RegisterClassExW(&wc);
 
     const UINT dpi = GetDpiForSystem();
-    hwnd_ = CreateWindowExW(0, spec.className, spec.title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+    hwnd_ = CreateWindowExW(0, spec.className, spec.title, spec.style, CW_USEDEFAULT, CW_USEDEFAULT,
                             MulDiv(spec.width, dpi, 96), MulDiv(spec.height, dpi, 96), nullptr, nullptr,
                             spec.instance, this);
     if (!hwnd_) return false;
@@ -526,7 +526,7 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             onDestroy();
             gfx_.shutdown();
-            PostQuitMessage(0);
+            if (spec_.quitOnDestroy) PostQuitMessage(0);
             return 0;
         default: {
             bool handled = false;
