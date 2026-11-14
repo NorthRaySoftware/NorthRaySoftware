@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.21.1",
+      "date": "2026-11-14",
+      "notes": [
+        "Every pop-up menu (right-click menus, and choices such as an entry's kind or a chapter's status) now has the NorthRay look, in light or dark, instead of the plain Windows menu.",
+        "Hover a name from your Worldbuilding bible in the text to see its card: picture (or initials), name, kind, other names, summary and the first few details, with Open in Worldbuilding."
+      ]
+    },
+    {
       "version": "0.21.0",
       "date": "2026-11-14",
       "notes": [

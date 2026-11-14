@@ -2,6 +2,7 @@
 // versions and snapshots, its snapshots, a check of its names against the
 // world's bible, and daily writing goals.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
 
@@ -28,7 +29,7 @@ static int popupMenu(HWND owner, const std::vector<std::wstring>& items, int che
         AppendMenuW(m, MF_STRING | ((int)i == checked ? MF_CHECKED : 0), 1 + (UINT)i, items[i].c_str());
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, owner, nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, owner);
     DestroyMenu(m);
     return cmd - 1;
 }

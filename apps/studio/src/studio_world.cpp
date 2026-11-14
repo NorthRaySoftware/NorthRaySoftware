@@ -4,6 +4,7 @@
 // relationships and where it appears in the manuscripts; the right-hand panel
 // edits it.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +22,7 @@ static int popupAt(HWND owner, const std::vector<std::wstring>& items, int check
         AppendMenuW(m, MF_STRING | ((int)i == checked ? MF_CHECKED : 0), 1 + (UINT)i, items[i].c_str());
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, owner, nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, owner);
     DestroyMenu(m);
     return cmd - 1;
 }

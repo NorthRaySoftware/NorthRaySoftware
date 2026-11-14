@@ -1,5 +1,6 @@
 // The Writing workspace (manuscript outline, editor, details) and the import preview.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
 #include "cjui/http.hpp"
@@ -215,7 +216,19 @@ void StudioApp::sendView() {
         for (const Entry* e : lib_->entriesOf(b->worldId, b->worldId.empty() ? b->id : Id{})) {
             json names = json::array({e->name});
             for (auto& a : e->aliases) names.push_back(a);
-            msg["names"].push_back({{"id", e->id}, {"names", names}});
+            // What the name card shows on hover: the essentials, and the picture (from the library's objects).
+            std::string details;
+            int lines = 0;
+            for (size_t at = 0; at < e->details.size() && lines < 6;) {
+                size_t nl = e->details.find('\n', at);
+                if (nl == std::string::npos) nl = e->details.size();
+                std::string line = e->details.substr(at, nl - at);
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+                if (!line.empty()) { details += line + "\n"; ++lines; }
+                at = nl + 1;
+            }
+            msg["names"].push_back({{"id", e->id}, {"names", names}, {"name", e->name}, {"kind", entryKindLabel(e->kind)},
+                                    {"summary", e->summary.substr(0, 600)}, {"details", details}, {"image", e->imageBlob}});
         }
     }
     const StyleScope sc = styleScope();
@@ -425,7 +438,7 @@ void StudioApp::nodeContextMenu(const Id& id) {
         AppendMenuW(m, MF_STRING, WRestore, L"&Restore");
         POINT pt;
         GetCursorPos(&pt);
-        const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd(), nullptr);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
         if (cmd == WRestore && lib_->restore(id)) { selectNode(id); flash(L"Restored “" + nodeLabel(*lib_->node(id)) + L"”.", 4); }
         invalidate();
@@ -470,7 +483,7 @@ void StudioApp::nodeContextMenu(const Id& id) {
     AppendMenuW(m, MF_STRING, WTrash, L"Move to &Trash\tDel");
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd >= WIntoBase && cmd < WIntoBase + (int)targets.size()) {
         if (!lib_->moveNode(id, targets[cmd - WIntoBase], -1)) flash(w(lib_->lastError()), 6);
@@ -674,7 +687,7 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
             AppendMenuW(m, MF_STRING | (x && x->status == (NodeStatus)k ? MF_CHECKED : 0), WStatusBase + k, w(label((NodeStatus)k)).c_str());
         POINT pt;
         GetCursorPos(&pt);
-        const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
         if (cmd >= WStatusBase && cmd < WStatusBase + 4 && lib_->node(focus_.id)) {
             commitFields();
@@ -695,7 +708,7 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
         }
         POINT pt;
         GetCursorPos(&pt);
-        const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
         if (cmd >= WKindBase && cmd < WKindBase + 3) {
             commitFields();

@@ -1,6 +1,7 @@
 // Artwork: the artwork library page, a picture's details, and a picture in the
 // text (crop, width, alignment, caption, print resolution).
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include <shobjidl.h>
 
@@ -318,7 +319,7 @@ void StudioApp::drawArtworkPanel(const Rect& c, float& y) {
             AppendMenuW(m, MF_STRING | (x && artworkKindFrom(x->kind) == (ArtworkKind)k ? MF_CHECKED : 0), 1 + k, w(label((ArtworkKind)k)).c_str());
         POINT pt;
         GetCursorPos(&pt);
-        const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
         if (cmd > 0 && lib_->artwork(focus_.id)) {
             commitFields();
@@ -374,7 +375,7 @@ void StudioApp::popupTrimMenu() {
         AppendMenuW(m, MF_STRING | (current == sizes[i].id ? MF_CHECKED : 0), 1 + (UINT)i, w(sizes[i].label).c_str());
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd > 0 && lib_->book(focus_.id)) {
         commitFields();

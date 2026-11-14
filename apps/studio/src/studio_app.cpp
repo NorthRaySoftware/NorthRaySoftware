@@ -1,4 +1,5 @@
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include "cjui/packages.hpp"
 #include "resource.h"
@@ -834,7 +835,7 @@ void StudioApp::contextMenuFor(const std::string& hitId, float, float) {
     }
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (!cmd) return;
     if (cmd == CmdOpenBook) goTo(View::Book, bookId);
@@ -867,7 +868,7 @@ void StudioApp::popupStatusMenu() {
     }
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd < CmdStatusBase) return;
     commitFields();
@@ -889,7 +890,7 @@ void StudioApp::popupKindMenu() {
         AppendMenuW(m, MF_STRING | ((int)mem->kind == i ? MF_CHECKED : 0), CmdKindBase + i, w(label((Instalment)i)).c_str());
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd < CmdKindBase) return;
     commitFields();
@@ -905,7 +906,7 @@ void StudioApp::popupSortMenu(float, float) {
     for (int i = 0; i < 5; ++i) AppendMenuW(m, MF_STRING | (settings_.sort == i ? MF_CHECKED : 0), CmdSortBase + i, names[i]);
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd >= CmdSortBase && cmd < CmdSortBase + 5) { settings_.sort = cmd - CmdSortBase; saveSettings(); }
     invalidate();
@@ -930,7 +931,7 @@ void StudioApp::popupFilterMenu(float, float) {
     }
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
     DestroyMenu(m);
     if (cmd == CmdFilterAll) { statusFilter_ = -1; tagFilter_.clear(); }
     else if (cmd >= CmdFilterStatusBase && cmd <= CmdFilterStatusBase + (int)BookStatus::OnHold) statusFilter_ = cmd - CmdFilterStatusBase;

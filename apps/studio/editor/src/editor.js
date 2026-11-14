@@ -34,6 +34,7 @@ import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { analyse } from "./hints.js";
 import { initStyleUi, renderList, renderRules, imported as styleImported } from "./style_ui.js";
+import { initNameCard, setEntries } from "./namecard.js";
 
 // ------------------------------------------------------------------ schema
 
@@ -525,7 +526,7 @@ function nameDecorations(doc) {
       const id = nameIds.get(m[1].toLocaleLowerCase());
       if (!id) continue;
       decos.push(Decoration.inline(pos + 1 + m.index, pos + 1 + m.index + m[0].length,
-        { class: "wl", "data-entry": id, title: m[1] + ": Ctrl+click to open it in Worldbuilding" }));
+        { class: "wl", "data-entry": id }));   // hovering shows its card; Ctrl+click opens it
     }
     return false;
   });
@@ -854,7 +855,7 @@ function receive(msg) {
   else if (msg.type === "notice") notice(String(msg.text || ""));
   else if (msg.type === "view") {
     if (msg.settings && typeof msg.settings === "object") viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
-    if ("names" in msg) setNames(msg.names);
+    if ("names" in msg) { setNames(msg.names); setEntries(msg.names); }
     if (msg.style && typeof msg.style === "object") {
       if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
       style = { scope: String(msg.style.scope || ""), name: String(msg.style.name || "this book"), label: String(msg.style.label || "this book"),
@@ -879,6 +880,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 
 buildToolbar();
 buildViewMenu();
+initNameCard(send);
 initStyleUi({
   view: () => viewSettings,
   changeView,

@@ -6,6 +6,7 @@
 // design and trim (by default the book's Typesetting design), so they always
 // match the manuscript and the edition's ISBNs.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include "studio/publish.hpp"
 
@@ -32,7 +33,7 @@ static int popupAtMouse(HWND owner, const std::vector<std::wstring>& items, int 
         AppendMenuW(m, MF_STRING | ((int)i == checked ? MF_CHECKED : 0), 1 + (UINT)i, items[i].c_str());
     POINT pt;
     GetCursorPos(&pt);
-    const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, owner, nullptr);
+    const int cmd = (int)cjui::trackMenu(m, pt, owner);
     DestroyMenu(m);
     return cmd - 1;
 }

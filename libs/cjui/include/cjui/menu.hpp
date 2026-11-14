@@ -48,4 +48,11 @@ enum class MenuAnchor { TopLeft, TopRight };  // which corner of the menu sits a
 UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Palette& pal,
               MenuAnchor anchor = MenuAnchor::TopLeft);
 
+// A Windows menu (CreatePopupMenu + AppendMenuW) shown as a NorthRay menu, in the
+// palette of the app's window: a drop-in for TrackPopupMenu(..., TPM_RETURNCMD, ...).
+// "&" mnemonics are dropped; text after a tab is shown as the shortcut.
+UINT trackMenu(HMENU menu, POINT at, HWND owner);
+// The palette menus use when none is given (set by AppWindow::applyPalette).
+void setMenuPalette(const Palette& pal);
+
 }  // namespace cjui

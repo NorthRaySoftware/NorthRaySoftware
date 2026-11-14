@@ -9,6 +9,37 @@
 
 namespace cjui {
 
+static Palette g_menuPalette = makePalette(false);
+void setMenuPalette(const Palette& pal) { g_menuPalette = pal; }
+
+static std::vector<MenuItem> fromHmenu(HMENU m, int depth) {
+    std::vector<MenuItem> out;
+    const int n = GetMenuItemCount(m);
+    for (int i = 0; i < n && depth < 6; ++i) {
+        wchar_t buf[512] = {};
+        MENUITEMINFOW mi{sizeof mi};
+        mi.fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING;
+        mi.dwTypeData = buf;
+        mi.cch = 511;
+        if (!GetMenuItemInfoW(m, (UINT)i, TRUE, &mi)) continue;
+        if (mi.fType & MFT_SEPARATOR) { out.push_back(MenuItem::sep()); continue; }
+        std::wstring text = buf, shortcut;
+        if (const size_t tab = text.find(L'\t'); tab != std::wstring::npos) { shortcut = text.substr(tab + 1); text.resize(tab); }
+        std::wstring clean;
+        for (size_t k = 0; k < text.size(); ++k) {
+            if (text[k] == L'&') { if (k + 1 < text.size() && text[k + 1] == L'&') { clean += L'&'; ++k; } continue; }
+            clean += text[k];
+        }
+        if (mi.hSubMenu) out.push_back(MenuItem::sub(clean, fromHmenu(mi.hSubMenu, depth + 1)));
+        else out.push_back(MenuItem::item(clean, mi.wID, shortcut, !(mi.fState & MFS_DISABLED), (mi.fState & MFS_CHECKED) != 0));
+    }
+    return out;
+}
+
+UINT trackMenu(HMENU menu, POINT at, HWND owner) {
+    return showMenu(owner, fromHmenu(menu, 0), at, g_menuPalette);
+}
+
 namespace {
 
 // Layout, in DIPs.

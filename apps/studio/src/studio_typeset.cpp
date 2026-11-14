@@ -2,6 +2,7 @@
 // in the middle, contents and PDF export on the right. Pages are set on a
 // worker thread from a snapshot of the book, so editing never waits for it.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include <shobjidl.h>
 
@@ -208,7 +209,7 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                 AppendMenuW(m, MF_STRING | (cur == sizes[i].id ? MF_CHECKED : 0), 1 + (UINT)i, w(sizes[i].label).c_str());
             POINT pt;
             GetCursorPos(&pt);
-            const int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwnd(), nullptr);
+            const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
             DestroyMenu(m);
             if (cmd > 0 && lib_->book(ts_.book)) {
                 // The trim is the book's: picture sizes and print checks use it too.

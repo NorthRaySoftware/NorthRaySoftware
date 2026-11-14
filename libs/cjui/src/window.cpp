@@ -1,4 +1,5 @@
 #include "cjui/window.hpp"
+#include "cjui/menu.hpp"
 
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -165,6 +166,7 @@ void AppWindow::drawToast(const Rect& area) {
 
 void AppWindow::applyPalette(const Palette& p) {
     pal_ = p;
+    setMenuPalette(p);   // pop-up menus match the window
     BOOL useDark = p.dark;
     if (hwnd_) DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof useDark);
     invalidate();
