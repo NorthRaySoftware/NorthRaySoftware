@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.53.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.8.0: transitions (fade, slide, swipe, luma wipe), Studio Mode, and scenes inside scenes."
+      ]
+    },
+    {
       "version": "0.52.0",
       "date": "2026-11-14",
       "notes": [

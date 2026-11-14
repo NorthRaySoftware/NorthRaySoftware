@@ -153,6 +153,16 @@ private:
     float drawDestinationSettings(int index, float x, float y, float w);
     float drawStreamingSettings(float x, float y, float w);
 
+    // Studio mode and transitions (capture_studio.cpp)
+    Id programScene();                          // the scene that's live (fixed up if it was deleted)
+    void setStudioMode(bool on);
+    void takeToProgram();                       // studio mode: the preview's scene goes live, with the transition
+    void transitionMenu(POINT screen);
+    float drawStudioControls(float x, float y, float w, float bottom);
+    std::wstring transitionLabel() const;
+    video::Items buildItems(const Id& scene, int depth) const;
+    video::Fit editFit() const;                 // where the edited canvas sits in the preview area
+
     // Layout
     void layoutMenu(POINT screen);
     void panelMenu(int panel, POINT screen);
@@ -225,6 +235,7 @@ private:
     // Recording
     output::Recorder recorder_;
     output::Streamer streamer_;
+    Id programScene_;                       // studio mode: what's live (otherwise the current scene)
     bool mfForStream_ = false;
     std::vector<std::wstring> startErrors_;  // collected while starting several destinations              // MFStartup done for streaming
     std::map<std::string, int> destStates_;  // last seen state per destination, to report changes

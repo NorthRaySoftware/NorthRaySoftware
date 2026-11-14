@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.8.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Transitions: switching scenes can now cut, fade, slide, swipe or luma wipe. Choose it under Transition in Controls, with its duration (0.15 to 2 seconds) and easing, the direction for slides and swipes, and the pattern and edge for luma wipes. Recordings and streams show the transition too.",
+        "Studio Mode (Controls): the preview splits into Preview, where you prepare a scene without anyone seeing, and Program, what's live (red frame). Transition, or Ctrl+Enter, puts the preview live. The Scenes list marks the live scene, and the preview warns you when you're editing the scene that's live.",
+        "Scenes inside scenes: + in Sources › Scene shows another scene inside this one, like any other source (move it, resize it, crop it). Capture won't let a scene end up inside itself.",
+        "Not yet: stinger and custom shader transitions, and image, text and slideshow sources (next)."
+      ]
+    },
+    {
       "version": "0.7.0",
       "date": "2026-11-14",
       "notes": [

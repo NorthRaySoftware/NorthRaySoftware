@@ -11,6 +11,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <cstdint>
 #include <string>
 
 namespace ncap::video {
@@ -47,6 +48,10 @@ public:
     // corners in the texture (0..1). `opaque` ignores the texture's alpha (captures, cameras).
     void drawTexture(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque);
     void drawSolid(const Pt corners[4], float r, float g, float b, float a);
+    // A luma wipe: `srv` (the new scene's canvas) shown where `mask` (one byte per pixel, stretched
+    // over the corners) is below the progress, with a soft edge.
+    void drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* mask, const Pt corners[4], float progress, float softness, bool invert);
+    ComPtr<ID3D11ShaderResourceView> makeMask(const std::uint8_t* pixels, int w, int h);
     void fillRect(float x, float y, float w, float h, float r, float g, float b, float a);
     void line(Pt a, Pt b, float thickness, float r, float g, float b2, float alpha);
 

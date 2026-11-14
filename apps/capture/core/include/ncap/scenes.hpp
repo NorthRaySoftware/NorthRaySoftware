@@ -97,6 +97,13 @@ public:
     bool renameSource(const Id& id, const std::string& name);   // false if empty or taken by another
     bool setSourceSettings(const Id& id, const std::string& settings);
 
+    // Nesting: a Scene source shows another scene, as it is, inside this one.
+    Id sceneSource(const Id& scene);                        // the source showing that scene (made if needed); "" if no such scene
+    static Id nestedScene(const Source& s);                 // the scene a Scene source shows, "" for other kinds
+    bool wouldLoop(const Id& into, const Id& nested) const; // showing `nested` inside `into` would show a scene inside itself
+    // Copy an item (its own transform; the same source, shared).
+    Id duplicateItem(const Id& scene, const Id& item);
+
     const SceneItem* item(const Id& scene, const Id& item) const;
     bool setTransform(const Id& scene, const Id& item, const Transform& t);
     bool setItemVisible(const Id& scene, const Id& item, bool visible);

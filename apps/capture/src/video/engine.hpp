@@ -11,6 +11,7 @@
 #include "video/sources.hpp"
 
 #include "ncap/placement.hpp"
+#include "ncap/transition.hpp"
 
 #include <dxgi1_2.h>
 
@@ -19,22 +20,37 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace ncap::video {
 
+struct DrawItem;
+using Items = std::vector<DrawItem>;
+
 struct DrawItem {
     Id id;
     std::shared_ptr<VideoSource> source;   // null: nothing to draw yet (kinds not built yet)
     Transform transform;
     bool visible = true;
+    // A scene shown inside this one: its id and items (composed at canvas size, then placed like a source).
+    Id nested;
+    std::shared_ptr<const Items> nestedItems;
 };
 
 struct Snapshot {
     int canvasW = 1920, canvasH = 1080;
-    std::vector<DrawItem> items;            // bottom first
+    // Program: what's live (recorded, streamed). Changing `programScene` runs `transition` from the
+    // scene that was live to this one.
+    Id programScene;
+    Items items;                            // bottom first
+    transition::Settings transition;
+    // Studio mode: the preview (left) shows `previewItems`, the scene being prepared; the program is
+    // on the right. Otherwise the one view shows the program, and that's what's edited.
+    bool studio = false;
+    Items previewItems;
     Id selected, hovered;
     bool selectedLocked = false;
     std::vector<float> guidesX, guidesY;    // snapping guides to show, canvas pixels
@@ -46,6 +62,13 @@ struct Snapshot {
 // centred, with a margin.
 struct Fit { float x = 0, y = 0, scale = 1; };
 Fit fitCanvas(float canvasW, float canvasH, float areaW, float areaH, float margin);
+// The views in a preview area: the one that's edited (and its selection drawn), and in studio mode
+// the program beside it on the right. Relative to the area's top-left.
+struct Views {
+    Fit edit, program;
+    float half = 0, gap = 0;   // studio: each view's width, and the space between them
+};
+Views layoutViews(float canvasW, float canvasH, float areaW, float areaH, bool studio);
 
 struct EngineStats {
     double fps = 0;          // frames composed in the last second
@@ -54,6 +77,8 @@ struct EngineStats {
     int late = 0;            // frames that started late since start-up
     std::wstring adapter;
     std::wstring error;      // the engine stopped (e.g. the graphics driver reset)
+    bool transitioning = false;
+    Id program;              // the scene the program shows (after any transition)
 };
 
 class Engine {
@@ -84,6 +109,9 @@ private:
     void run();
     void frame();
     void compose(const Snapshot& s);
+    void composeItems(const Items& items, Target& into, int w, int h, int depth);
+    void updateSources(const Items& items, std::set<VideoSource*>& done, int depth);
+    void drawFit(Target& t, const Fit& f);
     void present(const Snapshot& s);
     bool ensureSwapChain(int w, int h);
 
@@ -101,7 +129,19 @@ private:
     EngineStats stats_;
 
     // Video thread only.
-    Target canvas_;
+    Target canvas_;                 // the program: what outputs get
+    Target from_, to_, studio_;     // a transition's two scenes; studio mode's preview
+    std::map<Id, Target> nested_;   // scenes shown inside others, composed once a frame
+    std::set<Id> nestedDone_;
+    // The running transition (video thread).
+    Id lastProgram_;
+    Items lastItems_, fromItems_;
+    bool transitioning_ = false;
+    LONGLONG transStart_ = 0;
+    transition::Settings trans_;
+    ComPtr<ID3D11ShaderResourceView> mask_;
+    transition::Pattern maskPattern_ = transition::Pattern::Horizontal;
+    int maskW_ = 0, maskH_ = 0;
     ComPtr<IDXGISwapChain1> swap_;
     ComPtr<ID3D11RenderTargetView> backbuffer_;
     int swapW_ = 0, swapH_ = 0;

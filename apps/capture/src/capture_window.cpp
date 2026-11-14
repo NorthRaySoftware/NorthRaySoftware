@@ -384,6 +384,7 @@ bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         return true;
     }
     if (ctrl && vk == 'N') { newScene(); return true; }
+    if (ctrl && vk == VK_RETURN && settings_.studioMode) { takeToProgram(); return true; }
     return false;
 }
 
@@ -673,7 +674,8 @@ void CaptureWindow::drawFrame(float W, float H) {
     const Scene* cur = scenes_.scene(scenes_.current());
     const int previewFps = settings_.lowResource ? std::min(settings_.previewFps, 10) : settings_.previewFps;
     // The live preview window covers the preview area; it hides whenever something is drawn over it.
-    previewLive_ = !settingsOpen_ && !asking_ && layout_.previewVisible && engine_.running() && engineError_.empty() && cur && !cur->items.empty() &&
+    previewLive_ = !settingsOpen_ && !asking_ && layout_.previewVisible && engine_.running() && engineError_.empty() && cur &&
+                   (!cur->items.empty() || settings_.studioMode) &&   // studio mode: the program shows beside an empty preview
                    previewFps > 0;
     if (settingsOpen_) {
         gfx_.pushClip(body);
@@ -814,6 +816,21 @@ void CaptureWindow::drawPreview(const Rect& r) {
         info += b;
         if (st.late > 0) info += L", " + std::to_wstring(st.late) + L" late";
     }
+    if (settings_.studioMode && previewLive_) {
+        // Under each view: what it is and which scene.
+        const video::Views v = video::layoutViews((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, true);
+        const Scene* live = scenes_.scene(programScene_);
+        const bool same = programScene_ == scenes_.current();
+        const float ly = r.bottom() - 28;
+        gfx_.text(L"PREVIEW", {previewInner_.x, ly, 80, 20}, Font::Label, cjui::hexColor("#5A6680"), {Align::Left, false, false, true});
+        gfx_.text(name + (same ? L"   ·   live: changes show at once" : L"   ·   not live"), {previewInner_.x + 80, ly, v.half - 84, 20}, Font::Small,
+                  same ? cjui::hexColor("#E8C547") : cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
+        const float px = previewInner_.x + v.half + v.gap;
+        gfx_.text(L"PROGRAM", {px, ly, 80, 20}, Font::Label, cjui::hexColor("#E0566A"), {Align::Left, false, false, true});
+        gfx_.text((live ? widen(live->name) : L"") + (engine_.stats().transitioning ? L"   ·   transitioning\u2026" : L""), {px + 80, ly, v.half - 84, 20},
+                  Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
+        return;
+    }
     gfx_.text(info, {r.x + 14, r.bottom() - 28, r.w - 100, 20}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
     gfx_.text(L"PREVIEW", {r.x + 14, r.bottom() - 28, r.w - 28, 20}, Font::Label, cjui::hexColor("#5A6680"), {Align::Right, false, false, true});
 }
@@ -899,7 +916,14 @@ void CaptureWindow::drawScenes(const Rect& b) {
         } else if (hv > 0.01f) {
             gfx_.fillRounded(row, 7, pal_.ink.withAlpha(0.05f * hv));
         }
-        gfx_.text(widen(s.name), {row.x + 14, row.y, row.w - 60, row.h}, on ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        const bool live = settings_.studioMode && s.id == programScene_;
+        gfx_.text(widen(s.name), {row.x + 14, row.y, row.w - (live ? 110 : 60), row.h}, on ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (live) {
+            const Color red = cjui::hexColor("#E0566A");
+            const Rect tag{row.right() - 100, row.y + 8, 36, row.h - 16};
+            gfx_.fillRounded(tag, 4, red.withAlpha(0.22f));
+            gfx_.text(L"LIVE", tag, Font::Label, red, {Align::Center, false, true});
+        }
         if (i < 9)
             gfx_.text(L"Ctrl+" + std::to_wstring(i + 1), {row.x, row.y, row.w - 10, row.h}, Font::Small, pal_.inkFaint.withAlpha(0.6f + 0.4f * hv),
                       {Align::Right, false, false, true});
@@ -912,7 +936,7 @@ void CaptureWindow::drawSources(const Rect& b) {
     if (!s || s->items.empty()) {
         note(b, L"Nothing in this scene yet",
              L"Use + above to add a whole display, a window (a game, a browser) or a camera or capture card. "
-             L"Images, text and sound arrive in later versions; + shows when.");
+             L"Another scene and sound are there too; images and text arrive in the next version.");
         return;
     }
     float y = b.y + 6;
@@ -1000,7 +1024,8 @@ void CaptureWindow::drawControls(const Rect& b) {
     struct C { const wchar_t* label; const wchar_t* when; };
     // Streaming: the button and each destination.
     y = drawStreamControls(b.x + 12, y, w, b.bottom());
-    const C cs[] = {{L"Replay buffer", L"Milestone 11"}, {L"Studio mode", L"Milestone 8"}, {L"Virtual camera", L"Milestone 11"}};
+    y = drawStudioControls(b.x + 12, y, w, b.bottom());
+    const C cs[] = {{L"Replay buffer", L"Milestone 11"}, {L"Virtual camera", L"Milestone 11"}};
     for (const C& c : cs) {
         if (y + 34 > b.bottom()) break;
         const Rect r{b.x + 12, y, w, 34};

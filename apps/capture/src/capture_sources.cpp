@@ -23,7 +23,7 @@ namespace {
 
 enum : UINT {
     // The "+" menu
-    CmdDisplay0 = 1000, CmdWindow0 = 2000, CmdCamera0 = 3000, CmdExisting0 = 4000,
+    CmdDisplay0 = 1000, CmdWindow0 = 2000, CmdCamera0 = 3000, CmdExisting0 = 4000, CmdScene0 = 5000,
     // An item's menu
     CmdRename = 100, CmdShow, CmdLock, CmdRemove,
     CmdFit, CmdStretch, CmdCentre, CmdReset, CmdRotCw, CmdRotCcw, CmdRot180, CmdFlipH, CmdFlipV, CmdResetCrop,
@@ -87,6 +87,8 @@ void CaptureWindow::syncSources() {
 }
 
 ItemSize CaptureWindow::sizeOf(const Id& source) const {
+    if (const Source* src = scenes_.source(source); src && src->kind == SourceKind::Scene)   // a scene inside: the canvas's size
+        return {(float)scenes_.canvasWidth, (float)scenes_.canvasHeight};
     auto it = live_.find(source);
     if (it == live_.end() || !it->second.capture) return {};
     return {(float)it->second.capture->width(), (float)it->second.capture->height()};
@@ -110,6 +112,10 @@ std::wstring CaptureWindow::sourceStatus(const Id& source, bool* problem) const 
     if (problem) *problem = false;
     const Source* s = scenes_.source(source);
     if (!s) return {};
+    if (s->kind == SourceKind::Scene) {
+        const Scene* shown = scenes_.scene(SceneCollection::nestedScene(*s));
+        return shown ? L"Shows the scene \u201C" + widen(shown->name) + L"\u201D, as it is" : L"The scene it showed is gone";
+    }
     if (!isCapture(s->kind)) return L"Arrives in a later version";
     if (!engineError_.empty()) {
         if (problem) *problem = true;
@@ -121,22 +127,41 @@ std::wstring CaptureWindow::sourceStatus(const Id& source, bool* problem) const 
     return it->second.capture->status();
 }
 
+video::Items CaptureWindow::buildItems(const Id& sceneId, int depth) const {
+    video::Items out;
+    const Scene* sc = scenes_.scene(sceneId);
+    if (!sc) return out;
+    for (auto& i : sc->items) {
+        video::DrawItem d;
+        d.id = i.id;
+        d.transform = i.transform;
+        d.visible = i.visible;
+        const Source* src = scenes_.source(i.source);
+        if (src && src->kind == SourceKind::Scene) {
+            const Id n = SceneCollection::nestedScene(*src);
+            if (!n.empty() && depth < 4) {
+                d.nested = n;
+                d.nestedItems = std::make_shared<const video::Items>(buildItems(n, depth + 1));
+            }
+        } else {
+            auto it = live_.find(i.source);
+            if (it != live_.end()) d.source = it->second.capture;
+        }
+        out.push_back(std::move(d));
+    }
+    return out;
+}
+
 void CaptureWindow::pushSnapshot() {
     if (!engine_.running()) return;
     video::Snapshot s;
     s.canvasW = scenes_.canvasWidth;
     s.canvasH = scenes_.canvasHeight;
-    if (const Scene* sc = scenes_.scene(scenes_.current())) {
-        for (auto& i : sc->items) {
-            video::DrawItem d;
-            d.id = i.id;
-            auto it = live_.find(i.source);
-            if (it != live_.end()) d.source = it->second.capture;
-            d.transform = i.transform;
-            d.visible = i.visible;
-            s.items.push_back(std::move(d));
-        }
-    }
+    s.programScene = programScene();
+    s.items = buildItems(s.programScene, 0);
+    s.transition = settings_.transition;
+    s.studio = settings_.studioMode;
+    if (s.studio) s.previewItems = buildItems(scenes_.current(), 0);
     s.selected = selected_;
     s.hovered = pdrag_ == PreviewDrag::None ? hoverItem_ : Id{};
     if (const SceneItem* i = selectedItem()) s.selectedLocked = i->locked;
@@ -158,8 +183,12 @@ void CaptureWindow::placePreview() {
     engine_.setPreview(r, previewLive_, fps);
 }
 
+video::Fit CaptureWindow::editFit() const {
+    return video::layoutViews((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, settings_.studioMode).edit;
+}
+
 Vec2 CaptureWindow::toCanvas(float x, float y) const {
-    const video::Fit f = video::fitCanvas((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, 0);
+    const video::Fit f = editFit();
     return {(x - previewInner_.x - f.x) / f.scale, (y - previewInner_.y - f.y) / f.scale};
 }
 
@@ -185,6 +214,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     std::vector<Id> others;
     for (auto& s : scenes_.sources()) {
         if (isAudioOnly(s.kind)) continue;   // heard in every scene already
+        if (s.kind == SourceKind::Scene) continue;   // under "Scene" below
         bool shown = false;
         if (here)
             for (auto& i : here->items) shown = shown || i.source == s.id;
@@ -199,10 +229,21 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         MenuItem::sub(L"Camera or capture card", cam),
     };
     if (!existing.empty()) items.push_back(MenuItem::sub(L"A source from another scene", existing));
+    // Another scene, shown inside this one (never one that would end up inside itself).
+    std::vector<Id> nestable;
+    std::vector<MenuItem> sceneItems;
+    for (auto& sc : scenes_.scenes()) {
+        if (sc.id == scenes_.current() || nestable.size() >= 900) continue;
+        const bool loops = scenes_.wouldLoop(scenes_.current(), sc.id);
+        nestable.push_back(sc.id);
+        sceneItems.push_back(MenuItem::item(widen(sc.name), CmdScene0 + (UINT)nestable.size() - 1, loops ? L"it shows this one" : L"", !loops));
+    }
+    if (sceneItems.empty()) sceneItems.push_back(MenuItem::item(L"Make another scene first", 1, {}, false));
+    items.push_back(MenuItem::sub(L"Scene (another scene inside this one)", sceneItems));
     items.push_back(MenuItem::item(L"Sync test (flash and beep)", 10, L"checks recordings"));
     items.push_back(MenuItem::sep());
-    items.push_back(MenuItem::item(L"Image", 5, L"Milestone 8", false));
-    items.push_back(MenuItem::item(L"Text", 6, L"Milestone 8", false));
+    items.push_back(MenuItem::item(L"Image", 5, L"next version", false));
+    items.push_back(MenuItem::item(L"Text", 6, L"next version", false));
     items.push_back(MenuItem::sep());
     const AudioChoices sound = audioChoices();
     for (auto& m : audioAddItems(sound)) items.push_back(m);
@@ -236,6 +277,10 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         addCapture(SourceKind::Camera, narrow(c.name), json{{"device", narrow(c.link)}, {"name", narrow(c.name)}}.dump());
     } else if (cmd >= CmdExisting0 && cmd < CmdExisting0 + others.size()) {
         addExisting(others[cmd - CmdExisting0]);
+    } else if (cmd >= CmdScene0 && cmd < CmdScene0 + nestable.size()) {
+        const Id src = scenes_.sceneSource(nestable[cmd - CmdScene0]);
+        log::info("Scene shown inside \"" + scenes_.scene(scenes_.current())->name + "\": " + scenes_.scene(nestable[cmd - CmdScene0])->name);
+        addExisting(src);
     }
 }
 
@@ -447,7 +492,7 @@ bool CaptureWindow::previewMouseDown(float x, float y) {
     const Scene* sc = scenes_.scene(scenes_.current());
     if (!sc) return true;
     const Vec2 p = toCanvas(x, y);
-    const float perPixel = 1.0f / std::max(0.0001f, video::fitCanvas((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, 0).scale);
+    const float perPixel = 1.0f / std::max(0.0001f, editFit().scale);
     // A handle of the selected item first.
     if (const SceneItem* sel = selectedItem(); sel && !sel->locked && sel->visible) {
         const ItemSize sz = sizeOf(sel->source);
@@ -494,7 +539,7 @@ bool CaptureWindow::previewMouseMove(float x, float y, bool leftDown) {
             t.y += d.y;
             if (!keyDown(VK_CONTROL)) {   // Ctrl: no snapping
                 const float cw = (float)scenes_.canvasWidth, ch = (float)scenes_.canvasHeight;
-                const float perPixel = 1.0f / std::max(0.0001f, video::fitCanvas(cw, ch, previewInner_.w, previewInner_.h, 0).scale);
+                const float perPixel = 1.0f / std::max(0.0001f, editFit().scale);
                 const Vec2 off = snapOffset(boundsOf(t, dragSize_.w, dragSize_.h), cw, ch, 10 * perPixel);
                 t.x += off.x;
                 t.y += off.y;
@@ -529,7 +574,7 @@ bool CaptureWindow::previewMouseMove(float x, float y, bool leftDown) {
         hoverItem_ = hit;
         invalidate();
     }
-    const float perPixel = 1.0f / std::max(0.0001f, video::fitCanvas((float)scenes_.canvasWidth, (float)scenes_.canvasHeight, previewInner_.w, previewInner_.h, 0).scale);
+    const float perPixel = 1.0f / std::max(0.0001f, editFit().scale);
     if (sel && !sel->locked && sel->visible) {
         const ItemSize sz = sizeOf(sel->source);
         const Handle h = handleAt(sel->transform, sz.w, sz.h, p, 8 * perPixel);

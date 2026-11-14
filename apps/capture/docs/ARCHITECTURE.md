@@ -521,3 +521,41 @@ then apply, plus wiring the Account row back into Settings › Streaming.
 - All destinations use the canvas size and frame rate; per-destination resolutions (e.g. a vertical canvas to one
   platform) come with Milestone 11's vertical canvases.
 
+## 16. Milestone 8, part 1: Transitions, Studio Mode, nested scenes (status: built, 14 Nov 2026; released as 0.8.0)
+
+**Built**
+- `core/transition`: the kinds (Cut, Fade, Slide, Swipe, Luma wipe), duration, easing (steady, smooth in and out,
+  quick start and gentle stop), direction, luma patterns (left to right, top to bottom, diagonal, circle, clock,
+  blinds) generated as bytes, the soft-edge sum the shader uses, and the settings as JSON.
+- The engine composes the program; when its scene changes it composes the old and the new scene each into its own
+  texture and makes the program from them over the duration, on the video thread's own clock (so a busy UI doesn't
+  make it stutter). Fade: the new one over the old with rising opacity. Slide/Swipe: the two canvases offset.
+  Luma wipe: a second pixel-shader path takes the pattern (an R8 texture at a quarter of the canvas size) and
+  reveals the new scene where the pattern is below the progress, with a soft edge. Switching again mid-way starts
+  from the scene it was going to. Recordings and streams get the transition (they take the program).
+- Nested scenes: a Scene source shows another scene (`{"scene": id}`), composed at canvas size with see-through
+  where it has nothing, then placed like any source (move, resize, crop, rotate). Each nested scene is composed
+  once a frame however often it's shown, four levels deep at most. The collection refuses an item that would show
+  a scene inside itself (directly or further down); deleting a scene removes the source showing it.
+- Studio mode: the preview area splits into Preview (left: the scene picked in Scenes, edited there) and Program
+  (right, red frame: what's live). Transition (Controls) or Ctrl+Enter puts the preview's scene live; the Scenes list
+  tags the live one; under the views: which scene each shows, and a warning when the scene being edited is the live
+  one ("changes show at once"). Entering keeps the live scene live; leaving makes it the one shown. Without studio
+  mode, picking a scene puts it live with the transition. Both persist (settings.json: studioMode, transition).
+- Items can be duplicated in the collection (`duplicateItem`: its own transform, the same source); the menu entry
+  comes with part 2's source controls.
+
+**Tested**
+- capturecore: 255 checks, including easing (ends, monotonic), slide and swipe offsets for each direction, every
+  luma pattern's ends and size, the soft-edge sum (nothing at 0, everything at 1, any softness, inverted), settings
+  JSON, nesting (loops refused at any depth, removal, save and load).
+- The app in Wine: Fade, Slide and Luma wipe (2 s) captured part-way (both scenes visible as expected); a scene
+  nested inside another, shrunk by its handle; the transition menu; studio mode (selecting and editing in the
+  preview, Ctrl+Enter taking it live with a luma wipe, the LIVE tag moving, the warning); everything kept after a
+  restart.
+
+**Not built yet / limits**
+- Stinger and custom shader transitions (listed as later in the menu), per-transition shortcuts, and choosing a
+  transition per scene. Part 2: image, text, slideshow, screen-region sources, opacity, numeric transform. Part 3:
+  scene import/export, folders, groups.
+

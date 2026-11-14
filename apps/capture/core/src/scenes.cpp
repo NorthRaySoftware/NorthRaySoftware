@@ -135,14 +135,11 @@ bool SceneCollection::removeScene(const Id& id) {
     const size_t at = (size_t)(it - scenes_.begin());
     scenes_.erase(it);
     if (current_ == id) current_ = scenes_[std::min(at, scenes_.size() - 1)].id;
-    // Scenes that nested it lose that item.
-    for (auto& s : scenes_)
-        s.items.erase(std::remove_if(s.items.begin(), s.items.end(),
-                                     [&](const SceneItem& i) {
-                                         const Source* src = source(i.source);
-                                         return src && src->kind == SourceKind::Scene && src->settings.find("\"" + id + "\"") != std::string::npos;
-                                     }),
-                      s.items.end());
+    // Scenes that nested it lose that item, and the source showing it goes.
+    std::vector<Id> gone;
+    for (auto& src : sources_)
+        if (nestedScene(src) == id) gone.push_back(src.id);
+    for (auto& g : gone) removeSource(g);
     ++changes_;
     return true;
 }
@@ -176,7 +173,9 @@ Id SceneCollection::addSource(SourceKind kind, const std::string& nameIn, const 
 
 Id SceneCollection::addItem(const Id& sceneId, const Id& sourceId, const Transform& t) {
     Scene* s = sceneMut(sceneId);
-    if (!s || !source(sourceId)) return {};
+    const Source* src = source(sourceId);
+    if (!s || !src) return {};
+    if (const Id n = nestedScene(*src); !n.empty() && wouldLoop(sceneId, n)) return {};   // never a scene inside itself
     SceneItem it;
     it.id = newId('i');
     it.source = sourceId;
@@ -194,6 +193,56 @@ bool SceneCollection::removeItem(const Id& sceneId, const Id& item) {
     if (s->items.size() == n) return false;
     ++changes_;
     return true;
+}
+
+Id SceneCollection::nestedScene(const Source& s) {
+    if (s.kind != SourceKind::Scene) return {};
+    const nlohmann::json j = nlohmann::json::parse(s.settings, nullptr, false);
+    if (!j.is_object() || !j.contains("scene") || !j["scene"].is_string()) return {};
+    return j["scene"].get<std::string>();
+}
+
+Id SceneCollection::sceneSource(const Id& sceneId) {
+    const Scene* sc = scene(sceneId);
+    if (!sc) return {};
+    for (auto& src : sources_)
+        if (nestedScene(src) == sceneId) return src.id;
+    return addSource(SourceKind::Scene, sc->name, nlohmann::json{{"scene", sceneId}}.dump());
+}
+
+bool SceneCollection::wouldLoop(const Id& into, const Id& nested) const {
+    // Depth-first through what `nested` shows: reaching `into` means a loop.
+    std::vector<Id> todo{nested};
+    std::vector<Id> seen;
+    while (!todo.empty()) {
+        const Id at = todo.back();
+        todo.pop_back();
+        if (at == into) return true;
+        if (std::find(seen.begin(), seen.end(), at) != seen.end()) continue;
+        seen.push_back(at);
+        if (const Scene* sc = scene(at))
+            for (auto& i : sc->items)
+                if (const Source* src = source(i.source)) {
+                    const Id n = nestedScene(*src);
+                    if (!n.empty()) todo.push_back(n);
+                }
+    }
+    return false;
+}
+
+Id SceneCollection::duplicateItem(const Id& sceneId, const Id& itemId) {
+    Scene* sc = sceneMut(sceneId);
+    if (!sc) return {};
+    auto it = std::find_if(sc->items.begin(), sc->items.end(), [&](const SceneItem& i) { return i.id == itemId; });
+    if (it == sc->items.end()) return {};
+    SceneItem copy = *it;
+    copy.id = newId('i');
+    copy.transform.x += 24;   // a little down and to the right, so it's seen to be a copy
+    copy.transform.y += 24;
+    copy.locked = false;
+    sc->items.insert(it + 1, copy);
+    ++changes_;
+    return copy.id;
 }
 
 std::vector<Id> SceneCollection::unusedSources() const {

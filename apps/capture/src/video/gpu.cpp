@@ -16,6 +16,7 @@ namespace {
 const char kShader[] = R"(
 cbuffer C : register(b0) { float4 pos[4]; float4 uv[4]; float4 colour; float4 flags; };
 Texture2D tex : register(t0);
+Texture2D mask : register(t1);   // a luma wipe's pattern
 SamplerState smp : register(s0);
 struct V { float4 p : SV_Position; float2 t : TEXCOORD0; };
 V vs(uint id : SV_VertexID) {
@@ -30,6 +31,16 @@ float4 ps(V i) : SV_Target {
     if (flags.x < 0.5) return colour;
     float4 s = tex.Sample(smp, i.t);
     if (flags.y > 0.5) s.a = 1;
+    if (flags.z > 0.5) {
+        // Luma wipe (the same sum as ncap::transition::lumaAlpha): progress in flags.w, softness in
+        // colour.r, invert in colour.g.
+        float l = mask.Sample(smp, i.t).r;
+        if (colour.g > 0.5) l = 1 - l;
+        float soft = colour.r, p = flags.w;
+        float t = p * (1 + soft) - soft;
+        float a = soft > 0 ? saturate((t + soft - l) / soft) : ((l < t || p >= 1) ? 1 : 0);
+        return float4(s.rgb, s.a * a);
+    }
     return float4(s.rgb, s.a * colour.a);
 }
 )";
@@ -214,6 +225,48 @@ void Gpu::drawTexture(ID3D11ShaderResourceView* srv, const Pt corners[4], const 
     c.flags[0] = 1;
     c.flags[1] = opaque ? 1.0f : 0.0f;
     draw(c, srv);
+}
+
+void Gpu::drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* maskSrv, const Pt corners[4], float progress, float softness,
+                       bool invert) {
+    if (!srv || !maskSrv) return;
+    Constants c{};
+    toClip(corners, (float)targetW_, (float)targetH_, c.pos);
+    const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    for (int i = 0; i < 4; ++i) {
+        c.uv[i][0] = uv[i][0];
+        c.uv[i][1] = uv[i][1];
+    }
+    c.colour[0] = softness;
+    c.colour[1] = invert ? 1.0f : 0.0f;
+    c.colour[3] = 1;
+    c.flags[0] = 1;
+    c.flags[1] = 1;
+    c.flags[2] = 1;
+    c.flags[3] = progress;
+    ID3D11ShaderResourceView* m[1] = {maskSrv};
+    context_->PSSetShaderResources(1, 1, m);
+    draw(c, srv);
+    ID3D11ShaderResourceView* none[1] = {nullptr};
+    context_->PSSetShaderResources(1, 1, none);
+}
+
+ComPtr<ID3D11ShaderResourceView> Gpu::makeMask(const std::uint8_t* pixels, int w, int h) {
+    ComPtr<ID3D11ShaderResourceView> view;
+    if (!pixels || w <= 0 || h <= 0) return view;
+    D3D11_TEXTURE2D_DESC d{};
+    d.Width = (UINT)w;
+    d.Height = (UINT)h;
+    d.MipLevels = 1;
+    d.ArraySize = 1;
+    d.Format = DXGI_FORMAT_R8_UNORM;
+    d.SampleDesc.Count = 1;
+    d.Usage = D3D11_USAGE_IMMUTABLE;
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA data{pixels, (UINT)w, 0};
+    ComPtr<ID3D11Texture2D> tex;
+    if (SUCCEEDED(device_->CreateTexture2D(&d, &data, &tex))) device_->CreateShaderResourceView(tex.Get(), nullptr, &view);
+    return view;
 }
 
 void Gpu::drawSolid(const Pt corners[4], float r, float g, float b, float a) {

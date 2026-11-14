@@ -49,6 +49,20 @@ void itemUv(const Transform& t, float sw, float sh, Pt uv[4]) {
 
 }  // namespace
 
+Views layoutViews(float cw, float ch, float aw, float ah, bool studio) {
+    Views v;
+    if (!studio) {
+        v.edit = v.program = fitCanvas(cw, ch, aw, ah, 0);
+        return v;
+    }
+    v.gap = std::max(8.0f, std::floor(aw * 0.015f));
+    v.half = std::floor((aw - v.gap) / 2);
+    v.edit = fitCanvas(cw, ch, v.half, ah, 0);
+    v.program = fitCanvas(cw, ch, v.half, ah, 0);
+    v.program.x += v.half + v.gap;
+    return v;
+}
+
 Fit fitCanvas(float cw, float ch, float aw, float ah, float margin) {
     Fit f;
     if (cw <= 0 || ch <= 0) return f;
@@ -220,10 +234,34 @@ void Engine::frame() {
         gpu_.context()->End(tm.begin.Get());
     }
 
+    // A new program scene: start the transition from what was live.
+    if (s.programScene != lastProgram_) {
+        if (!lastProgram_.empty() && s.transition.kind != transition::Kind::Cut && s.transition.durationMs > 0) {
+            fromItems_ = lastItems_;   // switching again mid-way starts from the scene it was going to
+            transitioning_ = true;
+            transStart_ = now();
+            trans_ = s.transition;
+        } else {
+            transitioning_ = false;
+        }
+        lastProgram_ = s.programScene;
+    }
+    if (transitioning_ && (double)(now() - transStart_) * 1000.0 / (double)frequency() >= trans_.durationMs) {
+        transitioning_ = false;
+        fromItems_.clear();
+    }
+    lastItems_ = s.items;
+    {
+        std::lock_guard<std::mutex> l(m_);
+        stats_.transitioning = transitioning_;
+        stats_.program = s.programScene;
+    }
+
     // Bring in each shown source's newest picture (once, however many items show it).
     std::set<VideoSource*> done;
-    for (auto& it : s.items)
-        if (it.visible && it.source && done.insert(it.source.get()).second) it.source->update(gpu_);
+    updateSources(s.items, done, 0);
+    if (transitioning_) updateSources(fromItems_, done, 0);
+    if (s.studio && previewShown_) updateSources(s.previewItems, done, 0);
 
     compose(s);
     {
@@ -249,22 +287,115 @@ void Engine::frame() {
     }
 }
 
-void Engine::compose(const Snapshot& s) {
-    if (!canvas_.ensure(gpu_.device(), s.canvasW, s.canvasH)) return;
-    gpu_.clear(canvas_.rtv.Get(), 0, 0, 0, 1);
-    gpu_.begin(canvas_.rtv.Get(), canvas_.w, canvas_.h);
-    for (auto& it : s.items) {
-        if (!it.visible || !it.source) continue;
-        ID3D11ShaderResourceView* v = it.source->view();
-        const float sw = (float)it.source->width(), sh = (float)it.source->height();
+void Engine::updateSources(const Items& items, std::set<VideoSource*>& done, int depth) {
+    for (auto& it : items) {
+        if (!it.visible) continue;
+        if (it.source && done.insert(it.source.get()).second) it.source->update(gpu_);
+        if (it.nestedItems && depth < 4) updateSources(*it.nestedItems, done, depth + 1);
+    }
+}
+
+void Engine::composeItems(const Items& items, Target& into, int w, int h, int depth) {
+    if (!into.ensure(gpu_.device(), w, h)) return;
+    // Scenes shown inside this one first (each once a frame, however often it's shown), since
+    // composing them switches the render target.
+    for (auto& it : items)
+        if (it.visible && it.nestedItems && depth < 4 && nestedDone_.insert(it.nested).second)
+            composeItems(*it.nestedItems, nested_[it.nested], w, h, depth + 1);
+    gpu_.clear(into.rtv.Get(), 0, 0, 0, depth ? 0.0f : 1.0f);   // a nested scene is see-through where it has nothing
+    gpu_.begin(into.rtv.Get(), into.w, into.h);
+    for (auto& it : items) {
+        if (!it.visible) continue;
+        ID3D11ShaderResourceView* v = nullptr;
+        float sw = 0, sh = 0;
+        bool opaque = true;
+        if (it.nestedItems) {
+            auto n = nested_.find(it.nested);
+            if (n == nested_.end() || !n->second.srv || depth >= 4) continue;
+            v = n->second.srv.Get();
+            sw = (float)w;
+            sh = (float)h;
+            opaque = false;
+        } else if (it.source) {
+            v = it.source->view();
+            sw = (float)it.source->width();
+            sh = (float)it.source->height();
+        }
         if (!v || sw <= 0 || sh <= 0) continue;
         Vec2 c[4];
         cornersOf(it.transform, sw, sh, c);
         const Pt corners[4] = {{c[0].x, c[0].y}, {c[1].x, c[1].y}, {c[2].x, c[2].y}, {c[3].x, c[3].y}};
         Pt uv[4];
         itemUv(it.transform, sw, sh, uv);
-        gpu_.drawTexture(v, corners, uv, std::clamp(it.transform.opacity, 0.0f, 1.0f), true);
+        gpu_.drawTexture(v, corners, uv, std::clamp(it.transform.opacity, 0.0f, 1.0f), opaque);
     }
+}
+
+void Engine::compose(const Snapshot& s) {
+    nestedDone_.clear();
+    if (!transitioning_) {
+        composeItems(s.items, canvas_, s.canvasW, s.canvasH, 0);
+    } else {
+        // Both scenes, then the program is made from them.
+        composeItems(fromItems_, from_, s.canvasW, s.canvasH, 0);
+        composeItems(s.items, to_, s.canvasW, s.canvasH, 0);
+        if (!canvas_.ensure(gpu_.device(), s.canvasW, s.canvasH) || !from_.srv || !to_.srv) return;
+        const float W = (float)s.canvasW, H = (float)s.canvasH;
+        const float t = (float)((double)(now() - transStart_) * 1000.0 / (double)frequency() / std::max(1, trans_.durationMs));
+        const float p = transition::ease(trans_.easing, t);
+        gpu_.clear(canvas_.rtv.Get(), 0, 0, 0, 1);
+        gpu_.begin(canvas_.rtv.Get(), canvas_.w, canvas_.h);
+        const Pt uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        auto quad = [&](float ox, float oy, Pt out[4]) {
+            out[0] = {ox, oy};
+            out[1] = {ox + W, oy};
+            out[2] = {ox + W, oy + H};
+            out[3] = {ox, oy + H};
+        };
+        Pt full[4];
+        quad(0, 0, full);
+        switch (trans_.kind) {
+        case transition::Kind::Fade:
+            gpu_.drawTexture(from_.srv.Get(), full, uv, 1, true);
+            gpu_.drawTexture(to_.srv.Get(), full, uv, p, true);
+            break;
+        case transition::Kind::Slide:
+        case transition::Kind::Swipe: {
+            const transition::Offsets o = transition::offsets(trans_.kind, trans_.direction, p, W, H);
+            Pt a[4], b[4];
+            quad(o.fromX, o.fromY, a);
+            quad(o.toX, o.toY, b);
+            gpu_.drawTexture(from_.srv.Get(), a, uv, 1, true);
+            gpu_.drawTexture(to_.srv.Get(), b, uv, 1, true);
+            break;
+        }
+        case transition::Kind::LumaWipe: {
+            // The pattern at a quarter of the canvas size (it's smooth; the edge is softened anyway).
+            const int mw = std::max(16, s.canvasW / 4), mh = std::max(16, s.canvasH / 4);
+            if (!mask_ || maskPattern_ != trans_.pattern || maskW_ != mw || maskH_ != mh) {
+                const auto px = transition::pattern(trans_.pattern, mw, mh);
+                mask_ = gpu_.makeMask(px.data(), mw, mh);
+                maskPattern_ = trans_.pattern;
+                maskW_ = mw;
+                maskH_ = mh;
+            }
+            gpu_.drawTexture(from_.srv.Get(), full, uv, 1, true);
+            gpu_.drawLumaWipe(to_.srv.Get(), mask_.Get(), full, p, trans_.softness, trans_.invert);
+            break;
+        }
+        case transition::Kind::Cut: gpu_.drawTexture(to_.srv.Get(), full, uv, 1, true); break;
+        }
+    }
+    // Studio mode: the scene being prepared, for the preview only.
+    if (s.studio && previewShown_) composeItems(s.previewItems, studio_, s.canvasW, s.canvasH, 0);
+}
+
+void Engine::drawFit(Target& t, const Fit& f) {
+    if (!t.srv) return;
+    const float cw = t.w * f.scale, ch = t.h * f.scale;
+    const Pt corners[4] = {{f.x, f.y}, {f.x + cw, f.y}, {f.x + cw, f.y + ch}, {f.x, f.y + ch}};
+    const Pt uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    gpu_.drawTexture(t.srv.Get(), corners, uv, 1, true);
 }
 
 bool Engine::ensureSwapChain(int w, int h) {
@@ -315,22 +446,31 @@ void Engine::present(const Snapshot& s) {
     gpu_.begin(backbuffer_.Get(), w, h);
     gpu_.clear(backbuffer_.Get(), s.background[0], s.background[1], s.background[2], 1);
     const float u = s.uiScale;
-    const Fit f = fitCanvas((float)s.canvasW, (float)s.canvasH, (float)w, (float)h, 0);
-    const float cw = s.canvasW * f.scale, ch = s.canvasH * f.scale;
-    if (canvas_.srv) {
-        const Pt corners[4] = {{f.x, f.y}, {f.x + cw, f.y}, {f.x + cw, f.y + ch}, {f.x, f.y + ch}};
-        const Pt uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-        gpu_.drawTexture(canvas_.srv.Get(), corners, uv, 1, true);
+    const Views views = layoutViews((float)s.canvasW, (float)s.canvasH, (float)w, (float)h, s.studio);
+    const Fit f = views.edit;
+    if (s.studio) {
+        drawFit(studio_, views.edit);
+        drawFit(canvas_, views.program);
+        // The program's frame: red, as on a studio's live monitor.
+        const Fit& g = views.program;
+        const float pw = s.canvasW * g.scale, ph = s.canvasH * g.scale, t = 2 * u;
+        gpu_.fillRect(g.x, g.y, pw, t, 0.88f, 0.34f, 0.42f, 1);   // inside the picture's edge, so it's always seen
+        gpu_.fillRect(g.x, g.y + ph - t, pw, t, 0.88f, 0.34f, 0.42f, 1);
+        gpu_.fillRect(g.x, g.y, t, ph, 0.88f, 0.34f, 0.42f, 1);
+        gpu_.fillRect(g.x + pw - t, g.y, t, ph, 0.88f, 0.34f, 0.42f, 1);
+    } else {
+        drawFit(canvas_, f);
     }
     auto toPreview = [&](Vec2 p) { return Pt{f.x + p.x * f.scale, f.y + p.y * f.scale}; };
     // Snapping guides.
     for (float gx : s.guidesX) gpu_.line(toPreview({gx, 0}), toPreview({gx, (float)s.canvasH}), 1 * u, 0.93f, 0.36f, 0.55f, 0.9f);
     for (float gy : s.guidesY) gpu_.line(toPreview({0, gy}), toPreview({(float)s.canvasW, gy}), 1 * u, 0.93f, 0.36f, 0.55f, 0.9f);
-    // The selection and the item under the pointer.
-    for (auto& it : s.items) {
+    // The selection and the item under the pointer (in the view that's edited).
+    for (auto& it : s.studio ? s.previewItems : s.items) {
         const bool sel = it.id == s.selected, hov = it.id == s.hovered;
-        if ((!sel && !hov) || !it.visible || !it.source) continue;
-        const float sw = (float)it.source->width(), sh = (float)it.source->height();
+        if ((!sel && !hov) || !it.visible || (!it.source && !it.nestedItems)) continue;
+        const float sw = it.nestedItems ? (float)s.canvasW : (float)it.source->width();
+        const float sh = it.nestedItems ? (float)s.canvasH : (float)it.source->height();
         if (frameOf(it.transform, sw, sh).w <= 0) continue;
         Vec2 c[4];
         cornersOf(it.transform, sw, sh, c);

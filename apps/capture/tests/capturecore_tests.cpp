@@ -4,6 +4,7 @@
 #include "ncap/media.hpp"
 #include "ncap/mkv.hpp"
 #include "ncap/oauth.hpp"
+#include "ncap/transition.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -574,6 +575,98 @@ static void testOAuth() {
     CHECK(!o::parseRedirect("POST /?code=a&state=st8 HTTP/1.1", "st8").isCallback);
 }
 
+static void testTransitions() {
+    std::printf("transitions\n");
+    namespace t = ncap::transition;
+    auto near = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+    for (auto e : {t::Easing::Linear, t::Easing::EaseInOut, t::Easing::EaseOut}) {
+        CHECK(near(t::ease(e, 0), 0) && near(t::ease(e, 1), 1) && near(t::ease(e, -1), 0) && near(t::ease(e, 2), 1));
+        float prev = 0;
+        bool rising = true;
+        for (int i = 1; i <= 100; ++i) {
+            const float v = t::ease(e, i / 100.0f);
+            rising = rising && v >= prev - 1e-6f;
+            prev = v;
+        }
+        CHECK(rising);
+    }
+    CHECK(near(t::ease(t::Easing::EaseInOut, 0.5f), 0.5f) && t::ease(t::Easing::EaseOut, 0.5f) > 0.5f);
+    // Slide left: the new scene comes from the right, the old one leaves to the left.
+    auto o = t::offsets(t::Kind::Slide, t::Direction::Left, 0, 1920, 1080);
+    CHECK(near(o.toX, 1920) && near(o.fromX, 0) && near(o.toY, 0));
+    o = t::offsets(t::Kind::Slide, t::Direction::Left, 0.5f, 1920, 1080);
+    CHECK(near(o.toX, 960) && near(o.fromX, -960));
+    o = t::offsets(t::Kind::Slide, t::Direction::Left, 1, 1920, 1080);
+    CHECK(near(o.toX, 0) && near(o.fromX, -1920));
+    o = t::offsets(t::Kind::Swipe, t::Direction::Down, 0.25f, 1920, 1080);   // swipe: the old one stays put
+    CHECK(near(o.toY, -810) && near(o.fromY, 0) && near(o.fromX, 0));
+    o = t::offsets(t::Kind::Slide, t::Direction::Up, 0.5f, 1920, 1080);
+    CHECK(near(o.toY, 540) && near(o.fromY, -540));
+    // Luma patterns: the right size, the ends where they should be.
+    auto h = t::pattern(t::Pattern::Horizontal, 64, 36);
+    CHECK(h.size() == 64u * 36u && h[0] == 0 && h[63] == 255 && h[35 * 64] == 0);
+    auto c = t::pattern(t::Pattern::Circle, 65, 37);
+    CHECK(c[18 * 65 + 32] == 0 && c[0] == 255);
+    auto k = t::pattern(t::Pattern::Clock, 65, 65);
+    CHECK(k[0 * 65 + 33] < 8 && k[32 * 65 + 64] > 55 && k[32 * 65 + 64] < 72 && k[64 * 65 + 32] > 120 && k[64 * 65 + 32] < 136);
+    auto b = t::pattern(t::Pattern::Blinds, 81, 2);
+    CHECK(b[0] == 0 && b[10] == 0 && b[9] > 200);
+    CHECK(t::pattern(t::Pattern::Diagonal, 0, 10).empty());
+    // The luma wipe shows nothing at 0 and everything at 1, whatever the softness.
+    for (float soft : {0.0f, 0.1f, 0.5f})
+        for (float l : {0.0f, 0.3f, 1.0f}) {
+            CHECK(near(t::lumaAlpha(l, 0, soft, false), 0));
+            CHECK(near(t::lumaAlpha(l, 1, soft, false), 1));
+        }
+    CHECK(t::lumaAlpha(0.1f, 0.5f, 0.1f, false) > 0.99f && t::lumaAlpha(0.9f, 0.5f, 0.1f, false) < 0.01f);
+    CHECK(t::lumaAlpha(0.9f, 0.5f, 0.1f, true) > 0.99f);   // inverted: the far end first
+    // Settings round trip; junk keeps the defaults.
+    t::Settings s;
+    s.kind = t::Kind::LumaWipe;
+    s.durationMs = 750;
+    s.pattern = t::Pattern::Clock;
+    s.direction = t::Direction::Up;
+    s.invert = true;
+    const t::Settings r = t::fromJson(t::toJson(s));
+    CHECK(r.kind == t::Kind::LumaWipe && r.durationMs == 750 && r.pattern == t::Pattern::Clock && r.direction == t::Direction::Up && r.invert);
+    const t::Settings bad = t::fromJson(R"({"kind":"explode","durationMs":999999,"softness":3})");
+    CHECK(bad.kind == t::Kind::Fade && bad.durationMs == 10000 && near(bad.softness, 0.5f));
+}
+
+static void testNesting() {
+    std::printf("nesting\n");
+    SceneCollection c;
+    const Id a = c.current(), b = c.addScene("Camera"), d = c.addScene("Overlay");
+    const Id sb = c.sceneSource(b);
+    CHECK(!sb.empty() && c.sceneSource(b) == sb && c.source(sb)->kind == SourceKind::Scene && SceneCollection::nestedScene(*c.source(sb)) == b);
+    CHECK(c.sceneSource("nope").empty());
+    CHECK(!c.addItem(a, sb).empty());                       // Camera inside Scene
+    const Id sa = c.sceneSource(a);
+    CHECK(c.addItem(b, sa).empty());                        // Scene inside Camera would loop
+    CHECK(c.addItem(a, sa).empty());                        // a scene inside itself
+    const Id sd = c.sceneSource(d);
+    CHECK(!c.addItem(b, sd).empty());                       // Overlay inside Camera
+    CHECK(c.wouldLoop(d, a) && !c.wouldLoop(a, d));         // Scene shows Camera shows Overlay
+    CHECK(c.addItem(d, sa).empty());
+    CHECK(c.unusedSources().size() == 1 && c.unusedSources()[0] == sa);   // Scene's own source isn't shown anywhere
+    // Removing a scene removes the source that showed it, and its items elsewhere.
+    CHECK(c.removeScene(b));
+    CHECK(!c.source(sb) && c.scene(a)->items.empty());
+    // Duplicating an item: its own transform, the same source.
+    const Id img = c.addSource(SourceKind::Colour, "Red");
+    Transform t;
+    t.x = 100;
+    const Id i1 = c.addItem(a, img, t);
+    const Id i2 = c.duplicateItem(a, i1);
+    CHECK(!i2.empty() && i2 != i1 && c.item(a, i2)->source == img && c.item(a, i2)->transform.x == 124);
+    CHECK(c.scene(a)->items.size() == 2 && c.scene(a)->items[1].id == i2);
+    // Survives a save.
+    const Id sd2 = c.sceneSource(d);
+    c.addItem(a, sd2);
+    SceneCollection r;
+    CHECK(r.fromJson(c.toJson()) && r.wouldLoop(d, a) && SceneCollection::nestedScene(*r.source(sd2)) == d);
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -584,6 +677,8 @@ int main() {
     testRouting();
     testDiagnostics();
     testOAuth();
+    testTransitions();
+    testNesting();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

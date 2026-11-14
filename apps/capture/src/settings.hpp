@@ -4,6 +4,8 @@
 #pragma once
 
 #include <map>
+#include "ncap/transition.hpp"
+
 #include <string>
 #include <vector>
 
@@ -37,7 +39,9 @@ struct Settings {
         bool enabled = true;              // started by "Start streaming"
     };
     std::vector<StreamDestination> destinations{StreamDestination{}};
-    int streamRetryMax = 60;          // the longest wait between reconnection attempts, in seconds    // the monitor device is headphones (no echo into a microphone)
+    int streamRetryMax = 60;
+    bool studioMode = false;          // Preview and Program side by side
+    transition::Settings transition;  // used when the program changes scene          // the longest wait between reconnection attempts, in seconds    // the monitor device is headphones (no echo into a microphone)
 
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;   // atomic: written beside, then swapped in

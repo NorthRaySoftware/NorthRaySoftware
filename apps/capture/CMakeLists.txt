@@ -6,7 +6,7 @@ string(STRIP "${NCAP_VERSION}" NCAP_VERSION)
 string(REPLACE "." "," NCAP_VERSION_COMMAS "${NCAP_VERSION}.0")
 
 # The portable core: scenes, routing and leak checks, log redaction, layouts. Tested everywhere.
-add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/routing.cpp core/src/diag.cpp)
+add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/transition.cpp core/src/routing.cpp core/src/diag.cpp)
 target_include_directories(capturecore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
   target_compile_options(capturecore PRIVATE /W4 /utf-8)
@@ -45,6 +45,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_audio.cpp
   src/capture_record.cpp
   src/capture_stream.cpp
+  src/capture_studio.cpp
   src/output/net.cpp
   src/output/credentials.cpp
   src/output/destination.cpp

@@ -90,6 +90,8 @@ bool Settings::load(const std::wstring& path) {
         destinations.push_back(sd);
     }
     if (destinations.empty()) destinations.push_back(StreamDestination{});
+    studioMode = cj::valueOr(j, "studioMode", false);
+    if (auto t = j.find("transition"); t != j.end() && t->is_object()) transition = transition::fromJson(t->dump());
     const int rm = cj::valueOr(j, "streamRetryMax", 60);
     streamRetryMax = rm == 15 || rm == 30 || rm == 60 || rm == 120 ? rm : 60;
     return true;
@@ -107,7 +109,8 @@ bool Settings::save(const std::wstring& path) const {
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones},
                               {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps},
-                              {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax}};
+                              {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
+                              {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);
