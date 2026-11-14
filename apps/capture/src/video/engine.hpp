@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -74,7 +75,9 @@ public:
     // Called on the video thread with each composed canvas while set (a recording or a stream);
     // `qpc` is when the frame was composed. Composition runs whenever this is set.
     using FrameSink = std::function<void(ID3D11Texture2D* canvas, LONGLONG qpc)>;
-    void setFrameSink(FrameSink sink);
+    // One sink per output, by name ("record", "stream"); an empty sink removes it. When this
+    // returns after removing one, the video thread is no longer calling it.
+    void setFrameSink(const std::string& name, FrameSink sink);
     Gpu& gpu() { return gpu_; }   // for the UI thread's device-independent questions only
 
 private:
@@ -93,7 +96,8 @@ private:
 
     mutable std::mutex m_;
     Snapshot snap_;
-    FrameSink sink_;
+    std::map<std::string, FrameSink> sinks_;
+    std::mutex sinkCallM_;   // held while sinks are called, so removing one waits for the call to end
     EngineStats stats_;
 
     // Video thread only.

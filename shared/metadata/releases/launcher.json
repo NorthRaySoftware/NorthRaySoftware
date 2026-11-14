@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.51.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.6.0: streaming to Twitch, YouTube, Kick or a custom RTMP/RTMPS server, with the key in Windows Credential Manager and automatic reconnection (new, and not yet tried with a real platform)."
+      ]
+    },
+    {
       "version": "0.50.0",
       "date": "2026-11-14",
       "notes": [

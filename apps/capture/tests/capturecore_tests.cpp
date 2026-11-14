@@ -3,6 +3,7 @@
 #include "ncap/diag.hpp"
 #include "ncap/media.hpp"
 #include "ncap/mkv.hpp"
+#include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
 
@@ -13,6 +14,7 @@
 #include <string>
 
 using namespace ncap;
+namespace media = ncap::media;
 
 static int g_failed = 0, g_passed = 0;
 #define CHECK(cond)                                                                        \
@@ -280,6 +282,44 @@ static void testMedia() {
     CHECK(seg > 0 && sink.bytes[seg] == 0x01 && sink.bytes[seg + 7] != 0xFF);
 }
 
+static void testRtmp() {
+    std::printf("rtmp\n");
+    using namespace ncap::rtmp;
+    Url u;
+    std::string key;
+    CHECK(parseUrl("rtmps://ingest.global-contribute.live-video.net/app", u, &key) && u.tls && u.port == 443 && u.app == "app" &&
+          u.host == "ingest.global-contribute.live-video.net" && u.tcUrl == "rtmps://ingest.global-contribute.live-video.net/app" && key.empty());
+    CHECK(parseUrl(" rtmp://a.rtmp.youtube.com/live2/ ", u) && !u.tls && u.port == 1935 && u.app == "live2" && u.tcUrl == "rtmp://a.rtmp.youtube.com/live2");
+    CHECK(parseUrl("rtmps://a.rtmps.youtube.com:443/live2", u) && u.port == 443 && u.tcUrl == "rtmps://a.rtmps.youtube.com/live2");
+    CHECK(parseUrl("RTMP://127.0.0.1:19350/live/abc-123", u, &key) && u.port == 19350 && u.app == "live" && key == "abc-123" &&
+          u.tcUrl == "rtmp://127.0.0.1:19350/live");
+    CHECK(!parseUrl("https://twitch.tv", u) && !parseUrl("rtmp://", u) && !parseUrl("rtmp://host", u) && !parseUrl("rtmp://host:99999/app", u) &&
+          !parseUrl("rtmp://host:x/app", u));
+
+    // AMF0 round trip.
+    media::Bytes b;
+    amfWrite(b, Amf::str("connect"));
+    amfWrite(b, Amf::num(1));
+    amfWrite(b, Amf::object({{"app", Amf::str("live2")}, {"fpad", Amf::boolean_(false)}, {"n", Amf::null()}}));
+    amfWrite(b, Amf::array({{"width", Amf::num(1920)}}));
+    std::size_t pos = 0;
+    Amf a, c, o, arr;
+    CHECK(amfRead(b, pos, a) && a.string == "connect" && amfRead(b, pos, c) && c.number == 1);
+    CHECK(amfRead(b, pos, o) && o.type == Amf::Object && o.get("app") && o.get("app")->string == "live2" && o.get("fpad")->type == Amf::Boolean &&
+          o.get("n")->type == Amf::Null && !o.get("missing"));
+    CHECK(amfRead(b, pos, arr) && arr.type == Amf::EcmaArray && arr.get("width")->number == 1920 && pos == b.size());
+    media::Bytes cut(b.begin(), b.begin() + 5);
+    pos = 0;
+    CHECK(!amfRead(cut, pos, a));   // cut short: refused, not read past the end
+
+    // FLV bodies.
+    const auto v = flvVideo(true, false, {9, 9});
+    CHECK(v.size() == 7 && v[0] == 0x17 && v[1] == 1 && v[5] == 9);
+    CHECK(flvVideo(false, true, {})[0] == 0x27 && flvVideo(false, true, {})[1] == 0);
+    const auto au = flvAudio(true, {0x11, 0x90});
+    CHECK(au.size() == 4 && au[0] == 0xAF && au[1] == 0 && au[2] == 0x11);
+}
+
 static void testScenes() {
     std::printf("scenes\n");
     SceneCollection c;
@@ -456,6 +496,7 @@ int main() {
     testPlacement();
     testAudio();
     testMedia();
+    testRtmp();
     testRouting();
     testDiagnostics();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);

@@ -18,6 +18,7 @@
 #include "video/devices.hpp"
 #include "video/engine.hpp"
 #include "output/recorder.hpp"
+#include "output/streamer.hpp"
 
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
@@ -140,6 +141,12 @@ private:
     std::wstring recordingsFolder() const;
     float drawRecordingSettings(float x, float y, float w);
 
+    // Streaming (capture_stream.cpp)
+    void startStreaming();
+    void stopStreaming();
+    void streamTick();
+    float drawStreamingSettings(float x, float y, float w);
+
     // Layout
     void layoutMenu(POINT screen);
     void panelMenu(int panel, POINT screen);
@@ -150,7 +157,7 @@ private:
     void copyDiagnostics();
 
     // Asking for a name: a small card over the window.
-    void askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done);
+    void askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done, bool secret = false);
     void endAsk(bool commit);
 
     Settings& settings_;
@@ -211,6 +218,7 @@ private:
 
     // Recording
     output::Recorder recorder_;
+    output::Streamer streamer_;
 
     // Status
     sys::UsageSampler sampler_;

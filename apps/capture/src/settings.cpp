@@ -60,6 +60,11 @@ bool Settings::load(const std::wstring& path) {
     if (!recordTracks) recordTracks = 1;
     const int ak = cj::valueOr(j, "audioKbps", 160);
     audioKbps = ak == 96 || ak == 128 || ak == 160 || ak == 192 ? ak : 160;
+    streamService = cj::valueOr(j, "streamService", std::string("twitch"));
+    if (streamService != "twitch" && streamService != "youtube" && streamService != "kick" && streamService != "custom") streamService = "twitch";
+    streamUrl = cj::valueOr(j, "streamUrl", streamUrl);
+    const int sk = cj::valueOr(j, "streamKbps", 6000);
+    streamKbps = sk >= 500 && sk <= 50000 ? sk : 6000;
     return true;
 }
 
@@ -72,7 +77,8 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps}};
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps},
+                              {"streamService", streamService}, {"streamUrl", streamUrl}, {"streamKbps", streamKbps}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

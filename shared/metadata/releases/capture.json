@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.6.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Streaming: Start streaming in Controls. Choose Twitch, YouTube, Kick or a custom server in Settings › Streaming, and enter your stream key.",
+        "The stream key is kept in Windows Credential Manager on this PC. It's never shown, and never written to settings or logs. A key pasted on the end of a server address is moved there too.",
+        "Secure streaming (RTMPS) uses Windows' own TLS, and Capture checks the server's certificate itself: a wrong name or an untrusted authority is refused, with the reason.",
+        "If the connection drops, Capture keeps going and reconnects by itself (after 2 seconds, then longer, up to a minute). A stream key the platform refuses isn't retried. If the network can't keep up, old frames are dropped rather than the stream falling behind, and counted in the status bar.",
+        "The status bar shows the stream's state, time, bitrate and dropped frames. Recording and streaming can run together.",
+        "Please note: streaming has been tested here against a local test server, over plain and secure connections. This computer has no H.264 or AAC encoders, so it hasn't yet run with a real encoder or to a real platform. If it doesn't work, the message and the log (Settings › Open the logs folder) say why.",
+        "Not yet: streaming to several platforms at once (next) and saving a recording as MP4."
+      ]
+    },
+    {
       "version": "0.5.0",
       "date": "2026-11-14",
       "notes": [

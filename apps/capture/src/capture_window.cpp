@@ -120,6 +120,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
 }
 
 void CaptureWindow::onDestroy() {
+    streamer_.stop();
     recorder_.stop();   // the file is finished properly even when the window closes mid-recording
     recordTick();
     engine_.stop();
@@ -584,6 +585,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         usage_ = sampler_.sample();
         checkPendingFits();
         recordTick();
+        streamTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -596,8 +598,9 @@ void CaptureWindow::onTimer(UINT_PTR id) {
 
 // ---------------------------------------------------------------- the ask card
 
-void CaptureWindow::askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done) {
+void CaptureWindow::askText(const std::wstring& title, const std::wstring& initial, std::function<void(const std::wstring&)> done, bool secret) {
     askTitle_ = title;
+    SendMessageW(ask_, EM_SETPASSWORDCHAR, secret ? (WPARAM)L'\u2022' : 0, 0);   // a stream key shows as dots
     askDone_ = std::move(done);
     asking_ = true;
     SetWindowTextW(ask_, initial.c_str());
@@ -615,6 +618,8 @@ void CaptureWindow::endAsk(bool commit) {
     std::wstring text((size_t)n, L'\0');
     if (n) GetWindowTextW(ask_, text.data(), n + 1);
     ShowWindow(ask_, SW_HIDE);
+    SetWindowTextW(ask_, L"");   // nothing typed (a stream key) stays behind in the control
+    SendMessageW(ask_, EM_SETPASSWORDCHAR, 0, 0);
     SetFocus(hwnd());
     auto done = std::move(askDone_);
     askDone_ = nullptr;
@@ -993,7 +998,38 @@ void CaptureWindow::drawControls(const Rect& b) {
         y += 46;
     }
     struct C { const wchar_t* label; const wchar_t* when; };
-    const C cs[] = {{L"Start streaming", L"Milestone 6"}, {L"Replay buffer", L"Milestone 11"}, {L"Studio mode", L"Milestone 8"}, {L"Virtual camera", L"Milestone 11"}};
+    // Streaming.
+    {
+        const bool on = streamer_.active();
+        const output::StreamStatus st = streamer_.status();
+        const Rect r{b.x + 12, y, w, 40};
+        const Color live = cjui::hexColor("#7A5CFF");
+        addHit("ctl:stream", r, [this, on] {
+            if (on) stopStreaming();
+            else startStreaming();
+        });
+        const float hv = hoverAmount("ctl:stream");
+        const bool connected = on && st.state == output::StreamStatus::Live;
+        gfx_.fillRounded(r, 8, on ? live.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
+        gfx_.strokeRounded(r, 8, on ? live : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
+        gfx_.circle(r.x + 18, r.y + r.h / 2, 5, connected ? cjui::hexColor("#3FCF8E") : on ? cjui::hexColor("#E8C547") : live.withAlpha(0.8f), true);
+        gfx_.text(on ? L"Stop streaming" : L"Start streaming", {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        if (on) {
+            std::wstring right;
+            if (connected) {
+                const int sec = (int)st.seconds;
+                wchar_t t[32];
+                swprintf(t, 32, L"%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
+                right = t;
+            } else {
+                right = st.state == output::StreamStatus::Reconnecting ? L"reconnecting" : L"connecting";
+            }
+            gfx_.text(right, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
+        }
+        if (focused("ctl:stream")) focusRing(r);
+        y += 46;
+    }
+    const C cs[] = {{L"Replay buffer", L"Milestone 11"}, {L"Studio mode", L"Milestone 8"}, {L"Virtual camera", L"Milestone 11"}};
     for (const C& c : cs) {
         if (y + 34 > b.bottom()) break;
         const Rect r{b.x + 12, y, w, 34};
@@ -1028,7 +1064,23 @@ void CaptureWindow::drawStatusBar(const Rect& r) {
         gfx_.text(value, {x, r.y, vw + 4, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
         x += vw + 22;
     };
-    item(L"Stream", L"off", &pal_.inkFaint);
+    if (streamer_.active()) {
+        const output::StreamStatus st = streamer_.status();
+        wchar_t t[96];
+        const int sec = (int)st.seconds;
+        if (st.state == output::StreamStatus::Live)
+            swprintf(t, 96, L"live %d:%02d:%02d \u00B7 %.1f Mbit/s", sec / 3600, sec / 60 % 60, sec % 60, st.kbps / 1000.0);
+        else if (st.state == output::StreamStatus::Reconnecting)
+            swprintf(t, 96, L"reconnecting (try %d, in %d s)", st.attempt, st.retryIn);
+        else
+            swprintf(t, 96, L"connecting\u2026");
+        std::wstring v = t;
+        if (st.droppedFrames) v += L" \u00B7 " + std::to_wstring(st.droppedFrames) + L" dropped";
+        const Color c = st.state == output::StreamStatus::Live ? cjui::hexColor("#3FCF8E") : cjui::hexColor("#E8C547");
+        item(L"Stream", v, &c);
+    } else {
+        item(L"Stream", L"off", &pal_.inkFaint);
+    }
     if (recorder_.active()) {
         const output::RecordStatus st = recorder_.status();
         const Color red = cjui::hexColor("#E0566A");
@@ -1145,8 +1197,8 @@ void CaptureWindow::drawSettings(const Rect& area) {
         int sel = -1;
         for (int i = 0; i < 4; ++i) if (scenes_.canvasWidth == rs[i].w && scenes_.canvasHeight == rs[i].h) sel = i;
         segmented("set:canvas", {x + colW - 330, y - 2, 330, 32}, {rs[0].label, rs[1].label, rs[2].label, rs[3].label}, sel, [this](int i) {
-            if (recorder_.active()) {
-                flash(L"Stop recording to change the canvas.", 4);
+            if (recorder_.active() || streamer_.active()) {
+                flash(L"Stop recording and streaming to change the canvas.", 4);
                 return;
             }
             const int W[] = {1920, 1280, 2560, 1080}, Hh[] = {1080, 720, 1440, 1920};
@@ -1161,8 +1213,8 @@ void CaptureWindow::drawSettings(const Rect& area) {
         int fsel = 3;
         for (int i = 0; i < 4; ++i) if (settings_.outputFps == fps[i]) fsel = i;
         segmented("set:ofps", {x + colW - 300, y - 2, 300, 32}, {L"24", L"30", L"50", L"60"}, fsel, [this](int i) {
-            if (recorder_.active()) {
-                flash(L"Stop recording to change the frame rate.", 4);
+            if (recorder_.active() || streamer_.active()) {
+                flash(L"Stop recording and streaming to change the frame rate.", 4);
                 return;
             }
             const int v[] = {24, 30, 50, 60};
@@ -1197,6 +1249,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
         y += 28;
         y += drawRoutes(x, y, colW) + 8;
     }
+
+    section(L"STREAMING");
+    y += drawStreamingSettings(x, y, colW) + 8;
 
     section(L"RECORDING");
     y += drawRecordingSettings(x, y, colW) + 8;

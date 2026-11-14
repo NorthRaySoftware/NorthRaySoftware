@@ -122,10 +122,12 @@ void Engine::setPreview(RECT r, bool show, int fps) {
     }
 }
 
-void Engine::setFrameSink(FrameSink sink) {
+void Engine::setFrameSink(const std::string& name, FrameSink sink) {
+    std::lock_guard<std::mutex> calls(sinkCallM_);
     std::lock_guard<std::mutex> l(m_);
-    sink_ = std::move(sink);
-    outputsActive_ = (bool)sink_;
+    if (sink) sinks_[name] = std::move(sink);
+    else sinks_.erase(name);
+    outputsActive_ = !sinks_.empty();
 }
 
 EngineStats Engine::stats() const {
@@ -224,12 +226,17 @@ void Engine::frame() {
         if (it.visible && it.source && done.insert(it.source.get()).second) it.source->update(gpu_);
 
     compose(s);
-    FrameSink sink;
     {
-        std::lock_guard<std::mutex> l(m_);
-        sink = sink_;
+        std::lock_guard<std::mutex> calls(sinkCallM_);
+        std::vector<FrameSink> sinks;
+        {
+            std::lock_guard<std::mutex> l(m_);
+            for (auto& [n, f] : sinks_) sinks.push_back(f);
+        }
+        const LONGLONG at = now();
+        if (canvas_.tex)
+            for (auto& f : sinks) f(canvas_.tex.Get(), at);
     }
-    if (sink && canvas_.tex) sink(canvas_.tex.Get(), now());
     const LONGLONG t = now();
     if (previewShown_ && previewFps_ > 0 && (t - lastPreview_) * previewFps_ >= frequency() - frequency() / 200) {
         lastPreview_ = t;

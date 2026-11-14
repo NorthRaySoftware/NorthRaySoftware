@@ -360,3 +360,56 @@ advanced scenes and audio milestones if wanted.
 - MKV only; "save as MP4" (a remux) is planned. Recording resolution is the canvas's (no downscaling yet).
 - Audio and video are timed from the same QPC clock; device latencies (capture card, Bluetooth) aren't compensated
   yet (a per-source sync offset is Milestone 9 material).
+
+## 13. Milestone 6: Streaming (status: built, 14 Nov 2026; released as 0.6.0; not yet run with a real encoder or platform)
+
+**Built**
+- `core/rtmp`: URL parsing (rtmp:// and rtmps://, default ports 1935/443, a key pasted on the end split off), AMF0
+  (numbers, booleans, strings, objects, ECMA arrays, null), chunking both ways (all four header types, extended
+  timestamps, set chunk size 4096, window acknowledgement and acknowledgements, ping replies), and the publishing
+  client: handshake (C0-C2/S0-S2), connect, releaseStream / FCPublish / createStream / publish with the result and
+  onStatus checked (a refusal is reported with the server's own words), @setDataFrame onMetaData, the AVC sequence
+  header (avcC), the AAC sequence header (AudioSpecificConfig), FLV video and audio tags, FCUnpublish /
+  deleteStream on stop.
+- `src/output/net`: TCP through Winsock (connect with a timeout, send/receive with select, a send timeout so a stalled
+  connection fails rather than hangs). TLS through SChannel (Windows' own TLS: TLS 1.2/1.3 as Windows offers), and the
+  server's certificate checked by Capture itself as well: the chain must end at a root Windows trusts, have no errors
+  and pass the SSL policy for the server's name; the refusal says which (wrong name, untrusted authority, expired).
+- `src/output/credentials`: the stream key in Windows Credential Manager ("NorthRayCapture/stream/main", this PC
+  only). It's never in settings.json, never shown, and registered with the log so it's masked if it ever reached a
+  log line. A key pasted on the end of a server address is moved to Credential Manager.
+- `src/output/streamer`: its own H.264 encoder (CBR at the stream bitrate, GOP 2 s, the recording's encoder choice)
+  and AAC encoder on the Stream bus; the canvas from the engine's named frame sink "stream" (recording and streaming
+  can run together, each with its own encode); packets interleaved and queued; connects once the first keyframe has
+  given the SPS/PPS; every connection starts at a keyframe with timestamps from 0. If the connection fails or drops,
+  encoding carries on and it reconnects after 2, 4, 8, 16, 32 then 60 s; a refused key on the first attempt isn't
+  retried. The queue never holds more than ~3 s: older groups of frames are dropped (from a keyframe) and counted.
+- UI: Start/Stop streaming in Controls; the status bar shows the state (connecting, live with the time and kbit/s,
+  reconnecting with the attempt and countdown; the reason goes to the log) and dropped frames; Settings › Streaming: service (Twitch, YouTube, Kick,
+  Custom), server, stream key (masked entry, Replace / Remove), video bitrate (2.5-8 Mbit/s). Typing an address that
+  isn't the service's own switches it to Custom. Settings that would change the stream are locked while live. The
+  window stops the stream (politely) before the recording and the engine when it closes.
+- Ingest addresses (checked 14 Nov 2026): Twitch's automatic "global contribute" RTMPS server; YouTube's RTMPS
+  server on port 443; Kick's are per channel, so they're pasted.
+
+**Tested**
+- capturecore: 164 tests, including AMF0 both ways, URL parsing (keys pasted in the URL, ports, rtmps), chunk headers
+  and extended timestamps, the publish exchange against a scripted server, refusal messages, FLV tag bodies.
+- `tools/check-rtmp.sh` (Linux): Capture's RTMP client publishing H.264 + AAC to `ffmpeg -listen 1`: all 240 frames
+  received and decoded, with the audio.
+- In Wine, with a test program built from Capture's own net.cpp and RTMP client: plain RTMP over Winsock, 180/180
+  frames; RTMPS through SChannel (via a TLS proxy in front of ffmpeg, with a test certificate authority), 180/180
+  frames; a certificate for another name refused; a certificate from an authority Windows doesn't trust refused
+  (Wine's own SChannel accepts both, so Capture's extra check is what refuses them there).
+- In Wine, the app: Settings › Streaming (service switch, server change, the key entry masked, "Saved", Replace /
+  Remove); a key pasted on the end of an address moved out of the address and out of settings.json; no key in
+  settings, scenes or the log; Start streaming without a key ("There's no stream key…") and without an encoder ("No
+  H.264 encoder was found…").
+
+**Not tested / limits**
+- The whole stream with a real encoder: this machine has no H.264/AAC MFTs, so the streamer's encode, timing and
+  reconnects have not run end to end. Nor has any real platform (Twitch, YouTube, Kick) been streamed to.
+- A/V sync over the stream, reconnects after a real network drop, and bandwidth backoff are untested.
+- One destination at a time; several at once from one encode is Milestone 7. No bandwidth test, and no automatic
+  bitrate lowering yet.
+

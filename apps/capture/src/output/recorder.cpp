@@ -145,7 +145,7 @@ bool Recorder::start(video::Engine& engine, audio::Mixer& mixer, const RecordSet
         taps_.push_back(tap);
         mixer.addTap(tap);
     }
-    engine.setFrameSink([this](ID3D11Texture2D* canvas, LONGLONG qpc) { frame(canvas, qpc); });
+    engine.setFrameSink("record", [this](ID3D11Texture2D* canvas, LONGLONG qpc) { frame(canvas, qpc); });
     thread_ = std::thread([this] { run(); });
     return true;
 }
@@ -168,7 +168,7 @@ void Recorder::frame(ID3D11Texture2D* canvas, LONGLONG qpc) {
 void Recorder::stop() {
     if (!running_) return;
     stopping_ = true;
-    if (engine_) engine_->setFrameSink(nullptr);   // no more frames (waits for the video thread's lock)
+    if (engine_) engine_->setFrameSink("record", nullptr);   // no more frames (waits for the video thread's lock)
     if (thread_.joinable()) thread_.join();
     for (auto& t : taps_) mixer_->removeTap(t);
     taps_.clear();
@@ -288,7 +288,7 @@ void Recorder::run() {
         }
     }
     // The end: no more frames, the encoders' last packets, everything in order, and the file closed.
-    if (engine_) engine_->setFrameSink(nullptr);
+    if (engine_) engine_->setFrameSink("record", nullptr);
     { std::lock_guard<std::mutex> wait(frameM_); }   // a frame being handed over finishes first
     video_->finish();
     takeVideo();
