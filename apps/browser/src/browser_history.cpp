@@ -58,6 +58,7 @@ void BrowserWindow::showHistoryPage() {
     v->showStart = true;
     v->bookmarksPage = false;
     v->downloadsPage = false;
+    v->referencesPage = false;
     v->historyPage = true;
     v->error.reset();
     if (Tab* t = model_.find(target)) { t->title = "History"; t->url = "northray://history"; }

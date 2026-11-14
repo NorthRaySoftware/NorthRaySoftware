@@ -16,6 +16,7 @@ add_library(browsercore STATIC
   core/src/history.cpp
   core/src/downloads.cpp
   core/src/blocker.cpp
+  core/src/references.cpp
 )
 target_include_directories(browsercore PUBLIC core/include)
 target_link_libraries(browsercore PUBLIC sqlite3)
@@ -50,13 +51,14 @@ add_executable(NorthRayBrowser WIN32
   src/browser_bookmarks.cpp
   src/browser_history.cpp
   src/browser_downloads.cpp
+  src/browser_references.cpp
   src/browser_start.cpp
   src/settings.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayBrowser PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated
                            ${CMAKE_SOURCE_DIR}/libs/third_party ${NRB_WEBVIEW2})
-target_link_libraries(NorthRayBrowser PRIVATE browsercore cjui cjcore ole32 shell32 comctl32 comdlg32 dwmapi uuid windowscodecs)
+target_link_libraries(NorthRayBrowser PRIVATE browsercore cjui cjcore ole32 shell32 comctl32 comdlg32 dwmapi uuid windowscodecs urlmon shlwapi)
 if(MSVC)
   target_compile_options(NorthRayBrowser PRIVATE /W4 /utf-8)
 else()

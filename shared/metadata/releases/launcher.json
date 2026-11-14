@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.32.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Browser 0.5.0: reference boards for pictures saved from pages, and a colour picker."
+      ]
+    },
+    {
       "version": "0.31.0",
       "date": "2026-11-14",
       "notes": [

@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.5.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Reference boards: right-click a picture on any page and choose “Save picture to a reference board”. Menu › Reference boards shows them in columns, board by board, with the page each came from; make boards for characters, places or covers, rename them, move pictures between them.",
+        "Pick a colour from the page (right-click, or the menu): a loupe shows the pixels under the pointer; click to copy the colour (#1F3B2C) and keep it on your board.",
+        "“Colours” on a saved picture adds its main colours to the board, as a palette. Click a colour to copy it."
+      ]
+    },
+    {
       "version": "0.4.0",
       "date": "2026-11-14",
       "notes": [

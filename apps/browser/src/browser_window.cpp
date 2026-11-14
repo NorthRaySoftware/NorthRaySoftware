@@ -48,7 +48,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
-    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock,
+    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour,
 };
 
 COLORREF toColorRef(Color c) {
@@ -120,6 +120,7 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     openBookmarkStore();
     openHistoryStore();
     openDownloadStore();
+    openReferenceStore();
     {
         const SearchEngine* e = findSearchEngine(settings_.searchEngine);
         const std::wstring c = L"Search with " + widen((e ? *e : defaultSearchEngine()).name) + L" or type an address";
@@ -360,6 +361,8 @@ PageEvents BrowserWindow::eventsFor(int id) {
         flash(name.empty() ? L"Downloading. Ctrl+J shows your downloads." : L"Downloading " + name + L". Ctrl+J shows your downloads.", 6);
     };
     e.download = [this, id](std::shared_ptr<DownloadHandle> h) { downloadStarted(id, std::move(h)); };
+    e.savePicture = [this](const std::wstring& picture, const std::wstring& page, const std::wstring& title) { savePicture(picture, page, title); };
+    e.pickColour = [this] { startColourPick(); };
     e.blocked = [this, id](int n) {
         if (TabView* v = view(id); v && v->blocked != n) {
             v->blocked = n;
@@ -450,6 +453,7 @@ void BrowserWindow::navigateTab(TabView& v, const std::wstring& url) {
     v.bookmarksPage = false;
     v.historyPage = false;
     v.downloadsPage = false;
+    v.referencesPage = false;
     v.blocked = 0;
     v.error.reset();
     v.crashed = false;
@@ -491,6 +495,7 @@ void BrowserWindow::submitText(const std::wstring& text) {
     if (low == L"northray://bookmarks" || low == L"northray:bookmarks") { v->editing = false; showBookmarksPage(); return; }
     if (low == L"northray://history" || low == L"northray:history") { v->editing = false; showHistoryPage(); return; }
     if (low == L"northray://downloads" || low == L"northray:downloads") { v->editing = false; showDownloadsPage(); return; }
+    if (low == L"northray://references" || low == L"northray:references") { v->editing = false; showReferencesPage(); return; }
     if (low == L"northray://start" || low == L"northray://newtab") { v->editing = false; goHome(); return; }
     const SearchEngine* se = findSearchEngine(settings_.searchEngine);
     const InputResult r = interpretInput(narrow(text), se ? *se : defaultSearchEngine());
@@ -514,6 +519,7 @@ void BrowserWindow::goHome() {
     v->bookmarksPage = false;
     v->historyPage = false;
     v->downloadsPage = false;
+    v->referencesPage = false;
     if (Tab* t = model_.find(v->id)) { t->title.clear(); t->url.clear(); }
     v->error.reset();
     updateAddressText();
@@ -556,7 +562,7 @@ void BrowserWindow::updateAddressText() {
     std::wstring text;
     if (v) {
         if (v->editing) text = v->typed;
-        else if (v->showStart) text = v->bookmarksPage ? L"northray://bookmarks" : v->historyPage ? L"northray://history" : v->downloadsPage ? L"northray://downloads" : L"";
+        else if (v->showStart) text = v->bookmarksPage ? L"northray://bookmarks" : v->historyPage ? L"northray://history" : v->downloadsPage ? L"northray://downloads" : v->referencesPage ? L"northray://references" : L"";
         else if (v->error && !v->errorUrl.empty()) text = v->errorUrl;
         else if (v->page && !v->page->url().empty()) text = editFocused_ ? v->page->url() : widen(displayUrl(narrow(v->page->url())));
         else if (const Tab* t = model_.find(v->id)) text = editFocused_ ? widen(t->url) : widen(displayUrl(t->url));
@@ -635,6 +641,7 @@ bool BrowserWindow::shortcut(UINT vk, bool ctrl, bool shift, bool alt) {
 
 bool BrowserWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    if (pick_.on && vk == VK_ESCAPE) { finishColourPick(false); return true; }
     if (shortcut((UINT)vk, ctrl, shift, alt)) return true;
     if (vk == VK_ESCAPE) {
         if (fullscreen_ && !pageFullscreen_) { setFullscreen(false, false); return true; }
@@ -906,6 +913,10 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             handled = true;
             DestroyWindow(hwnd());
             return 0;
+        case WM_APP + 21:   // a picture for a reference board arrived (browser_references.cpp)
+            handled = true;
+            pictureSaved(reinterpret_cast<PictureJob*>(lp));
+            return 0;
         default: break;
     }
     return 0;
@@ -927,6 +938,12 @@ void BrowserWindow::onTimer(UINT_PTR id) {
 // ---------------------------------------------------------------- mouse
 
 bool BrowserWindow::onMouseDown(float x, float y) {
+    if (pick_.on && pick_.shown.contains(x, y)) {   // the colour picker takes the click
+        pick_.mx = x;
+        pick_.my = y;
+        finishColourPick(true);
+        return true;
+    }
     for (auto& [id, r] : tabRects_)
         if (r.contains(x, y) && hitAt(x, y).rfind("tabx:", 0) != 0) {
             dragTab_ = id;
@@ -941,6 +958,7 @@ bool BrowserWindow::onMouseDown(float x, float y) {
 
 void BrowserWindow::onMouseMove(float x, float y, bool leftDown) {
     if (maxHover_) { maxHover_ = false; invalidate(); }
+    if (pick_.on) { pick_.mx = x; pick_.my = y; invalidate(); }
     if (!dragTab_ || !leftDown) return;
     const bool side = sideW() > 0;
     if (!dragging_ && std::abs(side ? y - dragStartY_ : x - dragStartX_) < 6) return;
@@ -968,6 +986,7 @@ bool BrowserWindow::onMouseUp(float, float) {
 }
 
 bool BrowserWindow::onRightClick(float x, float y) {
+    if (pick_.on) { finishColourPick(false); return true; }
     if (bookmarkRightClick(x, y)) return true;
     for (auto& [id, r] : tabRects_)
         if (r.contains(x, y)) {
@@ -998,6 +1017,8 @@ void BrowserWindow::showMenu() {
         MenuItem::sep(),
         MenuItem::item(L"History", CmdHistory, L"Ctrl+H"),
         MenuItem::item(L"Downloads", CmdDownloads, L"Ctrl+J"),
+        MenuItem::item(L"Reference boards", CmdReferences),
+        MenuItem::item(L"Pick a colour from the page", CmdPickColour, {}, hasPage),
         MenuItem::sub(L"Bookmarks", bookmarksSubmenu(bookmarkIds)),
         MenuItem::sub(L"Passwords and forms",
                       {MenuItem::item(L"Offer to save passwords", CmdPwSave, {}, true, settings_.savePasswords),
@@ -1032,6 +1053,8 @@ void BrowserWindow::showMenu() {
     else if (cmd == CmdReopen) reopenClosedTab();
     else if (cmd == CmdHistory) showHistoryPage();
     else if (cmd == CmdDownloads) showDownloadsPage();
+    else if (cmd == CmdReferences) showReferencesPage();
+    else if (cmd == CmdPickColour) startColourPick();
     else if (cmd == CmdBlock) {
         settings_.blockTrackers = !settings_.blockTrackers;
         settings_.save(settingsPath_);
@@ -1216,12 +1239,14 @@ void BrowserWindow::drawFrame(float W, float H) {
     const Rect content{side, top, W - side, H - top};
 
     TabView* v = activeView();
-    const bool ownPage = v && v->showStart && (v->bookmarksPage || v->historyPage || v->downloadsPage);
-    if (engineFailed_ && !ownPage) drawEngineProblem(content);   // NorthRay's own pages work without the engine
+    const bool ownPage = v && v->showStart && (v->bookmarksPage || v->historyPage || v->downloadsPage || v->referencesPage);
+    if (pick_.on) drawColourPick(content);
+    else if (engineFailed_ && !ownPage) drawEngineProblem(content);   // NorthRay's own pages work without the engine
     else if (v && v->error) drawErrorPage(content, *v);
     else if (v && v->showStart && v->bookmarksPage) drawBookmarksPage(content);
     else if (v && v->showStart && v->historyPage) drawHistoryPage(content);
     else if (v && v->showStart && v->downloadsPage) drawDownloadsPage(content);
+    else if (v && v->showStart && v->referencesPage) drawReferencesPage(content);
     else if (v && v->showStart) drawStartPage(content);
     else if (v && (!v->page || !v->page->ready())) {
         gfx_.fill(content, pal_.paper);   // the page is on its way
@@ -1252,7 +1277,7 @@ void BrowserWindow::placePages(const Rect& content) {
     TabView* a = activeView();
     for (TabView& v : views_) {
         if (!v.page) continue;
-        const bool show = &v == a && !v.showStart && !v.error && !engineFailed_;
+        const bool show = &v == a && !v.showStart && !v.error && !engineFailed_ && !pick_.on;
         if (show) v.page->setBounds(rc);
         v.page->show(show);
     }
@@ -1371,6 +1396,13 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
                                v->favicon.data(), ic, true)) {
     } else if (v && v->showStart && v->bookmarksPage) {
         drawStar(ic.x + 8, ic.y + 8, 7.5f, active ? pal_.ribbon : nr::kAuroraGreen, true);
+    } else if (v && v->showStart && v->referencesPage) {
+        // A small picture: a frame with a hill.
+        const Color c = active ? pal_.ribbon : nr::kAuroraGreen;
+        gfx_.strokeRounded({ic.x + 1.5f, ic.y + 2.5f, 13, 11}, 2, c, 1.5f);
+        gfx_.line(ic.x + 3, ic.y + 12, ic.x + 7, ic.y + 7.5f, c, 1.4f);
+        gfx_.line(ic.x + 7, ic.y + 7.5f, ic.x + 13, ic.y + 12, c, 1.4f);
+        gfx_.circle(ic.x + 11, ic.y + 6, 1.4f, c, true);
     } else if (v && v->showStart && v->downloadsPage) {
         // An arrow into a tray.
         const Color c = active ? pal_.ribbon : nr::kAuroraGreen;
@@ -1404,7 +1436,7 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     // Title
     if (r.w >= 72) {
         std::wstring title = widen(t.title);
-        if (v && v->showStart) title = v->bookmarksPage ? L"Bookmarks" : v->historyPage ? L"History" : v->downloadsPage ? L"Downloads" : L"New tab";
+        if (v && v->showStart) title = v->bookmarksPage ? L"Bookmarks" : v->historyPage ? L"History" : v->downloadsPage ? L"Downloads" : v->referencesPage ? L"Reference boards" : L"New tab";
         if (title.empty() && v && v->error) title = hostLabel(v->errorUrl);
         if (title.empty()) title = widen(hostOf(t.url));
         if (title.empty()) title = t.loading ? L"Loading..." : L"New tab";

@@ -438,6 +438,7 @@ void BrowserWindow::showBookmarksPage(std::int64_t folder, std::int64_t rename) 
     v->bookmarksPage = true;
     v->historyPage = false;
     v->downloadsPage = false;
+    v->referencesPage = false;
     v->error.reset();
     if (Tab* t = model_.find(target)) { t->title = "Bookmarks"; t->url = "northray://bookmarks"; }
     activateTab(target);
@@ -599,6 +600,15 @@ void BrowserWindow::startRename(std::int64_t id) {
 }
 
 void BrowserWindow::finishRename(bool commit) {
+    if (renamingBoard_) {   // a reference board's name
+        const std::int64_t b = renamingBoard_;
+        renamingBoard_ = 0;
+        if (commit && refs_ && !refs_->renameBoard(b, narrow(editText(renameEdit_)))) flash(L"Another board has that name.", 5);
+        ShowWindow(renameEdit_, SW_HIDE);
+        if (GetFocus() == renameEdit_) SetFocus(hwnd());
+        invalidate();
+        return;
+    }
     if (!renaming_) return;
     const std::int64_t id = renaming_;
     renaming_ = 0;

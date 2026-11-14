@@ -2,6 +2,7 @@
 
 #include "WebView2MinGW.h"
 
+#include <shlwapi.h>
 #include <wincodec.h>
 
 #include <ctime>
@@ -96,7 +97,7 @@ private:
 };
 
 // Decodes a PNG stream (a site's icon) to straight RGBA.
-bool decodePng(IStream* stream, int& w, int& h, std::vector<unsigned char>& rgba) {
+bool decodePng(IStream* stream, int& w, int& h, std::vector<unsigned char>& rgba, UINT maxSide = 512) {
     ComPtr<IWICImagingFactory> wic;
     if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
                                 reinterpret_cast<void**>(wic.put()))))
@@ -112,7 +113,7 @@ bool decodePng(IStream* stream, int& w, int& h, std::vector<unsigned char>& rgba
         return false;
     UINT uw = 0, uh = 0;
     conv->GetSize(&uw, &uh);
-    if (uw == 0 || uh == 0 || uw > 512 || uh > 512) return false;
+    if (uw == 0 || uh == 0 || uw > maxSide || uh > maxSide) return false;
     rgba.resize((size_t)uw * uh * 4);
     if (FAILED(conv->CopyPixels(nullptr, uw * 4, (UINT)rgba.size(), rgba.data()))) return false;
     w = (int)uw;
@@ -125,6 +126,14 @@ COREWEBVIEW2_COLOR toColor(COLORREF c) { return {255, GetRValue(c), GetGValue(c)
 bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 
 }  // namespace
+
+bool decodeImageFile(const std::wstring& path, int& w, int& h, std::vector<unsigned char>& rgba) {
+    IStream* s = nullptr;
+    if (FAILED(SHCreateStreamOnFileEx(path.c_str(), STGM_READ | STGM_SHARE_DENY_WRITE, 0, FALSE, nullptr, &s)) || !s) return false;
+    const bool ok = decodePng(s, w, h, rgba, 16384);
+    s->Release();
+    return ok;
+}
 
 // ---------------------------------------------------------------- Engine
 
@@ -441,6 +450,48 @@ void Page::wireEvents() {
         w4->add_DownloadStarting(dl.get(), &t);
     }
 
+    if (auto w11 = web_.as<ICoreWebView2_11>()) {
+        // NorthRay's own items at the top of the page's right-click menu.
+        auto menu = makeHandler<ICoreWebView2ContextMenuRequestedEventHandler, ICoreWebView2*, ICoreWebView2ContextMenuRequestedEventArgs*>(
+            [this, live](ICoreWebView2*, ICoreWebView2ContextMenuRequestedEventArgs* a) -> HRESULT {
+                if (!live()) return S_OK;
+                auto env9 = ComPtr<ICoreWebView2Environment>::share(engine_.environment()).as<ICoreWebView2Environment9>();
+                ComPtr<ICoreWebView2ContextMenuItemCollection> items;
+                ComPtr<ICoreWebView2ContextMenuTarget> target;
+                if (!env9 || FAILED(a->get_MenuItems(items.put())) || FAILED(a->get_ContextMenuTarget(target.put())) || !items || !target) return S_OK;
+                COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND kind = COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_PAGE;
+                target->get_Kind(&kind);
+                LPWSTR s = nullptr;
+                std::wstring page, picture;
+                if (SUCCEEDED(target->get_PageUri(&s))) page = takeString(s);
+                BOOL hasSrc = FALSE;
+                if (kind == COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_IMAGE && SUCCEEDED(target->get_HasSourceUri(&hasSrc)) && hasSrc &&
+                    SUCCEEDED(target->get_SourceUri(&s)))
+                    picture = takeString(s);
+                UINT32 at = 0;
+                auto add = [&](const wchar_t* label, std::function<void()> act) {
+                    ComPtr<ICoreWebView2ContextMenuItem> item;
+                    if (FAILED(env9->CreateContextMenuItem(label, nullptr, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND, item.put())) || !item) return;
+                    auto chosen = makeHandler<ICoreWebView2CustomItemSelectedEventHandler, ICoreWebView2ContextMenuItem*, IUnknown*>(
+                        [act, live](ICoreWebView2ContextMenuItem*, IUnknown*) -> HRESULT { if (live()) act(); return S_OK; });
+                    EventRegistrationToken tok{};
+                    item->add_CustomItemSelected(chosen.get(), &tok);
+                    items->InsertValueAtIndex(at++, item.get());
+                };
+                if (!picture.empty() && events_.savePicture)
+                    add(L"Save picture to a reference board", [this, picture, page] { events_.savePicture(picture, page, title_); });
+                if (events_.pickColour && kind != COREWEBVIEW2_CONTEXT_MENU_TARGET_KIND_SELECTED_TEXT)
+                    add(L"Pick a colour from the page", [this] { events_.pickColour(); });
+                if (at) {
+                    ComPtr<ICoreWebView2ContextMenuItem> sep;
+                    if (SUCCEEDED(env9->CreateContextMenuItem(L"", nullptr, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR, sep.put())) && sep)
+                        items->InsertValueAtIndex(at, sep.get());
+                }
+                return S_OK;
+            });
+        w11->add_ContextMenuRequested(menu.get(), &t);
+    }
+
     if (!options_.blockFilters.empty() && options_.block) {
         // Ads and trackers: only requests to listed services reach the handler.
         for (const std::wstring& f : options_.blockFilters) web_->AddWebResourceRequestedFilter(f.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
@@ -556,6 +607,30 @@ void Page::requestFavicon() {
             return S_OK;
         });
     w15->GetFavicon(COREWEBVIEW2_FAVICON_IMAGE_FORMAT_PNG, done.get());
+}
+
+void Page::capture(std::function<void(int w, int h, std::vector<unsigned char> rgba)> done) {
+    if (!web_) { done(0, 0, {}); return; }
+    IStream* stream = nullptr;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) { done(0, 0, {}); return; }
+    std::weak_ptr<bool> alive = alive_;
+    auto finished = makeHandler<ICoreWebView2CapturePreviewCompletedHandler, HRESULT>([stream, done, alive](HRESULT hr) -> HRESULT {
+        int w = 0, h = 0;
+        std::vector<unsigned char> rgba;
+        auto a = alive.lock();
+        if (a && *a && SUCCEEDED(hr)) {
+            LARGE_INTEGER zero{};
+            stream->Seek(zero, STREAM_SEEK_SET, nullptr);
+            if (!decodePng(stream, w, h, rgba, 16384)) rgba.clear();
+        }
+        stream->Release();
+        done(w, h, std::move(rgba));
+        return S_OK;
+    });
+    if (FAILED(web_->CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream, finished.get()))) {
+        stream->Release();
+        done(0, 0, {});
+    }
 }
 
 void Page::navigate(const std::wstring& url) {

@@ -9,6 +9,7 @@
 #include "nrb/blocker.hpp"
 #include "nrb/downloads.hpp"
 #include "nrb/history.hpp"
+#include "nrb/references.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
@@ -66,6 +67,7 @@ private:
         bool bookmarksPage = false;       // with showStart: the bookmarks page instead of the start page
         bool historyPage = false;         // with showStart: the history page
         bool downloadsPage = false;       // with showStart: the downloads page
+        bool referencesPage = false;      // with showStart: the reference boards
         int blocked = 0;                  // ads and trackers blocked on the page showing
         std::int64_t visitId = 0;         // the history visit of the page showing (for its title)
         std::string visitUrl;
@@ -241,6 +243,30 @@ private:
     std::vector<std::pair<int, std::unique_ptr<Page>>> parked_;   // closed tabs' pages, kept until their downloads finish
     std::vector<std::int64_t> finishedDownloads_;   // let go of on the next timer (not inside their own callback)
     bool downloadsSeen_ = false;                    // the toolbar button shows once there's been a download
+
+    // ---- Reference boards and the colour picker (browser_references.cpp)
+    struct PictureJob;
+    void openReferenceStore();
+    std::wstring referencesFolder() const;
+    void savePicture(const std::wstring& picture, const std::wstring& page, const std::wstring& title);
+    void pictureSaved(PictureJob* job);
+    void showReferencesPage();
+    void drawReferencesPage(const cjui::Rect& r);
+    void addMainColours(std::int64_t picture);
+    void startColourPick();
+    void drawColourPick(const cjui::Rect& r);
+    void finishColourPick(bool take);
+    std::unique_ptr<ReferenceStore> refs_;
+    std::int64_t refBoard_ = 0;           // the board the page shows
+    std::int64_t renamingBoard_ = 0;
+    struct ColourPick {
+        bool on = false;
+        int w = 0, h = 0, gen = 0;
+        std::vector<unsigned char> rgba;
+        std::wstring page;
+        float mx = -1, my = -1;
+        cjui::Rect shown{};
+    } pick_;
 
     // ---- Blocking ads and trackers
     bool blockedOn(const std::wstring& pageUrl) const;

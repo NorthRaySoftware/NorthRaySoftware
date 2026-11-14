@@ -4,6 +4,7 @@
 #include "nrb/bookmarks.hpp"
 #include "nrb/downloads.hpp"
 #include "nrb/history.hpp"
+#include "nrb/references.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
@@ -473,7 +474,47 @@ static void testBlocker() {
     CHECK(f.size() == trackerDomains().size() * 2 && f[0] == "*://doubleclick.net/*" && f[1] == "*://*.doubleclick.net/*");
 }
 
+static void testReferences() {
+    std::string err;
+    auto s = ReferenceStore::open(":memory:", err);
+    CHECK(s != nullptr);
+    if (!s) return;
+    CHECK(s->boards().size() == 1 && s->boards()[0].name == "References");
+    const auto chars = s->addBoard("  Characters ");
+    CHECK(chars && s->addBoard("characters") == 0 && s->addBoard("   ") == 0);   // names are unique, any case
+    RefPicture p;
+    p.board = chars;
+    p.file = "a1.png";
+    p.source = "https://example.com/dragon.png";
+    p.page = "https://example.com/dragons";
+    p.title = "Dragons";
+    p.width = 800;
+    p.height = 600;
+    const auto pid = s->addPicture(p);
+    CHECK(pid && s->pictures(chars).size() == 1 && s->hasSource(chars, p.source) && !s->hasSource(s->firstBoard(), p.source));
+    p.board = s->firstBoard();
+    const auto pid2 = s->addPicture(p);   // the same file on two boards
+    CHECK(s->removePicture(pid2).empty());  // still used: the file stays
+    CHECK(s->boards()[1].pictures == 1);
+    CHECK(s->addColour({0, chars, 0x1F3B2C, "https://example.com/", 0}) == s->addColour({0, chars, 0x1F3B2C, "", 0}));
+    CHECK(s->colours(chars).size() == 1 && hexColour(s->colours(chars)[0].rgb) == "#1F3B2C");
+    CHECK(s->renameBoard(chars, "People") && s->boards()[1].name == "People");
+    const auto gone = s->removeBoard(chars);
+    CHECK(gone.size() == 1 && gone[0] == "a1.png" && s->boards().size() == 1 && s->colours(chars).empty());
+    s->removeBoard(s->firstBoard());
+    CHECK(s->boards().size() == 1);          // there's always a board
+    // Main colours: three-quarters red, a quarter blue; transparent ignored.
+    std::vector<std::uint8_t> px(40 * 40 * 4);
+    for (int i = 0; i < 40 * 40; ++i) {
+        const bool red = i % 4 != 0;
+        px[i * 4] = red ? 200 : 20; px[i * 4 + 1] = red ? 30 : 40; px[i * 4 + 2] = red ? 30 : 210; px[i * 4 + 3] = i < 40 ? 0 : 255;
+    }
+    const auto mc = mainColours(px.data(), 40, 40, 4);
+    CHECK(mc.size() == 2 && mc[0] == 0xC81E1E && mc[1] == 0x1428D2);
+}
+
 int main() {
+    testReferences();
     testDownloads();
     testBlocker();
     testHistory();

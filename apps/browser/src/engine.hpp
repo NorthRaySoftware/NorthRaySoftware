@@ -26,6 +26,9 @@ namespace nrb {
 
 class Page;
 
+// A picture file (PNG, JPEG, GIF, WebP, BMP...) as straight RGBA, through Windows' decoders.
+bool decodeImageFile(const std::wstring& path, int& w, int& h, std::vector<unsigned char>& rgba);
+
 // A download the engine is doing, for the Downloads page. Lives as long as someone holds it; the
 // download itself belongs to the page that started it.
 class DownloadHandle {
@@ -96,6 +99,10 @@ struct PageEvents {
     // The download itself (shown on the Downloads page instead of the engine's own list).
     std::function<void(std::shared_ptr<DownloadHandle> download)> download;
     std::function<void(int count)> blocked;            // ads and trackers blocked on this page so far
+    // The page's right-click menu: "Save picture to a reference board" (a picture's address, the
+    // page's address and title) and "Pick a colour from the page".
+    std::function<void(const std::wstring& picture, const std::wstring& page, const std::wstring& title)> savePicture;
+    std::function<void()> pickColour;
     std::function<void(const std::wstring& text)> statusText;  // a link under the pointer, or ""
     std::function<void(int w, int h, std::vector<unsigned char> rgba)> favicon;  // RGBA, empty when none
     std::function<void(bool on)> fullscreen;           // the page wants (or leaves) full screen
@@ -152,6 +159,8 @@ public:
     void focus();
     void parentMoved();              // the window moved (keeps menus and pop-ups in place)
     void setBackground(COLORREF c);
+    // What the page shows now, as pixels (RGBA; empty if it couldn't be captured).
+    void capture(std::function<void(int w, int h, std::vector<unsigned char> rgba)> done);
     // Turns saving passwords and filling forms on or off for the page's profile.
     void setFormSaving(bool passwords, bool forms);
     // Deletes every password (and, with `forms`, form entry) the profile has saved.
