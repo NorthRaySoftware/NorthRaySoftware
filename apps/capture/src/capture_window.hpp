@@ -11,10 +11,16 @@
 #include "ncap/placement.hpp"
 #include "ncap/scenes.hpp"
 
+#include "audio/capture.hpp"
+#include "audio/devices.hpp"
+#include "audio/mixer.hpp"
 #include "video/devices.hpp"
 #include "video/engine.hpp"
 
+#include "cjui/menu.hpp"
 #include "cjui/window.hpp"
+
+#include "nlohmann/json.hpp"
 
 #include <functional>
 #include <map>
@@ -95,6 +101,27 @@ private:
     bool sourceKey(WPARAM vk, bool ctrl, bool shift);
     std::wstring sourceStatus(const Id& source, bool* problem = nullptr) const;
 
+    // Sound (capture_audio.cpp)
+    struct AudioChoices {
+        std::vector<audio::Device> inputs, outputs;
+        std::vector<audio::App> apps;
+        bool appsSupported = false;
+    };
+    AudioChoices audioChoices() const;
+    std::vector<cjui::MenuItem> audioAddItems(const AudioChoices& c) const;   // submenus for the "+" menus
+    bool audioAddCommand(UINT cmd, const AudioChoices& c);
+    void addAudioMenu(POINT screen);
+    void startAudio();
+    void syncAudio();                           // captures and the mixer follow the collection
+    void audioItemMenu(const Id& source, POINT screen);
+    void removeAudio(const Id& source);
+    void saveTestClip(const Id& source);
+    void meterTick();
+    float audioGain(const Source& s) const;
+    bool audioMuted(const Source& s) const;
+    void setAudioSetting(const Id& source, const char* key, const nlohmann::json& value);
+    void drawMeter(const cjui::Rect& r, audio::Meter& left, audio::Meter& right, bool muted);
+
     // Layout
     void layoutMenu(POINT screen);
     void panelMenu(int panel, POINT screen);
@@ -147,6 +174,18 @@ private:
     std::vector<std::pair<Id, cjui::Rect>> sourceRows_;   // item id, row
     Id lastClickItem_;
     DWORD lastClickItemTime_ = 0;
+
+    // Sound
+    audio::Mixer mixer_;
+    struct AudioLive {
+        std::shared_ptr<audio::Capture> capture;
+        std::string key;                      // the device or program it was started with
+        audio::Meter left, right;
+    };
+    std::map<Id, AudioLive> audio_;           // by source id
+    audio::Meter mixLeft_, mixRight_;
+    std::vector<std::pair<Id, cjui::Rect>> audioRows_;
+    bool metersRunning_ = false;
 
     // Status
     sys::UsageSampler sampler_;

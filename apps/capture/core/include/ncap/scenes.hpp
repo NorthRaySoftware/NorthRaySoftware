@@ -90,7 +90,8 @@ public:
     Id addSource(SourceKind kind, const std::string& name, const std::string& settings = "{}");
     Id addItem(const Id& scene, const Id& source, const Transform& t = {});
     bool removeItem(const Id& scene, const Id& item);
-    // Sources no scene shows any more (to stop capturing them).
+    // Picture sources no scene shows any more (to stop capturing them). Sound sources are never
+    // in this list: they're heard in every scene.
     std::vector<Id> unusedSources() const;
     void removeSource(const Id& id);   // and every item showing it
     bool renameSource(const Id& id, const std::string& name);   // false if empty or taken by another

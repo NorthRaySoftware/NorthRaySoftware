@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.48.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.3.0: sound capture (microphones, desktop audio and, on Windows 11, one program's sound on its own) with an audio mixer. Recording and streaming are still to come."
+      ]
+    },
+    {
       "version": "0.47.0",
       "date": "2026-11-14",
       "notes": [

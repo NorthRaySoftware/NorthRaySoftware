@@ -1,4 +1,5 @@
 // Unit tests for NorthRay Capture's portable core. Dependency-free like the other suites.
+#include "ncap/audio.hpp"
 #include "ncap/diag.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -39,6 +40,8 @@ static void testItemEditing() {
     CHECK(!c.moveItem(sc, ia, 5));                                         // already there
     CHECK(c.moveItem(sc, ia, -100) && c.scene(sc)->items.front().id == ia);
     CHECK(c.setSourceSettings(a, "{\"monitor\":1}") && !c.setSourceSettings("nope", "{}"));
+    c.addSource(SourceKind::InputAudio, "Microphone");   // sound: in no scene, yet in use
+    CHECK(c.unusedSources().empty());
     SceneCollection d;
     CHECK(d.fromJson(c.toJson()));
     const SceneItem* back = d.item(sc, ia);
@@ -159,6 +162,49 @@ static void testPlacement() {
     CHECK(matchWindow({"Minecraft 1.21.4 - Multiplayer (3rd-party Server)", "GLFW30", "JAVAW.EXE"}, wins) == 1);
     CHECK(matchWindow({"Discord", "Chrome_WidgetWin_1", "Discord.exe"}, wins) == -1);
     CHECK(matchWindow({"Notepad", "", ""}, wins) == 0 && matchWindow({"Something", "", ""}, wins) == -1);
+}
+
+static void testAudio() {
+    std::printf("audio\n");
+    using namespace ncap::audio;
+    CHECK(near(dbToGain(0), 1) && near(dbToGain(-6.0206f), 0.5f, 0.001f) && dbToGain(-100) == 0 && dbToGain(-120) == 0);
+    CHECK(near(gainToDb(1), 0) && near(gainToDb(0.5f), -6.02f) && gainToDb(0) == kSilenceDb);
+    CHECK(faderToGain(1) == 1 && faderToGain(0) == 0 && near(gainToDb(faderToGain(0.5f)), -18.06f, 0.05f));
+    CHECK(near(gainToFader(faderToGain(0.37f)), 0.37f, 0.0001f) && gainToFader(0) == 0 && gainToFader(4) == 1);
+    CHECK(dbText(-0.01f) == L"0.0 dB" && dbText(-6.04f) == L"-6.0 dB" && dbText(-100) == L"-∞ dB");
+
+    float block[8] = {0.1f, -0.7f, -0.3f, 0.2f, 0.25f, 0.0f, 0.0f, 0.05f};
+    CHECK(near(peakOf(block, 4, 0), 0.3f) && near(peakOf(block, 4, 1), 0.7f));
+    float dst[8] = {};
+    mixInto(dst, block, 8, 0.5f);
+    mixInto(dst, block, 8, 0.5f);
+    CHECK(near(dst[1], -0.7f) && near(dst[2], -0.3f));
+
+    // The meter: up at once, down at 20 dB/s, the hold line for 1.5 s.
+    Meter m;
+    m.feed(1.0f, 0);
+    CHECK(near(m.level(0), 0) && m.clipped(1.0) && !m.clipped(2.0));
+    m.feed(0.1f, 0.5);   // -20 dB arrives while the level has only fallen to -10
+    CHECK(near(m.level(0.5), -10) && near(m.hold(0.5), 0));
+    CHECK(near(m.level(1.0), -20) && near(m.hold(1.4), 0) && near(m.hold(1.6), m.level(1.6)));
+    CHECK(m.level(10) == kSilenceDb);
+
+    // The ring: in order, wrapping round, never more than there's room for.
+    Ring r(4);
+    const float a[6] = {1, 1, 2, 2, 3, 3};
+    CHECK(r.write(a, 3) == 3 && r.available() == 3);
+    float out[8] = {};
+    CHECK(r.read(out, 2) == 2 && out[0] == 1 && out[2] == 2 && r.available() == 1);
+    const float b[6] = {4, 4, 5, 5, 6, 6};
+    CHECK(r.write(b, 3) == 3 && r.available() == 4);   // wraps
+    CHECK(r.write(b, 1) == 0);                          // full
+    CHECK(r.read(out, 8) == 4 && out[0] == 3 && out[2] == 4 && out[6] == 6);
+    CHECK(r.writeSilence(2) == 2);
+    r.skip(1);
+    CHECK(r.available() == 1 && r.read(out, 1) == 1 && out[0] == 0);
+
+    const auto h = wavHeader(48000, 2, 3840);
+    CHECK(h.size() == 44 && h[0] == 'R' && h[8] == 'W' && h[20] == 3 && h[22] == 2 && h[34] == 32 && h[40] == 0x00 && h[41] == 0x0F);
 }
 
 static void testScenes() {
@@ -329,6 +375,7 @@ int main() {
     testScenes();
     testItemEditing();
     testPlacement();
+    testAudio();
     testRouting();
     testDiagnostics();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);

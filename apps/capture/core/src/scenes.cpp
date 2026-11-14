@@ -199,6 +199,7 @@ bool SceneCollection::removeItem(const Id& sceneId, const Id& item) {
 std::vector<Id> SceneCollection::unusedSources() const {
     std::vector<Id> out;
     for (auto& src : sources_) {
+        if (isAudioOnly(src.kind)) continue;   // sound sources belong to every scene (the mixer), not to one
         bool used = false;
         for (auto& s : scenes_)
             for (auto& i : s.items) used = used || i.source == src.id;

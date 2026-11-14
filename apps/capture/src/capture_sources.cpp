@@ -184,6 +184,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     const Scene* here = scenes_.scene(scenes_.current());
     std::vector<Id> others;
     for (auto& s : scenes_.sources()) {
+        if (isAudioOnly(s.kind)) continue;   // heard in every scene already
         bool shown = false;
         if (here)
             for (auto& i : here->items) shown = shown || i.source == s.id;
@@ -202,10 +203,10 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::item(L"Image", 5, L"Milestone 8", false));
     items.push_back(MenuItem::item(L"Text", 6, L"Milestone 8", false));
     items.push_back(MenuItem::sep());
-    items.push_back(MenuItem::item(L"Application audio", 7, L"Milestone 3", false));
-    items.push_back(MenuItem::item(L"Microphone or input", 8, L"Milestone 3", false));
-    items.push_back(MenuItem::item(L"Desktop audio", 9, L"Milestone 3", false));
+    const AudioChoices sound = audioChoices();
+    for (auto& m : audioAddItems(sound)) items.push_back(m);
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (audioAddCommand(cmd, sound)) return;
     if (cmd >= CmdDisplay0 && cmd < CmdDisplay0 + monitors.size()) {
         const auto& m = monitors[cmd - CmdDisplay0];
         addCapture(SourceKind::Display, "Display " + std::to_string(m.number),

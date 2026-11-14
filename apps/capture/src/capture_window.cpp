@@ -36,6 +36,7 @@ constexpr float kSplit = 7;
 constexpr float kHeaderH = 38;
 constexpr UINT_PTR kStatsTimer = 1;
 constexpr UINT_PTR kSaveTimer = 2;
+constexpr UINT_PTR kMeterTimer = 3;   // capture_audio.cpp starts it
 constexpr UINT WM_APP_ENCODERS = WM_APP + 60;
 
 enum : UINT {
@@ -108,6 +109,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     applyTheme();
     loadScenes();
     startEngine();
+    startAudio();
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
@@ -120,6 +122,8 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
 void CaptureWindow::onDestroy() {
     engine_.stop();
     live_.clear();   // stops the captures
+    mixer_.stop();
+    audio_.clear();
     saveScenes();
     saveLayout();
 }
@@ -425,6 +429,13 @@ bool CaptureWindow::onMouseDown(float x, float y) {
             if (scenes_.setCurrent(id)) scenesChanged();
             return true;
         }
+    // A sound source's name and status: a click shows the whole status (it may be cut short).
+    for (auto& [id, r] : audioRows_)
+        if (Rect{r.x, r.y, r.w, 40}.contains(x, y)) {
+            auto it = audio_.find(id);
+            if (it != audio_.end() && it->second.capture) flash(it->second.capture->status(), 8);
+            return true;
+        }
     // Sources: a click selects (the eye and lock buttons at the right work on their own); a quick
     // second click renames.
     for (auto& [id, r] : sourceRows_)
@@ -515,6 +526,11 @@ bool CaptureWindow::onRightClick(float x, float y) {
             itemMenu(id, pt);
             return true;
         }
+    for (auto& [id, r] : audioRows_)
+        if (r.contains(x, y)) {
+            audioItemMenu(id, pt);
+            return true;
+        }
     if (previewLive_ && previewInner_.contains(x, y)) {
         focus_ = Focus::Preview;
         if (const Scene* sc = scenes_.scene(scenes_.current())) {
@@ -561,6 +577,8 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         usage_ = sampler_.sample();
         checkPendingFits();
         invalidate();
+    } else if (id == kMeterTimer) {
+        meterTick();
     } else if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
         saveScenes();
@@ -633,6 +651,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     vSplits_.clear();
     sceneRows_.clear();
     sourceRows_.clear();
+    audioRows_.clear();
     // The selection belongs to the current scene.
     if (!selected_.empty() && !scenes_.item(scenes_.current(), selected_)) selected_.clear();
     if (!hoverItem_.empty() && !scenes_.item(scenes_.current(), hoverItem_)) hoverItem_.clear();
@@ -839,6 +858,12 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
             GetCursorPos(&pt);
             addSourceMenu(pt);
         });
+    if (panel == Layout::Mixer)
+        plus("mixer:add", [this] {
+            POINT pt;
+            GetCursorPos(&pt);
+            addAudioMenu(pt);
+        });
 }
 
 void CaptureWindow::drawScenes(const Rect& b) {
@@ -927,12 +952,6 @@ void CaptureWindow::drawSources(const Rect& b) {
         if (focused(id + ":lock")) focusRing(lock);
         y += 46;
     }
-}
-
-void CaptureWindow::drawMixer(const Rect& b) {
-    note(b, L"No audio sources yet",
-         L"Coming in Milestone 3 (in development): microphones, desktop audio and individual applications, each with its own fader and meter. "
-         L"For example, Minecraft and your microphone on stream while Spotify and Discord stay in your headphones only.");
 }
 
 void CaptureWindow::drawControls(const Rect& b) {
@@ -1057,6 +1076,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
             settings_.lowResource = !settings_.lowResource;
             settings_.save(settingsPath_);
             SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
+            if (metersRunning_) SetTimer(hwnd(), kMeterTimer, settings_.lowResource ? 100 : 33, nullptr);
             log::info(std::string("Low-resource mode ") + (settings_.lowResource ? "on" : "off"));
         });
         y += std::max(h, 34.0f) + 14;

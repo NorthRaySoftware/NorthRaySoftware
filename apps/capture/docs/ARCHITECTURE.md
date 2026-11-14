@@ -230,3 +230,47 @@ ends with: what was built, what was actually tested (and how), what isn't done, 
 - A graphics-driver reset stops the preview with a message; recovering without a restart is later (Milestone 13).
 - Window capture captures the whole window including its frame; Alt+drag crops it. A "client area only" option is
   a possible later addition.
+
+## 10. Milestone 3: Audio capture (status: done, 14 Nov 2026; released as 0.3.0)
+
+**Decision: sound sources are global.** They belong to the scene collection, not to a scene, and are heard in every
+scene (like OBS's global audio devices). `unusedSources()` never lists them. Per-scene muting can come with the
+advanced scenes and audio milestones if wanted.
+
+**Built**
+- `core/audio`: dB/gain, the fader curve (gain = position³: 0.5 ≈ −18 dB), dB text, peaks, mixing, a level meter
+  (instant rise, 20 dB/s fall, 1.5 s peak hold, clip flag), a lock-free single-producer/single-consumer ring of
+  stereo frames, the float WAV header.
+- `src/audio/devices`: input and output endpoints with names and the default; programs with audio sessions on any
+  output, one per program, by the top process of that program's tree (Chrome's audio service and Discord's helpers
+  are children of the same exe); the program's own description from its version info; the Windows build check.
+- `src/audio/capture`: one thread per sound source, WASAPI shared mode, event-driven (with a 10 ms timeout because
+  loopback signals nothing during silence), AUTOCONVERTPCM to 48 kHz stereo float (16-bit PCM as a fallback,
+  converted here). Process loopback through `ActivateAudioInterfaceAsync("VAD\\Process_Loopback")` with an agile
+  completion handler and the activation structs declared here; INCLUDE_TARGET_PROCESS_TREE. Follows the default device
+  when set to it, notices the program closing (and finds it again), retries a missing device every 2 s, and says why in
+  its status (privacy settings, unplugged, Windows 10, an error code).
+- `src/audio/mixer`: a 10 ms clock of its own; each source's block (silence when it has none; trimmed to 20 ms when
+  more than 100 ms has built up), volume and mute, peaks, the mix; test clips of a source's own sound before volume and
+  mute (10 s WAV in Videos\\NorthRay Capture).
+- UI (`capture_audio.cpp`): the mixer panel (the mix meter; per source name, dB, status, stereo meter, mute and fader),
+  the + menus (in the mixer and in Sources), the right-click menu (rename, mute, device or program, test clip,
+  remove), meters at 30 Hz (10 Hz in low-resource mode), only while there are sound sources.
+
+**Tested**
+- capturecore: 130 tests (dB, fader, meter ballistics, ring wrap-round and overflow, WAV header, global sound
+  sources, plus earlier milestones').
+- In Wine with PulseAudio null devices: the input list and default; capturing an input (a 44.1 kHz device, converted
+  to 48 kHz by Windows' conversion), its meter, the fader (−17.5 dB) and mute, settings kept across a restart, the
+  "Needs Windows 11" message for program sound, a status error shown in full on click. A 10-second test clip of the
+  input held its 880 Hz tone with the 440 Hz tone playing on the speakers at −95 dB relative (absent), 48 kHz float,
+  exactly 10.0 s, with no gaps.
+
+**Not tested / limits**
+- Desktop audio (loopback): Wine 9 refuses loopback capture (AUDCLNT_E_WRONG_ENDPOINT_TYPE), so it has only been
+  seen failing gracefully here. Process loopback (one program's sound) can't run on Wine at all. Both need CJ's
+  Windows 11 PC: the test clip is the way to confirm a program's sound is captured alone.
+- Drift between device clocks is handled by trimming and padding (a rare click over long sessions); proper
+  drift-corrected resampling arrives with recording and A/V sync in Milestone 5.
+- No monitoring (headphones), no separate stream/recording mixes, no filters yet (Milestones 4 and 9). The leak
+  warnings in `core/routing` are used from Milestone 4, when routing exists.

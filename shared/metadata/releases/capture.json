@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.3.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Sound capture: add a microphone or other input, desktop audio (everything an output device plays) or, on Windows 11, one program's sound on its own from + in the Audio mixer (or in Sources). A program is found by name, so its sound is captured again whenever it restarts; sources set to Windows' default device follow it when it changes.",
+        "The Audio mixer: a level meter for each sound source and for the mix (green, yellow and red, with a line at the recent peak), a volume fader showing decibels, and a mute button. Sound sources are heard in every scene.",
+        "Right-click a sound source to rename it, change its device or program, mute it, remove it, or save a 10-second test clip of just its own sound (before its volume and mute) to Videos\\NorthRay Capture, so you can hear exactly what it captures.",
+        "Click a sound source's name to see its whole status, such as why a device can't be used.",
+        "Not yet: separate stream, recording and headphone mixes (next), recording and streaming."
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-14",
       "notes": [
