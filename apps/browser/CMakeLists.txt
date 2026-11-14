@@ -18,9 +18,10 @@ add_library(browsercore STATIC
   core/src/blocker.cpp
   core/src/references.cpp
   core/src/weather.cpp
+  core/src/backup.cpp
 )
 target_include_directories(browsercore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(browsercore PUBLIC sqlite3)
+target_link_libraries(browsercore PUBLIC sqlite3 miniz)
 if(MSVC)
   target_compile_options(browsercore PRIVATE /W4 /utf-8)
 else()

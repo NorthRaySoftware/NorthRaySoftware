@@ -48,7 +48,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
-    CmdHistory = 600, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault, CmdPopout,
+    CmdHistory = 600, CmdBackup, CmdRestore, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault, CmdPopout,
 };
 
 COLORREF toColorRef(Color c) {
@@ -1056,6 +1056,8 @@ void BrowserWindow::showMenu() {
         MenuItem::item(L"Reference boards", CmdReferences),
         MenuItem::item(L"Pick a colour from the page", CmdPickColour, {}, hasPage),
         MenuItem::sub(L"Bookmarks", bookmarksSubmenu(bookmarkIds)),
+        MenuItem::sub(L"Back up and restore",
+                      {MenuItem::item(L"Back up to a file\u2026", CmdBackup), MenuItem::item(L"Restore from a backup\u2026", CmdRestore)}),
         MenuItem::sub(L"Passwords and forms",
                       {MenuItem::item(L"Offer to save passwords", CmdPwSave, {}, true, settings_.savePasswords),
                        MenuItem::item(L"Fill in forms automatically", CmdPwForms, {}, true, settings_.fillForms),
@@ -1093,6 +1095,8 @@ void BrowserWindow::showMenu() {
     else if (cmd == CmdDownloads) showDownloadsPage();
     else if (cmd == CmdReferences) showReferencesPage();
     else if (cmd == CmdDefault) makeDefaultBrowser();
+    else if (cmd == CmdBackup) backUpToFile();
+    else if (cmd == CmdRestore) restoreFromFile();
     else if (cmd == CmdPickColour) startColourPick();
     else if (cmd == CmdBlock) {
         settings_.blockTrackers = !settings_.blockTrackers;

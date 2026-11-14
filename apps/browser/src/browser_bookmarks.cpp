@@ -6,6 +6,8 @@
 #include "cjui/dialog.hpp"
 
 #include "nrb/url.hpp"
+#include "nrb/backup.hpp"
+#include "version.hpp"
 
 #include "cjui/northray.hpp"
 
@@ -16,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -665,6 +668,95 @@ void BrowserWindow::exportBookmarks() {
     f << html;
     if (!f.good()) { flash(L"The file couldn't be saved there.", 8); return; }
     flash(L"Exported. Chrome, Edge and Firefox can import that file.", 8);
+}
+
+// ---------------------------------------------------------------- back up and restore (0.8.0)
+
+void BrowserWindow::backUpToFile() {
+    const int history = cjui::messageBox(hwnd(),
+        L"A backup holds your bookmarks, reference boards, start page notes and background, and settings, in one file you "
+        L"can keep or take to another PC.\n\nInclude your browsing history too?\n\n(Saved passwords and sign-ins aren't included: "
+        L"they stay protected on this PC.)",
+        L"Back up to a file", MB_YESNOCANCEL | MB_ICONQUESTION);
+    if (history == IDCANCEL) return;
+    std::time_t now = std::time(nullptr);
+    std::tm t{};
+    localtime_s(&t, &now);
+    wchar_t day[32], made[32];
+    wcsftime(day, 32, L"%Y-%m-%d", &t);
+    wcsftime(made, 32, L"%Y-%m-%d %H:%M", &t);
+    wchar_t file[MAX_PATH * 2] = L"";
+    wcscpy_s(file, (std::wstring(L"NorthRay Browser backup ") + day + L".zip").c_str());
+    wchar_t docs[MAX_PATH] = L"";
+    SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, docs);
+    OPENFILENAMEW ofn{sizeof ofn};
+    ofn.hwndOwner = hwnd();
+    ofn.lpstrFilter = L"NorthRay Browser backup (*.zip)\0*.zip\0";
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = (DWORD)std::size(file);
+    ofn.lpstrInitialDir = docs;
+    ofn.lpstrDefExt = L"zip";
+    ofn.lpstrTitle = L"Back up to a file";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetSaveFileNameW(&ofn)) return;
+    nrb::backup::Options o;
+    o.history = history == IDYES;
+    o.appVersion = CJ_VERSION_STR;
+    o.made = narrow(made);
+    std::string error;
+    nrb::backup::Manifest m;
+    HCURSOR old = SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    const std::wstring state = settingsPath_.substr(0, settingsPath_.find_last_of(L"\\/"));
+    const bool ok = nrb::backup::make(std::filesystem::path(state), std::filesystem::path(std::wstring(file)), o, error, &m);
+    SetCursor(old);
+    if (!ok) { flash(L"The backup couldn't be made: " + widen(error) + L".", 10); return; }
+    flash(L"Backed up (" + std::to_wstring(m.files) + (m.files == 1 ? L" file" : L" files") + L"). Restore it from the menu on this or another PC.", 8);
+}
+
+void BrowserWindow::restoreFromFile() {
+    wchar_t file[MAX_PATH * 2] = L"";
+    wchar_t docs[MAX_PATH] = L"";
+    SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, docs);
+    OPENFILENAMEW ofn{sizeof ofn};
+    ofn.hwndOwner = hwnd();
+    ofn.lpstrFilter = L"NorthRay Browser backup (*.zip)\0*.zip\0";
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = (DWORD)std::size(file);
+    ofn.lpstrInitialDir = docs;
+    ofn.lpstrTitle = L"Restore from a backup";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameW(&ofn)) return;
+    const std::filesystem::path state(settingsPath_.substr(0, settingsPath_.find_last_of(L"\\/")));
+    nrb::backup::Manifest m;
+    std::string error;
+    HCURSOR old = SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    const bool ok = nrb::backup::unpack(std::filesystem::path(std::wstring(file)), state, m, error);
+    SetCursor(old);
+    if (!ok) { cjui::messageBox(hwnd(), widen(error), L"Restore from a backup", MB_OK | MB_ICONWARNING); return; }
+    const std::wstring when = m.made.empty() ? L"" : L" (made " + widen(m.made) + L")";
+    const std::wstring q = L"The backup" + when + L" is ready to restore.\n\nIt replaces your bookmarks, reference boards, start page notes and "
+                           L"settings" + std::wstring(m.history ? L", and your history" : L"") +
+                           L". What it replaces is kept in a “Before restore” folder, so nothing is lost.\n\n"
+                           L"Restart NorthRay Browser now to finish? (Your open tabs will be closed.)";
+    const int a = cjui::messageBox(hwnd(), q, L"Restore from a backup", MB_YESNOCANCEL | MB_ICONQUESTION);
+    if (a == IDCANCEL) {
+        nrb::backup::cancelPending(state);
+        flash(L"The restore was cancelled.", 5);
+        return;
+    }
+    if (a == IDNO) { flash(L"It will be restored the next time NorthRay Browser starts.", 8); return; }
+    // Start again: a new copy once this one has gone (it waits for this window to close).
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    STARTUPINFOW si{sizeof si};
+    PROCESS_INFORMATION pi{};
+    std::wstring cmdLine = L"\"" + std::wstring(exe) + L"\" --after-restore";
+    if (engineOffForDevelopment_) cmdLine += L" --no-engine";
+    if (CreateProcessW(exe, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    PostMessageW(hwnd(), WM_CLOSE, 0, 0);
 }
 
 // ---------------------------------------------------------------- the extra text fields

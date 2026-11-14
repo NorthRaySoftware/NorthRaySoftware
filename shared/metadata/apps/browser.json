@@ -12,11 +12,12 @@
     "Saved passwords and form filling, offered after you sign in, encrypted with a key protected by your Windows account; turn them off or delete them all from the menu",
     "A padlock for secure sites and a plain \"Not secure\" for others; certificate problems are refused with an explanation",
     "Full screen, printing, developer tools, and light and dark themes that follow Windows",
-    "Edge's sandbox and SmartScreen protection against phishing and harmful downloads; no telemetry of NorthRay's own"
+    "Edge's sandbox and SmartScreen protection against phishing and harmful downloads; no telemetry of NorthRay's own",
+    "Back up bookmarks, reference boards, notes, settings and history to one file, and restore it here or on another PC"
   ],
   "category": "Web browser",
   "status": "preview",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "accent": "#2FC6A0",
   "artwork": {
     "fallbackStyle": "sketchbook",

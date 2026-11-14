@@ -43,6 +43,7 @@ public:
     void openFromCommandLine(const std::vector<std::wstring>& args);
     // Development only (--no-engine): the interface without an engine.
     void setEngineOffForDevelopment() { engineOffForDevelopment_ = true; invalidate(); }
+    void notice(const std::wstring& text, int seconds = 10) { flash(text, seconds); }
     // Keys for the address bar; true if the message was used.
     bool preTranslate(MSG& msg);
 
@@ -198,6 +199,9 @@ private:
     void deleteBookmark(std::int64_t id);
     void moveBookmarkBy(std::int64_t id, int delta);
     void importBookmarks();
+    // A backup of bookmarks, history, reference boards, notes and settings in one file (0.8.0).
+    void backUpToFile();
+    void restoreFromFile();
     void exportBookmarks();
     bool bookmarkRightClick(float x, float y);
     bool bookmarkMiddleClick(float x, float y);

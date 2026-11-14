@@ -1,5 +1,6 @@
 // Unit tests for NorthRay Browser's portable core. Dependency-free like the
 // other suites: run it, it prints each group and exits non-zero on failure.
+#include "nrb/backup.hpp"
 #include "nrb/blocker.hpp"
 #include "nrb/bookmarks.hpp"
 #include "nrb/downloads.hpp"
@@ -16,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include "miniz.h"
 
 static int g_failed = 0, g_passed = 0;
 
@@ -529,8 +531,117 @@ static void testWeather() {
     CHECK_EQ(temperatureText(10, true), "50\xC2\xB0" "F");
 }
 
+
+static void writeText(const std::filesystem::path& p, const std::string& t) {
+    std::filesystem::create_directories(p.parent_path());
+    std::ofstream f(p, std::ios::binary);
+    f << t;
+}
+static std::string readText(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+static void testBackup() {
+    namespace fs = std::filesystem;
+    namespace bk = nrb::backup;
+    const fs::path root = fs::temp_directory_path() / "nrb-backup-test";
+    fs::remove_all(root);
+    const fs::path a = root / "A", b = root / "B";
+    std::string err;
+    {
+        // A browser's things: settings, bookmarks (open, in WAL mode, while the copy is made), history,
+        // a reference picture, notes and a start background.
+        writeText(a / "settings.json", "{\"version\":1,\"theme\":2}");
+        fs::create_directories(a / "User");
+        auto bm = BookmarkStore::open((a / "User" / "bookmarks.db").string(), err);
+        CHECK(bm != nullptr);
+        if (!bm) return;
+        bm->add(BookmarkStore::kBar, "Dragons", "https://example.com/dragons");
+        auto hs = HistoryStore::open((a / "User" / "history.db").string(), err);
+        CHECK(hs != nullptr);
+        if (hs) hs->add("https://example.com/", "Example", 1000);
+        writeText(a / "User" / "references" / "ab12.png", "PNGDATA");
+        writeText(a / "User" / "start-notes.txt", "Buy ink");
+        writeText(a / "User" / "start-background-1.jpg", "JPEG");
+        writeText(a / "User" / "downloads.db", "not in backups");
+
+        bk::Options o;
+        o.appVersion = "0.8.0";
+        o.made = "2026-11-14 19:40";
+        o.history = false;
+        bk::Manifest made;
+        CHECK(bk::make(a, root / "backup.zip", o, err, &made));
+        CHECK(made.files == 5 && !made.history);   // settings, bookmarks, notes, background, picture (no references.db)
+        o.history = true;
+        CHECK(bk::make(a, root / "with-history.zip", o, err, &made));
+        CHECK(made.history && made.files == 6);
+        CHECK(!fs::exists(a / "Backup-work"));
+    }
+
+    // B already has its own things; restoring replaces them, keeping B's in "Before restore ...".
+    writeText(b / "settings.json", "{\"version\":1,\"theme\":0}");
+    writeText(b / "User" / "bookmarks.db", "old");
+    writeText(b / "User" / "bookmarks.db-wal", "old wal");
+    writeText(b / "User" / "downloads.db", "B's downloads");
+    writeText(b / "User" / "references" / "old.png", "OLD");
+    bk::Manifest m;
+    CHECK(bk::unpack(root / "backup.zip", b, m, err));
+    CHECK(m.appVersion == "0.8.0" && m.made == "2026-11-14 19:40" && !m.history);
+    CHECK(bk::pending(b));
+    CHECK(readText(b / "settings.json").find("\"theme\":0") != std::string::npos);   // nothing replaced yet
+    fs::path kept;
+    CHECK(bk::applyPending(b, err, &kept, "2026-11-14 1945"));
+    CHECK(!bk::pending(b) && !fs::exists(b / "Restore"));
+    CHECK(readText(b / "settings.json").find("\"theme\":2") != std::string::npos);
+    CHECK(readText(b / "User" / "start-notes.txt") == "Buy ink");
+    CHECK(readText(b / "User" / "references" / "ab12.png") == "PNGDATA");
+    CHECK(!fs::exists(b / "User" / "references" / "old.png"));
+    CHECK(!fs::exists(b / "User" / "bookmarks.db-wal"));                       // the old journal went with the old database
+    CHECK(readText(b / "User" / "downloads.db") == "B's downloads");           // not in backups: left alone
+    CHECK(kept == b / "Before restore 2026-11-14 1945");
+    CHECK(readText(kept / "User" / "bookmarks.db-wal") == "old wal" && readText(kept / "settings.json").find("\"theme\":0") != std::string::npos);
+    CHECK(readText(kept / "User" / "references" / "old.png") == "OLD");
+    {
+        auto bm = BookmarkStore::open((b / "User" / "bookmarks.db").string(), err);
+        CHECK(bm && bm->count() == 1 && bm->children(BookmarkStore::kBar).size() == 1);
+    }
+    CHECK(bk::applyPending(b, err));   // nothing waiting: nothing to do
+
+    // What isn't a backup, or isn't a safe one.
+    writeText(root / "not.zip", "hello");
+    CHECK(!bk::unpack(root / "not.zip", b, m, err) && !bk::pending(b));
+    CHECK(bk::allowedEntry("User/references/ab12.png") && bk::allowedEntry("User/start-background-1.jpg"));
+    CHECK(!bk::allowedEntry("User/references/../../evil.exe") && !bk::allowedEntry("../settings.json") && !bk::allowedEntry("User/x.db"));
+    CHECK(!bk::allowedEntry("User/references/sub/x.png") && !bk::allowedEntry("User/start-background-..\\x") && !bk::allowedEntry("/etc/passwd"));
+    CHECK(!bk::allowedEntry("User/references/.hidden"));
+    {
+        // A newer version's backup is refused, and so is a damaged database.
+        auto zipOf = [&](const fs::path& out, const std::vector<std::pair<std::string, std::string>>& files) {
+            mz_zip_archive z{};
+            mz_zip_writer_init_heap(&z, 0, 4096);
+            for (auto& [n, d] : files) mz_zip_writer_add_mem(&z, n.c_str(), d.data(), d.size(), 0);
+            void* buf = nullptr;
+            size_t size = 0;
+            mz_zip_writer_finalize_heap_archive(&z, &buf, &size);
+            writeText(out, std::string(static_cast<char*>(buf), size));
+            mz_free(buf);
+            mz_zip_writer_end(&z);
+        };
+        zipOf(root / "newer.zip", {{"manifest.json", "{\"app\":\"NorthRay Browser\",\"kind\":\"backup\",\"version\":9}"}});
+        CHECK(!bk::unpack(root / "newer.zip", b, m, err) && err.find("newer") != std::string::npos);
+        zipOf(root / "bad.zip", {{"manifest.json", "{\"app\":\"NorthRay Browser\",\"kind\":\"backup\",\"version\":1}"},
+                                 {"User/bookmarks.db", "garbage"},
+                                 {"../../outside.txt", "x"}});
+        CHECK(!bk::unpack(root / "bad.zip", b, m, err) && err.find("bookmarks.db") != std::string::npos);
+        CHECK(!bk::pending(b) && !fs::exists(root / "outside.txt"));
+    }
+    fs::remove_all(root);
+}
+
 int main() {
     testWeather();
+    testBackup();
     testReferences();
     testDownloads();
     testBlocker();

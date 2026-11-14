@@ -172,3 +172,28 @@ storage (bookmarks, history, sessions) with migrations, beside `studiocore`'s pr
   - A change of shape refits the window (same width, height to match, at most 90% of the screen, bottom edge kept). `WM_SIZING` holds the shape while resizing.
   - The controls are a second layered window owned by the pop-out, along its bottom: back 10, play or pause, forward 10 (drawn with GDI), and "Skip ad" when it's offered. With the mouse elsewhere and a skip offered, a small window with only "Skip ad" sits in the bottom right corner.
   - The scripts were tested in Chromium with Playwright: seeking, play and pause, YouTube's skip slot and button, and a plain "Skip Ad" link, with no false sightings from the player's own text.
+
+## 10. Back up and restore (0.8.0)
+
+The roadmap's "sync: none, local only (export/import file)".
+
+- `core/backup.*` (portable, tested in `testBackup`): `make` writes a zip (miniz, built on the heap, then written to
+  `<file>.part` and renamed) with `manifest.json` (app, kind, version 1, app version, when, whether history is in it,
+  file count), `settings.json`, consistent copies of `bookmarks.db`, `history.db` (optional) and `references.db` made
+  with SQLite's `VACUUM INTO` (safe while the stores are open in WAL mode), the reference pictures, the start page notes
+  and background. Saved passwords, sign-ins (the engine's store), the downloads list and the cache are never included.
+- `unpack` refuses anything that isn't ours (manifest app/kind), a newer format version, or names outside an
+  allow-list (`allowedEntry`: no `..`, separators, drive letters or hidden names; references and backgrounds by plain
+  file name only), extracts to `<state>\Restore`, checks each database (`PRAGMA quick_check` and its main table), and
+  writes `Restore\ready`.
+- `applyPending` runs in `main.cpp` before settings or any store is opened: each unit (settings.json, each file in
+  User, the references folder) is moved to `Before restore <stamp>` together with its `-wal/-shm/-journal`, then the
+  backup's is moved in; any failure moves everything back. Files the backup doesn't hold (downloads.db, history when it
+  wasn't included) are left alone.
+- The menu's "Back up and restore": Back up asks whether to include history and where to save; Restore unpacks, then
+  offers to restart now (a new process with `--after-restore` waits for this window to close) or at the next start.
+- The shared miniz target now builds its writing functions (`MINIZ_NO_ARCHIVE_WRITING_APIS` removed).
+- cjui menus: a search field from 13 choices; only lists of 30+ (or taller than the screen) are capped and scroll,
+  so app menus show whole.
+- Tested in Wine (`--no-engine`): a backup with history (11 files, checked with `unzip -l`), a change to the notes,
+  then a restore with restart: the notes came back and the replaced files were in "Before restore 2026-11-14 1944".

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.8.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Back up and restore (in the menu): one file holding your bookmarks, reference boards and their pictures, start page notes and background, settings, and (if you choose) your history. Keep it, or take it to another PC: no account, nothing leaves your computer unless you move the file.",
+        "Restoring checks the backup first, then restarts the browser to put it in place. Whatever it replaces is kept in a “Before restore” folder, so nothing is lost.",
+        "Saved passwords and sign-ins aren't in backups: they stay in the engine's protected store on this PC. The downloads list isn't either, as it points at files on this PC.",
+        "Long menus show whole again when they fit on the screen; only very long lists scroll."
+      ]
+    },
+    {
       "version": "0.7.2",
       "date": "2026-11-14",
       "notes": [

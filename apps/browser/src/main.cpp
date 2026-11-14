@@ -4,11 +4,14 @@
 #include "settings.hpp"
 
 #include "cjui/packages.hpp"
+#include "nrb/backup.hpp"
 
 #include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
 
+#include <ctime>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -76,13 +79,32 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 1;
 
     const std::vector<std::wstring> args = commandLineAddresses();
-    if (cjui::isAppRunning("browser") && forwardToRunningWindow(args)) {
+    if (hasSwitch(L"--after-restore")) {
+        // Restarted to finish a restore: wait for the old window to close (it saves as it goes).
+        for (int i = 0; i < 100 && FindWindowW(nrb::BrowserWindow::kClassName, nullptr); ++i) Sleep(100);
+    }
+    if (cjui::isAppRunning("browser") && !hasSwitch(L"--after-restore") && forwardToRunningWindow(args)) {
         CoUninitialize();
         return 0;
     }
     void* running = cjui::markAppRunning("browser");
 
     const std::wstring state = stateFolder();
+    // A restore that's waiting is finished before anything is opened.
+    std::wstring restoreNotice;
+    if (nrb::backup::pending(std::filesystem::path(state))) {
+        std::time_t now = std::time(nullptr);
+        std::tm t{};
+        localtime_s(&t, &now);
+        char stamp[32];
+        std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H%M", &t);
+        std::string error;
+        std::filesystem::path kept;
+        if (nrb::backup::applyPending(std::filesystem::path(state), error, &kept, stamp))
+            restoreNotice = L"Restored from the backup." + std::wstring(kept.empty() ? L"" : L" What it replaced is in \u201C" + kept.filename().wstring() + L"\u201D.");
+        else
+            MessageBoxW(nullptr, std::wstring(error.begin(), error.end()).c_str(), L"NorthRay Browser", MB_ICONWARNING);
+    }
     const std::wstring settingsPath = state + L"\\settings.json";
     nrb::Settings settings;
     settings.load(settingsPath);
@@ -97,6 +119,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
             code = 1;
         } else {
             if (hasSwitch(L"--no-engine")) window.setEngineOffForDevelopment();
+            if (!restoreNotice.empty()) window.notice(restoreNotice, 12);
             nrb::EngineOptions eo;
             // Browsing data (cache, cookies, site storage) lives apart from
             // anything the person makes, so clearing it can't touch their work.

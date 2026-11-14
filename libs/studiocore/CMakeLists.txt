@@ -18,7 +18,7 @@ add_library(miniz STATIC ${CMAKE_SOURCE_DIR}/libs/third_party/miniz/miniz.c ${CM
                          ${CMAKE_SOURCE_DIR}/libs/third_party/miniz/miniz_tinfl.c ${CMAKE_SOURCE_DIR}/libs/third_party/miniz/miniz_zip.c)
 target_include_directories(miniz PUBLIC ${CMAKE_SOURCE_DIR}/libs/third_party/miniz)
 # Reading only: no file I/O inside miniz (we pass it memory), no writing archives.
-target_compile_definitions(miniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_ARCHIVE_WRITING_APIS MINIZ_NO_TIME)
+target_compile_definitions(miniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_TIME)   # writing: the Browser's backups
 if(NOT MSVC)
   target_compile_options(miniz PRIVATE -w)
 endif()

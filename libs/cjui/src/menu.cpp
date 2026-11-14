@@ -57,7 +57,8 @@ constexpr float kRadius = 8;
 constexpr UINT_PTR kSubmenuTimer = 1;
 constexpr UINT kSubmenuDelayMs = 200;
 constexpr int kSearchFrom = 13;       // a menu with more choices than this has a search field
-constexpr int kMostRowsShown = 14;    // and longer ones scroll (by wheel or keys)
+constexpr int kMostRowsShown = 16;    // and very long ones (or ones taller than the screen) scroll
+constexpr int kLongList = 30;
 
 const wchar_t* kClass = L"CJUIMenu";
 
@@ -272,7 +273,8 @@ struct Session {
         L->listTop = kPad + (L->searchable ? kRowH + 4 : 0);
         // As tall as it needs, up to a screenful (and long lists to a comfortable number of rows).
         float most = (float)(wa.bottom - wa.top) / scale - 16;
-        if (L->searchable) most = std::min(most, L->listTop + kPad + kRowH * kMostRowsShown);
+        // Very long lists stop at a comfortable height; app menus show whole when they fit.
+        if (choices >= kLongList) most = std::min(most, L->listTop + kPad + kRowH * kMostRowsShown);
         const float h = std::min(L->listTop + content + kPad, std::max(L->listTop + kPad + kRowH * 3, most));
         L->w = w;
         L->h = h;
