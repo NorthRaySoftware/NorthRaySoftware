@@ -41,9 +41,16 @@ test("adverbs on dialogue tags, not in narration elsewhere", () => {
   assert.deepEqual(of(early, "tagAdverb"), []);
 });
 
-test("fancy dialogue tags only next to dialogue", () => {
-  const r = run(["“Out,” she hissed.", "The kettle hissed on the stove."]);
-  assert.deepEqual(of(r, "bookism"), ["hissed"]);
+test("fancy dialogue tags: only when overdone, and only next to dialogue", () => {
+  // One in a tense scene: left alone. Action tags: always.
+  assert.deepEqual(of(run(["“Run!” he screamed.", "“Fine,” she smiled.", "The kettle hissed on the stove."]), "bookism"), ["smiled"]);
+  // The same one a third time.
+  assert.deepEqual(of(run(["“A,” she hissed.", "“B,” she hissed.", "“C,” she hissed.", "“D,” he said."]), "bookism"), ["hissed"]);
+  // More fancy than plain (five or more): all of them.
+  const many = run(["“A,” she hissed.", "“B,” he growled.", "“C,” she snapped.", "“D,” he barked.", "“E,” she yelled.", "“F,” he said."]);
+  assert.equal(of(many, "bookism").length, 5);
+  // Mostly said: fine.
+  assert.deepEqual(of(run(["“A,” she hissed.", "“B,” he growled.", "“C,” she said.", "“D,” he said.", "“E,” she said."]), "bookism"), []);
 });
 
 test("redundancy and cliché in narration, not in speech", () => {
@@ -159,7 +166,7 @@ test("fixes: doubled, filler, redundancy, tags, cliché, began, spelling", () =>
   t = "The end result was clear.";
   const r = one(t, "redundancy");
   assert.equal(apply(t, r.fixes[0]), "The result was clear.");
-  t = "“Where?” she hissed.";
+  t = "“Where?” she smiled.";
   const bk = one(t, "bookism");
   assert.equal(bk.fixes[0].text, "asked");
   t = "“Go,” she said quietly.";
@@ -191,4 +198,22 @@ test("writers' replace and consistent rules offer their word", () => {
   const rep = res.hints.find((h) => h.rule === "r1"), con = res.hints.find((h) => h.rule === "r2");
   assert.equal(apply(t, rep.fixes[0]), "The eyes glowed. Kathryn and Katherine.");
   assert.equal(con.fixes[0].text, "Kathryn");
+});
+
+test("fixes: stronger verbs, active voice, long sentences, there was, repeated starts", () => {
+  let t = "“Go,” she said quietly.";
+  const ad = one(t, "tagAdverb");
+  assert.ok(ad.fixes.some((f) => apply(t, f) === "“Go,” she whispered."));
+  t = "The cake was eaten by the dog.";
+  assert.equal(apply(t, one(t, "passive").fixes[0]), "The dog ate the cake.");
+  t = "The lantern swung from the beam above the table where the old men played cards every night, and the light it threw moved over the walls and the faces and the cards like water moving in a slow river.";
+  const lg = one(t, "long", { longSentence: 30 });
+  assert.ok(lg.fixes.length >= 1);
+  assert.ok(lg.fixes.some((f) => apply(t, f).includes("night. The light")));
+  t = "There was a dog barking in the yard.";
+  assert.equal(apply(t, one(t, "thereIs").fixes[0]), "A dog was barking in the yard.");
+  t = "She ran. She fell. She rose.";
+  assert.equal(apply(t, one(t, "starts").fixes[0]), "She ran. She fell and rose.");
+  t = "She saw the door open.";
+  assert.match(one(t, "filter").msg, /swung open/);
 });

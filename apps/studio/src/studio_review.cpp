@@ -485,10 +485,48 @@ void StudioApp::drawReviewPage(const Rect& r) {
                 ax += gfx_.measureWidth(t, Font::Small) + 18;
             };
             if (!is.nodes.empty())
-                act("rv:nm:open:" + is.name, L"Show it", [this, nid = is.nodes.front()] {
-                    writingBook_ = rv_.book;
-                    currentNode_ = nid;
-                    openWriting(rv_.book);
+                act("rv:nm:open:" + is.name, L"Show it", [this, nid = is.nodes.front(), nm = is.name] {
+                    showInWriting(rv_.book, nid, {nm});
+                });
+            // Change every use in the book: to the name it looks like, or to any name in the bible.
+            if (variant)
+                act("rv:nm:change:" + is.name, L"Change to " + w(is.like), [this, from = is.name, to = is.like] { changeNameEverywhere(from, to); });
+            else
+                act("rv:nm:changeto:" + is.name, L"Change to\u2026", [this, from = is.name] {
+                    const studio::Book* bk = lib_->book(rv_.book);
+                    if (!bk) return;
+                    // The bible's names, closest spelling first.
+                    std::vector<std::string> names;
+                    for (const Entry* e : bk->worldId.empty() ? lib_->entriesOf({}, bk->id) : lib_->entriesOf(bk->worldId)) {
+                        names.push_back(e->name);
+                        for (auto& a : e->aliases) names.push_back(a);
+                    }
+                    if (names.empty()) { flash(L"The bible has no names yet. Add some in Worldbuilding.", 5); return; }
+                    auto dist = [](const std::wstring& a, const std::wstring& b) {
+                        std::vector<int> d(b.size() + 1);
+                        for (size_t j = 0; j <= b.size(); ++j) d[j] = (int)j;
+                        for (size_t i = 1; i <= a.size(); ++i) {
+                            int prev = d[0];
+                            d[0] = (int)i;
+                            for (size_t j = 1; j <= b.size(); ++j) {
+                                const int t = d[j];
+                                d[j] = std::min({d[j] + 1, d[j - 1] + 1, prev + (towlower(a[i - 1]) == towlower(b[j - 1]) ? 0 : 1)});
+                                prev = t;
+                            }
+                        }
+                        return d[b.size()];
+                    };
+                    const std::wstring wf = w(from);
+                    std::stable_sort(names.begin(), names.end(), [&](const std::string& a, const std::string& b) { return dist(wf, w(a)) < dist(wf, w(b)); });
+                    names.erase(std::unique(names.begin(), names.end()), names.end());
+                    if (names.size() > 25) names.resize(25);
+                    HMENU m = CreatePopupMenu();
+                    for (size_t i = 0; i < names.size(); ++i) AppendMenuW(m, MF_STRING, 1 + (UINT)i, w(names[i]).c_str());
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    const int i = (int)cjui::trackMenu(m, pt, hwnd()) - 1;
+                    DestroyMenu(m);
+                    if (i >= 0) changeNameEverywhere(from, names[(size_t)i]);
                 });
             if (variant)
                 act("rv:nm:alias:" + is.name, L"It's another name for " + w(is.like), [this, eid = is.entryId, nm = is.name] {
@@ -500,13 +538,24 @@ void StudioApp::drawReviewPage(const Rect& r) {
                         flash(L"Added “" + w(nm) + L"” as another name for " + w(e->name) + L".", 5);
                     }
                 });
-            act("rv:nm:add:" + is.name, L"Add to the bible", [this, nm = is.name] {
+            act("rv:nm:add:" + is.name, L"Add to the bible\u2026", [this, nm = is.name] {
                 const studio::Book* bk = lib_->book(rv_.book);
                 if (!bk) return;
-                const Id id = lib_->createEntry(bk->worldId, bk->worldId.empty() ? bk->id : Id{}, "character", nm);
+                // As what kind of entry.
+                HMENU m = CreatePopupMenu();
+                for (size_t i = 0; i < entryKinds().size(); ++i) AppendMenuW(m, MF_STRING, 1 + (UINT)i, w(entryKindLabel(entryKinds()[i])).c_str());
+                POINT pt;
+                GetCursorPos(&pt);
+                const int k = (int)cjui::trackMenu(m, pt, hwnd()) - 1;
+                DestroyMenu(m);
+                if (k < 0) return;
+                const std::string kind = entryKinds()[(size_t)k];
+                const Id id = lib_->createEntry(bk->worldId, bk->worldId.empty() ? bk->id : Id{}, kind, nm);
                 if (id.empty()) { flash(w(lib_->lastError()), 6); return; }
                 rv_.namesDone = false;
-                flash(L"Added “" + w(nm) + L"” to the bible as a character. Change its kind in Worldbuilding if it isn't one.", 6);
+                std::string l = entryKindLabel(kind);
+                for (auto& c : l) c = (char)std::tolower((unsigned char)c);
+                flash(L"Added “" + w(nm) + L"” to the bible as a " + w(l) + L".", 5);
             });
             act("rv:nm:ok:" + is.name, L"It's fine", [this, nm = is.name] {
                 json j = json::parse(lib_->setting("names-ok:" + rv_.book), nullptr, false);
@@ -670,6 +719,23 @@ void StudioApp::drawReviewPanel(const Rect& r) {
     }
     clearHitClip();
     gfx_.popClip();
+}
+
+// Review's "Change to": every use of a name in the book, after asking.
+void StudioApp::changeNameEverywhere(const std::string& from, const std::string& to) {
+    const studio::Book* bk = lib_->book(rv_.book);
+    if (!bk || from == to) return;
+    const std::wstring ask = L"Change every “" + w(from) + L"” in " + w(bk->title) + L" to “" + w(to) + L"”?\n\n"
+                             L"Each chapter's text before the change is kept in its versions (Review › Changes), so it can be put back.";
+    if (MessageBoxW(hwnd(), ask.c_str(), L"Change a name", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    std::vector<Id> changed;
+    const int n = review::replaceName(*lib_, rv_.book, from, to, &changed);
+    if (std::find(changed.begin(), changed.end(), currentNode_) != changed.end()) sendLoad();   // the open chapter shows it
+    rv_.namesDone = false;
+    flash(n == 0 ? L"“" + w(from) + L"” wasn't found to change."
+                 : L"Changed " + std::to_wstring(n) + (n == 1 ? L" use" : L" uses") + L" in " + std::to_wstring(changed.size()) +
+                       (changed.size() == 1 ? L" chapter." : L" chapters."), 6);
+    invalidate();
 }
 
 }  // namespace nrs

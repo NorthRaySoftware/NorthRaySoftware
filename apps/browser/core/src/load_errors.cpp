@@ -2,7 +2,9 @@
 
 namespace nrb {
 
-bool isSilentLoadFailure(LoadFailure f) { return f == LoadFailure::Cancelled; }
+// Cancelled (Stop, or a new address) and aborted (a link that became a download, or a page that moved on to
+// another address before it finished) aren't failures to show: other browsers say nothing either.
+bool isSilentLoadFailure(LoadFailure f) { return f == LoadFailure::Cancelled || f == LoadFailure::ConnectionAborted; }
 
 LoadErrorText describeLoadFailure(LoadFailure f, std::string_view hostIn) {
     const std::string host = hostIn.empty() ? std::string("the site") : std::string(hostIn);

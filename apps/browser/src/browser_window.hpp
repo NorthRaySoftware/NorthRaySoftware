@@ -6,6 +6,7 @@
 
 #include "engine.hpp"
 #include "nrb/bookmarks.hpp"
+#include "nrb/history.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
@@ -50,6 +51,7 @@ protected:
     void onMouseMove(float x, float y, bool leftDown) override;
     bool onMouseUp(float x, float y) override;
     bool onRightClick(float x, float y) override;
+    bool onWheel(float x, float y, float deltaLines) override;
     const char* navPrefix() const override { return "tb:"; }
 
 private:
@@ -59,6 +61,9 @@ private:
         std::wstring pendingUrl;          // to open once the engine is ready
         bool showStart = true;            // the NorthRay start page instead of a web page
         bool bookmarksPage = false;       // with showStart: the bookmarks page instead of the start page
+        bool historyPage = false;         // with showStart: the history page
+        std::int64_t visitId = 0;         // the history visit of the page showing (for its title)
+        std::string visitUrl;
         std::optional<LoadErrorText> error;
         std::wstring errorUrl;
         std::wstring lastTyped;           // for "Search instead"
@@ -157,7 +162,7 @@ private:
 
     bool closing_ = false;
     int dragTab_ = 0;
-    float dragStartX_ = 0;
+    float dragStartX_ = 0, dragStartY_ = 0;
     bool dragging_ = false;
     std::vector<std::pair<int, cjui::Rect>> tabRects_;
     std::wstring windowTitle_;
@@ -204,6 +209,24 @@ private:
     cjui::Rect renameRect_{}, pageSearchRect_{}, startSearchRect_{};
     bool renameVisible_ = false, pageSearchVisible_ = false, startSearchVisible_ = false;
     bool clearPasswordsWhenReady_ = false;
+
+    // ---- History (browser_history.cpp)
+    void openHistoryStore();
+    void recordVisit(int id, const std::wstring& uri);
+    void showHistoryPage();
+    void drawHistoryPage(const cjui::Rect& r);
+    void clearHistoryMenu(POINT screen);
+    void setPageSearchCue(const wchar_t* cue);
+    std::wstring pageSearchCue_;
+    std::unique_ptr<HistoryStore> history_;
+
+    // ---- Tabs down the side (settings_.verticalTabs)
+    void drawSideTabs(const cjui::Rect& r);
+    void setVerticalTabs(bool on);
+    float sideW() const;
+    float sideScroll_ = 0, sideContentH_ = 0;
+    cjui::Rect sideRect_{};
+    bool drawingSide_ = false;   // drawTab: a row in the side list
 
     // ---- Start page (browser_start.cpp)
     void drawStartTiles(const cjui::Rect& area, float& y);

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 
 namespace nrs {
@@ -43,6 +44,139 @@ static std::wstring initials(const std::string& name) {
         start = false;
     }
     return out.empty() ? L"?" : out;
+}
+
+// ------------------------------------------------------------- gender and place types
+// Kept as a line of the entry's details ("Gender: Female", "Type: City"), so what writers have
+// already written counts, and it's still plain text they can edit.
+
+// Each kind's colour (the editor's links and name cards use the same ones).
+static cjui::Color kindColor(const std::string& kind, bool dark) {
+    struct K { const char* k; const char* light; const char* dark; };
+    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"},
+                           {"group", "#7D5BD0", "#AE93F2"},     {"thing", "#B08A1E", "#E0BE55"},    {"lore", "#1E97A6", "#55C6D4"},
+                           {"event", "#C9476A", "#F07C98"}};
+    for (auto& x : ks) if (kind == x.k) return cjui::hexColor(dark ? x.dark : x.light);
+    return cjui::hexColor(dark ? "#7AA9F0" : "#3E7BD6");
+}
+
+struct Facet {
+    std::string key;                    // "gender"
+    std::wstring title;                 // "Gender or sex"
+    std::string written;                // the label a new line gets: "Gender"
+    std::vector<std::string> labels;    // labels it's read from (lower case)
+    std::vector<std::wstring> options;  // offered in the chooser
+    bool openList;                      // options the world has written come first (races, realms)
+};
+static const std::vector<Facet>& allFacets() {
+    static const std::vector<Facet> f = {
+        {"gender", L"Gender or sex", "Gender", {"gender", "sex", "gender/sex", "gender or sex"},
+         {L"Female", L"Male", L"Non-binary", L"Genderfluid", L"Agender", L"Intersex", L"Not applicable", L"Unknown", L"Other"}, false},
+        {"race", L"Race", "Race", {"race", "species", "people", "kin"},
+         {L"Human", L"Elf", L"Dwarf", L"Halfling", L"Orc", L"Goblin", L"Giant", L"Dragon", L"Fae", L"Merfolk", L"Vampire",
+          L"Werewolf", L"Undead", L"Spirit", L"Demon", L"Angel", L"Android or robot", L"Alien", L"Beast", L"Other"}, true},
+        {"realm", L"Realm or plane", "Realm", {"realm", "plane", "world of origin", "realm/plane"},
+         {L"Mortal world", L"Heaven", L"Hell", L"Underworld", L"Purgatory", L"Fae realm", L"Spirit world", L"Dream world",
+          L"Astral plane", L"Elemental plane", L"The Void", L"Other"}, true},
+        {"type", L"Type of place", "Type", {"type", "kind of place", "place type"},
+         {L"City", L"Town", L"Village", L"Kingdom or country", L"Region", L"Castle or fortress", L"Building", L"Room", L"Forest",
+          L"Mountain", L"River or lake", L"Sea or ocean", L"Island", L"Desert", L"Cave or dungeon", L"Ruin", L"Road or path",
+          L"Realm or plane", L"Planet", L"Other"}, false},
+        {"ctype", L"Type of creature", "Type", {"type", "kind of creature", "creature type"},
+         {L"Beast", L"Monster", L"Dragon", L"Undead", L"Spirit", L"Animal", L"Bird", L"Sea creature", L"Insect", L"Plant",
+          L"Construct", L"Other"}, false},
+    };
+    return f;
+}
+static const Facet* findFacet(const std::string& key) {
+    for (auto& f : allFacets()) if (f.key == key) return &f;
+    return nullptr;
+}
+// The facets an entry of this kind has, in the order they're shown.
+static std::vector<const Facet*> facetsFor(const std::string& kind) {
+    std::vector<std::string> keys;
+    if (kind == "character") keys = {"gender", "race", "realm"};
+    else if (kind == "creature") keys = {"ctype", "realm"};
+    else if (kind == "place") keys = {"type", "realm"};
+    std::vector<const Facet*> out;
+    for (auto& k : keys) out.push_back(findFacet(k));
+    return out;
+}
+static std::string trimmedCopy(std::string s) {
+    while (!s.empty() && std::isspace((unsigned char)s.back())) s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && std::isspace((unsigned char)s[i])) ++i;
+    return s.substr(i);
+}
+static bool isFacetLine(const std::string& line, const Facet& f, size_t& colon) {
+    colon = line.find(':');
+    if (colon == std::string::npos) return false;
+    std::string label = trimmedCopy(line.substr(0, colon));
+    for (auto& c : label) c = (char)std::tolower((unsigned char)c);
+    return std::find(f.labels.begin(), f.labels.end(), label) != f.labels.end();
+}
+// The entry's value for a facet, as written ("" when not set).
+static std::string facetOf(const Entry& e, const Facet& f) {
+    size_t at = 0;
+    while (at < e.details.size()) {
+        size_t nl = e.details.find('\n', at);
+        if (nl == std::string::npos) nl = e.details.size();
+        const std::string line = e.details.substr(at, nl - at);
+        size_t colon;
+        if (isFacetLine(line, f, colon)) {
+            std::string v = trimmedCopy(line.substr(colon + 1));
+            if (!v.empty()) v[0] = (char)std::toupper((unsigned char)v[0]);
+            return v;
+        }
+        at = nl + 1;
+    }
+    return {};
+}
+// Sets (or, with "", removes) the facet's line, keeping the others where they are.
+static std::string withFacet(const Entry& e, const Facet& f, const std::string& value) {
+    std::string out;
+    bool done = false;
+    size_t at = 0;
+    while (at < e.details.size()) {
+        size_t nl = e.details.find('\n', at);
+        if (nl == std::string::npos) nl = e.details.size();
+        const std::string line = e.details.substr(at, nl - at);
+        size_t colon;
+        if (isFacetLine(line, f, colon)) {
+            if (!done && !value.empty()) out += trimmedCopy(line.substr(0, colon)) + ": " + value + "\n";
+            done = true;
+        } else {
+            out += line + "\n";
+        }
+        at = nl + 1;
+    }
+    if (!done && !value.empty()) out = f.written + ": " + value + "\n" + out;
+    while (!out.empty() && out.back() == '\n') out.pop_back();
+    return out;
+}
+// The choices for a facet: for open lists, what this world already uses comes first.
+static std::vector<std::wstring> facetChoices(const Facet& f, const std::vector<const Entry*>& scope, const std::string& kind) {
+    std::vector<std::wstring> out;
+    if (f.openList)
+        for (const Entry* x : scope)
+            if (x->kind == kind) {
+                const std::wstring v = widen(facetOf(*x, f));
+                if (!v.empty() && std::find(out.begin(), out.end(), v) == out.end() &&
+                    std::find(f.options.begin(), f.options.end(), v) == f.options.end())
+                    out.push_back(v);
+            }
+    std::sort(out.begin(), out.end());
+    for (auto& o : f.options) out.push_back(o);
+    return out;
+}
+// wb_.facet is "key=value" ("key=-" for not set).
+static bool facetMatches(const Entry& e, const std::string& filter) {
+    if (filter.empty()) return true;
+    const size_t eq = filter.find('=');
+    const Facet* f = findFacet(filter.substr(0, eq));
+    if (!f || eq == std::string::npos) return true;
+    const std::string v = facetOf(e, *f), want = filter.substr(eq + 1);
+    return want == "-" ? v.empty() : v == want;
 }
 
 // ------------------------------------------------------------- opening
@@ -135,15 +269,28 @@ void StudioApp::addRelationship() {
     std::vector<const Entry*> others;
     for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) if (x->id != e->id) others.push_back(x);
     if (others.empty()) { flash(L"Add another entry first, then link the two.", 5); return; }
+    // The relationships that suit this kind of entry, then the entries that suit that relationship
+    // (the usual kinds first, the rest after a line).
+    const auto& choices = relationsFor(e->kind);
     std::vector<std::wstring> labels;
-    for (auto& r : relations()) labels.push_back(w(r.label));
+    for (auto& r : choices) labels.push_back(w(r.label));
     const int li = popupAt(hwnd(), labels);
     if (li < 0) return;
-    std::vector<std::wstring> names;
-    for (const Entry* x : others) names.push_back(w(x->name) + L"   (" + w(entryKindLabel(x->kind)) + L")");
-    const int oi = popupAt(hwnd(), names);
+    const std::string targets = std::string(" ") + choices[li].targets + " ";
+    auto fits = [&](const Entry* x) { return targets == "  " || targets.find(" " + x->kind + " ") != std::string::npos; };
+    std::stable_partition(others.begin(), others.end(), fits);
+    const size_t good = (size_t)std::count_if(others.begin(), others.end(), fits);
+    HMENU m = CreatePopupMenu();
+    for (size_t i = 0; i < others.size(); ++i) {
+        if (i == good && good > 0 && good < others.size()) AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(m, MF_STRING, 1 + (UINT)i, (w(others[i]->name) + L"   (" + w(entryKindLabel(others[i]->kind)) + L")").c_str());
+    }
+    POINT pt;
+    GetCursorPos(&pt);
+    const int oi = (int)cjui::trackMenu(m, pt, hwnd()) - 1;
+    DestroyMenu(m);
     if (oi < 0) return;
-    if (!lib_->addLink(e->id, others[oi]->id, relations()[li].label)) flash(w("Couldn't link them: " + lib_->lastError()), 6);
+    if (!lib_->addLink(e->id, others[oi]->id, choices[li].label)) flash(w("Couldn't link them: " + lib_->lastError()), 6);
     invalidate();
 }
 
@@ -252,14 +399,17 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const Rect rr{x, y, wd, 30};
         addHit(id, rr, [this, kind] {
             wb_.kind = kind;
+            wb_.facet.clear();
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.entry.empty() && wb_.board.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(label, {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (!kind.empty()) gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 3.5f, kindColor(kind, pal_.dark), true);
+        const float lx = kind.empty() ? tx0 : tx0 + 16;
+        gfx_.text(label, {lx, rr.y, cw - 30 - (lx - tx0), rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
         if (focused(id)) focusRing(rr);
         y += 32;
@@ -269,6 +419,35 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         int n = 0;
         for (auto* e : all) if (e->kind == k) ++n;
         row(k, w(entryKindPlural(k)), n);
+        // The selected kind's entries by gender, race, realm or type: the values in use, with counts.
+        if (wb_.kind == k && n > 0)
+            for (const Facet* f : facetsFor(k)) {
+                std::map<std::string, int> counts;
+                int unset = 0;
+                for (auto* e : all) if (e->kind == k) { const std::string v = facetOf(*e, *f); if (v.empty()) ++unset; else ++counts[v]; }
+                if (counts.empty()) continue;   // nothing set yet: no list to show
+                gfx_.text(upper(f->title), {tx0 + 14, y + 4, cw - 14, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 22;
+                auto sub = [&](const std::string& value, const std::wstring& label, int count) {
+                    const std::string filter = f->key + "=" + value;
+                    const std::string id = "side:wb:facet:" + k + ":" + filter;
+                    const Rect rr{x + 14, y, wd - 14, 26};
+                    addHit(id, rr, [this, k, filter] { wb_.kind = k; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
+                    const bool sel = wb_.facet == filter && wb_.entry.empty() && wb_.board.empty();
+                    const float hv = hoverAmount(id);
+                    if (sel) gfx_.fillRounded(rr, 3, pal_.surface);
+                    else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                    gfx_.text(label, {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
+                              {Align::Left, false, true, true});
+                    gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+                    if (focused(id)) focusRing(rr);
+                    y += 27;
+                };
+                for (auto& o : f->options) if (auto it = counts.find(narrow(o)); it != counts.end()) { sub(it->first, o, it->second); counts.erase(it); }
+                for (auto& [v, cnt] : counts) sub(v, w(v), cnt);
+                if (unset) sub("-", L"Not set", unset);
+                y += 4;
+            }
     }
     y += 20;
     // Image boards.
@@ -339,8 +518,17 @@ void StudioApp::drawWorldPage(const Rect& r) {
         if (const World* wo = lib_->world(wb_.world)) scopeName = w(wo->name);
         else if (const studio::Book* b = lib_->book(wb_.book)) scopeName = w(b->title);
         std::vector<const Entry*> list;
-        for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) if (wb_.kind.empty() || x->kind == wb_.kind) list.push_back(x);
-        const std::wstring title = wb_.kind.empty() ? scopeName : w(entryKindPlural(wb_.kind));
+        for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) {
+            if (!wb_.kind.empty() && x->kind != wb_.kind) continue;
+            if (!facetMatches(*x, wb_.facet)) continue;
+            list.push_back(x);
+        }
+        std::wstring title = wb_.kind.empty() ? scopeName : w(entryKindPlural(wb_.kind));
+        if (const size_t eq = wb_.facet.find('='); eq != std::string::npos) {
+            const Facet* f = findFacet(wb_.facet.substr(0, eq));
+            const std::string v = wb_.facet.substr(eq + 1);
+            if (f) title += L": " + (v == "-" ? f->title + L" not set" : w(v));
+        }
         std::wstring sub = std::to_wstring(list.size()) + (list.size() == 1 ? L" entry" : L" entries");
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
         y += pageHeader(m, L"WORLDBUILDING", title, sub);
@@ -364,15 +552,24 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 addHit(id, cr, [this, eid = x->id] { openEntry(eid); });
                 const float hv = hoverAmount(id);
                 softShadow(cr, 4, hv);
+                const cjui::Color kc = kindColor(x->kind, pal_.dark);
                 gfx_.fillRounded(cr, 4, pal_.surface);
-                gfx_.strokeRounded(cr, 4, pal_.rule.mix(pal_.inkFaint, hv), 1);
-                const Rect pic{cr.x + 12, cr.y + 12, 72, 72};
+                gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
+                // The kind's colour: a band down the left edge, and the initials' circle.
+                gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
+                const Rect pic{cr.x + 14, cr.y + 12, 72, 72};
                 if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-                    gfx_.fillRounded(pic, 36, accentOfWorld(wb_.world).withAlpha(0.18f));
-                    gfx_.text(initials(x->name), pic, Font::Heading, pal_.ink, {Align::Center, false, false, true});
+                    gfx_.fillRounded(pic, 36, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+                    gfx_.strokeRounded(pic.inset(0.75f), 35.25f, kc.withAlpha(0.45f), 1.5f);
+                    gfx_.text(initials(x->name), pic, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
                 }
                 const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
-                gfx_.text(upper(w(entryKindLabel(x->kind))), {tx, cr.y + 13, tw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+                {
+                    std::wstring label = upper(w(entryKindLabel(x->kind)));
+                    for (const Facet* f : facetsFor(x->kind))
+                        if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
+                    gfx_.text(label, {tx, cr.y + 13, tw, 16}, Font::Label, kc, {Align::Left, false, true});
+                }
                 gfx_.text(w(x->name), {tx, cr.y + 30, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
                 if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + 52, tw, 34}, Font::Small, pal_.inkMuted);
                 if (focused(id)) focusRing(cr);
@@ -396,7 +593,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
             ty = y;
             y += ph;
         }
-        gfx_.text(upper(w(entryKindLabel(e->kind))), {tx, ty, tw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        {
+            std::wstring label = upper(w(entryKindLabel(e->kind)));
+            for (const Facet* f : facetsFor(e->kind))
+                if (const std::string v = facetOf(*e, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
+            gfx_.text(label, {tx, ty, tw, 16}, Font::Label, kindColor(e->kind, pal_.dark), {Align::Left, false});
+        }
         ty += 20;
         ty += gfx_.text(w(e->name), {tx, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 4;
         if (!e->aliases.empty()) {
@@ -524,10 +726,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
             const std::string id = "wb:mention:" + mn.nodeId;
             const float sh = gfx_.measureHeight(w(mn.snippet), cw - 24, Font::Small);
             const Rect rr{m.x - 8, y, cw + 16, 30 + sh + 10};
-            addHit(id, rr, [this, bid = b->id, nid = n->id] {
-                writingBook_ = bid;
-                currentNode_ = nid;
-                openWriting(bid);
+            addHit(id, rr, [this, bid = b->id, nid = n->id, words = searchNames(*e)] {
+                showInWriting(bid, nid, words);
             });
             const float hv = hoverAmount(id);
             if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.8f * hv));
@@ -577,6 +777,27 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             lib_->updateEntry(u);
             invalidate();
         });
+        for (const Facet* f : facetsFor(e->kind)) {
+            const std::string cur = facetOf(*e, *f);
+            panelChoice("wb:facet:" + f->key, c, y, f->title, cur.empty() ? L"Not set" : w(cur), [this, f] {
+                const Entry* x = lib_->entry(wb_.entry);
+                if (!x) return;
+                std::vector<std::wstring> items = facetChoices(*f, lib_->entriesOf(wb_.world, wb_.book), x->kind);
+                const size_t n = items.size();
+                items.push_back(L"Not set");
+                const std::wstring now = w(facetOf(*x, *f));
+                int checked = now.empty() ? (int)n : -1;
+                for (size_t i = 0; i < n; ++i) if (items[i] == now) checked = (int)i;
+                const int i = popupAt(hwnd(), items, checked);
+                if (i < 0 || i == checked) return;
+                commitFields();
+                Entry u = *lib_->entry(wb_.entry);
+                u.details = withFacet(u, *f, i < (int)n ? narrow(items[i]) : std::string());
+                lib_->updateEntry(u);
+                loadedFocus_ = {Focus::None, "-", ""};   // the details field shows the new line
+                invalidate();
+            });
+        }
         y = panelField(c, y, L"Other names (separate with commas)", FTags);
         y = panelField(c, y, L"Summary", FDescription, 70);
         y = panelImage(c, y, L"Picture", e->imageBlob, [this] { chooseImage(Focus::Entry, wb_.entry, 0); }, [this] {
@@ -605,7 +826,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         panelHeading(c, y, L"KINDS", false);
         for (auto& k : entryKinds()) {
             static const std::map<std::string, const wchar_t*> what = {
-                {"character", L"People and creatures in the story."}, {"place", L"Countries, towns, buildings, rooms."},
+                {"character", L"The people in the story."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
                 {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
                 {"lore", L"History, magic, beliefs, languages, rules of the world."}, {"event", L"Battles, festivals, disasters, turning points."}};
             gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});

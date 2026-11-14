@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.3.0",
+      "date": "2026-11-14",
+      "notes": [
+        "No more \"connection was interrupted\" pages when a link starts a download or a site moves on to another page while loading (Reedsy, sign-in pages). Downloads say they've started.",
+        "History: every page you open is kept for 90 days. Ctrl+H or the menu opens it, by day, with search, Remove, and Clear history (last hour, today, 7 days or everything).",
+        "Tabs down the side: right-click a tab, or the menu, to list your tabs on the left in the night sky, with the page's name across the top. Drag them to reorder.",
+        "Links look cleaner, with a soft highlight when you point at them."
+      ]
+    },
+    {
       "version": "0.2.3",
       "date": "2026-11-14",
       "notes": [

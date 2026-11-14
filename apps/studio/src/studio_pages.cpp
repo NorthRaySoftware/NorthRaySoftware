@@ -27,8 +27,9 @@ void StudioApp::drawFrame(float W, float H) {
     drops_.clear();
     // Focus mode (Writing): the text alone, without the outline and the details panel.
     const bool focusing = focusMode() && lib_ && lib_->book(writingBook_);
-    const float sideW = focusing ? 0 : kSideW;
-    const bool panel = !focusing && settings_.showPanel && lib_ && !(ws_ == Workspace::Library && view_ == View::Settings);
+    const bool settingsPage = ws_ == Workspace::Library && view_ == View::Settings;
+    const float sideW = focusing || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
+    const bool panel = !focusing && settings_.showPanel && lib_ && !settingsPage;
     const float centreW = W - sideW - (panel ? kPanelW : 0);
     sideRect_ = {0, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
@@ -41,7 +42,7 @@ void StudioApp::drawFrame(float W, float H) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.dark ? hexColor("#121214") : hexColor("#DCD7CC"));
         if (!previewNote_.empty()) {
-            const Rect m{kSideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+            const Rect m{sideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
             float y = m.y + pageHeader(m, L"PREVIEW", L"The ebook preview isn't available", previewNote_);
             linkText("pv:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
                      [] { cjui::openInBrowser("https://developer.microsoft.com/microsoft-edge/webview2/"); });
@@ -53,7 +54,7 @@ void StudioApp::drawFrame(float W, float H) {
                     (LONG)std::lround(pageRect_.bottom() * s)};
             preview_.place(rc);
         }
-        drawPreviewSidebar(sideRect_);
+        if (sideRect_.w > 0) drawPreviewSidebar(sideRect_);
         if (panel) drawPreviewPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -65,7 +66,7 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Typesetting && lib_ && lib_->book(ts_.book)) {
         editor_.hide();
         drawTypesetPages(pageRect_);
-        drawTypesetSidebar(sideRect_);
+        if (sideRect_.w > 0) drawTypesetSidebar(sideRect_);
         if (panel) drawTypesetPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -78,7 +79,7 @@ void StudioApp::drawFrame(float W, float H) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
         drawPublishPage(pageRect_);
-        drawPublishSidebar(sideRect_);
+        if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
         if (panel) drawPublishPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -92,7 +93,7 @@ void StudioApp::drawFrame(float W, float H) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
         drawWorldPage(pageRect_);
-        drawWorldSidebar(sideRect_);
+        if (sideRect_.w > 0) drawWorldSidebar(sideRect_);
         if (panel) drawWorldPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -107,7 +108,7 @@ void StudioApp::drawFrame(float W, float H) {
         if (pl_.view == 1) drawPlanTimeline(pageRect_);
         else if (pl_.view == 2) drawPlanStructure(pageRect_);
         else drawPlanBoard(pageRect_);
-        drawPlanSidebar(sideRect_);
+        if (sideRect_.w > 0) drawPlanSidebar(sideRect_);
         if (drag_.active && pl_.view == 0) {
             // Where a dragged card would go: a bar beside the card it's over, or a frame round a chapter it would join.
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
@@ -136,7 +137,7 @@ void StudioApp::drawFrame(float W, float H) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
         drawReviewPage(pageRect_);
-        drawReviewSidebar(sideRect_);
+        if (sideRect_.w > 0) drawReviewSidebar(sideRect_);
         if (panel) drawReviewPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -147,7 +148,7 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Review) ws_ = Workspace::Library;
     if (ws_ == Workspace::Writing && lib_ && lib_->book(writingBook_)) {
         // The editor fills the centre; it's a separate window placed over this area.
-        const Rect m{kSideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+        const Rect m{sideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
         if (!editorNote_.empty()) {
             float y = m.y + pageHeader(m, L"WRITING", L"The editor isn't available", editorNote_);
             linkText("ed:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
@@ -187,7 +188,7 @@ void StudioApp::drawFrame(float W, float H) {
     }
     editor_.hide();
     const float top = beginScroll(pageRect_);
-    Rect page{kSideW + pad, top + 26, std::min(centreW - pad * 2, 1100.0f), 0};
+    Rect page{sideW + pad, top + 26, std::min(centreW - pad * 2, 1100.0f), 0};
     float h = 0;
     if (!lib_) h = pageEmpty(page);
     else if (ws_ == Workspace::Import) h = pageImport(page);
@@ -203,7 +204,7 @@ void StudioApp::drawFrame(float W, float H) {
     }
     endScroll(h + 60);
 
-    drawSidebar(sideRect_);
+    if (sideRect_.w > 0) drawSidebar(sideRect_);
     if (panel) drawPanel(panelRect_);
     drawTopBar({0, 0, W, kTopH});
     drawStatusBar({0, H, W, 0});
@@ -362,6 +363,24 @@ void StudioApp::drawTopBar(const Rect& r) {
             gfx_.fill({ux, r.bottom() - 3, uw, 3}, pal_.ribbon);
         } else {
             gfx_.text(lbl, tr, Font::Body, pal_.inkMuted.mix(pal_.ink, hoverAmount(id)), {Align::Center, false, false, true});
+        }
+        // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
+        if (lib_ && !active) {
+            auto layoutButton = [&](const std::string& bid, float bx, bool left, bool on, std::function<void()> act) {
+                const Rect b{bx, (r.h - 30) / 2, 30, 30};
+                addHit(bid, b, std::move(act), false);
+                const float hv = hoverAmount(bid);
+                if (hv > 0.01f) gfx_.fillRounded(b, 6, pal_.ink.withAlpha(0.07f * hv));
+                const Color c = pal_.inkMuted.mix(pal_.ink, hv);
+                const Rect fr{b.x + 7, b.y + 9, 16, 12};
+                gfx_.strokeRounded(fr, 2, c, 1.2f);
+                const Rect bar = left ? Rect{fr.x + 1, fr.y + 1, 5, fr.h - 2} : Rect{fr.right() - 6, fr.y + 1, 5, fr.h - 2};
+                if (on) gfx_.fill(bar, c);
+                else gfx_.line(left ? fr.x + 6 : fr.right() - 6, fr.y + 1, left ? fr.x + 6 : fr.right() - 6, fr.bottom() - 1, c, 1.0f);
+            };
+            const float bx = tr.x - 70;
+            layoutButton("tab:side", bx, true, settings_.showSide, [this] { settings_.showSide = !settings_.showSide; saveSettings(); invalidate(); });
+            layoutButton("tab:panel", bx + 32, false, settings_.showPanel, [this] { settings_.showPanel = !settings_.showPanel; saveSettings(); invalidate(); });
         }
     }
 }
@@ -1395,14 +1414,14 @@ float StudioApp::pageSettings(const Rect& r0) {
     };
     group(L"Library", {{L"Ctrl+N", L"New book"}, {L"Ctrl+Shift+N", L"New series"}, {L"Ctrl+Shift+W", L"New world"},
                        {L"Ctrl+Shift+I", L"Import a book"}, {L"F2", L"Rename"}, {L"Del", L"Move to Trash"},
-                       {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+1 / Ctrl+2", L"Bookshelf / list"}, {L"F4", L"Show or hide the details panel"},
+                       {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+1 / Ctrl+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"}, {L"F4", L"Show or hide the details panel"},
                        {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"}, {L"Ctrl+,", L"Settings"}});
     group(L"Writing", {{L"Ctrl+W", L"Open the current book in Writing (or double-click it)"},
                        {L"Ctrl+Up / Ctrl+Down", L"Previous / next chapter"}, {L"Up / Down", L"Move through the outline"},
                        {L"Alt+Up / Alt+Down", L"Move a chapter or scene up or down"}, {L"Enter", L"From the outline or a title, go to the text"}});
     group(L"Typesetting", {{L"Left / Right, Page Up / Page Down", L"Previous / next pages"}, {L"Home / End", L"First / last pages"}});
     group(L"Text", {{L"Ctrl+B / Ctrl+I / Ctrl+U", L"Bold / italic / underline"}, {L"Ctrl+Shift+K", L"Small capitals"},
-                    {L"Ctrl+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Shift+F", L"Focus mode (the text alone)"}, {L"Ctrl+Shift+T", L"Typewriter scrolling"}, {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
+                    {L"Ctrl+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Shift+F", L"Focus mode (the text alone)"}, {L"Ctrl+Shift+O", L"Other words for the selection"}, {L"Ctrl+Shift+T", L"Typewriter scrolling"}, {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
                     {L"Ctrl+Alt+0", L"Body text"}, {L"Ctrl+Alt+1 / 2 / 3", L"Headings"}, {L"Ctrl+Z / Ctrl+Y", L"Undo / redo"}});
 
     section(L"ABOUT");

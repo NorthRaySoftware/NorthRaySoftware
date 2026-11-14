@@ -10,6 +10,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -62,6 +63,8 @@ struct PageEvents {
     std::function<void()> changed;                     // address, title, history or loading state
     std::function<void(const std::wstring& uri)> navigationStarting;  // main frame (an error page should go)
     std::function<void(int failure, const std::wstring& uri)> loadFailed;  // nrb::LoadFailure value
+    std::function<void(const std::wstring& uri)> loaded;  // a main-frame page finished opening (for the history)
+    std::function<void(const std::wstring& fileName)> downloadStarted;  // a link became a download
     std::function<void(const std::wstring& text)> statusText;  // a link under the pointer, or ""
     std::function<void(int w, int h, std::vector<unsigned char> rgba)> favicon;  // RGBA, empty when none
     std::function<void(bool on)> fullscreen;           // the page wants (or leaves) full screen
@@ -142,8 +145,10 @@ private:
     ComPtr<ICoreWebView2> web_;
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // callbacks check this after the Page is gone
     std::wstring url_, title_, pendingUrl_;
-    int certFailure_ = 0;
-    std::wstring navigatingTo_;   // the main-frame address being opened   // why the current navigation's certificate was refused
+    int certFailure_ = 0;         // why the current navigation's certificate was refused
+    std::uint64_t navId_ = 0;        // the latest main-frame navigation
+    bool downloading_ = false;       // it turned into a download
+    std::wstring navigatingTo_;   // the main-frame address being opened
     bool loading_ = false, canBack_ = false, canForward_ = false, visible_ = true, closed_ = false;
     RECT bounds_{};
 };

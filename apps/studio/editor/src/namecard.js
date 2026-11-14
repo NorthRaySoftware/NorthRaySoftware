@@ -18,10 +18,13 @@ function initials(name) {
   return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
+// "Character" -> "k-character": each kind has its own colour (--k), in the links and the cards.
+export function kindClass(kind) { return "k-" + String(kind || "character").toLocaleLowerCase().replace(/[^a-z]/g, ""); }
+
 // One entry's part of the card.
 function entryBlock(e, compact) {
   const box = document.createElement("div");
-  box.className = "nc-entry";
+  box.className = "nc-entry " + kindClass(e.kind);
   const top = document.createElement("div");
   top.className = "nc-top";
   const pic = document.createElement("div");
@@ -88,6 +91,9 @@ function show(target) {
   if (!list.length) return;
   const card = $("namecard");
   card.replaceChildren();
+  // The card's edge in the kind's colour (a neutral one when the name is shared by different kinds).
+  const kinds = new Set(list.map((e) => kindClass(e.kind)));
+  card.className = kinds.size === 1 ? [...kinds][0] : "";
   if (list.length > 1) {
     const note = document.createElement("div");
     note.className = "nc-shared";

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.25.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Links look cleaner: no underlines, a soft highlight when you point at them."
+      ]
+    },
+    {
       "version": "0.24.0",
       "date": "2026-11-14",
       "notes": [

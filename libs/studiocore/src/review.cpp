@@ -13,6 +13,8 @@
 #include <map>
 #include <set>
 
+#include <nlohmann/json.hpp>
+
 namespace studio {
 
 using namespace detail;
@@ -313,7 +315,8 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId) {
         std::vector<std::string> names{e->name};
         names.insert(names.end(), e->aliases.begin(), e->aliases.end());
         for (const std::string& nm : names) {
-            const std::u32string u = typeset::utf32(nm);
+            std::u32string u = typeset::utf32(nm);
+            for (auto& c : u) if (c == 0x2019 || c == 0x2018) c = '\'';   // curly and straight apostrophes are the same letter here
             std::u32string wd;
             for (size_t i = 0; i <= u.size(); ++i) {
                 if (i < u.size() && (isLetter(u[i]) || u[i] == '\'' || u[i] == '-')) { wd += u[i]; continue; }
@@ -342,6 +345,7 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId) {
             while (j < t.size() && (isLetter(t[j]) || ((t[j] == '\'' || t[j] == 0x2019 || t[j] == '-') && j + 1 < t.size() && isLetter(t[j + 1]))))
                 ++j;
             std::u32string wd = t.substr(i, j - i);
+            for (auto& c : wd) if (c == 0x2019) c = '\'';
             // Possessives belong to the name: "Maren's" is Maren.
             if (wd.size() > 2 && (wd.compare(wd.size() - 2, 2, U"'s") == 0 || wd.compare(wd.size() - 2, 2, U"’s") == 0)) wd.resize(wd.size() - 2);
             if (isUpper(wd[0])) {
@@ -369,7 +373,12 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId) {
         for (const Known& k : known) {
             if (k.word.size() < 4) continue;
             const int limit = k.word.size() >= 8 ? 2 : 1;
-            if (editDistance(lw, lowered(k.word), limit) <= limit) { near = &k; break; }
+            const std::u32string kl = lowered(k.word);
+            // Word forms aren't misspellings: Fluxian / Fluxians, Elven / Elves (only the last letter or two differ).
+            size_t same = 0;
+            while (same < lw.size() && same < kl.size() && lw[same] == kl[same]) ++same;
+            if (same >= 4 && lw.size() - same <= 2 && kl.size() - same <= 2) continue;
+            if (editDistance(lw, kl, limit) <= limit) { near = &k; break; }
         }
         // Only at the start of sentences, a word may be any word ("Then"): only a near miss of a name is worth showing.
         if (!near && s.mid == 0) continue;
@@ -393,6 +402,56 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId) {
         return a.count > b.count;
     });
     return out;
+}
+
+// ------------------------------------------------------------- changing a name everywhere
+
+static bool wordByte(unsigned char c) { return std::isalnum(c) || c >= 0x80 || c == '_'; }
+
+std::string replaceWholeWord(const std::string& text, const std::string& from, const std::string& to, int& count) {
+    if (from.empty()) return text;
+    std::string out;
+    size_t at = 0;
+    for (;;) {
+        const size_t i = text.find(from, at);
+        if (i == std::string::npos) break;
+        const bool startOk = i == 0 || !wordByte((unsigned char)text[i - 1]);
+        const size_t e = i + from.size();
+        const bool endOk = e >= text.size() || !wordByte((unsigned char)text[e]);
+        out.append(text, at, i - at);
+        if (startOk && endOk) { out += to; ++count; } else out += from;
+        at = e;
+    }
+    out.append(text, at, std::string::npos);
+    return out;
+}
+
+static void replaceInDoc(nlohmann::json& n, const std::string& from, const std::string& to, int& count) {
+    if (n.is_object()) {
+        if (n.contains("text") && n["text"].is_string()) n["text"] = replaceWholeWord(n["text"].get<std::string>(), from, to, count);
+        if (n.contains("content")) replaceInDoc(n["content"], from, to, count);
+    } else if (n.is_array()) {
+        for (auto& c : n) replaceInDoc(c, from, to, count);
+    }
+}
+
+int replaceName(Library& lib, const Id& bookId, const std::string& from, const std::string& to, std::vector<Id>* nodes) {
+    int total = 0;
+    for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
+        if (!n || n->deleted) continue;
+        const std::string src = lib.nodeContent(n->id);
+        if (src.find(from) == std::string::npos) continue;
+        nlohmann::json doc = nlohmann::json::parse(src, nullptr, false);
+        if (doc.is_discarded()) continue;
+        int count = 0;
+        replaceInDoc(doc, from, to, count);
+        if (!count) continue;
+        if (lib.restoreNodeText(n->id, doc.dump())) {
+            total += count;
+            if (nodes) nodes->push_back(n->id);
+        }
+    }
+    return total;
 }
 
 }  // namespace review

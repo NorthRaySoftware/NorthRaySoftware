@@ -868,6 +868,26 @@ static void testTypeset() {
     size_t mapped = 0, glyphs = 0;
     for (auto& p : tb.pages) for (auto& r : p.runs) for (auto g : r.glyphs) { ++glyphs; if (tb.fonts[r.font].toUnicode.count(g)) ++mapped; }
     CHECK(glyphs > 1000 && mapped == glyphs);
+    // Symbols the book font lacks (point-of-view marks) come from the symbol fonts, not as empty boxes.
+    {
+        const Id sb = lib->createBook("Marks", {});
+        const Id sc = lib->createNode(sb, {}, NodeKind::Chapter, "2. \u2727 The Canyon");
+        CHECK(lib->saveNodeContent(sc, R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"\ud83d\udde1 Tom rode on. \u2727 Sarrah watched."}]}]})"));
+        auto ts = typesetBook(*lib, sb, preset("classic").design, res);
+        CHECK(ts.error.empty());
+        std::string fromSymbols;
+        bool notdef = false;
+        for (auto& p : ts.pages)
+            for (auto& r : p.runs) {
+                for (auto g : r.glyphs) if (g == 0) notdef = true;
+                if (ts.fonts[r.font].path.find("symbols") != std::string::npos)
+                    for (auto g : r.glyphs) fromSymbols += ts.fonts[r.font].toUnicode[g];
+            }
+        CHECK(!notdef);
+        CHECK(fromSymbols.find("\u2727") != std::string::npos && fromSymbols.find("\U0001F5E1") != std::string::npos);
+        std::string err;
+        CHECK(writePdf(ts, dir + "/marks.pdf", err));
+    }
     // Pixels and PDF.
     int textPage = 0;
     for (size_t i = 0; i < tb.pages.size(); ++i) if (tb.pages[i].kind == Page::Text) { textPage = (int)i; break; }
@@ -1214,6 +1234,21 @@ static void testWorldbuilding() {
         CHECK(lib->mentionsOf(*lib->entry(grey)).size() == 1 && lib->mentionsOf(*lib->entry(grey))[0].count == 1);  // "Grey Wanderer" once, not also "Wanderer"
         // A character's full name: its parts stand for them too; titles and joining words alone don't.
         CHECK((nameParts("Maren Ada Holt") == std::vector<std::string>{"Maren", "Maren Ada", "Ada Holt", "Holt", "Maren Holt"}));   // not "Ada" alone
+        {
+            int c = 0;
+            CHECK(review::replaceWholeWord("Stienriket and Stienriket's gate, not Stienriketan.", "Stienriket", "Steinriket", c) ==
+                  "Steinriket and Steinriket's gate, not Stienriketan." && c == 2);
+        }
+        // Relationships: each kind's list reads both ways, and places don't offer family ties.
+        for (const char* k : {"character", "creature", "place", "group", "thing", "lore", "event"})
+            for (auto& rc : relationsFor(k)) {
+                const std::string back = reverseRelation(rc.label);
+                CHECK(reverseRelation(back) == rc.label);
+                bool listed = false;
+                for (auto& r : relations()) if (std::string(r.label) == rc.label) listed = true;
+                CHECK(listed);
+            }
+        for (auto& rc : relationsFor("place")) CHECK(std::string(rc.label) != "Parent of" && std::string(rc.label) != "Sibling of");
         CHECK((nameParts("Snarf Jill Grave") == std::vector<std::string>{"Snarf", "Snarf Jill", "Jill Grave", "Grave", "Snarf Grave"}));
         {
             const auto d = nameParts("Albus Percival Wulfric Brian Dumbledore");
@@ -1357,6 +1392,42 @@ static void testReview() {
     }
     CHECK(variant && unknown);
     CHECK(!issues.empty() && issues[0].kind == review::NameIssue::Variant);
+    // A curly apostrophe in the text matches a straight one in the bible; word forms aren't misspellings;
+    // and changing a name everywhere keeps the old text as a version.
+    {
+        CHECK(lib->saveNodeContent(ch, docOf("Then Zah\u2019mes came, and Zah\u2019mes left; Zah\u2019mes slept. The Fluxian fleet and the Elven blades. Stienriket fell.")));
+        lib->createEntry(world, {}, "character", "Zah'mes");
+        lib->createEntry(world, {}, "group", "Fluxians");
+        lib->createEntry(world, {}, "group", "Elves");
+        lib->createEntry(world, {}, "place", "Steinriket");
+        bool zah = false, flux = false, elven = false, stein = false;
+        for (auto& is : review::nameChecks(*lib, book)) {
+            if (is.name.rfind("Zah", 0) == 0) zah = true;
+            if (is.name == "Fluxian") flux = true;
+            if (is.name == "Elven") elven = true;
+            if (is.name == "Stienriket" && is.like == "Steinriket") stein = true;
+        }
+        CHECK(!zah && !flux && !elven && stein);
+        std::vector<Id> changed;
+        CHECK(review::replaceName(*lib, book, "Stienriket", "Steinriket", &changed) == 1 && changed.size() == 1);
+        CHECK(doc::plainText(lib->nodeContent(ch)).find("Steinriket fell.") != std::string::npos);
+        CHECK(!lib->nodeVersions(ch).empty());
+    }
+    // Front matter: kept, never numbered, and the story's first chapter is still Chapter 1.
+    {
+        const Id fm = lib->createNode(book, {}, NodeKind::Chapter, "Pronunciation Guide");
+        ManuscriptNode u = *lib->node(fm);
+        u.matter = 1;
+        CHECK(lib->updateNode(u) && lib->node(fm)->matter == 1);
+        CHECK(lib->moveNode(fm, {}, 0));
+        auto src = typeset::snapshot(*lib, book);
+        bool found = false;
+        for (auto& sec : src.sections) if (sec.title == "Pronunciation Guide") found = sec.matter == 1;
+        CHECK(found);
+        u = *lib->node(fm);
+        u.kind = NodeKind::Part;
+        CHECK(lib->updateNode(u) && lib->node(fm)->matter == 0);   // only chapters can be front matter
+    }
     CHECK(lib->removeSnapshot(snap) && lib->snapshotsOf(book).empty());
     // Comments: a mark in the text, the comment beside it.
     {

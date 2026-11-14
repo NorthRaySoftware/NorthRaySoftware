@@ -435,6 +435,7 @@ void BrowserWindow::showBookmarksPage(std::int64_t folder, std::int64_t rename) 
     if (!v) return;
     v->showStart = true;
     v->bookmarksPage = true;
+    v->historyPage = false;
     v->error.reset();
     if (Tab* t = model_.find(target)) { t->title = "Bookmarks"; t->url = "northray://bookmarks"; }
     activateTab(target);
@@ -513,6 +514,7 @@ void BrowserWindow::drawBookmarksPage(const Rect& r) {
     gfx_.line(sb.x + 22, sb.y + 21, sb.x + 26, sb.y + 25, pal_.inkMuted, 1.5f);
     pageSearchRect_ = {sb.x + 36, sb.y + 9, sb.w - 46, 20};
     pageSearchVisible_ = true;
+    setPageSearchCue(L"Search bookmarks");
     y += 56;
 
     // Folders on the left, the folder's contents (or search results) on the right.

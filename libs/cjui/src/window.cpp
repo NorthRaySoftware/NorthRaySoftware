@@ -262,15 +262,37 @@ void AppWindow::disabledButton(const Rect& r, const std::wstring& label) {
 
 bool AppWindow::linkText(const std::string& id, float x, float y, const std::wstring& label,
                          std::function<void()> action, Font f) {
-    const float w = gfx_.measureWidth(label, f);
-    const float h = gfx_.measureHeight(label, w + 2, f);
+    // A quiet link: accent text with no underline; pointing at it lifts a soft tint behind it.
+    // "‹ Back" and "+ Add" get a drawn chevron or plus in place of the characters (same width,
+    // so callers that measure the label to right-align it stay right).
+    const Font strong = f;
+    std::wstring text = label;
+    int icon = 0;   // 1 chevron, 2 plus
+    float iw = 0;
+    if (text.size() > 1 && text[0] == L'\u2039') { icon = 1; const size_t n = text[1] == L' ' ? 2 : 1; iw = gfx_.measureWidth(text.substr(0, n) + L"x", f) - gfx_.measureWidth(L"x", f); text.erase(0, n); }
+    else if (text.rfind(L"+ ", 0) == 0) { icon = 2; iw = gfx_.measureWidth(L"+ x", f) - gfx_.measureWidth(L"x", f); text.erase(0, 2); }
+    if (icon) iw = std::max(iw, 13.0f);   // room for the drawn mark and a gap
+    const float tw = gfx_.measureWidth(text, strong);
+    const float h = gfx_.measureHeight(text, tw + 2, strong);
+    const float w = iw + tw;
     Rect r{x, y, w, h};
-    addHit(id, r, std::move(action));
+    addHit(id, r.inset(-4), std::move(action));
     const bool hov = hovered(id);
     const float a = hoverAmount(id);
-    gfx_.text(label, {x, y, w + 2, h}, f, pal_.ribbon, {Align::Left, false});
-    gfx_.line(x, y + h - 1.5f, x + w, y + h - 1.5f, pal_.ribbon.withAlpha(0.35f + 0.65f * a), 1);
-    if (focused(id)) focusRing(r);
+    const Color ink = pal_.ribbon.mix(pal_.ink, pal_.dark ? 0.12f : 0.18f).mix(pal_.ribbon, a);
+    if (a > 0.01f) gfx_.fillRounded({x - 6, y - 2, w + 12, h + 4}, 6, pal_.ribbon.withAlpha((pal_.dark ? 0.14f : 0.10f) * a));
+    const float cy = y + h / 2;
+    if (icon == 1) {
+        const float cx = x + 4;
+        gfx_.line(cx + 1.5f, cy - 3.5f, cx - 2, cy, ink, 1.5f);
+        gfx_.line(cx - 2, cy, cx + 1.5f, cy + 3.5f, ink, 1.5f);
+    } else if (icon == 2) {
+        const float cx = x + 4.5f;
+        gfx_.line(cx - 3.5f, cy, cx + 3.5f, cy, ink, 1.5f);
+        gfx_.line(cx, cy - 3.5f, cx, cy + 3.5f, ink, 1.5f);
+    }
+    gfx_.text(text, {x + iw, y, tw + 2, h}, strong, ink, {Align::Left, false});
+    if (focused(id)) focusRing(r.inset(-4));
     return hov;
 }
 

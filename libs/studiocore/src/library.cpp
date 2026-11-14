@@ -355,6 +355,7 @@ std::unique_ptr<Library> Library::open(const std::string& folder, OpenResult& r)
             {"books", "trim", "ALTER TABLE books ADD COLUMN trim TEXT NOT NULL DEFAULT ''"},
             {"nodes", "pov_id", "ALTER TABLE nodes ADD COLUMN pov_id TEXT NOT NULL DEFAULT ''"},
             {"nodes", "target_words", "ALTER TABLE nodes ADD COLUMN target_words INTEGER NOT NULL DEFAULT 0"},
+            {"nodes", "matter", "ALTER TABLE nodes ADD COLUMN matter INTEGER NOT NULL DEFAULT 0"},
         };
         for (const Add& a : adds) {
             bool has = false;
@@ -1114,7 +1115,7 @@ bool Library::exportJson(const std::string& path, std::string& err) const {
         j["nodes"].push_back({{"id", n.id}, {"bookId", n.bookId}, {"parentId", n.parentId}, {"kind", toString(n.kind)},
                               {"title", n.title}, {"synopsis", n.synopsis}, {"status", toString(n.status)},
                               {"order", n.order}, {"wordCount", n.wordCount}, {"created", n.created},
-                              {"modified", n.modified}, {"deleted", n.deleted}, {"povId", n.povId}, {"targetWords", n.targetWords},
+                              {"modified", n.modified}, {"deleted", n.deleted}, {"povId", n.povId}, {"targetWords", n.targetWords}, {"matter", n.matter},
                               {"content", c.is_discarded() ? json() : c}});
     }
     for (auto& a : artworks_)

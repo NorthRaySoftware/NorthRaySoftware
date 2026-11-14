@@ -35,7 +35,7 @@ import { gapCursor } from "prosemirror-gapcursor";
 import { analyse } from "./hints.js";
 import * as spell from "./spell.js";
 import { initStyleUi, renderList, renderRules, imported as styleImported, otherWords } from "./style_ui.js";
-import { initNameCard, setEntries, showNameCard } from "./namecard.js";
+import { initNameCard, setEntries, showNameCard, kindClass } from "./namecard.js";
 
 // ------------------------------------------------------------------ schema
 
@@ -357,6 +357,8 @@ const keys = {
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
   "Enter": splitListItem(S.list_item), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
   "Mod-[": lift,
+  "F3": () => { send({ type: "togglePanel", which: "side" }); return true; },
+  "F4": () => { send({ type: "togglePanel", which: "details" }); return true; },
   "Mod-Shift-f": toggleFocus, "Mod-Shift-t": toggleTypewriter, "Mod-Shift-o": () => { otherWords(); return true; },
 };
 
@@ -514,6 +516,7 @@ let nameList = [];        // [{id, names: [...]}]
 let namePattern = null;   // one regular expression for all of them
 let nameIds = new Map();  // lower-cased name -> entry id
 let nameWords = new Set(); // every word of every name, lower-cased (echo hints leave them alone)
+let nameKinds = new Map(); // entry id -> its kind's class (k-place, ...), for the link's colour
 // The parts of a character's full name that also stand for them: the first name and the
 // last name on their own, and runs that include one of them. "Snarf Jill Grave" gives
 // Snarf, Grave, Snarf Jill, Jill Grave and Snarf Grave, but not Jill alone (a middle
@@ -555,6 +558,7 @@ function setNames(list) {
   nameList = Array.isArray(list) ? list : [];
   nameIds = new Map();   // lower-cased name -> [entry ids]: two characters can share a name
   nameWords = new Set();
+  nameKinds = new Map(nameList.map((e) => [e.id, kindClass(e.kind)]));
   const all = new Set();
   const add = (t, id) => {
     t = String(t).trim();
@@ -586,7 +590,7 @@ function nameDecorations(doc) {
       if (!ids || !ids.length) continue;
       // Hovering shows its card (every one, when characters share the name); Ctrl+click opens it.
       decos.push(Decoration.inline(pos + 1 + m.index, pos + 1 + m.index + m[0].length,
-        { class: ids.length > 1 ? "wl wl-shared" : "wl", "data-entry": ids.join(" ") }));
+        { class: (ids.length > 1 ? "wl wl-shared " : "wl ") + (nameKinds.get(ids[0]) || ""), "data-entry": ids.join(" ") }));
     }
     return false;
   });
@@ -716,6 +720,42 @@ function stats() {
   send({ type: "stats", id: currentId, words, selectionWords: sel });
 }
 
+// Words to show (Review's "Show it", Worldbuilding's Appears in): every use in the chapter is
+// highlighted, the first selected and scrolled to the middle. The highlight goes at the next edit.
+const foundLook = new Plugin({
+  state: {
+    init: () => DecorationSet.empty,
+    apply(tr, set) {
+      const found = tr.getMeta("found");
+      if (found) return found;
+      return tr.docChanged ? DecorationSet.empty : set;
+    },
+  },
+  props: { decorations(state) { return this.getState(state); } },
+});
+
+function findWords(words) {
+  if (!view || !Array.isArray(words) || !words.length) return;
+  const terms = [...new Set(words.map((x) => String(x).trim()).filter((x) => x.length >= 2))].sort((a, b) => b.length - a.length);
+  if (!terms.length) return;
+  const esc = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp("(?<![\\p{L}\\p{N}])(?:" + esc.join("|") + ")(?![\\p{L}\\p{N}])", "giu");
+  const ranges = [];
+  for (const b of textBlocks(view.state.doc))
+    for (const m of b.text.matchAll(re)) ranges.push({ from: b.pos + m.index, to: b.pos + m.index + m[0].length });
+  if (!ranges.length) { notice(`"${terms[0]}" isn't in this chapter any more.`); return; }
+  const decos = ranges.map((r, i) => Decoration.inline(r.from, r.to, { class: i === 0 ? "found found-first" : "found" }));
+  const tr = view.state.tr.setMeta("found", DecorationSet.create(view.state.doc, decos))
+    .setSelection(TextSelection.create(view.state.doc, ranges[0].from, ranges[0].to));
+  view.dispatch(tr);
+  // Into the middle of the window, not just the edge.
+  requestAnimationFrame(() => {
+    const at = view.coordsAtPos(ranges[0].from), sc = document.getElementById("scroller");
+    if (sc && at) sc.scrollTop += at.top - sc.getBoundingClientRect().top - sc.clientHeight * 0.4;
+  });
+  if (ranges.length > 1) notice(`${ranges.length} uses of "${terms[0]}" in this chapter are highlighted.`);
+}
+
 const watcher = new Plugin({
   view: () => ({
     update: (v, prev) => {
@@ -780,7 +820,7 @@ function makeState(docJSON) {
   catch (e) { doc = schema.node("doc", null, [schema.node("paragraph")]); }
   return EditorState.create({
     doc,
-    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups],
+    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook],
   });
 }
 
@@ -920,6 +960,7 @@ function receive(msg) {
     if (view) { view.dispatch(view.state.tr.setMeta("comments", true)); reportedComment = null; reportComment(view.state); }
   }
   else if (msg.type === "selectComment") selectComment(msg.id);
+  else if (msg.type === "find") findWords(msg.words);
   else if (msg.type === "styleImported") styleImported(msg.data);
   else if (msg.type === "notice") notice(String(msg.text || ""));
   else if (msg.type === "view") {

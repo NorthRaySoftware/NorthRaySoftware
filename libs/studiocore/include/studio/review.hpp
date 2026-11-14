@@ -48,4 +48,11 @@ std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId);
 
 int editDistance(const std::u32string& a, const std::u32string& b, int limit);
 
+// Changes every whole-word use of `from` to `to` in a book's chapters and scenes (exact case;
+// "Stienriket's" too). Each changed chapter keeps its old text as a saved version first.
+// Returns how many uses were changed; `nodes` gets the chapters that changed.
+int replaceName(Library& lib, const Id& bookId, const std::string& from, const std::string& to, std::vector<Id>* nodes = nullptr);
+// The same, in one piece of text (for tests and the editor's open chapter).
+std::string replaceWholeWord(const std::string& text, const std::string& from, const std::string& to, int& count);
+
 }  // namespace studio::review

@@ -298,6 +298,10 @@ void Page::wireEvents() {
             LPWSTR uri = nullptr;
             a->get_Uri(&uri);
             const std::wstring u = takeString(uri);
+            UINT64 nid = 0;
+            a->get_NavigationId(&nid);
+            navId_ = nid;
+            downloading_ = false;
             loading_ = true;
             certFailure_ = 0;
             navigatingTo_ = u;
@@ -310,9 +314,24 @@ void Page::wireEvents() {
     auto completed = makeHandler<ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*>(
         [this, live](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* a) -> HRESULT {
             if (!live()) return S_OK;
+            UINT64 nid = 0;
+            a->get_NavigationId(&nid);
+            // A navigation that a newer one replaced (a redirect by script, a new address typed)
+            // says nothing: the newer one reports for itself.
+            if (nid && navId_ && nid != navId_) return S_OK;
             loading_ = false;
             BOOL ok = TRUE;
             a->get_IsSuccess(&ok);
+            if (ok && events_.loaded) {
+                LPWSTR src = nullptr;
+                web_->get_Source(&src);
+                events_.loaded(takeString(src));
+            }
+            if (!ok && downloading_) {   // a link that became a download: not a failure
+                downloading_ = false;
+                certFailure_ = 0;
+                ok = TRUE;
+            }
             if (!ok) {
                 COREWEBVIEW2_WEB_ERROR_STATUS status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
                 a->get_WebErrorStatus(&status);
@@ -395,6 +414,24 @@ void Page::wireEvents() {
             return S_OK;
         });
     web_->add_ProcessFailed(failed.get(), &t);
+
+    if (auto w4 = web_.as<ICoreWebView2_4>()) {
+        // Downloads use the engine's own download list (the arrow it shows at the top right); the tab
+        // just says it started, and the navigation that led to it isn't reported as a failure.
+        auto dl = makeHandler<ICoreWebView2DownloadStartingEventHandler, ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs*>(
+            [this, live](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* a) -> HRESULT {
+                if (!live()) return S_OK;
+                downloading_ = true;
+                std::wstring name;
+                LPWSTR path = nullptr;
+                if (SUCCEEDED(a->get_ResultFilePath(&path))) name = takeString(path);
+                const size_t slash = name.find_last_of(L"\\/");
+                if (slash != std::wstring::npos) name = name.substr(slash + 1);
+                if (events_.downloadStarted) events_.downloadStarted(name);
+                return S_OK;
+            });
+        w4->add_DownloadStarting(dl.get(), &t);
+    }
 
     if (auto w14 = web_.as<ICoreWebView2_14>()) {
         // A bad certificate is always refused (no "continue anyway" in this

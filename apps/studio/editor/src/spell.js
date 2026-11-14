@@ -120,10 +120,19 @@ export function suggestions(word, n = 5) {
   const low = w.toLocaleLowerCase();
   let list = checker.suggest(w);
   if (w !== low) list = list.concat(checker.suggest(low));
-  if (list.length < 3) list = list.concat(farSuggestions(low));
+  // Words people often write as one.
+  const SPLIT = { alot: "a lot", infact: "in fact", aswell: "as well", eachother: "each other", atleast: "at least", incase: "in case",
+    noone: "no one", alright: "all right", inbetween: "in between", ofcourse: "of course", thankyou: "thank you", everytime: "every time" };
+  if (SPLIT[low]) list.unshift(SPLIT[low]);
+  // Always look further too: jumbled letters ("Capitan" -> "Captain") are often more than nspell's one or two edits.
+  list = list.concat(farSuggestions(low));
   const seen = new Set();
   list = list.filter((s) => { const k = s.toLocaleLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
-  list.sort((a, b) => distance(low, a.toLocaleLowerCase()) - distance(low, b.toLocaleLowerCase()) ||
+  // Closest first; the same letters in another order count as nearly there.
+  const sorted = (x) => [...x].sort().join("");
+  const lowSorted = sorted(low);
+  const score = (s) => { const k = s.toLocaleLowerCase(); return distance(low, k) - (sorted(k) === lowSorted ? 1.5 : 0); };
+  list.sort((a, b) => score(a) - score(b) ||
     (commonRank.get(a.toLocaleLowerCase()) ?? 999) - (commonRank.get(b.toLocaleLowerCase()) ?? 999) ||
     (a === a.toLocaleLowerCase() ? -1 : 1) + (b === b.toLocaleLowerCase() ? 1 : -1));
   const cap = w[0] === w[0].toLocaleUpperCase() && w.slice(1) === w.slice(1).toLocaleLowerCase();

@@ -61,6 +61,7 @@ struct Settings {
     std::string libraryFolder;
     bool gallery = true;
     bool showPanel = true;
+    bool showSide = true;      // the outline / sidebar on the left (F3)
     int sort = 0;          // 0 title, 1 series order, 2 author, 3 status, 4 recently changed
     int theme = 0;         // 0 system, 1 light, 2 dark
     std::vector<std::string> collapsedWorlds;
@@ -143,6 +144,8 @@ private:
     void rememberPlace();
     void ensureEditor();
     void sendLoad();
+    void showInWriting(const Id& book, const Id& node, std::vector<std::string> words);
+    void changeNameEverywhere(const std::string& from, const std::string& to);
     void editorMessage(const std::string& json);
     void addNode(studio::NodeKind kind);
     void addSceneBreak();
@@ -227,6 +230,7 @@ private:
     bool focusCommentField_ = false;
     bool showResolvedComments_ = false;
     Id pendingComment_;
+    std::vector<std::string> pendingFind_;   // words to find and highlight once the chapter is in the editor
     void drawReviewSidebar(const Rect& r);
     void drawReviewPage(const Rect& r);
     void drawReviewPanel(const Rect& r);
@@ -488,6 +492,7 @@ private:
     struct WorldState {
         Id world, book;            // whose entries: a world's, or an independent book's
         std::string kind;          // the kind shown ("" = everything)
+        std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
         Id entry;                  // the entry open ("" = the cards)
         std::vector<studio::Mention> mentions;
         Id mentionsFor;

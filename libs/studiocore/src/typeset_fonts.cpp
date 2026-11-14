@@ -69,7 +69,79 @@ int Fonts::advance(int face, std::uint32_t glyph) {
     return (int)hb_font_get_glyph_h_advance(faces_[face]->hb, glyph);
 }
 
+void Fonts::useFallbacks(const std::string& folder) {
+    std::lock_guard<std::recursive_mutex> g(mutex_);
+    if (folder == fallbackFolder_) return;
+    fallbackFolder_ = folder;
+    fallbacks_.clear();
+    std::vector<std::string> files;
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(studio::detail::u8path(folder), ec)) {
+        const std::string n = studio::detail::fromPath(e.path().filename());
+        if (n.size() > 4 && n.compare(n.size() - 4, 4, ".ttf") == 0) files.push_back(studio::detail::fromPath(e.path()));
+    }
+    std::sort(files.begin(), files.end());
+    for (auto& p : files) if (const int i = open(p); i >= 0) fallbacks_.push_back(i);
+}
+
+bool Fonts::hasChar(int face, std::uint32_t cp) {
+    std::lock_guard<std::recursive_mutex> g(mutex_);
+    return FT_Get_Char_Index(faces_[face]->ft, cp) != 0;
+}
+
+// The next UTF-8 code point at `i` (moved past it).
+static std::uint32_t nextCodepoint(const std::string& s, size_t& i) {
+    const unsigned char c = (unsigned char)s[i];
+    int n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+    if (i + n > s.size()) n = 1;
+    std::uint32_t cp = n == 1 ? c : n == 2 ? (c & 0x1F) : n == 3 ? (c & 0x0F) : (c & 0x07);
+    for (int k = 1; k < n; ++k) cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3F);
+    i += n;
+    return cp;
+}
+
+static Shaped shapeOne(int faceIdx, const std::string& text, float size, bool smallCaps, const std::string& language);
+
+// Shapes in the asked-for face, handing characters it doesn't have (✧, 🗡, ★) to the symbol fonts.
 Shaped shape(int faceIdx, const std::string& text, float size, bool smallCaps, const std::string& language) {
+    Fonts& fonts = Fonts::get();
+    std::lock_guard<std::recursive_mutex> g(fonts.lock());
+    const auto& fb = fonts.fallbacks();
+    // Runs of text by face. Spaces, joiners and variation selectors stay with what's around them.
+    struct Run { int face; size_t from, to; };
+    std::vector<Run> runs;
+    for (size_t i = 0; i < text.size();) {
+        const size_t at = i;
+        const std::uint32_t cp = nextCodepoint(text, i);
+        int face = faceIdx;
+        const bool neutral = cp <= 0x20 || cp == 0x200D || (cp >= 0xFE00 && cp <= 0xFE0F) || (cp >= 0x1F3FB && cp <= 0x1F3FF);
+        if (neutral && !runs.empty()) face = runs.back().face;
+        else if (!neutral && !fonts.hasChar(faceIdx, cp))
+            for (int f : fb) if (fonts.hasChar(f, cp)) { face = f; break; }
+        if (!runs.empty() && runs.back().face == face) runs.back().to = i;
+        else runs.push_back({face, at, i});
+    }
+    if (runs.size() <= 1) {
+        Shaped s = shapeOne(runs.empty() ? faceIdx : runs[0].face, text, size, smallCaps, language);
+        s.faces.assign(s.glyphs.size(), runs.empty() ? faceIdx : runs[0].face);
+        return s;
+    }
+    Shaped out;
+    for (const Run& r : runs) {
+        const Shaped s = shapeOne(r.face, text.substr(r.from, r.to - r.from), size, smallCaps && r.face == faceIdx, language);
+        for (size_t k = 0; k < s.glyphs.size(); ++k) {
+            out.glyphs.push_back(s.glyphs[k]);
+            out.clusters.push_back(s.clusters[k] + (std::uint32_t)r.from);
+            out.x.push_back(out.width + s.x[k]);
+            out.dy.push_back(s.dy[k]);
+            out.faces.push_back(r.face);
+        }
+        out.width += s.width;
+    }
+    return out;
+}
+
+static Shaped shapeOne(int faceIdx, const std::string& text, float size, bool smallCaps, const std::string& language) {
     Fonts& fonts = Fonts::get();
     std::lock_guard<std::recursive_mutex> g(fonts.lock());
     Face& f = fonts.face(faceIdx);

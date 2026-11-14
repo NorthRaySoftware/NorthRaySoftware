@@ -35,7 +35,7 @@ bool Library::canContain(std::optional<NodeKind> parent, NodeKind child) {
 bool Library::loadNodes() {
     nodes_.clear();
     Stmt q(db_, "SELECT id, book_id, parent_id, kind, title, synopsis, status, sort_order, word_count, created, modified, deleted, "
-                "pov_id, target_words FROM nodes ORDER BY sort_order, created");
+                "pov_id, target_words, matter FROM nodes ORDER BY sort_order, created");
     if (!q) { error_ = sqlite3_errmsg(db_); return false; }
     while (q.row()) {
         ManuscriptNode n;
@@ -43,7 +43,7 @@ bool Library::loadNodes() {
         n.kind = nodeKindFrom(q.text(3)).value_or(NodeKind::Chapter);
         n.title = q.text(4); n.synopsis = q.text(5); n.status = nodeStatusFrom(q.text(6)).value_or(NodeStatus::Draft);
         n.order = q.dbl(7); n.wordCount = q.i64(8); n.created = q.i64(9); n.modified = q.i64(10); n.deleted = q.i64(11);
-        n.povId = q.text(12); n.targetWords = q.i64(13);
+        n.povId = q.text(12); n.targetWords = q.i64(13); n.matter = (int)std::clamp<std::int64_t>(q.i64(14), 0, 2);
         nodes_.push_back(std::move(n));
     }
     return true;
@@ -92,14 +92,15 @@ void Library::collectSubtree(const Id& id, std::vector<Id>& out) const {
 
 bool Library::saveNode(const ManuscriptNode& n) {
     Stmt s(db_, "INSERT INTO nodes(id, book_id, parent_id, kind, title, synopsis, status, sort_order, word_count, created, modified, deleted, "
-                "pov_id, target_words) "
-                "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, "
+                "pov_id, target_words, matter) "
+                "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, "
                 "kind=excluded.kind, title=excluded.title, synopsis=excluded.synopsis, status=excluded.status, "
                 "sort_order=excluded.sort_order, word_count=excluded.word_count, modified=excluded.modified, deleted=excluded.deleted, "
-                "pov_id=excluded.pov_id, target_words=excluded.target_words");
+                "pov_id=excluded.pov_id, target_words=excluded.target_words, matter=excluded.matter");
     s.bind(1, n.id).bind(2, n.bookId).bindIdOrNull(3, n.parentId).bind(4, std::string(toString(n.kind))).bind(5, n.title)
         .bind(6, n.synopsis).bind(7, std::string(toString(n.status))).bind(8, n.order).bind(9, n.wordCount)
-        .bind(10, n.created).bind(11, n.modified).bind(12, n.deleted).bind(13, n.povId).bind(14, std::max<std::int64_t>(0, n.targetWords));
+        .bind(10, n.created).bind(11, n.modified).bind(12, n.deleted).bind(13, n.povId).bind(14, std::max<std::int64_t>(0, n.targetWords))
+        .bind(15, (std::int64_t)(n.kind == NodeKind::Chapter ? n.matter : 0));
     if (!s.run()) { error_ = sqlite3_errmsg(db_); return false; }
     return true;
 }
@@ -185,6 +186,7 @@ bool Library::updateNode(const ManuscriptNode& in) {
     next.status = in.status;
     next.povId = in.povId;
     next.targetWords = std::max<std::int64_t>(0, in.targetWords);
+    next.matter = in.kind == NodeKind::Chapter ? std::clamp(in.matter, 0, 2) : 0;
     if (in.kind != n->kind) {
         // A kind change must still fit its parent and children.
         const ManuscriptNode* p = n->parentId.empty() ? nullptr : node(n->parentId);

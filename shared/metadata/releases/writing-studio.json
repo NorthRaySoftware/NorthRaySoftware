@@ -1,6 +1,24 @@
 {
   "releases": [
     {
+      "version": "0.25.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Every kind of style hint now explains itself and suggests a fix: break a long sentence at a natural point, start a \"There was\" sentence with its subject, rewrite \"was eaten by the dog\" as \"the dog ate\", join repeated sentence starts, swap \"said quietly\" for \"whispered\", and filter words come with an example of showing instead.",
+        "Fancy dialogue tags are only marked when it's overdone: tags that are actions (\"she smiled\"), more fancy tags than plain ones, or the same one again and again.",
+        "Spelling suggestions catch jumbled letters (\"Capitan\" → \"Captain\") and words written as one (\"alot\" → \"a lot\").",
+        "Worldbuilding: a new Creatures kind; characters can be filtered by gender or sex, race, and realm; places by type and realm; creatures by type. Choose them in the details panel; what you've already written as \"Gender:\" or \"Race:\" lines counts.",
+        "Each kind of entry has its own colour, on the Worldbuilding cards, in the name links in your text and on the name cards.",
+        "Relationships suit the kind of entry: a place offers \"Located in\", \"Borders\", \"Capital of\" and \"Home of\" rather than family ties, and the entries that fit come first.",
+        "Review › Names: \"Change to …\" corrects a name everywhere in the book (the old text stays in each chapter's versions); \"Add to the bible\" asks what kind of entry it is. Names with curly apostrophes (Zah’mes) now match the bible, and word forms (Fluxian, Elven) aren't taken for misspellings.",
+        "\"Show it\" and Appears in open the chapter with the name highlighted and scrolled into view.",
+        "Front matter and back matter: a chapter-level section can be marked as either (Kind in its details). They're never numbered, so Chapter 1 stays Chapter 1, and front matter keeps roman page numbers.",
+        "Typesetting keeps the symbols you use for point of view (✧, 🗡, 🪶, ★): characters the book font doesn't have come from bundled symbol fonts (Noto, OFL) instead of empty boxes.",
+        "Hide the outline or the details panel for more room: the two buttons beside Settings, or F3 and F4.",
+        "Links look cleaner: no underlines, a soft highlight when you point at them."
+      ]
+    },
+    {
       "version": "0.24.0",
       "date": "2026-11-14",
       "notes": [

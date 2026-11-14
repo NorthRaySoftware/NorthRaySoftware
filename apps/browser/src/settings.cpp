@@ -24,13 +24,14 @@ bool Settings::load(const std::wstring& path) {
     showBookmarksBar = cj::valueOr(j, "showBookmarksBar", true);
     savePasswords = cj::valueOr(j, "savePasswords", true);
     fillForms = cj::valueOr(j, "fillForms", true);
+    verticalTabs = cj::valueOr(j, "verticalTabs", false);
     return true;
 }
 
 bool Settings::save(const std::wstring& path) const {
     if (readOnly) return false;
     nlohmann::json j = {{"version", kVersion}, {"theme", (int)theme}, {"searchEngine", searchEngine},
-                         {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}};
+                         {"showBookmarksBar", showBookmarksBar}, {"savePasswords", savePasswords}, {"fillForms", fillForms}, {"verticalTabs", verticalTabs}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

@@ -16,6 +16,7 @@ struct Settings {
     bool showBookmarksBar = true;
     bool savePasswords = true;   // the engine offers to save passwords after a sign-in
     bool fillForms = true;       // and fills in addresses and other form entries
+    bool verticalTabs = false;   // tabs listed down the left side instead of across the top
 
     // False if the file couldn't be read (the defaults are used). A file from a
     // newer version is read as far as it's understood and never overwritten

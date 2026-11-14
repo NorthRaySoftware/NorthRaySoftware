@@ -120,6 +120,7 @@ struct ManuscriptNode {
     std::int64_t wordCount = 0;  // of this node's own text
     Id povId;                    // planning (6): the viewpoint character (a worldbuilding entry), or empty
     std::int64_t targetWords = 0;   // planning (6): how long it's meant to be; 0 = no target
+    int matter = 0;              // chapters: 0 the story, 1 front matter, 2 back matter (unnumbered)
     Time created = 0, modified = 0, deleted = 0;
 };
 
@@ -209,6 +210,9 @@ struct EntryLink {
 // The relationships offered, each with how it reads from the other side.
 struct Relation { const char* label; const char* reverse; };
 const std::vector<Relation>& relations();
+// What an entry of `kind` can be linked as, with the kinds each usually points at ("place group"; "" = any).
+struct RelationChoice { const char* label; const char* targets; };
+const std::vector<RelationChoice>& relationsFor(const std::string& kind);
 std::string reverseRelation(const std::string& label);
 
 // Where an entry's name (or another name it goes by) appears in the manuscripts.

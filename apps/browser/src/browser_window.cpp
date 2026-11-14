@@ -44,6 +44,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
+    CmdHistory = 600, CmdSideTabs,
 };
 
 COLORREF toColorRef(Color c) {
@@ -113,6 +114,7 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     SendMessageW(edit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(cue.c_str()));
 
     openBookmarkStore();
+    openHistoryStore();
     {
         const SearchEngine* e = findSearchEngine(settings_.searchEngine);
         const std::wstring c = L"Search with " + widen((e ? *e : defaultSearchEngine()).name) + L" or type an address";
@@ -336,6 +338,15 @@ PageEvents BrowserWindow::eventsFor(int id) {
         v->errorUrl = uri;
         invalidate();
     };
+    e.loaded = [this, id](const std::wstring& uri) {
+        if (TabView* v = view(id)) v->error.reset();
+        recordVisit(id, uri);
+        invalidate();
+    };
+    e.downloadStarted = [this](const std::wstring& name) {
+        flash(name.empty() ? L"Downloading. It's in the downloads list at the top right of the page."
+                           : L"Downloading " + name + L". It's in the downloads list at the top right of the page.", 6);
+    };
     e.statusText = [this, id](const std::wstring& s) {
         if (TabView* v = view(id)) v->status = s;
         invalidate();
@@ -393,7 +404,10 @@ void BrowserWindow::syncTabFromPage(int id) {
     const std::wstring url = v->page->url();
     if (!v->showStart) {   // the start and bookmarks pages keep their own names
         t->url = narrow(url);
-        t->title = narrow(v->page->title());
+        const std::string title = narrow(v->page->title());
+        // The title often arrives after the page opened: give it to the history visit too.
+        if (title != t->title && history_ && v->visitId && v->visitUrl == t->url) history_->setTitle(v->visitId, title);
+        t->title = title;
     }
     t->loading = v->page->loading();
     if (id == model_.activeId()) {
@@ -415,6 +429,7 @@ bool BrowserWindow::anyLoading() const {
 void BrowserWindow::navigateTab(TabView& v, const std::wstring& url) {
     if (v.bookmarksPage && v.id == model_.activeId()) finishRename(true);
     v.bookmarksPage = false;
+    v.historyPage = false;
     v.error.reset();
     v.crashed = false;
     v.showStart = false;
@@ -453,6 +468,7 @@ void BrowserWindow::submitText(const std::wstring& text) {
     for (auto& ch : low) ch = (wchar_t)towlower(ch);
     while (!low.empty() && (low.back() == L' ' || low.back() == L'/')) low.pop_back();
     if (low == L"northray://bookmarks" || low == L"northray:bookmarks") { v->editing = false; showBookmarksPage(); return; }
+    if (low == L"northray://history" || low == L"northray:history") { v->editing = false; showHistoryPage(); return; }
     if (low == L"northray://start" || low == L"northray://newtab") { v->editing = false; goHome(); return; }
     const SearchEngine* se = findSearchEngine(settings_.searchEngine);
     const InputResult r = interpretInput(narrow(text), se ? *se : defaultSearchEngine());
@@ -474,6 +490,7 @@ void BrowserWindow::goHome() {
     if (v->page) v->page->navigate(L"about:blank");
     v->showStart = true;
     v->bookmarksPage = false;
+    v->historyPage = false;
     if (Tab* t = model_.find(v->id)) { t->title.clear(); t->url.clear(); }
     v->error.reset();
     updateAddressText();
@@ -516,7 +533,7 @@ void BrowserWindow::updateAddressText() {
     std::wstring text;
     if (v) {
         if (v->editing) text = v->typed;
-        else if (v->showStart) text = v->bookmarksPage ? L"northray://bookmarks" : L"";
+        else if (v->showStart) text = v->bookmarksPage ? L"northray://bookmarks" : v->historyPage ? L"northray://history" : L"";
         else if (v->error && !v->errorUrl.empty()) text = v->errorUrl;
         else if (v->page && !v->page->url().empty()) text = editFocused_ ? v->page->url() : widen(displayUrl(narrow(v->page->url())));
         else if (const Tab* t = model_.find(v->id)) text = editFocused_ ? widen(t->url) : widen(displayUrl(t->url));
@@ -553,6 +570,7 @@ bool BrowserWindow::shortcut(UINT vk, bool ctrl, bool shift, bool alt) {
             case 'D': if (!shift) { starClicked(); return true; } break;
             case 'B': if (shift) { toggleBookmarksBar(); return true; } break;
             case 'O': if (shift) { showBookmarksPage(); return true; } break;
+            case 'H': if (!shift) { showHistoryPage(); return true; } break;
             case 'R': if (v && v->page) v->page->reload(shift); return true;
             case VK_F5: if (v && v->page) v->page->reload(true); return true;
             case VK_TAB: activateNeighbour(shift ? -1 : 1); return true;
@@ -886,6 +904,7 @@ bool BrowserWindow::onMouseDown(float x, float y) {
         if (r.contains(x, y) && hitAt(x, y).rfind("tabx:", 0) != 0) {
             dragTab_ = id;
             dragStartX_ = x;
+            dragStartY_ = y;
             dragging_ = false;
             activateTab(id);
             return true;
@@ -893,16 +912,20 @@ bool BrowserWindow::onMouseDown(float x, float y) {
     return false;
 }
 
-void BrowserWindow::onMouseMove(float x, float, bool leftDown) {
+void BrowserWindow::onMouseMove(float x, float y, bool leftDown) {
     if (maxHover_) { maxHover_ = false; invalidate(); }
     if (!dragTab_ || !leftDown) return;
-    if (!dragging_ && std::abs(x - dragStartX_) < 6) return;
+    const bool side = sideW() > 0;
+    if (!dragging_ && std::abs(side ? y - dragStartY_ : x - dragStartX_) < 6) return;
     dragging_ = true;
-    // Drop position: the tab under the pointer.
+    // Drop position: the tab under the pointer (along the strip, or down the side list).
     for (size_t i = 0; i < tabRects_.size(); ++i) {
         const Rect& r = tabRects_[i].second;
-        if (x >= r.x && x < r.right() && tabRects_[i].first != dragTab_) {
-            model_.move(dragTab_, i);
+        const bool over = side ? (y >= r.y && y < r.bottom()) : (x >= r.x && x < r.right());
+        if (over && tabRects_[i].first != dragTab_) {
+            const auto& tabs = model_.tabs();
+            for (size_t k = 0; k < tabs.size(); ++k)
+                if (tabs[k].id == tabRects_[i].first) { model_.move(dragTab_, k); break; }
             invalidate();
             break;
         }
@@ -946,6 +969,7 @@ void BrowserWindow::showMenu() {
         MenuItem::item(L"New tab", CmdNewTab, L"Ctrl+T"),
         MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
         MenuItem::sep(),
+        MenuItem::item(L"History", CmdHistory, L"Ctrl+H"),
         MenuItem::sub(L"Bookmarks", bookmarksSubmenu(bookmarkIds)),
         MenuItem::sub(L"Passwords and forms",
                       {MenuItem::item(L"Offer to save passwords", CmdPwSave, {}, true, settings_.savePasswords),
@@ -959,6 +983,7 @@ void BrowserWindow::showMenu() {
         MenuItem::item(L"Developer tools", CmdDevTools, L"F12", hasPage),
         MenuItem::sep(),
         MenuItem::sub(L"Search engine", searchItems),
+        MenuItem::item(L"Tabs down the side", CmdSideTabs, {}, true, settings_.verticalTabs),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
@@ -976,6 +1001,8 @@ void BrowserWindow::showMenu() {
     const std::wstring& settingsPath = settingsPath_;
     if (cmd == CmdNewTab) newTab(L"", true, false);
     else if (cmd == CmdReopen) reopenClosedTab();
+    else if (cmd == CmdHistory) showHistoryPage();
+    else if (cmd == CmdSideTabs) setVerticalTabs(!settings_.verticalTabs);
     else if (cmd == 1) starClicked();
     else if (cmd == 2) toggleBookmarksBar();
     else if (cmd == 3) importBookmarks();
@@ -1016,14 +1043,96 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
         MenuItem::item(L"Close other tabs", CmdTabCloseOthers, {}, model_.size() > 1),
         MenuItem::sep(),
         MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
+        MenuItem::sep(),
+        MenuItem::item(settings_.verticalTabs ? L"Show tabs across the top" : L"Show tabs down the side", CmdSideTabs),
     };
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd == CmdSideTabs) { setVerticalTabs(!settings_.verticalTabs); return; }
     if (cmd == CmdTabReload && hasPage) v->page->reload();
     else if (cmd == CmdTabDuplicate) duplicateTab(id);
     else if (cmd == CmdTabClose) closeTab(id);
     else if (cmd == CmdTabCloseOthers) closeOtherTabs(id);
     else if (cmd == CmdReopen) reopenClosedTab();
     invalidate();
+}
+
+// ---------------------------------------------------------------- tabs down the side
+
+float BrowserWindow::sideW() const {
+    if (!settings_.verticalTabs || fullscreen_) return 0;
+    RECT rc;
+    GetClientRect(hwnd(), &rc);
+    const float W = rc.right / std::max(0.5f, const_cast<BrowserWindow*>(this)->gfx_.dpiScale());
+    return W < 640 ? 0 : std::clamp(W * 0.18f, 200.0f, 260.0f);   // too narrow a window: back to the top
+}
+
+void BrowserWindow::setVerticalTabs(bool on) {
+    settings_.verticalTabs = on;
+    settings_.save(settingsPath_);
+    sideScroll_ = 0;
+    invalidate();
+}
+
+void BrowserWindow::drawSideTabs(const Rect& r) {
+    nr::nightSky(gfx_, r, 0, 0.6f, 9);
+    sideRect_ = r;
+    gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), nr::kNightInk.withAlpha(0.10f));
+    const float pad = 8, rowH = 38;
+    float y = r.y + pad;
+    // New tab
+    const Rect nb{r.x + pad, y, r.w - pad * 2, 34};
+    addHit("tb:newtab", nb, [this] { newTab(L"", true, false); });
+    if (float hv = hoverAmount("tb:newtab"); hv > 0.01f) gfx_.fillRounded(nb, 8, nr::kNightInk.withAlpha(0.10f * hv));
+    {
+        const float cx = nb.x + 20, cy = nb.y + nb.h / 2;
+        gfx_.line(cx - 6, cy, cx + 6, cy, nr::kNightInk.withAlpha(0.85f), 1.6f);
+        gfx_.line(cx, cy - 6, cx, cy + 6, nr::kNightInk.withAlpha(0.85f), 1.6f);
+        gfx_.text(L"New tab", {nb.x + 36, nb.y, nb.w - 44, nb.h}, Font::Small, nr::kNightInk.withAlpha(0.85f), {Align::Left, false, true, true});
+    }
+    if (focused("tb:newtab")) focusRing(nb);
+    y += 34 + 6;
+    gfx_.line(r.x + pad + 4, y, r.right() - pad - 4, y, nr::kNightInk.withAlpha(0.12f));
+    y += 6;
+
+    // The tabs, scrolled with the wheel when there are more than fit.
+    const Rect list{r.x, y, r.w, r.bottom() - y};
+    const auto& tabs = model_.tabs();
+    sideContentH_ = tabs.size() * (rowH + 2) + pad;
+    sideScroll_ = std::clamp(sideScroll_, 0.0f, std::max(0.0f, sideContentH_ - list.h));
+    // Keep the active tab in view after keyboard switching.
+    for (size_t i = 0; i < tabs.size(); ++i)
+        if (tabs[i].id == model_.activeId() && !dragging_) {
+            const float ty = i * (rowH + 2);
+            if (ty < sideScroll_) sideScroll_ = ty;
+            else if (ty + rowH > sideScroll_ + list.h) sideScroll_ = ty + rowH - list.h;
+        }
+    gfx_.pushClip(list);
+    setHitClip(list);
+    drawingSide_ = true;
+    float ty = list.y - sideScroll_;
+    for (const Tab& t : tabs) {
+        const Rect tr{r.x + pad, ty, r.w - pad * 2, rowH};
+        if (tr.bottom() > list.y && tr.y < list.bottom()) {
+            tabRects_.push_back({t.id, tr});
+            drawTab(t, tr, t.id == model_.activeId());
+        }
+        ty += rowH + 2;
+    }
+    drawingSide_ = false;
+    clearHitClip();
+    gfx_.popClip();
+    // A fade where the list runs on below.
+    if (sideContentH_ - sideScroll_ > list.h + 1)
+        gfx_.fillGradient({list.x, list.bottom() - 18, list.w - 1, 18}, 0, nr::kNightBottom.withAlpha(0), nr::kNightBottom, true);
+}
+
+bool BrowserWindow::onWheel(float x, float y, float deltaLines) {
+    if (sideRect_.w > 0 && sideRect_.contains(x, y)) {
+        sideScroll_ -= deltaLines * 40;
+        invalidate();
+        return true;
+    }
+    return false;
 }
 
 void BrowserWindow::showAbout() {
@@ -1066,12 +1175,14 @@ void BrowserWindow::drawFrame(float W, float H) {
     const bool chrome = !fullscreen_;
     const bool bar = chrome && settings_.showBookmarksBar && bookmarks_;
     const float top = chrome ? kStripH + kToolbarH + (bar ? kBookmarksBarH : 0) : 0;
-    const Rect content{0, top, W, H - top};
+    const float side = chrome ? sideW() : 0;
+    const Rect content{side, top, W - side, H - top};
 
     TabView* v = activeView();
     if (engineFailed_) drawEngineProblem(content);
     else if (v && v->error) drawErrorPage(content, *v);
     else if (v && v->showStart && v->bookmarksPage) drawBookmarksPage(content);
+    else if (v && v->showStart && v->historyPage) drawHistoryPage(content);
     else if (v && v->showStart) drawStartPage(content);
     else if (v && (!v->page || !v->page->ready())) {
         gfx_.fill(content, pal_.paper);   // the page is on its way
@@ -1080,6 +1191,8 @@ void BrowserWindow::drawFrame(float W, float H) {
     placePages(content);
 
     if (chrome) {
+        if (side > 0) drawSideTabs({0, top, side, H - top});
+        else sideRect_ = {};
         drawTabStrip({0, 0, W, kStripH});
         drawToolbar({0, kStripH, W, kToolbarH});
         if (bar) drawBookmarksBar({0, kStripH + kToolbarH, W, kBookmarksBarH});
@@ -1109,6 +1222,14 @@ void BrowserWindow::placePages(const Rect& content) {
 void BrowserWindow::drawTabStrip(const Rect& r) {
     nr::nightSky(gfx_, r, 0, 0.75f, 5);
     nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
+    if (sideW() > 0) {
+        // Tabs are down the side: the strip is the title bar, with the page's name in the middle.
+        std::wstring title = windowTitle_.empty() ? L"NorthRay Browser" : windowTitle_;
+        gfx_.text(title, {r.x + 16 + kCaptionW * 3, r.y + 4, r.w - 32 - kCaptionW * 6, r.h - 6}, Font::Small,
+                  nr::kNightInk.withAlpha(activeWindow_ ? 0.78f : 0.5f), {Align::Center, false, true, true});
+        drawCaptionButtons(r);
+        return;
+    }
     const auto& tabs = model_.tabs();
     const float buttons = kCaptionW * 3;
     const float x0 = r.x + 8, avail = r.w - 16 - kNewTabW - 8 - buttons - kDragMin;
@@ -1188,7 +1309,7 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     addHit(id, r, [this, tid = t.id] { activateTab(tid); });
     const float hv = hoverAmount(id);
     if (active) {
-        gfx_.fillRounded({r.x, r.y, r.w, r.h + 10}, 8, pal_.surface);
+        gfx_.fillRounded(drawingSide_ ? r : Rect{r.x, r.y, r.w, r.h + 10}, 8, pal_.surface);
     } else if (hv > 0.01f) {
         gfx_.fillRounded({r.x + 2, r.y + 2, r.w - 4, r.h - 6}, 8, nr::kNightInk.withAlpha(0.08f * hv));
     }
@@ -1211,6 +1332,12 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
                                v->favicon.data(), ic, true)) {
     } else if (v && v->showStart && v->bookmarksPage) {
         drawStar(ic.x + 8, ic.y + 8, 7.5f, active ? pal_.ribbon : nr::kAuroraGreen, true);
+    } else if (v && v->showStart && v->historyPage) {
+        // A clock.
+        const Color c = active ? pal_.ribbon : nr::kAuroraGreen;
+        gfx_.circle(ic.x + 8, ic.y + 8, 6.5f, c, false, 1.5f);
+        gfx_.line(ic.x + 8, ic.y + 8, ic.x + 8, ic.y + 4, c, 1.5f);
+        gfx_.line(ic.x + 8, ic.y + 8, ic.x + 11, ic.y + 9.5f, c, 1.5f);
     } else if (v && v->showStart) {
         // The start page: a tiny NorthRay tile, night with a rising globe.
         gfx_.fillRounded(ic, 4, nr::kNightTop.mix(nr::kNightBottom, 0.5f));
@@ -1231,7 +1358,7 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     // Title
     if (r.w >= 72) {
         std::wstring title = widen(t.title);
-        if (v && v->showStart) title = v->bookmarksPage ? L"Bookmarks" : L"New tab";
+        if (v && v->showStart) title = v->bookmarksPage ? L"Bookmarks" : v->historyPage ? L"History" : L"New tab";
         if (title.empty() && v && v->error) title = hostLabel(v->errorUrl);
         if (title.empty()) title = widen(hostOf(t.url));
         if (title.empty()) title = t.loading ? L"Loading..." : L"New tab";

@@ -16,10 +16,11 @@ using namespace detail;
 using nlohmann::json;
 
 const std::vector<std::string>& entryKinds() {
-    static const std::vector<std::string> k{"character", "place", "group", "thing", "lore", "event"};
+    static const std::vector<std::string> k{"character", "creature", "place", "group", "thing", "lore", "event"};
     return k;
 }
 const char* entryKindLabel(const std::string& k) {
+    if (k == "creature") return "Creature";
     if (k == "place") return "Place";
     if (k == "group") return "Group";
     if (k == "thing") return "Thing";
@@ -28,6 +29,7 @@ const char* entryKindLabel(const std::string& k) {
     return "Character";
 }
 const char* entryKindPlural(const std::string& k) {
+    if (k == "creature") return "Creatures";
     if (k == "place") return "Places";
     if (k == "group") return "Groups";
     if (k == "thing") return "Things";
@@ -47,16 +49,91 @@ static std::string knownEntryKind(const std::string& k) {
     return "character";
 }
 
+// Every relationship and how it reads from the other side. Both directions are listed, so either
+// can be chosen and the other entry shows the reverse.
 const std::vector<Relation>& relations() {
     static const std::vector<Relation> r{
-        {"Family", "Family"},        {"Parent of", "Child of"},    {"Child of", "Parent of"},  {"Sibling of", "Sibling of"},
-        {"Partner of", "Partner of"}, {"Friend of", "Friend of"},  {"Ally of", "Ally of"},     {"Rival of", "Rival of"},
-        {"Enemy of", "Enemy of"},    {"Mentor of", "Student of"},  {"Member of", "Has member"}, {"Leader of", "Led by"},
-        {"Lives in", "Home of"},     {"Located in", "Contains"},   {"Owns", "Owned by"},       {"Made", "Made by"},
-        {"Took part in", "Involved"}, {"Related to", "Related to"},
+        // People
+        {"Family", "Family"},          {"Parent of", "Child of"},       {"Child of", "Parent of"},     {"Sibling of", "Sibling of"},
+        {"Partner of", "Partner of"},  {"Married to", "Married to"},    {"Loves", "Loved by"},          {"Loved by", "Loves"},
+        {"Friend of", "Friend of"},    {"Ally of", "Ally of"},          {"Rival of", "Rival of"},      {"Enemy of", "Enemy of"},
+        {"Mentor of", "Student of"},   {"Student of", "Mentor of"},     {"Serves", "Served by"},       {"Served by", "Serves"},
+        {"Member of", "Has member"},   {"Has member", "Member of"},     {"Leader of", "Led by"},       {"Led by", "Leader of"},
+        {"Rules", "Ruled by"},         {"Ruled by", "Rules"},           {"Lives in", "Home of"},       {"Home of", "Lives in"},
+        {"Born in", "Birthplace of"},  {"Birthplace of", "Born in"},    {"Founded", "Founded by"},     {"Founded by", "Founded"},
+        // Creatures
+        {"Rides", "Ridden by"},        {"Ridden by", "Rides"},          {"Tames", "Tamed by"},         {"Tamed by", "Tames"},
+        {"Hunts", "Hunted by"},        {"Hunted by", "Hunts"},          {"Native to", "Native home of"}, {"Native home of", "Native to"},
+        {"Kind of", "Has kind"},       {"Has kind", "Kind of"},
+        // Places and things
+        {"Located in", "Contains"},    {"Contains", "Located in"},      {"Borders", "Borders"},        {"Capital of", "Has capital"},
+        {"Has capital", "Capital of"}, {"Road to", "Road to"},          {"Trades with", "Trades with"}, {"At war with", "At war with"},
+        {"Based in", "Base of"},       {"Base of", "Based in"},         {"Part of", "Includes"},       {"Includes", "Part of"},
+        {"Owns", "Owned by"},          {"Owned by", "Owns"},            {"Made", "Made by"},           {"Made by", "Made"},
+        {"Guards", "Guarded by"},      {"Guarded by", "Guards"},        {"Named after", "Gave its name to"},
+        {"Gave its name to", "Named after"},
+        // Lore and events
+        {"Believes in", "Believed by"}, {"Believed by", "Believes in"}, {"Practises", "Practised by"}, {"Practised by", "Practises"},
+        {"Comes from", "Origin of"},   {"Origin of", "Comes from"},     {"Explains", "Explained by"},  {"Explained by", "Explains"},
+        {"Took part in", "Involved"},  {"Involved", "Took part in"},    {"Took place in", "Scene of"}, {"Scene of", "Took place in"},
+        {"Caused", "Caused by"},       {"Caused by", "Caused"},         {"Led to", "Followed from"},   {"Followed from", "Led to"},
+        {"Related to", "Related to"},
     };
     return r;
 }
+
+// The relationships that make sense from an entry of this kind, each with the kinds it usually links to.
+const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
+    static const std::vector<RelationChoice> character{
+        {"Family", "character"}, {"Parent of", "character"}, {"Child of", "character"}, {"Sibling of", "character"},
+        {"Partner of", "character"}, {"Married to", "character"}, {"Loves", "character"}, {"Friend of", "character"},
+        {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
+        {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
+        {"Member of", "group"}, {"Leader of", "group"}, {"Rules", "place group"}, {"Lives in", "place"}, {"Born in", "place"},
+        {"Founded", "place group"}, {"Owns", "thing place"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore"},
+        {"Rides", "creature"}, {"Tames", "creature"}, {"Hunts", "creature character"},
+        {"Took part in", "event"}, {"Caused", "event"}, {"Related to", ""}};
+    static const std::vector<RelationChoice> creature{
+        {"Native to", "place"}, {"Lives in", "place"}, {"Ridden by", "character"}, {"Tamed by", "character group"},
+        {"Hunts", "creature character"}, {"Hunted by", "character group creature"}, {"Guards", "place thing character"},
+        {"Serves", "character group"}, {"Made by", "character group"}, {"Kind of", "creature"}, {"Has kind", "creature"},
+        {"Parent of", "creature"}, {"Child of", "creature"}, {"Enemy of", "creature character group"},
+        {"Ally of", "creature character group"}, {"Comes from", "place lore"}, {"Took part in", "event"}, {"Related to", ""}};
+    static const std::vector<RelationChoice> place{
+        {"Located in", "place"}, {"Contains", "place thing"}, {"Borders", "place"}, {"Capital of", "place"},
+        {"Road to", "place"}, {"Part of", "place"}, {"Home of", "character group"}, {"Birthplace of", "character"},
+        {"Ruled by", "character group"}, {"Owned by", "character group"}, {"Founded by", "character group"},
+        {"Base of", "group"}, {"Guarded by", "character group thing"}, {"Trades with", "place group"},
+        {"At war with", "place group"}, {"Ally of", "place group"}, {"Named after", ""}, {"Scene of", "event"},
+        {"Native home of", "creature"}, {"Origin of", "lore thing character creature"}, {"Related to", ""}};
+    static const std::vector<RelationChoice> group{
+        {"Has member", "character"}, {"Led by", "character"}, {"Based in", "place"}, {"Rules", "place group"},
+        {"Ally of", "group character place"}, {"Rival of", "group character"}, {"Enemy of", "group character place"},
+        {"Serves", "character group"}, {"Part of", "group"}, {"Includes", "group"}, {"Founded by", "character"},
+        {"Owns", "thing place"}, {"Believes in", "lore"}, {"Practises", "lore"}, {"Took part in", "event"},
+        {"Caused", "event"}, {"Related to", ""}};
+    static const std::vector<RelationChoice> thing{
+        {"Owned by", "character group"}, {"Made by", "character group"}, {"Located in", "place"},
+        {"Guarded by", "character group"}, {"Guards", "place thing"}, {"Part of", "thing"}, {"Includes", "thing"},
+        {"Comes from", "place lore"}, {"Named after", ""}, {"Took part in", "event"}, {"Caused", "event"},
+        {"Related to", ""}};
+    static const std::vector<RelationChoice> lore{
+        {"Believed by", "character group place"}, {"Practised by", "character group"}, {"Comes from", "place group event"},
+        {"Explains", ""}, {"Explained by", "lore"}, {"Part of", "lore"}, {"Includes", "lore"}, {"Origin of", "thing character"},
+        {"Related to", ""}};
+    static const std::vector<RelationChoice> event{
+        {"Involved", "character group thing"}, {"Took place in", "place"}, {"Caused by", "character group event thing"},
+        {"Led to", "event"}, {"Followed from", "event"}, {"Part of", "event"}, {"Includes", "event"},
+        {"Origin of", "lore thing"}, {"Related to", ""}};
+    if (kind == "creature") return creature;
+    if (kind == "place") return place;
+    if (kind == "group") return group;
+    if (kind == "thing") return thing;
+    if (kind == "lore") return lore;
+    if (kind == "event") return event;
+    return character;
+}
+
 std::string reverseRelation(const std::string& label) {
     for (auto& r : relations()) if (label == r.label) return r.reverse;
     return label;

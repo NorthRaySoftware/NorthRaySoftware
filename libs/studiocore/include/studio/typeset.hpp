@@ -110,6 +110,7 @@ struct Source {
     int year = 0;                       // for the copyright line (the year it's typeset)
     struct Section {
         NodeKind kind = NodeKind::Chapter;
+        int matter = 0;                 // chapters: 1 front matter, 2 back matter (never numbered)
         std::string title;
         std::string content;            // document JSON
         std::int64_t words = 0;

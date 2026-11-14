@@ -1,6 +1,7 @@
 // Unit tests for NorthRay Browser's portable core. Dependency-free like the
 // other suites: run it, it prints each group and exits non-zero on failure.
 #include "nrb/bookmarks.hpp"
+#include "nrb/history.hpp"
 #include "nrb/load_errors.hpp"
 #include "nrb/omnibox.hpp"
 #include "nrb/tab_model.hpp"
@@ -183,6 +184,8 @@ static void testLoadErrors() {
     std::puts("load errors");
     CHECK(isSilentLoadFailure(LoadFailure::Cancelled));
     CHECK(!isSilentLoadFailure(LoadFailure::HostNotFound));
+    CHECK(isSilentLoadFailure(LoadFailure::ConnectionAborted));   // downloads, pages that moved on
+    CHECK(!isSilentLoadFailure(LoadFailure::ConnectionReset));
     LoadErrorText t = describeLoadFailure(LoadFailure::HostNotFound, "exampel.com");
     CHECK(t.offerSearch);
     CHECK(t.detail.find("exampel.com") != std::string::npos);
@@ -367,7 +370,40 @@ static void testBookmarks() {
     fs::remove_all(dir);
 }
 
+static void testHistory() {
+    std::string err;
+    auto h = HistoryStore::open(":memory:", err);
+    CHECK(h != nullptr);
+    if (!h) return;
+    CHECK(!historyUrl("northray://bookmarks") && !historyUrl("about:blank") && !historyUrl("javascript:alert(1)") && !historyUrl("data:text/html,x"));
+    CHECK(historyUrl("https://example.com/") && historyUrl("file:///C:/notes.txt"));
+    const std::int64_t t = 1'800'000'000;
+    const auto a = h->add("https://example.com/", "", t);
+    CHECK(a != 0);
+    h->setTitle(a, "Example");
+    CHECK(h->add("https://example.com/", "", t + 60) == a);          // a reload within 30 minutes: the same visit, moved
+    CHECK(h->count() == 1);
+    CHECK(h->add("https://example.com/", "", t + 3600) != a);        // later: a new visit
+    h->add("https://news.example.org/story", "A story about Owls", t + 4000);
+    CHECK(h->add("about:blank", "", t + 4100) == 0);
+    CHECK(h->count() == 3);
+    auto all = h->list();
+    CHECK(all.size() == 3 && all[0].title == "A story about Owls" && all[2].title == "Example");
+    CHECK(h->list("owls").size() == 1);                               // any case, title
+    CHECK(h->list("EXAMPLE.COM").size() == 2);                         // address
+    CHECK(h->list("100%").empty());                                    // LIKE characters are literal
+    CHECK(h->list({}, t + 4000).size() == 2);                          // before
+    CHECK(h->removeUrl("https://example.com/") == 2 && h->count() == 1);
+    h->add("https://a.example/", "A", t + 5000);
+    CHECK(h->clearSince(t + 4500) == 1 && h->count() == 1);
+    CHECK(h->prune(t + 4000 + HistoryStore::kKeepSeconds + 1) == 1 && h->count() == 0);
+    h->add("https://b.example/", "B", t);
+    CHECK(h->remove(h->list()[0].id) && h->count() == 0);
+    CHECK(h->clearSince(0) == 0);
+}
+
 int main() {
+    testHistory();
     testBookmarks();
     testOmniboxAddresses();
     testOmniboxPrivate();

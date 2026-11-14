@@ -13,6 +13,7 @@ add_library(browsercore STATIC
   core/src/load_errors.cpp
   core/src/tab_model.cpp
   core/src/bookmarks.cpp
+  core/src/history.cpp
 )
 target_include_directories(browsercore PUBLIC core/include)
 target_link_libraries(browsercore PUBLIC sqlite3)
@@ -45,6 +46,7 @@ add_executable(NorthRayBrowser WIN32
   src/engine.cpp
   src/browser_window.cpp
   src/browser_bookmarks.cpp
+  src/browser_history.cpp
   src/browser_start.cpp
   src/settings.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc

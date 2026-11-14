@@ -76,6 +76,20 @@ void StudioApp::ensureEditor() {
         editorNote_ = editor_.error();
 }
 
+// Opens a chapter in Writing with some words found and highlighted (Review's "Show it", Appears in).
+void StudioApp::showInWriting(const Id& book, const Id& node, std::vector<std::string> words) {
+    pendingFind_ = std::move(words);
+    const bool same = currentNode_ == node && writingBook_ == book;
+    writingBook_ = book;
+    currentNode_ = node;
+    openWriting(book);
+    // The chapter was already open (nothing reloads): find the words in it now.
+    if (same && !pendingFind_.empty() && editor_.ready() && !loadPending_) {
+        editor_.send(json{{"type", "find"}, {"words", pendingFind_}}.dump());
+        pendingFind_.clear();
+    }
+}
+
 void StudioApp::sendLoad() {
     if (!lib_ || currentNode_.empty()) return;
     const ManuscriptNode* n = lib_->node(currentNode_);
@@ -98,6 +112,10 @@ void StudioApp::sendLoad() {
         editor_.send(json{{"type", "selectComment"}, {"id", pendingComment_}}.dump());
         pendingComment_.clear();
     }
+    if (!pendingFind_.empty()) {
+        editor_.send(json{{"type", "find"}, {"words", pendingFind_}}.dump());
+        pendingFind_.clear();
+    }
     liveWords_ = n->wordCount;
     selectionWords_ = 0;
 }
@@ -106,6 +124,13 @@ void StudioApp::editorMessage(const std::string& text) {
     json m = json::parse(text, nullptr, false);
     if (!m.is_object() || !lib_) return;
     const std::string type = m.value("type", "");
+    if (type == "togglePanel") {   // F3 / F4 pressed in the text
+        if (m.value("which", "") == "side") settings_.showSide = !settings_.showSide;
+        else settings_.showPanel = !settings_.showPanel;
+        saveSettings();
+        invalidate();
+        return;
+    }
     if (type == "ready") {
         editor_.send(json{{"type", "theme"}, {"dark", pal_.dark}}.dump());
         sendView();
@@ -461,7 +486,15 @@ void StudioApp::nodeContextMenu(const Id& id) {
         const NodeKind nk = (NodeKind)k;
         bool ok = Library::canContain(p ? std::optional<NodeKind>(p->kind) : std::nullopt, nk);
         for (auto* c : lib_->childrenOf(n->bookId, n->id)) ok = ok && Library::canContain(nk, c->kind);
-        AppendMenuW(kinds, MF_STRING | (n->kind == nk ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + k, w(label(nk)).c_str());
+        AppendMenuW(kinds, MF_STRING | (n->kind == nk && (nk != NodeKind::Chapter || n->matter == 0) ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED),
+                    WKindBase + k, w(label(nk)).c_str());
+    }
+    {
+        bool ok = Library::canContain(p ? std::optional<NodeKind>(p->kind) : std::nullopt, NodeKind::Chapter);
+        for (auto* c : lib_->childrenOf(n->bookId, n->id)) ok = ok && Library::canContain(NodeKind::Chapter, c->kind);
+        AppendMenuW(kinds, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(kinds, MF_STRING | (n->kind == NodeKind::Chapter && n->matter == 1 ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + 3, L"Front matter");
+        AppendMenuW(kinds, MF_STRING | (n->kind == NodeKind::Chapter && n->matter == 2 ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + 4, L"Back matter");
     }
     AppendMenuW(m, MF_POPUP, (UINT_PTR)kinds, L"Make it a...");
     HMENU into = CreatePopupMenu();
@@ -489,9 +522,11 @@ void StudioApp::nodeContextMenu(const Id& id) {
     DestroyMenu(m);
     if (cmd >= WIntoBase && cmd < WIntoBase + (int)targets.size()) {
         if (!lib_->moveNode(id, targets[cmd - WIntoBase], -1)) flash(w(lib_->lastError()), 6);
-    } else if (cmd >= WKindBase && cmd < WKindBase + 3) {
+    } else if (cmd >= WKindBase && cmd < WKindBase + 5) {
         ManuscriptNode x = *lib_->node(id);
-        x.kind = (NodeKind)(cmd - WKindBase);
+        const int k = cmd - WKindBase;
+        x.kind = k >= 3 ? NodeKind::Chapter : (NodeKind)k;
+        x.matter = k == 3 ? 1 : k == 4 ? 2 : 0;
         if (!lib_->updateNode(x)) flash(w(lib_->lastError()), 6);
         loadedFocus_ = {Focus::None, "-", ""};
     } else if (cmd) {
@@ -698,7 +733,9 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
             lib_->updateNode(u);
         }
     });
-    panelChoice("panel:nodekind", c, y, L"Kind", w(label(n->kind)), [this] {
+    const std::wstring kindName = n->kind == NodeKind::Chapter && n->matter == 1 ? L"Front matter"
+                                : n->kind == NodeKind::Chapter && n->matter == 2 ? L"Back matter" : w(label(n->kind));
+    panelChoice("panel:nodekind", c, y, L"Kind", kindName, [this] {
         const ManuscriptNode* x = lib_->node(focus_.id);
         if (!x) return;
         HMENU m = CreatePopupMenu();
@@ -706,16 +743,27 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
         for (int k = 0; k < 3; ++k) {
             bool ok = Library::canContain(p ? std::optional<NodeKind>(p->kind) : std::nullopt, (NodeKind)k);
             for (auto* ch : lib_->childrenOf(x->bookId, x->id)) ok = ok && Library::canContain((NodeKind)k, ch->kind);
-            AppendMenuW(m, MF_STRING | (x->kind == (NodeKind)k ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + k, w(label((NodeKind)k)).c_str());
+            const bool on = x->kind == (NodeKind)k && (k != (int)NodeKind::Chapter || x->matter == 0);
+            AppendMenuW(m, MF_STRING | (on ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + k, w(label((NodeKind)k)).c_str());
+        }
+        // Chapter-level pages that aren't the story: a foreword, a pronunciation guide, notes. Never numbered.
+        {
+            bool ok = Library::canContain(p ? std::optional<NodeKind>(p->kind) : std::nullopt, NodeKind::Chapter);
+            for (auto* ch : lib_->childrenOf(x->bookId, x->id)) ok = ok && Library::canContain(NodeKind::Chapter, ch->kind);
+            AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(m, MF_STRING | (x->kind == NodeKind::Chapter && x->matter == 1 ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + 3, L"Front matter");
+            AppendMenuW(m, MF_STRING | (x->kind == NodeKind::Chapter && x->matter == 2 ? MF_CHECKED : 0) | (ok ? 0 : MF_GRAYED), WKindBase + 4, L"Back matter");
         }
         POINT pt;
         GetCursorPos(&pt);
         const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
-        if (cmd >= WKindBase && cmd < WKindBase + 3) {
+        if (cmd >= WKindBase && cmd < WKindBase + 5) {
             commitFields();
             ManuscriptNode u = *lib_->node(focus_.id);
-            u.kind = (NodeKind)(cmd - WKindBase);
+            const int k = cmd - WKindBase;
+            u.kind = k >= 3 ? NodeKind::Chapter : (NodeKind)k;
+            u.matter = k == 3 ? 1 : k == 4 ? 2 : 0;
             if (!lib_->updateNode(u)) flash(w(lib_->lastError()), 6);
             else if (u.id == currentNode_) sendLoad();  // the placeholder text changes with the kind
         }

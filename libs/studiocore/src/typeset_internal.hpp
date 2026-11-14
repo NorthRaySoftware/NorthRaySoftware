@@ -42,12 +42,19 @@ public:
     FT_Library ft() const { return ft_; }
     // Advance of a glyph in font units.
     int advance(int face, std::uint32_t glyph);
+    // Fonts for characters a book font doesn't have (symbols writers use, such as ✧ or 🗡): every .ttf
+    // in `folder`, in name order. Opened once.
+    void useFallbacks(const std::string& folder);
+    const std::vector<int>& fallbacks() { std::lock_guard<std::recursive_mutex> g(mutex_); return fallbacks_; }
+    bool hasChar(int face, std::uint32_t codepoint);
 private:
     Fonts();
     std::recursive_mutex mutex_;
     FT_Library ft_ = nullptr;
     std::vector<std::unique_ptr<Face>> faces_;
     std::unordered_map<std::string, int> byPath_;
+    std::vector<int> fallbacks_;
+    std::string fallbackFolder_;
 };
 
 struct Shaped {
@@ -55,6 +62,7 @@ struct Shaped {
     std::vector<float> x;        // pen position of each glyph, pt from the start
     std::vector<float> dy;       // vertical offset, pt (up negative)
     std::vector<std::uint32_t> clusters;   // byte offset into the text of each glyph's cluster
+    std::vector<int> faces;      // the face each glyph is from (the asked-for one, or a symbol fallback)
     float width = 0;             // total advance, pt
 };
 // Shapes `text` in one face at `size` pt.

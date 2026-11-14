@@ -479,12 +479,22 @@ public:
         const Shaped& s = sh_.get(st, text);
         if (s.glyphs.empty()) return;
         GlyphRun r;
-        r.font = bookFont(st.face);
+        int runFace = s.faces.empty() ? st.face : s.faces[0];
+        r.font = bookFont(runFace);
         r.size = st.size;
         r.y = st.rise;
         const std::string src = st.fakeSmallCaps ? upper(text) : text;
-        auto& map = book_.fonts[r.font].toUnicode;
         for (size_t i = 0; i < s.glyphs.size(); ++i) {
+            // A symbol from a fallback font: a run of its own, in that font.
+            if (!s.faces.empty() && s.faces[i] != runFace) {
+                if (!r.glyphs.empty()) out.runs.push_back(std::move(r));
+                r = GlyphRun{};
+                runFace = s.faces[i];
+                r.font = bookFont(runFace);
+                r.size = st.size;
+                r.y = st.rise;
+            }
+            auto& map = book_.fonts[r.font].toUnicode;
             r.glyphs.push_back(s.glyphs[i]);
             r.xs.push_back(x + s.x[i]);
             r.dy.push_back(s.dy[i]);
@@ -810,6 +820,7 @@ Source snapshot(const Library& lib, const Id& bookId) {
     for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
         Source::Section sec;
         sec.kind = n->kind;
+        sec.matter = n->matter;
         sec.title = n->title.empty() ? std::string(label(n->kind)) : n->title;
         sec.content = lib.nodeContent(n->id);
         sec.words = n->wordCount;
@@ -889,6 +900,8 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         book.error = "The book fonts weren't found next to the program (" + res.fontsFolder + ").";
         return book;
     }
+    // Symbols the book font doesn't have (✧, 🗡, ★: often a chapter's point-of-view mark) come from these.
+    Fonts::get().useFallbacks(studio::detail::fromPath(studio::detail::u8path(res.fontsFolder) / "symbols"));
     const std::string lang = src.language.empty() ? "en-GB" : src.language;
     Hyphenator hyph;
     {
@@ -1056,12 +1069,14 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             currentChapter = title;
             if (entryNo < entries.size()) entries[entryNo++].openingFlow = flow.size();
             // The story's first page is a right-hand page 1 when front matter has roman numbers.
-            newPage(Page::ChapterOpening, d.chaptersOnRecto || (d.frontRoman && !bodyStarted), title);
-            bodyStarted = true;
+            // Front matter stays in the front (roman page numbers, if chosen); the story starts after it.
+            const bool front = n->matter == 1 && !bodyStarted;
+            newPage(Page::ChapterOpening, d.chaptersOnRecto || (d.frontRoman && !bodyStarted && !front), title);
+            if (!front) bodyStarted = true;
             space(d.chapterSinkLines);
             const ChapterName cn = splitChapterTitle(title);
             int num = 0;
-            if (!cn.special) num = cn.number ? (chapterNo = cn.number) : ++chapterNo;
+            if (!cn.special && n->matter == 0) num = cn.number ? (chapterNo = cn.number) : ++chapterNo;
             Block t;
             t.align = Align::Center;
             t.indent = false;

@@ -28,7 +28,7 @@ export const CATEGORIES = [
   { id: "tagAdverb", name: "Adverbs in dialogue tags", essential: true, on: true,
     why: "An adverb on \"said\" (said softly) often tells what the dialogue should show. Most editors suggest letting the words or an action carry it." },
   { id: "bookism", name: "Fancy dialogue tags", on: true,
-    why: "Tags other than said and asked (hissed, exclaimed, retorted) draw attention to themselves. One now and then is fine; many in a scene can feel overwritten." },
+    why: "Tags other than said and asked draw attention to themselves. Marked only when it's overdone: tags that are actions (she smiled), more fancy tags than plain ones, or the same one again and again." },
   { id: "echo", name: "Echoes", on: true,
     why: "The same distinctive word again within a few lines. Readers notice the repeat. Names from the bible and common words are left alone." },
   { id: "starts", name: "Repeated sentence starts", on: true,
@@ -66,6 +66,10 @@ const BOOKISMS = ["whispered", "murmured", "muttered", "hissed", "growled", "sna
   "purred", "spat", "gasped", "stammered", "stuttered", "blurted", "interjected", "opined", "intoned", "chided", "scolded",
   "admonished", "implored", "pleaded", "begged", "demanded", "insisted", "queried", "enquired", "inquired", "wondered",
   "mused", "smirked", "grinned", "smiled", "beamed", "huffed", "sniffed", "scoffed", "drawled", "rasped", "croaked", "squeaked"];
+// Tags that are actions, not ways of speaking: always worth a look ("she smiled" can't carry words).
+const ACTION_TAGS = new Map([["smiled", "smile"], ["grinned", "grin"], ["smirked", "smirk"], ["beamed", "beam"], ["laughed", "laugh"],
+  ["chuckled", "chuckle"], ["giggled", "giggle"], ["sighed", "sigh"], ["sniffed", "sniff"], ["huffed", "huff"], ["scoffed", "scoff"]]);
+const ordinal = (n) => (n === 3 ? "third" : n === 4 ? "fourth" : n === 5 ? "fifth" : n + "th");
 // Words ending in -ly that aren't manner adverbs.
 const NOT_ADVERBS = new Set(["early", "only", "family", "holy", "ugly", "lonely", "friendly", "silly", "lovely", "likely", "daily",
   "weekly", "monthly", "yearly", "fly", "reply", "supply", "apply", "rely", "ally", "belly", "jelly", "bully", "lily", "rally",
@@ -160,6 +164,7 @@ const RX = {
   speechThenAdverb: new RegExp(W(`(?:${SPEECH.join("|")}|${BOOKISMS.join("|")})(?: [\\p{L}]+){0,2} ([\\p{L}]+ly)`), "giu"),
   adverbThenSpeech: new RegExp(W(`([\\p{L}]+ly) (?:${SPEECH.join("|")}|${BOOKISMS.join("|")})`), "giu"),
   bookism: rx(BOOKISMS),
+  plainTag: rx(SPEECH),
   redundancy: REDUNDANCIES.map(([p, s]) => [new RegExp(W(p), "giu"), s]),
   cliche: new RegExp(W(CLICHES.join("|")), "giu"),
 };
@@ -289,6 +294,12 @@ function compile(rule) {
 // opts: {mode: "off"|"quiet"|"full", lang ("en-GB"), categories: {id: bool}, rules: [...], ignore: {key: [lower-cased text]},
 //        ignoreOnce: Set, names: Set(lower-cased words), echoWindow, longSentence}
 // Returns {hints: [{from, to, key, cat, rule, name, msg, why}], counts: {key: n}, slow: [rule ids]}
+// "said quietly" -> "whispered": verbs that carry the adverb.
+const STRONGER = { quietly: ["whispered", "murmured"], softly: ["murmured", "whispered"], loudly: ["shouted", "called"],
+  angrily: ["snapped", "snarled"], sharply: ["snapped"], harshly: ["snapped"], coldly: ["snapped"], nervously: ["stammered"],
+  hesitantly: ["faltered"], firmly: ["insisted"], sadly: ["sighed"], softly_: [], tearfully: ["sobbed"], happily: ["beamed"],
+  urgently: ["urged"], excitedly: ["exclaimed"], bitterly: ["spat"], hoarsely: ["rasped"], mockingly: ["mocked"], gently: ["soothed"] };
+
 // Plainer ways to say a cliché: starting points, not rewrites ($1 = the matched possessive).
 const CLICHE_PLAIN = [
   [/heart (?:pounded|hammered|raced)/, ["$1 pulse jumped", "$1 heart raced"]],
@@ -380,6 +391,94 @@ export function beganFix(phrase, isWord) {
   return null;
 }
 
+// Filter words: advice that says what to do with this one.
+function filterAdvice(word) {
+  const w = word.toLocaleLowerCase();
+  if (/^(?:saw|see|sees|seeing|watched|watch|watches|looked|observed|noticed|notice|notices)$/.test(w))
+    return `"${word}": show what's seen instead of the seeing. "She saw the door swing open" becomes "The door swung open."`;
+  if (/^(?:heard|hear|hears|hearing)$/.test(w)) return `"${word}": let the sound happen. "He heard a dog bark" becomes "A dog barked."`;
+  if (/^(?:felt|feel|feels|feeling|sensed)$/.test(w)) return `"${word}": show the feeling in the body or the action. "She felt afraid" could be "Her hands shook."`;
+  if (/^(?:smelled|smelt|tasted)$/.test(w)) return `"${word}": give the smell or taste itself. "He smelled smoke" becomes "Smoke hung in the air."`;
+  if (/^(?:realised|realized|realise|realize|knew|remembered|recalled|thought|wondered|decided)$/.test(w))
+    return `"${word}": go straight to the thought. "She realised the key was gone" becomes "The key was gone."`;
+  return `"${word}" puts the reader behind the character. Could the thing itself be shown?`;
+}
+
+// "The cake was eaten by the dog." -> "The dog ate the cake." (only when the whole sentence has that shape).
+const PARTICIPLE_PAST = { eaten: "ate", taken: "took", given: "gave", seen: "saw", written: "wrote", driven: "drove", ridden: "rode",
+  broken: "broke", chosen: "chose", spoken: "spoke", stolen: "stole", frozen: "froze", forgotten: "forgot", forgiven: "forgave",
+  hidden: "hid", bitten: "bit", beaten: "beat", blown: "blew", drawn: "drew", grown: "grew", known: "knew", thrown: "threw",
+  shown: "showed", sung: "sang", begun: "began", done: "did", gone: "went", fallen: "fell", shaken: "shook", woken: "woke",
+  awoken: "awoke", torn: "tore", worn: "wore", sworn: "swore", born: "bore", swum: "swam", drunk: "drank", rung: "rang", struck: "struck" };
+export function activeFix(b, at, isWord) {
+  const t = b.text;
+  let a = at; while (a > 0 && !/[.!?…]/.test(t[a - 1])) a--;
+  while (/\s/.test(t[a] || "")) a++;
+  let z = at; while (z < t.length && !/[.!?…]/.test(t[z])) z++;
+  const end = t[z] || "";
+  const m = /^(.+?) (was|were|is|are) ([\p{L}]+) by (.+)$/u.exec(t.slice(a, z));
+  if (!m || /["“”‘’]/.test(m[0]) || m[1].split(" ").length > 6 || m[4].split(" ").length > 6) return null;
+  const [, subj, be, part, agent] = m;
+  let verb = PARTICIPLE_PAST[part.toLocaleLowerCase()] || (/ed$/.test(part) ? part : null);
+  if (!verb) return null;
+  if (/^(?:is|are)$/.test(be)) {   // present: "is eaten by the dog" -> "the dog eats"
+    const base = Object.entries(PARTICIPLE_PAST).find(([p]) => p === part.toLocaleLowerCase());
+    if (base) return null;   // irregular presents aren't worth guessing
+    verb = part.replace(/ied$/, "ies").replace(/ed$/, "s");
+    if (isWord && !isWord(verb)) return null;
+  }
+  const lowerSubj = /^(?:The|A|An|His|Her|Their|My|Our|Its|This|That|These|Those|Some|Every|Each)\b/.test(subj) ? subj[0].toLocaleLowerCase() + subj.slice(1) : subj;
+  const text = agent[0].toLocaleUpperCase() + agent.slice(1) + " " + verb + " " + lowerSubj;
+  return { label: `Rewrite: "${text}${end}"`, from: a, to: z, text };
+}
+
+// Long sentences: break at a joining word near the middle (", and", ", but", ";", ", which" ...).
+function splitFixes(b, a, z) {
+  const t = b.text, mid = (a + z) / 2, out = [];
+  const re = /(,? (?:and|but|so|yet|then) |; |: |, which |, while |, when )(\p{L})/gu;
+  const cands = [];
+  for (const m of t.slice(a, z).matchAll(re)) {
+    const at = a + m.index;
+    if (at - a < 40 || z - at < 40) continue;   // both halves need some length
+    cands.push({ at, m });
+  }
+  cands.sort((x, y) => Math.abs(x.at - mid) - Math.abs(y.at - mid));
+  for (const { at, m } of cands.slice(0, 2)) {
+    const joiner = m[1].trim().replace(/^,\s*/, "");
+    const keep = /^(?:but|so|yet|then)$/.test(joiner) ? joiner[0].toLocaleUpperCase() + joiner.slice(1) + " " : "";
+    const next = keep ? m[2] : m[2].toLocaleUpperCase();
+    const which = /^which$/.test(joiner) ? "It " : /^(?:while|when)$/.test(joiner) ? joiner[0].toLocaleUpperCase() + joiner.slice(1) + " " : "";
+    const text = ". " + (which || keep) + (which ? m[2] : next);
+    out.push({ label: `Break at "${m[1].trim()}"`, from: at, to: at + m[0].length, text });
+  }
+  return out;
+}
+
+// "There was a dog barking." -> "A dog was barking."
+function thereFix(b, a, z) {
+  const s = b.text.slice(a, z);
+  const m = /^There (was|were|is|are) ((?:a|an|the|some|two|three|four|five|many|several|no) )?([\p{L}'-]+(?: [\p{L}'-]+)?) ([\p{L}]+ing)\b/u.exec(s);
+  if (!m) return null;
+  const [all, be, det, noun, ving] = m;
+  const start = (det || "") + noun;
+  const text = start[0].toLocaleUpperCase() + start.slice(1) + " " + (det && /^no $/.test(det) ? be : be) + " " + ving;
+  return { label: `"${text}"`, from: a, to: a + all.length, text };
+}
+
+// Three "She ..." sentences: "She fell. She rose." -> "She fell and rose."
+function joinFix(b, from, to) {
+  const t = b.text;
+  const before = t.slice(0, from);
+  const m = /\.\s+$/.exec(before);
+  if (!m || t[to] !== " ") return null;
+  // Both short: joining long sentences makes another problem.
+  const prevStart = Math.max(before.slice(0, m.index).search(/[^.!?…]*$/), 0);
+  const prevWords = before.slice(prevStart, m.index).trim().split(/\s+/).length;
+  let end = to; while (end < t.length && !/[.!?…]/.test(t[end])) end++;
+  if (prevWords > 10 || t.slice(to, end).trim().split(/\s+/).length > 10) return null;
+  return { label: "Join with the sentence before", from: m.index, to: to + 1, text: " and " };
+}
+
 // The replacement in the capitalisation of what it replaces ("Very" -> "Quite", "GREY" -> "GRAY").
 export function matchCase(orig, repl) {
   if (orig.length > 1 && orig === orig.toLocaleUpperCase() && orig !== orig.toLocaleLowerCase()) return repl.toLocaleUpperCase();
@@ -436,6 +535,8 @@ export function analyse(blocks, opts) {
   for (const b of blocks) b.dialogue = dialogueRanges(b.text);
   const narration = (b, from, to) => !touchesRanges(b.dialogue, from, to);
 
+  const tagUses = [];   // fancy dialogue tags, judged once the whole chapter is read
+  let plainTags = 0;    // said, asked and the like
   // Paragraph-level checks.
   for (const b of blocks) {
     const t = b.text;
@@ -469,18 +570,23 @@ export function analyse(blocks, opts) {
             if (NOT_ADVERBS.has(adv) || !narration(b, m.index, m.index + m[0].length) || !nearDialogue(m.index, m.index + m[0].length)) continue;
             const at = m.index + m[0].toLocaleLowerCase().lastIndexOf(adv);
             const from = re === RX.adverbThenSpeech ? m.index : at;
-            cat(b, from, from + adv.length, "tagAdverb", `"${m[1]}" on a dialogue tag.`, [removal(b, from, from + adv.length)]);
+            const verbs = STRONGER[adv] || [];
+            const tag = /^(?:said|says)$/i.test(re === RX.adverbThenSpeech ? m[0].slice(adv.length + 1) : m[0].split(" ")[0]) ? m : null;
+            const fx = [removal(b, from, from + adv.length)];
+            if (tag) for (const v of verbs) fx.push(swap(b, m.index, m.index + m[0].length, v, `"${v}"`));
+            cat(b, from, from + adv.length, "tagAdverb",
+              verbs.length && tag ? `"${m[0]}": a verb can do the adverb's work (${verbs.map((v) => `"${v}"`).join(", ")}), or show it in what's said.`
+                                  : `"${m[1]}" on a dialogue tag. Can the words themselves, or an action, show how it was said?`, fx);
           }
-      if (enabled("bookism"))
+      if (enabled("bookism")) {
         for (const m of t.matchAll(RX.bookism))
-          if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length))
-          {
+          if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length)) {
             const q = b.dialogue.find(([a, z]) => z <= m.index && m.index - z <= 40) || b.dialogue.find(([a]) => a >= m.index);
-            const asked = q && /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1]));
-            const fx = [swap(b, m.index, m.index + m[0].length, "said")];
-            if (asked) fx.unshift(swap(b, m.index, m.index + m[0].length, "asked"));
-            cat(b, m.index, m.index + m[0].length, "bookism", `"${m[0]}" as a dialogue tag. Would "${asked ? "asked" : "said"}" do?`, fx);
+            tagUses.push({ b, m, asked: !!(q && /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1]))) });
           }
+        for (const m of t.matchAll(RX.plainTag))
+          if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length)) plainTags++;
+      }
     }
     if (enabled("filler")) {
       const found = [...t.matchAll(RX.filler)].filter((m) => narration(b, m.index, m.index + m[0].length));
@@ -492,7 +598,7 @@ export function analyse(blocks, opts) {
         cat(b, m.index, m.index + m[0].length, "hedge", `"${m[0]}" softens this.`, [removal(b, m.index, m.index + m[0].length)]);
     if (enabled("filter"))
       for (const m of t.matchAll(RX.filter)) if (narration(b, m.index, m.index + m[0].length))
-        cat(b, m.index, m.index + m[0].length, "filter", `"${m[0]}" puts the reader behind the character.`);
+        cat(b, m.index, m.index + m[0].length, "filter", filterAdvice(m[0]));
     if (enabled("began"))
       for (const m of t.matchAll(RX.began)) if (narration(b, m.index, m.index + m[0].length))
       {
@@ -503,7 +609,11 @@ export function analyse(blocks, opts) {
     if (enabled("passive"))
       for (const m of t.matchAll(RX.passive)) {
         if (ADJECTIVAL.has(m[1].toLocaleLowerCase()) || !narration(b, m.index, m.index + m[0].length)) continue;
-        cat(b, m.index, m.index + m[0].length, "passive", "Possibly passive. Fine if the actor doesn't matter.");
+      {
+        const fx = activeFix(b, m.index, opts.isWord);
+        cat(b, m.index, m.index + m[0].length, "passive",
+          fx ? `Passive: "${fx.text}" names who did it first.` : "Possibly passive. If it matters who did it, start with them; if not, it's fine.", fx ? [fx] : []);
+      }
       }
     if (enabled("long") || enabled("thereIs"))
       for (const [a, z] of sentences(t)) {
@@ -511,19 +621,51 @@ export function analyse(blocks, opts) {
         const s = t.slice(a, z);
         if (enabled("long")) {
           const n = countWords(s);
-          if (n > longAt) cat(b, a, z, "long", `${n} words in one sentence${n > longAt * 1.5 ? " (very long)" : ""}.`);
+          if (n > longAt) {
+            const fx = splitFixes(b, a, z);
+            cat(b, a, z, "long", `${n} words in one sentence${n > longAt * 1.5 ? " (very long)" : ""}.` +
+              (fx.length ? " It could break here:" : " Look for a place where one thought ends and the next begins."), fx);
+          }
         }
         if (enabled("thereIs")) {
           const m = /^There (is|are|was|were|had been|will be)\b/u.exec(s);
-          if (m) cat(b, a, a + m[0].length, "thereIs", `Starts with "${m[0]}".`);
+          if (m) {
+            const fx = thereFix(b, a, z);
+            cat(b, a, a + m[0].length, "thereIs", fx ? `Starts with "${m[0]}". The subject could lead:` : `Starts with "${m[0]}". Could the thing that's there start the sentence, doing something?`, fx ? [fx] : []);
+          }
         }
       }
+  }
+
+  // Fancy dialogue tags: only when it's overdone. A tag that's an action ("she smiled") always;
+  // otherwise when fancy tags outnumber said and asked (and there are at least five), or the same
+  // one keeps coming back (its third use on). One "he screamed" in a tense scene is left alone.
+  if (tagUses.length) {
+    const many = tagUses.length >= 5 && tagUses.length > plainTags;
+    const seenTag = new Map();
+    for (const { b, m, asked } of tagUses) {
+      const word = m[0].toLocaleLowerCase();
+      const n = (seenTag.get(word) || 0) + 1;
+      seenTag.set(word, n);
+      const action = ACTION_TAGS.has(word);
+      if (!action && !many && n < 3) continue;
+      const fx = [swap(b, m.index, m.index + m[0].length, "said")];
+      if (asked) fx.unshift(swap(b, m.index, m.index + m[0].length, "asked"));
+      const msg = action
+        ? `"${m[0]}" can't carry words: nobody can ${ACTION_TAGS.get(word)} a sentence. Use "said", or end the line and make it an action: “Fine.” She ${m[0]}.`
+        : n >= 3 ? `"${m[0]}" is the tag for the ${ordinal(n)} time in this chapter. Readers start to notice it.`
+        : `${tagUses.length} fancy tags and ${plainTags} plain ones (said, asked) in this chapter. "Said" disappears; these don't.`;
+      cat(b, m.index, m.index + m[0].length, "bookism", msg, fx);
+    }
   }
 
   // Repeated sentence starts, across the chapter's narration.
   if (enabled("starts")) {
     let last = "", run = [];
-    const flush = () => { if (run.length >= 3) for (const r of run.slice(2)) cat(r.b, r.from, r.to, "starts", `${run.length} sentences in a row start with "${r.word}".`); };
+    const flush = () => { if (run.length >= 3) for (const r of run.slice(2)) {
+      const fx = joinFix(r.b, r.from, r.to);
+      cat(r.b, r.from, r.to, "starts", `${run.length} sentences in a row start with "${r.word}". Join two, or open this one with something else (a place, a time, the action).`, fx ? [fx] : []);
+    } };
     for (const b of blocks)
       for (const [a, z] of sentences(b.text)) {
         if (!narration(b, a, z)) { flush(); last = ""; run = []; continue; }

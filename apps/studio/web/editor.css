@@ -284,8 +284,16 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .rf-actions .danger:hover { border-color: #B4442C; }
 
 /* Names from the bible. */
-.wl { text-decoration: underline dotted color-mix(in srgb, var(--accent) 70%, transparent); text-underline-offset: 3px; }
-.wl:hover { color: var(--accent); }
+/* Each kind of bible entry has its own colour: name links, name cards (and the app's own cards). */
+.k-character { --k: #3E7BD6; } .k-creature { --k: #C26A2E; } .k-place { --k: #2E9A6C; } .k-group { --k: #7D5BD0; }
+.k-thing { --k: #B08A1E; } .k-lore { --k: #1E97A6; } .k-event { --k: #C9476A; }
+:root[data-theme="dark"] .k-character { --k: #7AA9F0; } :root[data-theme="dark"] .k-creature { --k: #E69A5F; }
+:root[data-theme="dark"] .k-place { --k: #5BC99A; } :root[data-theme="dark"] .k-group { --k: #AE93F2; }
+:root[data-theme="dark"] .k-thing { --k: #E0BE55; } :root[data-theme="dark"] .k-lore { --k: #55C6D4; }
+:root[data-theme="dark"] .k-event { --k: #F07C98; }
+.wl { text-decoration: underline dotted color-mix(in srgb, var(--k, var(--accent)) 80%, transparent); text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px; }
+.wl:hover { color: var(--k, var(--accent)); }
 
 /* The name card: who or what a name from the bible is. */
 #namecard { position: fixed; z-index: 12; padding: 14px 14px 12px; background: var(--page); border: 1px solid var(--rule); border-radius: 10px;
@@ -320,3 +328,18 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .hc-word { font: 600 13px/1 var(--ui); color: var(--accent); background: var(--sel); border: 1px solid transparent; border-radius: 5px; height: 28px; padding: 0 10px; }
 .hc-word:hover { border-color: var(--accent); }
 .hc-label { font: 12px/28px var(--ui); color: var(--muted, inherit); opacity: .75; margin-right: 2px; }
+
+/* Name cards in the entry's colour: an edge, the kind, the initials and the link. Same layout for every kind. */
+#namecard[class^="k-"] { border-top: 3px solid var(--k); }
+.nc-entry { --kk: var(--k, var(--accent)); }
+.nc-kind { color: var(--kk); font-weight: 600; }
+.nc-pic { background: color-mix(in srgb, var(--kk) 16%, var(--page)); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--kk) 45%, transparent); }
+.nc-initials { color: var(--kk); }
+.nc-open { color: var(--kk); }
+.nc-open:hover { border-color: var(--kk); }
+
+/* Found by "Show it": a marker-pen highlight; the first one pulses once. */
+.found { background: color-mix(in srgb, #F5C542 45%, transparent); border-radius: 3px; box-shadow: 0 0 0 2px color-mix(in srgb, #F5C542 45%, transparent); }
+:root[data-theme="dark"] .found { background: color-mix(in srgb, #F5C542 32%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, #F5C542 32%, transparent); }
+.found-first { animation: found-pulse 1.4s ease-out 1; }
+@keyframes found-pulse { 0% { box-shadow: 0 0 0 10px color-mix(in srgb, #F5C542 0%, transparent); } 30% { box-shadow: 0 0 0 6px color-mix(in srgb, #F5C542 55%, transparent); } 100% { box-shadow: 0 0 0 2px color-mix(in srgb, #F5C542 45%, transparent); } }

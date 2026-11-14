@@ -38,7 +38,7 @@ static const UINT_PTR kBackupTimer = 5;  // every 30 minutes: a backup if anythi
 enum Cmd {
     CmdNewWorld = 100, CmdNewSeries, CmdNewBook, CmdOpenLibrary, CmdShowFolder, CmdExport, CmdBackup, CmdExit,
     CmdRename, CmdTrash, CmdUndoTrash, CmdEmptyTrash,
-    CmdGallery, CmdList, CmdPanel, CmdThemeSystem, CmdThemeLight, CmdThemeDark,
+    CmdGallery, CmdList, CmdPanel, CmdSide, CmdThemeSystem, CmdThemeLight, CmdThemeDark,
     CmdAbout, CmdFormatDoc, CmdImport, CmdImportInto, CmdWriting, CmdSettings,
     // Popup menus
     CmdMoveWorldBase = 1000,      // + index into liveWorlds, or CmdMoveIndependent
@@ -101,6 +101,7 @@ void StudioApp::loadSettings() {
     settings_.libraryFolder = cj::valueOr(j, "libraryFolder", "");
     settings_.gallery = cj::valueOr(j, "gallery", true);
     settings_.showPanel = cj::valueOr(j, "showPanel", true);
+    settings_.showSide = cj::valueOr(j, "showSide", true);
     settings_.sort = std::clamp(cj::valueOr(j, "sort", 0), 0, 4);
     settings_.theme = std::clamp(cj::valueOr(j, "theme", 0), 0, 2);
     if (j.contains("collapsedWorlds") && j["collapsedWorlds"].is_array())
@@ -122,6 +123,7 @@ void StudioApp::saveSettings() {
     j["libraryFolder"] = settings_.libraryFolder;
     j["gallery"] = settings_.gallery;
     j["showPanel"] = settings_.showPanel;
+    j["showSide"] = settings_.showSide;
     j["sort"] = settings_.sort;
     j["theme"] = settings_.theme;
     j["collapsedWorlds"] = settings_.collapsedWorlds;
@@ -421,6 +423,7 @@ void StudioApp::buildMenu() {
         {FCONTROL | FSHIFT | FVIRTKEY, 'I', CmdImport},
         {FCONTROL | FVIRTKEY, 'W', CmdWriting},
         {FVIRTKEY, VK_F4, CmdPanel},
+        {FVIRTKEY, VK_F3, CmdSide},
         {FCONTROL | FVIRTKEY, '1', CmdGallery},
         {FCONTROL | FVIRTKEY, '2', CmdList},
         {FCONTROL | FVIRTKEY, VK_UP, WPrev},
@@ -478,6 +481,7 @@ void StudioApp::command(int id) {
         case CmdGallery: settings_.gallery = true; saveSettings(); break;
         case CmdList: settings_.gallery = false; saveSettings(); break;
         case CmdPanel: settings_.showPanel = !settings_.showPanel; saveSettings(); break;
+        case CmdSide: settings_.showSide = !settings_.showSide; saveSettings(); break;
         case CmdThemeSystem: settings_.theme = 0; saveSettings(); applyTheme(); break;
         case CmdThemeLight: settings_.theme = 1; saveSettings(); applyTheme(); break;
         case CmdThemeDark: settings_.theme = 2; saveSettings(); applyTheme(); break;
