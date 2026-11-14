@@ -132,6 +132,26 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
     }
     y += 34;
 
+    // Views.
+    gfx_.text(L"VIEW", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 24;
+    {
+        static const wchar_t* names[] = {L"Corkboard", L"Timeline", L"Structure"};
+        for (int v = 0; v < 3; ++v) {
+            const std::string id = "side:pl:view:" + std::to_string(v);
+            const Rect rr{x, y, wd, 30};
+            addHit(id, rr, [this, v] { commitFields(); pl_.view = v; pl_.scroll = 0; invalidate(); });
+            const bool sel = pl_.view == v;
+            const float hv = hoverAmount(id);
+            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            gfx_.text(names[v], {tx0, rr.y, cw, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+            if (focused(id)) focusRing(rr);
+            y += 32;
+        }
+    }
+    y += 16;
+
     // Filter by status.
     gfx_.text(L"STATUS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 24;
@@ -178,6 +198,18 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     if (!b) return;
     gfx_.pushClip(r);
     setHitClip(r);
+    // Cork: a warm board with a faint grain, quiet enough to read the cards on.
+    const Color cork = pal_.dark ? cjui::hexColor("#2E2822") : pal_.paper.mix(cjui::hexColor("#C8A97E"), 0.32f);
+    gfx_.fill(r, cork);
+    {
+        unsigned seed = 2166136261u;
+        auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0f; };
+        const Color grain = pal_.dark ? cjui::hexColor("#000000").withAlpha(0.18f) : cjui::hexColor("#8A6A42").withAlpha(0.10f);
+        for (int i = 0; i < 900; ++i) {
+            const float gx = r.x + rnd() * r.w, gy = r.y + rnd() * std::max(r.h, 1.0f);
+            gfx_.circle(gx, gy, 0.6f + rnd() * 1.1f, grain, true);
+        }
+    }
     const float pad = r.w > 900 ? 36 : 24;
     const float cw = r.w - pad * 2;
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
@@ -229,12 +261,30 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         const Rect cr{m.x + col * (cardWid + gap), y, cardWid, cardH};
         const std::string id = "pl:card:" + n->id;
         addHit(id, cr, [this, nid = n->id] { selectCard(nid); });
+        {
+            Drop drop{Drop::NodeRow, cr, n->id, n->parentId};
+            drop.horizontal = true;   // cards in rows: before or after by left and right halves
+            addDrop(drop);
+        }
         const bool sel = pl_.node == n->id;
+        const bool lifted = drag_.active && drag_.id == n->id;
         const float hv = hoverAmount(id);
-        softShadow(cr, 4, std::max(hv, sel ? 1.0f : 0.0f));
-        gfx_.fillRounded(cr, 4, n->kind == NodeKind::Scene ? pal_.surface.mix(pal_.paper, 0.35f) : pal_.surface);
-        gfx_.strokeRounded(cr, 4, sel ? pal_.ribbon : pal_.rule.mix(pal_.inkFaint, hv), sel ? 2.0f : 1.0f);
-        gfx_.fill({cr.x + 1, cr.y + 10, 3, cr.h - 20}, statusColour(n->status));
+        // An index card: a little tilt of light, a red rule under the heading, a pin in its status colour.
+        softShadow(cr, 3, std::max(0.35f + 0.65f * hv, sel ? 1.0f : 0.0f));
+        const Color paperCard = pal_.dark ? (n->kind == NodeKind::Scene ? pal_.surface.mix(pal_.paper, 0.3f) : pal_.surface)
+                                          : (n->kind == NodeKind::Scene ? cjui::hexColor("#FBF6E9") : cjui::hexColor("#FFFDF7"));
+        gfx_.fillRounded(cr, 3, lifted ? paperCard.withAlpha(0.5f) : paperCard);
+        if (sel) gfx_.strokeRounded(cr, 3, pal_.ribbon, 2.0f);
+        else if (hv > 0.01f) gfx_.strokeRounded(cr, 3, pal_.rule.mix(pal_.inkFaint, hv), 1.0f);
+        gfx_.line(cr.x + 10, cr.y + 50.5f, cr.right() - 10, cr.y + 50.5f, cjui::hexColor("#D9534F").withAlpha(pal_.dark ? 0.45f : 0.55f), 1.0f);
+        for (float ly = cr.y + 72; ly < cr.bottom() - 30; ly += 18)
+            gfx_.line(cr.x + 10, ly + 0.5f, cr.right() - 10, ly + 0.5f, cjui::hexColor("#6A9BC3").withAlpha(pal_.dark ? 0.10f : 0.16f), 1.0f);
+        {
+            const float px = cr.x + cr.w / 2, py = cr.y + 2;
+            gfx_.circle(px + 1, py + 2, 6, cjui::hexColor("#000000").withAlpha(0.18f), true);
+            gfx_.circle(px, py, 6, statusColour(n->status), true);
+            gfx_.circle(px - 2, py - 2, 2, cjui::hexColor("#FFFFFF").withAlpha(0.55f), true);
+        }
         const float ix = cr.x + 16, iw = cr.w - 30;
         std::wstring kicker = n->kind == NodeKind::Chapter ? L"CHAPTER " + std::to_wstring(chapterNo)
                                                            : std::to_wstring(chapterNo) + L" · SCENE " + std::to_wstring(sceneNo);
@@ -364,6 +414,7 @@ void StudioApp::drawPlanPanel(const Rect& r) {
             y = panelField(c, y, L"Target words (blank: none)", FTarget);
         }
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
+        planPanelExtras(c, y);
         // The world's entries that appear in it.
         if (auto it = pl_.appearances.find(n->id); it != pl_.appearances.end() && !it->second.empty()) {
             panelHeading(c, y, L"APPEARING", false);
@@ -404,10 +455,15 @@ void StudioApp::drawPlanPanel(const Rect& r) {
         y += gfx_.text(L"Novels are often 70,000 to 100,000 words; novellas 20,000 to 40,000. A chapter's or scene's own target "
                        L"is set on its card.",
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 14;
-        panelHeading(c, y, L"THE BOARD", false);
-        y += gfx_.text(L"Every chapter and scene, in the order of the book. The coloured edge is its status: outline, draft, "
-                       L"revised or final.\n\nCharacters from the world's bible are found in the text, so a card shows who appears "
-                       L"in it without being told.",
+        planPanelExtras(c, y);
+        panelHeading(c, y, pl_.view == 0 ? L"THE CORKBOARD" : pl_.view == 1 ? L"ABOUT THE TIMELINE" : L"ABOUT STRUCTURE", false);
+        y += gfx_.text(pl_.view == 0 ? L"Every chapter and scene as an index card, in the order of the book. The pin is its status: "
+                       L"outline, draft, revised or final. Drag a card to move it: beside another card to go before or after it, or onto "
+                       L"the middle of a chapter to make a scene part of it.\n\nCharacters from the world's bible are found in the "
+                       L"text, so a card shows who appears in it without being told."
+                       : pl_.view == 1 ? L"Choose a card to set when it happens. Cards without a time wait below the timeline."
+                       : L"Match each beat to the chapter that carries it. The bar shows the book by length, so you can see whether "
+                         L"a turning point comes early or late.",
                        {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;
     }
     pl_.panelContent = y + pl_.panelScroll - r.y + 20;

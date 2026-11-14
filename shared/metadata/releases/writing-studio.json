@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.22.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Planning has three views. Corkboard: your chapters and scenes as index cards pinned to a cork board (the pin is the status). Drag a card beside another to move it before or after, or onto the middle of a chapter to make a scene part of it.",
+        "Timeline: place chapters and scenes on the story's own calendar (days, weeks, months or years, plus words such as \"Midsummer, 1204\"), in a lane for each viewpoint character. Drag a card along to move it in time. A line joins them in reading order and turns orange where the story jumps back, so flashbacks stand out.",
+        "Structure: lay a story shape over the book (three acts, fifteen beats, the hero's journey, seven points, five acts or kishōtenketsu). The book is shown by length with each beat marked, each beat says which chapter falls there, and you can match beats to chapters and see whether yours come early or late. An empty book can be outlined from a structure in one step.",
+        "Characters' names link by their parts too: \"Maren Ada Holt\" is also found as Maren, Holt or Maren Holt (titles and words such as \"of\" don't count on their own). When characters share a name, it links to all of them and its card shows each one. Worldbuilding's \"Appears in\" and the cards' cast use the same rule, and a full name is no longer counted twice.",
+        "Fixed: choosing from a menu opened by a button could act on the wrong item, or close the Studio."
+      ]
+    },
+    {
       "version": "0.21.1",
       "date": "2026-11-14",
       "notes": [

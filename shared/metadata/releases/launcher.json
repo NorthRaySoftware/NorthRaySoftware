@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.22.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Fixed: a button that opens a dialog or menu could, rarely, act on the wrong thing."
+      ]
+    },
+    {
       "version": "0.21.1",
       "date": "2026-11-14",
       "notes": [

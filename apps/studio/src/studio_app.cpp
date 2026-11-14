@@ -17,6 +17,7 @@
 #include <cstring>
 #include <dwmapi.h>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include "cj/json_safe.hpp"
@@ -1112,6 +1113,7 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 
 bool StudioApp::onMouseDown(float x, float y) {
     drag_ = {};
+    if (planMouseDown(x, y)) return true;   // a card on the timeline
     // Cropping a picture in the details panel: a corner resizes, inside moves.
     if (focus_.kind == Focus::Picture && cropBox_.w > 0 && cropBox_.inset(-8).contains(x, y)) {
         const Rect& b = cropBox_;
@@ -1141,7 +1143,7 @@ bool StudioApp::onMouseDown(float x, float y) {
         drag_.sy = y;
         return true;
     };
-    take("node:", DragState::Node) || take("book:", DragState::Book) || take("side:book:", DragState::Book) || take("series:", DragState::Series) ||
+    take("node:", DragState::Node) || take("pl:card:", DragState::Node) || take("book:", DragState::Book) || take("side:book:", DragState::Book) || take("series:", DragState::Series) ||
         take("side:series:", DragState::Series) || take("side:world:", DragState::World);
     if (drag_.armed && lib_) {
         if (drag_.kind == DragState::Node) {
@@ -1156,6 +1158,7 @@ bool StudioApp::onMouseDown(float x, float y) {
 }
 
 void StudioApp::onMouseMove(float x, float y, bool leftDown) {
+    if (planMouseMove(x, y, leftDown)) return;
     if (crop_.mode && leftDown && cropBox_.w > 0) {
         const double dx = (x - crop_.sx) / cropBox_.w, dy = (y - crop_.sy) / cropBox_.h;
         Placement p = crop_.start;
@@ -1201,6 +1204,7 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
 }
 
 bool StudioApp::onMouseUp(float x, float y) {
+    if (planMouseUp(x, y)) return true;
     if (crop_.mode) {
         crop_.mode = 0;
         sendPicture();   // the text shows the new crop
@@ -1266,8 +1270,10 @@ void StudioApp::applyDrop(const Drop& d, float x, float y) {
             const ManuscriptNode* target = lib_->node(d.id);
             const ManuscriptNode* moving2 = lib_->node(moving);
             if (!target || !moving2) break;
-            const float third = d.rect.h / 3;
-            const bool middle = y > d.rect.y + third && y < d.rect.bottom() - third;
+            // Rows of cards (the corkboard) are read left to right; the outline top to bottom.
+            const float third = (d.horizontal ? d.rect.w : d.rect.h) / 3;
+            const bool middle = d.horizontal ? (x > d.rect.x + third && x < d.rect.right() - third)
+                                             : (y > d.rect.y + third && y < d.rect.bottom() - third);
             bool ok = false;
             if (middle && Library::canContain(target->kind, moving2->kind)) ok = lib_->moveNode(moving, target->id, -1);
             else {
@@ -1278,7 +1284,7 @@ void StudioApp::applyDrop(const Drop& d, float x, float y) {
                     if (sibs[i]->id == target->id) idx = k;
                     ++k;
                 }
-                if (y > d.rect.y + d.rect.h / 2) ++idx;
+                if (d.horizontal ? x > d.rect.x + d.rect.w / 2 : y > d.rect.y + d.rect.h / 2) ++idx;
                 ok = lib_->moveNode(moving, target->parentId, idx);
             }
             if (!ok) flash(w(lib_->lastError()), 6);
@@ -1310,6 +1316,8 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     if (ws_ == Workspace::Planning) {
         if (panelRect_.contains(x, y)) pl_.panelScroll = std::clamp(pl_.panelScroll + lines * 20, 0.0f, std::max(0.0f, pl_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) pl_.sideScroll = std::clamp(pl_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pl_.sideContent - sideRect_.h));
+        else if (pageRect_.contains(x, y) && pl_.view == 1 && (GetKeyState(VK_SHIFT) & 0x8000))
+            pl_.tlScrollX = std::clamp(pl_.tlScrollX + lines * 40, 0.0f, std::max(0.0f, pl_.tlContentW - pl_.tlArea.w));   // along the timeline
         else if (pageRect_.contains(x, y)) pl_.scroll = std::clamp(pl_.scroll + lines * 30, 0.0f, std::max(0.0f, pl_.content - pageRect_.h));
         invalidate();
         return true;
@@ -1502,6 +1510,16 @@ void StudioApp::loadFields() {
             setFieldText(FName, n->title);
             setFieldText(FSynopsis, withCrLf(n->synopsis));
             setFieldText(FTarget, n->targetWords > 0 ? std::to_string(n->targetWords) : std::string());
+            const auto times = storyTimes(n->bookId);
+            const auto it = times.find(n->id);
+            std::string day;
+            if (it != times.end() && it->second.placed) {
+                char buf[32];
+                std::snprintf(buf, sizeof buf, "%g", it->second.day);
+                day = buf;
+            }
+            setFieldText(FStoryDay, day);
+            setFieldText(FWhen, it != times.end() ? it->second.when : std::string());
         }
     } else if (focus_.kind == Focus::Comment) {
         if (const Comment* c = lib_->comment(focus_.id)) setFieldText(FDescription, withCrLf(c->body));
@@ -1643,6 +1661,20 @@ void StudioApp::commitFields() {
                 n.targetWords = t.empty() ? 0 : std::strtoll(t.c_str(), nullptr, 10);
             }
             ok = lib_->updateNode(n);
+            {
+                // When it happens in the story (the timeline).
+                StoryTime t;
+                const std::string d = fieldText(FStoryDay);
+                char* end = nullptr;
+                const double v = d.empty() ? 0 : std::strtod(d.c_str(), &end);
+                t.placed = !d.empty() && end && *end == 0 && std::isfinite(v);
+                t.day = t.placed ? v : 0;
+                t.when = fieldText(FWhen);
+                const auto times = storyTimes(n.bookId);
+                const auto it = times.find(n.id);
+                const StoryTime old = it != times.end() ? it->second : StoryTime{};
+                if (old.placed != t.placed || old.day != t.day || old.when != t.when) setStoryTime(n.bookId, n.id, t);
+            }
             if (ok && n.id == currentNode_ && editor_.ready())
                 editor_.send(json{{"type", "title"}, {"title", n.title}}.dump());
         }

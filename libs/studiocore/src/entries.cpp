@@ -6,6 +6,7 @@
 #include "internal.hpp"
 
 #include <algorithm>
+#include <set>
 #include <cctype>
 #include <nlohmann/json.hpp>
 
@@ -225,17 +226,25 @@ size_t back(const std::string& s, size_t i) { while (i > 0 && ((unsigned char)s[
 
 namespace {
 // How often any of `names` appears in `text` as a whole word, and where first.
-int countNames(const std::string& text, const std::vector<std::string>& names, size_t* firstAt = nullptr, size_t* firstLen = nullptr) {
+// Longer names first, and a place counts once ("Maren Holt" isn't also "Maren" and "Holt").
+int countNames(const std::string& text, const std::vector<std::string>& namesIn, size_t* firstAt = nullptr, size_t* firstLen = nullptr) {
+    std::vector<std::string> names = namesIn;
+    std::stable_sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
+    std::vector<std::pair<size_t, size_t>> taken;
     int count = 0;
     size_t first = std::string::npos, len = 0;
     for (const std::string& name : names) {
+        if (name.empty()) continue;
         size_t at = 0;
         while ((at = text.find(name, at)) != std::string::npos) {
             const bool startOk = at == 0 || !wordByte((unsigned char)text[at - 1]);
             const size_t end = at + name.size();
             const bool endOk = end >= text.size() || !wordByte((unsigned char)text[end]);
-            if (startOk && endOk) {
+            bool overlaps = false;
+            for (auto& [a, z] : taken) if (at < z && end > a) { overlaps = true; break; }
+            if (startOk && endOk && !overlaps) {
                 ++count;
+                taken.push_back({at, end});
                 if (at < first) { first = at; len = name.size(); }
             }
             at = end;
@@ -247,18 +256,65 @@ int countNames(const std::string& text, const std::vector<std::string>& names, s
 }
 }  // namespace
 
+// The parts of a character's full name that also stand for them ("Maren Ada Holt": Maren,
+// Ada, Holt, Maren Ada, Ada Holt, Maren Holt). Joining words and titles on their own don't
+// count, and a part must start with a capital (or a non-ASCII letter). Same rule as the editor's links.
+std::vector<std::string> nameParts(const std::string& full) {
+    static const std::set<std::string> particles = {"of", "the", "de", "da", "di", "du", "del", "della", "der", "den", "van", "von", "le",
+                                                    "la", "al", "el", "bin", "bint", "ibn", "ap", "mac", "y", "and"};
+    static const std::set<std::string> titles = {"mr", "mrs", "ms", "miss", "dr", "sir", "dame", "lord", "lady", "king", "queen", "prince",
+                                                 "princess", "captain", "capt", "general", "father", "mother", "brother", "sister",
+                                                 "master", "mistress", "saint", "st", "professor", "prof"};
+    std::vector<std::string> words;
+    for (size_t i = 0; i < full.size();) {
+        while (i < full.size() && std::isspace((unsigned char)full[i])) ++i;
+        size_t j = i;
+        while (j < full.size() && !std::isspace((unsigned char)full[j])) ++j;
+        if (j > i) words.push_back(full.substr(i, j - i));
+        i = j;
+    }
+    std::vector<std::string> out;
+    if (words.size() < 2) return out;
+    auto lower = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); if (!s.empty() && s.back() == '.') s.pop_back(); return s; };
+    auto isName = [&](const std::string& w) {
+        const unsigned char c = (unsigned char)w[0];
+        return (std::isupper(c) || c >= 0x80) && !particles.count(lower(w)) && !titles.count(lower(w));
+    };
+    auto add = [&](const std::string& s) { if (s.size() >= 2 && std::find(out.begin(), out.end(), s) == out.end()) out.push_back(s); };
+    for (size_t a = 0; a < words.size(); ++a)
+        for (size_t z = a; z < words.size(); ++z) {
+            if (a == 0 && z == words.size() - 1) continue;
+            if (!isName(words[a]) || !isName(words[z])) continue;
+            std::string p;
+            for (size_t k = a; k <= z; ++k) p += (k > a ? " " : "") + words[k];
+            add(p);
+        }
+    std::vector<std::string> named;
+    for (auto& w : words) if (isName(w)) named.push_back(w);
+    if (named.size() >= 2) add(named.front() + " " + named.back());
+    return out;
+}
+
+// Every name an entry goes by in the text: its name, other names, and for a character the parts of them.
+std::vector<std::string> searchNames(const Entry& e) {
+    std::vector<std::string> n;
+    if (trimmed(e.name).size() >= 2) n.push_back(trimmed(e.name));
+    for (auto& a : e.aliases) if (a.size() >= 2) n.push_back(a);
+    if (e.kind == "character") {
+        const size_t given = n.size();
+        for (size_t i = 0; i < given; ++i)
+            for (auto& p : nameParts(n[i])) if (std::find(n.begin(), n.end(), p) == n.end()) n.push_back(p);
+    }
+    return n;
+}
+
 std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
     std::map<Id, std::vector<Id>> out;
     const Book* b = book(bookId);
     if (!b) return out;
     const auto entries = b->worldId.empty() ? entriesOf({}, bookId) : entriesOf(b->worldId);
     std::vector<std::vector<std::string>> names;
-    for (const Entry* e : entries) {
-        std::vector<std::string> n;
-        if (trimmed(e->name).size() >= 2) n.push_back(trimmed(e->name));
-        for (auto& a : e->aliases) if (a.size() >= 2) n.push_back(a);
-        names.push_back(std::move(n));
-    }
+    for (const Entry* e : entries) names.push_back(searchNames(*e));
     for (const ManuscriptNode* n : manuscriptOf(bookId)) {
         const std::string text = doc::plainText(nodeContent(n->id));
         std::vector<std::pair<int, Id>> found;
@@ -273,9 +329,7 @@ std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
 
 std::vector<Mention> Library::mentionsOf(const Entry& e) const {
     std::vector<Mention> out;
-    std::vector<std::string> names;
-    if (trimmed(e.name).size() >= 2) names.push_back(trimmed(e.name));
-    for (auto& a : e.aliases) if (a.size() >= 2) names.push_back(a);
+    const std::vector<std::string> names = searchNames(e);
     if (names.empty()) return out;
     std::vector<const Book*> books;
     if (e.worldId.empty()) { if (const Book* b = book(e.bookId)) books.push_back(b); }

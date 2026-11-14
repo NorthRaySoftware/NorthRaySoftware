@@ -18,15 +18,14 @@ function initials(name) {
   return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
-function show(target) {
-  const e = entries.get(target.dataset.entry);
-  if (!e) return;
-  const card = $("namecard");
-  card.replaceChildren();
+// One entry's part of the card.
+function entryBlock(e, compact) {
+  const box = document.createElement("div");
+  box.className = "nc-entry";
   const top = document.createElement("div");
   top.className = "nc-top";
   const pic = document.createElement("div");
-  pic.className = "nc-pic";
+  pic.className = "nc-pic" + (compact ? " nc-small" : "");
   if (/^[0-9a-f]{64}$/.test(e.image || "")) {
     const img = document.createElement("img");
     img.src = OBJECTS + e.image.slice(0, 2) + "/" + e.image.slice(2);
@@ -54,14 +53,14 @@ function show(target) {
     head.append(aka);
   }
   top.append(pic, head);
-  card.append(top);
+  box.append(top);
   if (e.summary) {
     const s = document.createElement("div");
     s.className = "nc-summary";
-    s.textContent = e.summary;
-    card.append(s);
+    s.textContent = compact && e.summary.length > 140 ? e.summary.slice(0, 138) + "…" : e.summary;
+    box.append(s);
   }
-  const lines = String(e.details || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = compact ? [] : String(e.details || "").split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length) {
     const t = document.createElement("dl");
     t.className = "nc-details";
@@ -72,17 +71,38 @@ function show(target) {
       else { dt.textContent = ""; dd.textContent = l; }
       t.append(dt, dd);
     }
-    card.append(t);
+    box.append(t);
   }
   const open = document.createElement("button");
   open.className = "nc-open";
-  open.textContent = "Open in Worldbuilding";
+  open.textContent = compact ? "Open " + (e.name || "") : "Open in Worldbuilding";
   open.addEventListener("click", () => { hide(true); send({ type: "entry", id: e.id }); });
-  card.append(open);
+  box.append(open);
+  return box;
+}
+
+// The card for a linked name; when several entries share it, each of them (shorter).
+export function showNameCard(target) { show(target); }
+function show(target) {
+  const list = String(target.dataset.entry || "").split(" ").map((id) => entries.get(id)).filter(Boolean);
+  if (!list.length) return;
+  const card = $("namecard");
+  card.replaceChildren();
+  if (list.length > 1) {
+    const note = document.createElement("div");
+    note.className = "nc-shared";
+    note.textContent = `"${target.textContent}" could be any of these ${list.length}:`;
+    card.append(note);
+  }
+  list.forEach((e, i) => {
+    if (i) { const hr = document.createElement("div"); hr.className = "nc-rule"; card.append(hr); }
+    card.append(entryBlock(e, list.length > 1));
+  });
   card.hidden = false;
   const r = target.getBoundingClientRect();
   const w = Math.min(340, window.innerWidth - 16);
   card.style.width = w + "px";
+  card.style.maxHeight = (window.innerHeight - 24) + "px";
   card.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
   const h = card.offsetHeight, below = r.bottom + 8;
   card.style.top = (below + h < window.innerHeight - 8 ? below : Math.max(8, r.top - h - 8)) + "px";

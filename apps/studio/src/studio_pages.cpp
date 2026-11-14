@@ -104,8 +104,26 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Planning && lib_ && lib_->book(pl_.book) && !lib_->book(pl_.book)->deleted) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        drawPlanBoard(pageRect_);
+        if (pl_.view == 1) drawPlanTimeline(pageRect_);
+        else if (pl_.view == 2) drawPlanStructure(pageRect_);
+        else drawPlanBoard(pageRect_);
         drawPlanSidebar(sideRect_);
+        if (drag_.active && pl_.view == 0) {
+            // Where a dragged card would go: a bar beside the card it's over, or a frame round a chapter it would join.
+            if (const Drop* d = dropAt(mouseX(), mouseY())) {
+                const float third = d->rect.w / 3;
+                const ManuscriptNode* t = lib_->node(d->id);
+                const ManuscriptNode* mv = lib_->node(drag_.id);
+                const bool into = t && mv && mouseX() > d->rect.x + third && mouseX() < d->rect.right() - third &&
+                                  Library::canContain(t->kind, mv->kind);
+                if (into) gfx_.strokeRounded(d->rect.inset(-3), 6, pal_.ribbon, 2.5f);
+                else gfx_.fillRounded({mouseX() < d->rect.x + d->rect.w / 2 ? d->rect.x - 9 : d->rect.right() + 5, d->rect.y, 4, d->rect.h}, 2, pal_.ribbon);
+            }
+            const float lw = std::min(gfx_.measureWidth(drag_.label, Font::BodyStrong) + 24, 320.0f);
+            const Rect g{mouseX() + 14, mouseY() + 10, lw, 30};
+            gfx_.fillRounded(g, 3, pal_.ink.withAlpha(0.88f));
+            gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
+        }
         if (panel) drawPlanPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});

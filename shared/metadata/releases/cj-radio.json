@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.22.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Maintenance release."
+      ]
+    },
+    {
       "version": "0.21.1",
       "date": "2026-11-14",
       "notes": [

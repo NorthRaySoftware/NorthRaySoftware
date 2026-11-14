@@ -306,3 +306,9 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .nc-open { margin-top: 12px; font: inherit; font-size: 12px; color: var(--accent); background: none; border: 1px solid var(--rule);
   border-radius: 5px; height: 28px; padding: 0 10px; }
 .nc-open:hover { border-color: var(--accent); }
+#namecard { overflow-y: auto; scrollbar-width: none; }
+.nc-shared { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.nc-rule { height: 1px; background: var(--rule); margin: 12px 0; }
+.nc-small { width: 44px; height: 44px; }
+.nc-small.nc-initials { font-size: 16px; }
+.wl-shared { text-decoration-style: dashed; }

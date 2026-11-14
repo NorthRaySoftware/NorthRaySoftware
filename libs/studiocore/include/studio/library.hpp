@@ -190,6 +190,10 @@ struct Entry {
     Time created = 0, modified = 0, deleted = 0;
 };
 const std::vector<std::string>& entryKinds();          // in display order
+// The parts of a character's full name that stand for them too ("Maren Ada Holt": "Maren", "Holt", "Maren Holt", ...).
+std::vector<std::string> nameParts(const std::string& fullName);
+// Every name an entry goes by in the text: name, other names, and (characters) their parts.
+std::vector<std::string> searchNames(const Entry& e);
 const char* entryKindLabel(const std::string& kind);   // "Character"
 const char* entryKindPlural(const std::string& kind);  // "Characters"
 

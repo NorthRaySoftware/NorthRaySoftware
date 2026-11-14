@@ -34,7 +34,7 @@ import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { analyse } from "./hints.js";
 import { initStyleUi, renderList, renderRules, imported as styleImported } from "./style_ui.js";
-import { initNameCard, setEntries } from "./namecard.js";
+import { initNameCard, setEntries, showNameCard } from "./namecard.js";
 
 // ------------------------------------------------------------------ schema
 
@@ -499,20 +499,49 @@ let nameList = [];        // [{id, names: [...]}]
 let namePattern = null;   // one regular expression for all of them
 let nameIds = new Map();  // lower-cased name -> entry id
 let nameWords = new Set(); // every word of every name, lower-cased (echo hints leave them alone)
+// The parts of a character's full name that also stand for them: "Maren Ada Holt" gives
+// Maren, Ada, Holt, Maren Ada, Ada Holt and Maren Holt. Joining words and titles on
+// their own (of, van, Lady, Captain) aren't names; only capitalised words count.
+const PARTICLES = new Set(["of", "the", "de", "da", "di", "du", "del", "della", "der", "den", "van", "von", "le", "la", "al", "el",
+  "bin", "bint", "ibn", "ap", "mac", "y", "and"]);
+const TITLES = new Set(["mr", "mrs", "ms", "miss", "dr", "sir", "dame", "lord", "lady", "king", "queen", "prince", "princess",
+  "captain", "capt", "general", "father", "mother", "brother", "sister", "master", "mistress", "saint", "st", "professor", "prof"]);
+function nameParts(full) {
+  const words = String(full).trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return [];
+  const isName = (w) => /^[\p{Lu}]/u.test(w) && !PARTICLES.has(w.toLocaleLowerCase()) && !TITLES.has(w.toLocaleLowerCase().replace(/\.$/, ""));
+  const out = new Set();
+  for (let a = 0; a < words.length; a++)
+    for (let z = a; z < words.length; z++) {
+      if (a === 0 && z === words.length - 1) continue;          // the full name itself
+      if (!isName(words[a]) || !isName(words[z])) continue;      // starts and ends on a real name
+      out.add(words.slice(a, z + 1).join(" "));
+    }
+  const named = words.filter(isName);
+  if (named.length >= 2) out.add(named[0] + " " + named[named.length - 1]);   // first and last
+  return [...out].filter((p) => p.length >= 2);
+}
+
 function setNames(list) {
   nameList = Array.isArray(list) ? list : [];
-  nameIds = new Map();
+  nameIds = new Map();   // lower-cased name -> [entry ids]: two characters can share a name
   nameWords = new Set();
-  const all = [];
-  for (const e of nameList) for (const n of e.names || []) {
-    const t = String(n).trim();
-    if (t.length < 2 || nameIds.has(t.toLocaleLowerCase())) continue;
-    nameIds.set(t.toLocaleLowerCase(), e.id);
-    for (const w of t.toLocaleLowerCase().split(/[^\p{L}\p{N}'’]+/u)) if (w) nameWords.add(w);
-    all.push(t);
+  const all = new Set();
+  const add = (t, id) => {
+    t = String(t).trim();
+    if (t.length < 2) return;
+    const k = t.toLocaleLowerCase();
+    if (!nameIds.has(k)) nameIds.set(k, []);
+    if (!nameIds.get(k).includes(id)) nameIds.get(k).push(id);
+    for (const w of k.split(/[^\p{L}\p{N}'’]+/u)) if (w) nameWords.add(w);
+    all.add(t);
+  };
+  for (const e of nameList) {
+    for (const n of e.names || []) add(n, e.id);
+    if (e.kind === "Character") for (const n of e.names || []) for (const p of nameParts(n)) add(p, e.id);
   }
-  all.sort((a, b) => b.length - a.length);   // "Maren Holt" before "Maren"
-  const esc = all.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const sorted = [...all].sort((a, b) => b.length - a.length);   // "Maren Holt" before "Maren"
+  const esc = sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   namePattern = esc.length ? new RegExp("(?<![\\p{L}\\p{N}])(" + esc.join("|") + ")(?![\\p{L}\\p{N}])", "gu") : null;
 }
 
@@ -523,10 +552,11 @@ function nameDecorations(doc) {
     if (!node.isTextblock) return true;
     const text = node.textBetween(0, node.content.size, " ", " ");
     for (const m of text.matchAll(namePattern)) {
-      const id = nameIds.get(m[1].toLocaleLowerCase());
-      if (!id) continue;
+      const ids = nameIds.get(m[1].toLocaleLowerCase());
+      if (!ids || !ids.length) continue;
+      // Hovering shows its card (every one, when characters share the name); Ctrl+click opens it.
       decos.push(Decoration.inline(pos + 1 + m.index, pos + 1 + m.index + m[0].length,
-        { class: "wl", "data-entry": id }));   // hovering shows its card; Ctrl+click opens it
+        { class: ids.length > 1 ? "wl wl-shared" : "wl", "data-entry": ids.join(" ") }));
     }
     return false;
   });
@@ -745,7 +775,13 @@ function load(msg) {
           const a = e.target.closest && e.target.closest("a[href]");
           if (a && (e.ctrlKey || e.metaKey)) { send({ type: "link", href: a.getAttribute("href") }); e.preventDefault(); return true; }
           const n = e.target.closest && e.target.closest(".wl[data-entry]");
-          if (n && (e.ctrlKey || e.metaKey)) { flush(); send({ type: "entry", id: n.dataset.entry }); e.preventDefault(); return true; }
+          if (n && (e.ctrlKey || e.metaKey)) {
+            const ids = n.dataset.entry.split(" ");
+            if (ids.length > 1) showNameCard(n);   // shared by several: choose on the card
+            else { flush(); send({ type: "entry", id: ids[0] }); }
+            e.preventDefault();
+            return true;
+          }
           return false;
         },
       },

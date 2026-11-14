@@ -1211,7 +1211,22 @@ static void testWorldbuilding() {
         auto ms = lib->mentionsOf(*lib->entry(ada));
         CHECK(ms.size() == 1 && ms[0].count == 2 && ms[0].nodeId == ch);
         CHECK(ms.size() == 1 && ms[0].snippet.find("Maren walked") != std::string::npos);
-        CHECK(lib->mentionsOf(*lib->entry(grey)).size() == 1 && lib->mentionsOf(*lib->entry(grey))[0].count == 2);  // "Grey Wanderer" and "Wanderer"
+        CHECK(lib->mentionsOf(*lib->entry(grey)).size() == 1 && lib->mentionsOf(*lib->entry(grey))[0].count == 1);  // "Grey Wanderer" once, not also "Wanderer"
+        // A character's full name: its parts stand for them too; titles and joining words alone don't.
+        CHECK((nameParts("Maren Ada Holt") == std::vector<std::string>{"Maren", "Maren Ada", "Ada", "Ada Holt", "Holt", "Maren Holt"}));
+        CHECK((nameParts("Captain Ivo of Brennick") == std::vector<std::string>{"Ivo", "Ivo of Brennick", "Brennick", "Ivo Brennick"}));
+        CHECK(nameParts("Highcliff").empty() && (nameParts("the Grey") == std::vector<std::string>{"Grey"}));
+        {
+            const Id ch2 = lib->createNode(book, {}, NodeKind::Chapter, "Two");
+            lib->saveNodeContent(ch2, R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Tomas Holt met Holt at dawn. Tomas laughed; holt is a wood."}]}]})");
+            const Id tomas = lib->createEntry(world, {}, "character", "Tomas Holt");
+            auto mt = lib->mentionsOf(*lib->entry(tomas));
+            CHECK(mt.size() == 1 && mt[0].nodeId == ch2 && mt[0].count == 3);   // "Tomas Holt", "Holt", "Tomas"; not "holt"
+            const Id inn = lib->createEntry(world, {}, "place", "Blue Anchor");
+            auto mi = lib->mentionsOf(*lib->entry(inn));
+            CHECK(mi.empty());                                                   // places aren't split into parts
+            CHECK(lib->trashEntry(tomas) && lib->trashEntry(inn) && lib->trashNode(ch2) && lib->emptyTrash());
+        }
         CHECK(lib->mentionsOf(*lib->entry(lone)).empty());
         // Relationships, read from either side.
         CHECK(lib->addLink(ada, town, "Lives in") && lib->addLink(ada, town, "Lives in"));

@@ -16,6 +16,7 @@
 #include "web_pane.hpp"
 
 #include <map>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,7 +53,7 @@ struct Focus {
 
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
-    FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FieldCount
+    FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen, FieldCount
 };
 
 struct Settings {
@@ -236,6 +237,21 @@ private:
     void drawPlanSidebar(const Rect& r);
     void drawPlanBoard(const Rect& r);
     void drawPlanPanel(const Rect& r);
+    // Planning's other views (studio_plot.cpp): the timeline and story structure.
+    void drawPlanTimeline(const Rect& r);
+    void drawPlanStructure(const Rect& r);
+    void planPanelExtras(const Rect& c, float& y);     // the timeline/structure parts of the panel
+    struct StoryTime { bool placed = false; double day = 0; std::string when; };
+    std::map<Id, StoryTime> storyTimes(const Id& bookId) const;
+    void setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime& t);
+    std::string timelineUnit(const Id& bookId) const;
+    void setTimelineUnit(const Id& bookId, const std::string& unit);
+    nlohmann::json structureOf(const Id& bookId) const;
+    void setStructure(const Id& bookId, const nlohmann::json& s);
+    void outlineFromStructure();
+    bool planMouseDown(float x, float y);
+    bool planMouseMove(float x, float y, bool leftDown);
+    bool planMouseUp(float x, float y);
     Color statusColour(studio::NodeStatus s) const;
     std::int64_t bookTarget(const Id& bookId) const;
     void setBookTarget(const Id& bookId, std::int64_t words);
@@ -446,6 +462,13 @@ private:
         int status = -1;           // filter: a NodeStatus, or -1 for everything
         std::map<Id, std::vector<Id>> appearances;   // node -> entries found in its text
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
+        int view = 0;              // 0 corkboard, 1 timeline, 2 structure
+        // Timeline: where it is, and a card being dragged along it.
+        float tlScrollX = 0, tlContentW = 0;
+        Rect tlArea{};
+        double tlDay0 = 0, tlPx = 80;    // the day at tlArea's left edge (before scrolling), pixels per day
+        struct { bool armed = false, active = false; Id id; float sx = 0; double startDay = 0, day = 0; } tlDrag;
+        std::string beat;          // Structure: the beat selected
     } pl_;
     // Worldbuilding
     struct WorldState {

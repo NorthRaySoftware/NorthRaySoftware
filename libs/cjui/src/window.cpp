@@ -406,7 +406,12 @@ std::string AppWindow::hitAt(float x, float y) const {
 
 void AppWindow::activateFocused() {
     for (const Hit& h : lastHits_)
-        if (h.id == focus_ && h.action) { h.action(); invalidate(); return; }
+        if (h.id == focus_ && h.action) {
+            const std::function<void()> act = h.action;   // see WM_LBUTTONUP: the hits may be rebuilt while it runs
+            act();
+            invalidate();
+            return;
+        }
 }
 
 // ------------------------------------------------------------ custom frame
@@ -640,7 +645,13 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!dragging_.empty()) { dragging_.clear(); invalidate(); return 0; }
             if (!target.empty() && target == hover_)
                 for (const Hit& h : lastHits_)
-                    if (h.id == target && h.action) { h.action(); break; }
+                    if (h.id == target && h.action) {
+                        // A copy: the action may open a menu or dialog whose messages repaint the
+                        // window, which rebuilds the hits (and would free this one mid-call).
+                        const std::function<void()> act = h.action;
+                        act();
+                        break;
+                    }
             invalidate();
             return 0;
         }
