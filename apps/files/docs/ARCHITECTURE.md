@@ -146,9 +146,32 @@ Not in 0.1: Shell virtual locations. The model already keeps a location as "a fo
   - "More options" showing the Shell's menu.
 - On real Windows, please check: Windows 11's menu with Open with and Send to, the progress window for a large copy, and undo in File Explorer (Ctrl+Z).
 
-## 7b. Next: 0.3, tabs, panes and the sidebar
+## 7b. 0.3: tabs, panes and the sidebar (done 14 November 2026)
 
-Tabs, two side-by-side panes, pinned folders (drag to pin), browsing the Recycle Bin, and a folder tree.
+- **Tabs and panes.** Each tab is a `View` (location, history, listing, selection, scroll). The window draws one view at a
+  time: `swapView` swaps a tab's `View` with the window's live fields (including cjui's `ScrollState`), so all the 0.1/0.2
+  code keeps working on "the current folder". Two panes draw the inactive pane by swapping its tab in, drawing, and
+  swapping back (`idPrefix_` keeps its hit ids apart). Background listings carry a request id unique across tabs
+  (`nextRequest`), and `viewForRequest` routes a finished listing to whichever tab asked, even if it isn't showing.
+  Keys: Ctrl+T, Ctrl+W, Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+\ (two panes), F6 (other pane).
+- **Drag and drop** inside Files: onto a folder row/tile, the other pane, or a sidebar folder. Move by default, copy with
+  Ctrl or across drives (as File Explorer), through the same `nrf::ops::transfer`. Dragging a folder onto the Pinned
+  heading pins it.
+- **Pinned folders** (sidebar, `pinFolder`/`unpinFolder`), and tabs, panes and active tabs, persist in settings.json
+  (`tabs`, `tabs2`, `activeTab`, `activeTab2`, `twoPanes`, `pinned`).
+- **Folder tree** under This PC: drives as roots, sub-folders read on demand (`FindFirstFileExW` with
+  `FindExSearchLimitToDirectories`, filtered by the show-hidden setting) and cached by lower-case path; the cache entry is
+  dropped when its folder changes or a branch is reopened. It opens itself to the current folder and scrolls it into view
+  once the drives and folders on the way have been read. The wheel over the tree scrolls it.
+- Tested in Wine: two panes, drag between panes (move), drag to pin, tabs restored after reopening, the tree opening to
+  the current folder, navigating from it and collapsing a branch.
+- Not done (yet): browsing the Recycle Bin inside Files (it opens File Explorer's Recycle Bin), dragging out to other apps
+  (OLE drag source) and dropping in from them.
+
+## 7c. Next: 0.4, search and previews
+
+Instant search in the current folder, whole-PC search through the Windows Search index, a preview pane, thumbnails for
+videos, PDFs and PSD/Procreate files.
 
 ## (Earlier plan) 0.2, core file operations
 
@@ -159,6 +182,5 @@ and drag and drop with File Explorer. The Shell context menu (`IContextMenu`) be
 
 ## 8. Known limitations in 0.1
 
-One window per launch, no tabs or panes (0.3), no search or previews (0.4), thumbnails in Icons view only (none in Details), no Recycle Bin
-or network locations in the sidebar, no folder tree, no column resizing, no automatic refresh when a folder changes
-(F5), and no UI Automation for screen readers.
+(Updated for 0.3.) No search or previews (0.4), thumbnails in Icons view only (none in Details), no network locations
+in the sidebar, no column resizing, no drag and drop to or from other apps, and no UI Automation for screen readers.
