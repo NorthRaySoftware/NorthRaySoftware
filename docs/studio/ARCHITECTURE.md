@@ -221,3 +221,7 @@ The status bar is gone from every app. `AppWindow::drawToast(area)` shows `flash
 ## Name parts, revised (0.23.1)
 
 A character's name stands for them by its first name or last name alone, or by a run of words that includes the first or the last (titles and joining words aside): "Snarf Jill Grave" gives Snarf, Grave, Snarf Jill, Jill Grave and Snarf Grave, never Jill alone. Every name is also matched in capitals ("JACKSON"). Same rule in `nameParts`/`searchNames` (core: Appears in, planning casts, wiki links) and the editor's links; tested in both.
+
+## Skipped middle names and far suggestions (0.23.2)
+
+Name parts also include every in-order selection of the named words that keeps the first or the last ("Albus Brian Dumbledore", "Albus Dumbledore"); names over 8 words use their first 4 and last 4. Spelling: when nspell offers fewer than 3 suggestions, `farSuggestions` scans the dictionary's base words with the same first letter, adds the misspelling's own ending (s, es, ed, ing, ...) where that makes a real word, and keeps those within 2-4 edits (by length). Tested in `test/spell.test.mjs`.

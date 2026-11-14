@@ -9,6 +9,7 @@
 import nspell from "nspell";
 
 let checker = null, lang = "", loading = null;
+let stems = [];              // the dictionary's base words, for suggestions further off than one or two letters
 const cache = new Map();
 let extra = new Set();       // lower-cased: the bible's names and the world's dictionary
 const COMMON = ["the", "and", "that", "have", "for", "not", "with", "you", "this", "but", "his", "from", "they", "say", "her", "she",
@@ -32,6 +33,7 @@ export function load(language, onReady) {
     .then(([aff, dic]) => {
       if (lang !== want) return;
       checker = nspell(aff, dic);
+      stems = dic.split(/\r?\n/).slice(1).map((l) => l.split("/")[0]).filter((w) => w.length > 1);
       loading = null;
       onReady && onReady(true);
     })
@@ -86,6 +88,31 @@ function distance(a, b) {
   return d[a.length][b.length];
 }
 
+// Words further off than nspell looks ("skelingtons" -> "skeletons"): base words that start with the same
+// letter, with the misspelling's own ending put on (if that makes a real word), within a few letters.
+const ENDINGS = ["'s", "s", "es", "ed", "d", "ing", "er", "ers", "ly", "ness", "ment", "ments"];
+function farSuggestions(low) {
+  if (!checker || low.length < 4) return [];
+  const limit = low.length <= 5 ? 2 : low.length <= 8 ? 3 : 4;
+  const endings = ["", ...ENDINGS.filter((e) => low.endsWith(e) && low.length - e.length >= 3)];
+  const found = new Map();
+  for (const st of stems) {
+    const s0 = st.toLocaleLowerCase();
+    if (s0[0] !== low[0] || Math.abs(s0.length - low.length) > limit + 4) continue;
+    for (const e of endings) {
+      const forms = e ? [s0 + e] : [s0];
+      if (e && s0.endsWith("e") && /^[ei]/.test(e)) forms.push(s0.slice(0, -1) + e);   // bake -> baking
+      if (e && s0.endsWith("y") && e === "es") forms.push(s0.slice(0, -1) + "ies");
+      for (const f of forms) {
+        if (Math.abs(f.length - low.length) > limit || found.has(f)) continue;
+        const d = distance(low, f);
+        if (d <= limit && (e === "" || checker.correct(f))) found.set(f, d);
+      }
+    }
+  }
+  return [...found].sort((a, b) => a[1] - b[1]).slice(0, 8).map(([f]) => f);
+}
+
 // Up to `n` suggestions, closest (and most common) first, in the word's own capitalisation.
 export function suggestions(word, n = 5) {
   if (!checker) return [];
@@ -93,6 +120,7 @@ export function suggestions(word, n = 5) {
   const low = w.toLocaleLowerCase();
   let list = checker.suggest(w);
   if (w !== low) list = list.concat(checker.suggest(low));
+  if (list.length < 3) list = list.concat(farSuggestions(low));
   const seen = new Set();
   list = list.filter((s) => { const k = s.toLocaleLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
   list.sort((a, b) => distance(low, a.toLocaleLowerCase()) - distance(low, b.toLocaleLowerCase()) ||

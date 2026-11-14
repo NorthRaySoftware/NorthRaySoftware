@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.23.2",
+      "date": "2026-11-14",
+      "notes": [
+        "Spelling suggestions reach words that are several letters off (\"skelingtons\" suggests \"skeletons\", \"definately\" suggests \"definitely\"), not just one-letter slips.",
+        "Long names skip middle names too: \"Albus Percival Wulfric Brian Dumbledore\" links as Albus Dumbledore, Albus Brian Dumbledore and so on, as long as the first or last name is there. A middle name on its own still doesn't link."
+      ]
+    },
+    {
       "version": "0.23.1",
       "date": "2026-11-14",
       "notes": [

@@ -276,6 +276,8 @@ std::vector<std::string> nameParts(const std::string& full) {
     }
     std::vector<std::string> out;
     if (words.size() < 2) return out;
+    std::string whole;
+    for (auto& w : words) whole += (whole.empty() ? "" : " ") + w;
     auto lower = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); if (!s.empty() && s.back() == '.') s.pop_back(); return s; };
     auto isName = [&](const std::string& w) {
         const unsigned char c = (unsigned char)w[0];
@@ -293,9 +295,18 @@ std::vector<std::string> nameParts(const std::string& full) {
             for (size_t k = a; k <= z; ++k) p += (k > a ? " " : "") + words[k];
             add(p);
         }
+    // Skipping middle names too: "Albus Dumbledore", "Albus Brian Dumbledore" (in order, with the first or last).
     std::vector<std::string> named;
     for (auto& w : words) if (isName(w)) named.push_back(w);
-    if (named.size() >= 2) add(named.front() + " " + named.back());
+    if (named.size() > 8) named.erase(named.begin() + 4, named.end() - 4);
+    const size_t k = named.size();
+    if (k >= 2)
+        for (unsigned mask = 1; mask < (1u << k); ++mask) {
+            if (!(mask & 1u) && !(mask & (1u << (k - 1)))) continue;
+            std::string p;
+            for (size_t i = 0; i < k; ++i) if (mask & (1u << i)) p += (p.empty() ? "" : " ") + named[i];
+            if (p != whole) add(p);
+        }
     return out;
 }
 

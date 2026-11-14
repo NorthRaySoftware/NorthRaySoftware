@@ -536,8 +536,17 @@ function nameParts(full) {
       if (a !== firstAt && z !== lastAt) continue;               // must include the first or the last name
       out.add(words.slice(a, z + 1).join(" "));
     }
+  // Skipping middle names too: "Albus Dumbledore", "Albus Brian Dumbledore" (in order, with the first or last).
   const named = words.filter(isName);
-  if (named.length >= 2) out.add(named[0] + " " + named[named.length - 1]);   // first and last
+  const k = Math.min(named.length, 8);
+  if (k >= 2) {
+    const pick = named.length > 8 ? [...named.slice(0, 4), ...named.slice(-4)] : named;
+    for (let mask = 1; mask < (1 << k); mask++) {
+      if (!(mask & 1) && !(mask & (1 << (k - 1)))) continue;
+      const sel = pick.filter((_, i) => mask & (1 << i));
+      if (sel.join(" ") !== words.join(" ")) out.add(sel.join(" "));
+    }
+  }
   return [...out].filter((p) => p.length >= 2);
 }
 

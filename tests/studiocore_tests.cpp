@@ -1215,6 +1215,12 @@ static void testWorldbuilding() {
         // A character's full name: its parts stand for them too; titles and joining words alone don't.
         CHECK((nameParts("Maren Ada Holt") == std::vector<std::string>{"Maren", "Maren Ada", "Ada Holt", "Holt", "Maren Holt"}));   // not "Ada" alone
         CHECK((nameParts("Snarf Jill Grave") == std::vector<std::string>{"Snarf", "Snarf Jill", "Jill Grave", "Grave", "Snarf Grave"}));
+        {
+            const auto d = nameParts("Albus Percival Wulfric Brian Dumbledore");
+            auto has = [&](const char* x) { return std::find(d.begin(), d.end(), x) != d.end(); };
+            CHECK(has("Albus") && has("Dumbledore") && has("Albus Dumbledore") && has("Albus Brian Dumbledore") && has("Percival Wulfric Brian Dumbledore"));
+            CHECK(!has("Percival") && !has("Wulfric") && !has("Brian") && !has("Percival Wulfric") && !has("Albus Percival Wulfric Brian Dumbledore"));
+        }
         CHECK((nameParts("Captain Ivo of Brennick") == std::vector<std::string>{"Ivo", "Ivo of Brennick", "Brennick", "Ivo Brennick"}));
         CHECK(nameParts("Highcliff").empty() && (nameParts("the Grey") == std::vector<std::string>{"Grey"}));
         {
