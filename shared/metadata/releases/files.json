@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.1.3",
+      "date": "2026-11-14",
+      "notes": [
+        "No more status bar along the bottom of the window. Messages appear for a moment as a small note near the bottom instead. How many items are here, and what's selected, are at the foot of the sidebar."
+      ]
+    },
+    {
       "version": "0.1.2",
       "date": "2026-11-14",
       "notes": [

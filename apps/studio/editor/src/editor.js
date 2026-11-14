@@ -15,6 +15,9 @@
 //                         {type:"commentFocus", id, node} (the cursor is in a comment; id null when it isn't)
 // Comments from the app:  {type:"comments", resolved:[ids]} {type:"selectComment", id} {type:"stripComment", id}
 // Pictures from the app:  {type:"image", blob, alt, width} {type:"setPicture", pos, attrs} {type:"removePicture", pos}
+// Style rules:            {type:"view", ..., style:{scope, name, label, rules, ignore}} from the app;
+//                         {type:"styleRules", rules, ignore} back to save; {type:"styleExport", data} / {type:"styleImport"};
+//                         {type:"styleImported", data} from the app (a file it read)
 // Writing view:           {type:"view", settings, names:[{id, names:[...]}]} from the app; {type:"view", settings} back when
 //                         the writer changes it (font, size, width, focus, typewriter, spellcheck, hints, names).
 //                         {type:"entry", id} (Ctrl+click on a name from the world's bible)
@@ -29,6 +32,8 @@ import { inputRules, InputRule, smartQuotes, ellipsis, emDash, wrappingInputRule
 import { splitListItem, liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
+import { analyse } from "./hints.js";
+import { initStyleUi, renderList, renderRules, imported as styleImported } from "./style_ui.js";
 
 // ------------------------------------------------------------------ schema
 
@@ -372,7 +377,8 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: false, names: true };
+const VIEW_DEFAULTS = { font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true };
+const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
   serif: '"Cambria", "Georgia", "Times New Roman", serif',
@@ -436,58 +442,72 @@ function keepCaretCentred() {
   }
 }
 
-// Style hints: doubled words, filler words, long sentences and maybe-passive verbs, gently underlined.
-// They're suggestions, never changes; hovering one says why.
-const FILLERS = /(?<![\p{L}\p{N}'’])(very|really|just|actually|basically|suddenly|literally|quite|somewhat|totally|completely|simply)(?![\p{L}\p{N}])/giu;
-const DOUBLED = /(?<![\p{L}\p{N}'’])([\p{L}\p{N}]+)\s+\1(?![\p{L}\p{N}])/giu;
-const PASSIVE = /(?<![\p{L}\p{N}'’])(am|is|are|was|were|be|been|being)\s+(\p{L}{3,}ed)(?![\p{L}\p{N}])/giu;
-const SENTENCE = /[^.!?…]+(?:[.!?…]+["'’”)\]]*|$)/gu;
-const LONG_SENTENCE = 40;
-const HINT_TEXT = {
-  doubled: "The same word twice in a row.",
-  filler: "A word that often adds little. Fine if it's wanted.",
-  passive: "Maybe a passive verb. Would an active one be stronger?",
-  long: "A long sentence (over " + LONG_SENTENCE + " words). Could it be split?",
-};
+// Style hints (hints.js): worked out for the whole chapter a moment after typing stops,
+// and moved along with the text in between, so typing never waits for them.
+let style = { scope: "", name: "this book", label: "this book", rules: [], ignore: {} };
+let ignoreOnceSet = new Set();
+let lastHints = { hints: [], counts: {}, slow: [] };
+let pausedRules = new Set();
 let hintCount = 0;
+let rehintTimer = null;
+
+function textBlocks(doc) {
+  const out = [];
+  doc.descendants((n, pos) => {
+    if (n.isTextblock) { out.push({ text: n.textBetween(0, n.content.size, " ", " "), pos: pos + 1 }); return false; }
+    return true;
+  });
+  return out;
+}
 
 function hintDecorations(doc) {
-  const decos = [];
-  doc.descendants((node, pos) => {
-    if (!node.isTextblock) return true;
-    const text = node.textBetween(0, node.content.size, " ", " ");
-    const base = pos + 1;
-    // Positions in `text` match positions in the block, because every inline leaf is one character.
-    const add = (from, to, kind) =>
-      decos.push(Decoration.inline(base + from, base + to, { class: "hint hint-" + kind, title: HINT_TEXT[kind] }));
-    for (const m of text.matchAll(DOUBLED)) {
-      if (/^\d+$/.test(m[1])) continue;
-      add(m.index, m.index + m[0].length, "doubled");
-    }
-    for (const m of text.matchAll(FILLERS)) add(m.index, m.index + m[0].length, "filler");
-    for (const m of text.matchAll(PASSIVE)) add(m.index, m.index + m[0].length, "passive");
-    for (const m of text.matchAll(SENTENCE)) if (countWords(m[0]) > LONG_SENTENCE) {
-      const lead = m[0].length - m[0].trimStart().length;
-      add(m.index + lead, m.index + m[0].trimEnd().length, "long");
-    }
-    return false;
+  const res = analyse(textBlocks(doc), {
+    mode: hintMode(), categories: viewSettings.hintCats || {}, rules: style.rules.filter((r) => !pausedRules.has(r.id)),
+    ignore: style.ignore, ignoreOnce: ignoreOnceSet, names: nameWords, lang: document.documentElement.lang,
   });
-  hintCount = decos.length;
-  return DecorationSet.create(doc, decos);
+  for (const id of res.slow) if (!pausedRules.has(id)) {
+    pausedRules.add(id);
+    const r = style.rules.find((x) => x.id === id);
+    notice(`Your rule "${r ? r.name : id}" took too long on this chapter, so it's paused until the Studio is opened again.`);
+  }
+  lastHints = res;
+  hintCount = res.hints.length;
+  setTimeout(() => { renderList(); }, 0);
+  return DecorationSet.create(doc, res.hints.map((h, i) =>
+    Decoration.inline(h.from, h.to, { class: "hint hint-" + (h.cat || "rule"), "data-hint": String(i) })));
+}
+
+function rehintSoon() {
+  clearTimeout(rehintTimer);
+  rehintTimer = setTimeout(() => { if (view) view.dispatch(view.state.tr.setMeta("rehint", true)); }, 350);
+}
+
+// A short message in the toolbar (the app has no status bar).
+let noticeTimer = null;
+function notice(text) {
+  const n = document.getElementById("notice");
+  if (!n) return;
+  n.textContent = text;
+  n.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { n.hidden = true; }, 7000);
 }
 
 // Names from the world's bible: a dotted underline; Ctrl+click opens the entry in Worldbuilding.
 let nameList = [];        // [{id, names: [...]}]
 let namePattern = null;   // one regular expression for all of them
 let nameIds = new Map();  // lower-cased name -> entry id
+let nameWords = new Set(); // every word of every name, lower-cased (echo hints leave them alone)
 function setNames(list) {
   nameList = Array.isArray(list) ? list : [];
   nameIds = new Map();
+  nameWords = new Set();
   const all = [];
   for (const e of nameList) for (const n of e.names || []) {
     const t = String(n).trim();
     if (t.length < 2 || nameIds.has(t.toLocaleLowerCase())) continue;
     nameIds.set(t.toLocaleLowerCase(), e.id);
+    for (const w of t.toLocaleLowerCase().split(/[^\p{L}\p{N}'’]+/u)) if (w) nameWords.add(w);
     all.push(t);
   }
   all.sort((a, b) => b.length - a.length);   // "Maren Holt" before "Maren"
@@ -512,20 +532,18 @@ function nameDecorations(doc) {
   return DecorationSet.create(doc, decos);
 }
 
-// Hints and names are worked out again only when the text (or the view's settings) change.
+// Names are found again with each change (one pattern, quick). Hints follow the text
+// as it moves and are worked out again a moment after typing stops.
 const lookups = new Plugin({
   state: {
-    init: (_, state) => ({
-      hints: viewSettings.hints ? hintDecorations(state.doc) : (hintCount = 0, DecorationSet.empty),
-      names: viewSettings.names ? nameDecorations(state.doc) : DecorationSet.empty,
-      doc: state.doc,
-    }),
+    init: (_, state) => ({ hints: hintDecorations(state.doc), names: viewSettings.names ? nameDecorations(state.doc) : DecorationSet.empty }),
     apply(tr, old, _prev, state) {
-      if (!tr.docChanged && !tr.getMeta("view") && old.doc === state.doc) return old;
+      const now = tr.getMeta("view") || tr.getMeta("rehint");
+      if (!tr.docChanged && !now) return old;
+      if (tr.docChanged && !now) rehintSoon();
       return {
-        hints: viewSettings.hints ? hintDecorations(state.doc) : (hintCount = 0, DecorationSet.empty),
+        hints: now ? hintDecorations(state.doc) : old.hints.map(tr.mapping, tr.doc),
         names: viewSettings.names ? nameDecorations(state.doc) : DecorationSet.empty,
-        doc: state.doc,
       };
     },
   },
@@ -538,6 +556,21 @@ const lookups = new Plugin({
     },
   },
 });
+
+function saveStyle() { send({ type: "styleRules", rules: style.rules, ignore: style.ignore }); }
+function rehintNow() { if (view) view.dispatch(view.state.tr.setMeta("rehint", true)); }
+
+// Moves to the next hint of a kind after the cursor (round to the start at the end).
+function nextHint(key) {
+  if (!view) return;
+  const list = lastHints.hints.filter((h) => h.key === key);
+  if (!list.length) return;
+  const here = view.state.selection.to;
+  const h = list.find((x) => x.from >= here) || list[0];
+  const max = view.state.doc.content.size;
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, Math.min(h.from, max), Math.min(h.to, max))).scrollIntoView());
+  view.focus();
+}
 
 // The View panel: the "Aa" button in the toolbar.
 function buildViewMenu() {
@@ -618,7 +651,7 @@ function stats() {
   document.getElementById("count").textContent =
     (sel ? sel.toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
   const h = document.getElementById("hints");
-  if (h) h.textContent = viewSettings.hints ? (hintCount === 1 ? "1 hint" : hintCount + " hints") : "";
+  if (h) h.textContent = hintCount === 1 ? "1 hint" : hintCount + " hints";
   send({ type: "stats", id: currentId, words, selectionWords: sel });
 }
 
@@ -817,9 +850,17 @@ function receive(msg) {
     if (view) { view.dispatch(view.state.tr.setMeta("comments", true)); reportedComment = null; reportComment(view.state); }
   }
   else if (msg.type === "selectComment") selectComment(msg.id);
+  else if (msg.type === "styleImported") styleImported(msg.data);
+  else if (msg.type === "notice") notice(String(msg.text || ""));
   else if (msg.type === "view") {
     if (msg.settings && typeof msg.settings === "object") viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
     if ("names" in msg) setNames(msg.names);
+    if (msg.style && typeof msg.style === "object") {
+      if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
+      style = { scope: String(msg.style.scope || ""), name: String(msg.style.name || "this book"), label: String(msg.style.label || "this book"),
+        rules: Array.isArray(msg.style.rules) ? msg.style.rules : [], ignore: msg.style.ignore && typeof msg.style.ignore === "object" ? msg.style.ignore : {} };
+      renderRules();
+    }
     applyView();
     stats();
   }
@@ -838,6 +879,30 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 
 buildToolbar();
 buildViewMenu();
+initStyleUi({
+  view: () => viewSettings,
+  changeView,
+  counts: () => lastHints.counts,
+  hintAt: (i) => lastHints.hints[i],
+  blocks: () => (view ? textBlocks(view.state.doc) : []),
+  rules: () => style.rules,
+  ignore: () => style.ignore,
+  scope: () => ({ name: style.name, label: style.label }),
+  send,
+  notice,
+  focus: () => view && view.focus(),
+  rehint: rehintNow,
+  next: nextHint,
+  saveRules: saveStyle,
+  setCategory: (id, on) => changeView({ hintCats: { ...(viewSettings.hintCats || {}), [id]: on } }),
+  ignoreOnce: (h) => { ignoreOnceSet.add(h.key + "|" + h.text.toLocaleLowerCase().replace(/\s+/g, " ") + "|" + h.context); rehintNow(); },
+  ignoreAlways: (h) => {
+    const low = h.text.toLocaleLowerCase().replace(/\s+/g, " ");
+    style.ignore[h.key] = [...new Set([...(style.ignore[h.key] || []), low])];
+    saveStyle();
+    rehintNow();
+  },
+});
 applyView();
 setTheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
 send({ type: "ready" });

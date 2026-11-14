@@ -93,7 +93,8 @@ private:
     void drawIcons(const cjui::Rect& r);
     void drawThisPC(const cjui::Rect& r);
     void drawMessage(const cjui::Rect& r, const std::wstring& title, const std::wstring& text, bool withRetry);
-    void drawStatus(const cjui::Rect& r);
+    std::wstring statusText() const;
+    void drawStatusNote(const cjui::Rect& content);
     void navButton(const std::string& id, const cjui::Rect& r, int icon, bool enabled, std::function<void()> act);
     void drawIcon(int index, const cjui::Rect& r, float opacity = 1.0f);
     void drawRowBackground(const cjui::Rect& r, std::size_t row, float radius);

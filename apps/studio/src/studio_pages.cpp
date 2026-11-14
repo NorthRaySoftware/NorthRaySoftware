@@ -30,9 +30,9 @@ void StudioApp::drawFrame(float W, float H) {
     const float sideW = focusing ? 0 : kSideW;
     const bool panel = !focusing && settings_.showPanel && lib_ && !(ws_ == Workspace::Library && view_ == View::Settings);
     const float centreW = W - sideW - (panel ? kPanelW : 0);
-    sideRect_ = {0, kTopH, sideW, H - kTopH - kStatusH};
-    panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH - kStatusH} : Rect{};
-    pageRect_ = {sideW, kTopH, centreW, H - kTopH - kStatusH};
+    sideRect_ = {0, kTopH, sideW, H - kTopH};
+    panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
+    pageRect_ = {sideW, kTopH, centreW, H - kTopH};
 
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = centreW > 900 ? 40 : 28;
@@ -56,7 +56,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawPreviewSidebar(sideRect_);
         if (panel) drawPreviewPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -68,7 +68,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawTypesetSidebar(sideRect_);
         if (panel) drawTypesetPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -81,7 +81,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawPublishSidebar(sideRect_);
         if (panel) drawPublishPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -95,7 +95,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawWorldSidebar(sideRect_);
         if (panel) drawWorldPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -108,7 +108,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawPlanSidebar(sideRect_);
         if (panel) drawPlanPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -121,7 +121,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawReviewSidebar(sideRect_);
         if (panel) drawReviewPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -140,10 +140,18 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.text(L"Opening the editor...", {m.x, m.y + 20, 400, 30}, Font::Body, pal_.inkFaint);
         }
         placeEditor();
-        if (!focusing) drawBinder(sideRect_);
+        if (!focusing) {
+            // The outline, with today's words at its foot (where the status bar used to say it).
+            drawBinder({sideRect_.x, sideRect_.y, sideRect_.w, sideRect_.h - 36});
+            const Rect foot{sideRect_.x, sideRect_.bottom() - 36, sideRect_.w, 36};
+            gfx_.fill(foot, pal_.sunken);
+            gfx_.line(foot.x + 16, foot.y + 0.5f, foot.right() - 16, foot.y + 0.5f, pal_.rule);
+            gfx_.line(foot.right() - 0.5f, foot.y, foot.right() - 0.5f, foot.bottom(), pal_.rule);
+            gfx_.text(todayLine(), {foot.x + 22, foot.y, foot.w - 36, foot.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        }
         if (panel) drawPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
+        drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         if (drag_.active) {
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
@@ -180,7 +188,7 @@ void StudioApp::drawFrame(float W, float H) {
     drawSidebar(sideRect_);
     if (panel) drawPanel(panelRect_);
     drawTopBar({0, 0, W, kTopH});
-    drawStatusBar({0, H - kStatusH, W, kStatusH});
+    drawStatusBar({0, H, W, 0});
     hideUnplacedFields();
 
     // The thing being dragged, and where it would land.
@@ -452,35 +460,37 @@ void StudioApp::drawSidebar(const Rect& r) {
 
 // -------------------------------------------------------------- status bar
 
-void StudioApp::drawStatusBar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.x, r.y + 0.5f, r.right(), r.y + 0.5f, pal_.rule);
-    std::wstring left = lib_ ? L"Library: " + w(lib_->folder()) : L"No library open";
-    if (lib_ && ws_ == Workspace::Writing) {
-        // While writing: today's words, and the goal if there is one.
-        const std::string today = Library::localDay(now());
-        const auto days = lib_->wordsWritten({}, today);
-        const std::int64_t n = days.count(today) ? days.at(today) : 0;
-        const std::int64_t goal = dailyGoal();
-        left = L"Today: " + std::to_wstring(n) + (goal ? L" of " + std::to_wstring(goal) : std::wstring()) + L" words";
-        if (goal && n >= goal) left += L"  ·  goal reached";
-    }
-    gfx_.text(left, {r.x + 14, r.y, r.w * 0.55f, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-    // Right: messages, otherwise whether everything is saved. Typing shows Saving..., then Saved.
-    const bool flashing = !flashText().empty();
-    const float right = r.right() - 14;
-    if (lib_) {
+// There's no status bar. Messages rise as a toast over the page; "Saving..." and
+// "Not saved" show as a small note at the page's corner (the editor shows its own);
+// today's words sit at the foot of the outline while writing (drawBinder).
+void StudioApp::drawStatusBar(const Rect&) {
+    if (lib_ && !(ws_ == Workspace::Writing && editor_.ready() && !currentNode_.empty())) {
         const bool saving = dirty_ || editorDirty_;
-        const std::wstring st = saveFailed_ ? L"Not saved" : saving ? L"Saving..." : L"Saved";
-        const float sw = gfx_.measureWidth(L"Saving...", Font::Small) + 18;
-        const Color dot = saveFailed_ ? hexColor("#B4442C") : saving ? hexColor("#C9922E") : pal_.inkFaint;
-        gfx_.circle(right - sw + 4, r.y + r.h / 2, 3, dot.withAlpha(0.4f + 0.6f * anim("save#dot", saving ? 1.0f : 0.0f, 10.0f)), true);
-        gfx_.text(st, {right - sw + 12, r.y, sw - 12, r.h}, Font::Small, saveFailed_ ? hexColor("#B4442C") : pal_.inkMuted,
-                  {Align::Left, false, false, true});
-        if (flashing)
-            gfx_.text(flashText(), {r.x + r.w * 0.4f, r.y, r.w * 0.6f - sw - 30, r.h}, Font::Small, flashColor(pal_.ink),
-                      {Align::Right, false, true, true});
+        const float a = anim("save#note", saving || saveFailed_ ? 1.0f : 0.0f, 10.0f);
+        if (a > 0.01f) {
+            const std::wstring st = saveFailed_ ? L"Not saved" : L"Saving...";
+            const float tw = gfx_.measureWidth(st, Font::Small) + 34;
+            const Rect r{pageRect_.right() - tw - 14, pageRect_.bottom() - 38, tw, 26};
+            gfx_.fillRounded(r, 13, pal_.surface.withAlpha(0.95f * a));
+            gfx_.strokeRounded(r, 13, pal_.rule.withAlpha(a));
+            gfx_.circle(r.x + 14, r.y + r.h / 2, 3, (saveFailed_ ? hexColor("#B4442C") : hexColor("#C9922E")).withAlpha(a), true);
+            gfx_.text(st, {r.x + 22, r.y, r.w - 26, r.h}, Font::Small, (saveFailed_ ? hexColor("#B4442C") : pal_.inkMuted).withAlpha(a),
+                      {Align::Left, false, false, true});
+        }
     }
+    drawToast(pageRect_);
+}
+
+// Today's words (and the daily goal), for the foot of the outline while writing.
+std::wstring StudioApp::todayLine() const {
+    if (!lib_) return {};
+    const std::string today = Library::localDay(now());
+    const auto days = lib_->wordsWritten({}, today);
+    const std::int64_t n = days.count(today) ? days.at(today) : 0;
+    const std::int64_t goal = dailyGoal();
+    std::wstring t = L"Today: " + std::to_wstring(n) + (goal ? L" of " + std::to_wstring(goal) : std::wstring()) + L" words";
+    if (goal && n >= goal) t += L"  ·  goal reached";
+    return t;
 }
 
 // ----------------------------------------------------------- shared bits

@@ -151,6 +151,11 @@ private:
     void drawNodePanel(const Rect& r, const Rect& c, float& y);
     void placeEditor();
     void sendView();                  // the writing view and the bible's names, to the editor
+    // Style rules belong to the book's world, or to the book itself when it's in no world.
+    struct StyleScope { std::string key; std::string name, label; };
+    StyleScope styleScope() const;
+    void styleFileExport(const std::string& json);
+    void styleFileImport();
     bool focusMode() const;           // Writing in focus mode: no side panels
     void backupTick();                // every 30 minutes: a backup if anything changed
     void mirrorBackups();             // copy new backups to settings_.backupFolder
@@ -224,6 +229,7 @@ private:
     void drawReviewPage(const Rect& r);
     void drawReviewPanel(const Rect& r);
     std::int64_t dailyGoal() const;
+    std::wstring todayLine() const;
     // Planning (studio_plan.cpp)
     void openPlanning(const Id& bookId);
     void selectCard(const Id& nodeId);   // "" = the book itself

@@ -27,7 +27,8 @@
   <span class="sep"></span>
   <button id="viewbtn" title="Writing view: font, page width, focus, typewriter, hints" aria-label="Writing view" aria-haspopup="true" aria-expanded="false">Aa</button>
   <span class="grow"></span>
-  <span id="hints" aria-live="polite"></span>
+  <span id="notice" aria-live="polite" hidden></span>
+  <button id="hints" title="Style hints: what's marked in this chapter, and your own rules" aria-haspopup="true"></button>
   <button id="prev" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter">&#x2039;</button>
   <button id="next" title="Next chapter (Ctrl+Down)" aria-label="Next chapter">&#x203A;</button>
   <span class="sep"></span>
@@ -62,11 +63,19 @@
     <span class="vm-note">Keeps the line you're typing in the middle of the window.</span></label>
   <label class="vm-check"><input type="checkbox" name="spellcheck"> Check spelling
     <span class="vm-note">Uses Windows' own spelling dictionaries. Right-click a word for suggestions.</span></label>
-  <label class="vm-check"><input type="checkbox" name="hints"> Style hints
-    <span class="vm-note">Underlines doubled words, filler words, maybe-passive verbs and long sentences. Hover one for why.</span></label>
+  <div class="vm-label">Style hints</div>
+  <div class="vm-row">
+    <button data-set="hints" data-value="off">Off</button>
+    <button data-set="hints" data-value="quiet">Quiet</button>
+    <button data-set="hints" data-value="full">Full</button>
+  </div>
+  <div class="vm-note vm-pad">Gentle underlines; hover one for why. Click the hint count in the toolbar to choose which kinds, and to make your own rules.</div>
   <label class="vm-check"><input type="checkbox" name="names"> Link names to the bible
     <span class="vm-note">Names from Worldbuilding are underlined; Ctrl+click one to open its page.</span></label>
 </div>
+<div id="hintlist" role="dialog" aria-label="Style hints" hidden></div>
+<div id="hintcard" role="tooltip" hidden></div>
+<div id="rules" role="dialog" aria-label="Style rules" hidden></div>
 <div id="scroller">
   <article>
     <h1 id="title"></h1>

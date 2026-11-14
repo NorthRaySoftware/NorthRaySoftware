@@ -27,7 +27,6 @@ namespace {
 
 constexpr float kStripH = 44;    // tab strip, including the aurora band
 constexpr float kToolbarH = 48;
-constexpr float kStatusH = 28;
 constexpr float kTabTop = 8;
 constexpr float kNewTabW = 36;
 constexpr float kCaptionW = 46;  // each of minimise, maximise and close
@@ -803,6 +802,7 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
         case WM_MOVING:
             for (TabView& v : views_)
                 if (v.page) v.page->parentMoved();
+            if (note_ && IsWindowVisible(note_)) updateNote();
             break;
         case WM_MBUTTONUP: {
             // Middle-click a tab to close it.
@@ -1066,8 +1066,7 @@ void BrowserWindow::drawFrame(float W, float H) {
     const bool chrome = !fullscreen_;
     const bool bar = chrome && settings_.showBookmarksBar && bookmarks_;
     const float top = chrome ? kStripH + kToolbarH + (bar ? kBookmarksBarH : 0) : 0;
-    const float statusH = chrome ? kStatusH : 0;
-    const Rect content{0, top, W, H - top - statusH};
+    const Rect content{0, top, W, H - top};
 
     TabView* v = activeView();
     if (engineFailed_) drawEngineProblem(content);
@@ -1085,13 +1084,13 @@ void BrowserWindow::drawFrame(float W, float H) {
         drawToolbar({0, kStripH, W, kToolbarH});
         if (bar) drawBookmarksBar({0, kStripH + kToolbarH, W, kBookmarksBarH});
         else barRects_.clear();
-        drawStatusBar({0, H - kStatusH, W, kStatusH});
     } else if (edit_ && IsWindowVisible(edit_)) {
         if (GetFocus() == edit_) SetFocus(hwnd());
         ShowWindow(edit_, SW_HIDE);
     }
     if (!chrome) startSearchVisible_ = pageSearchVisible_ = renameVisible_ = false;
     positionExtraEdits();
+    updateNote();
 }
 
 void BrowserWindow::placePages(const Rect& content) {
@@ -1453,20 +1452,81 @@ void BrowserWindow::drawEngineProblem(const Rect& r) {
     }
 }
 
-void BrowserWindow::drawStatusBar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.x, r.y + 0.5f, r.right(), r.y + 0.5f, pal_.rule);
-    TabView* v = activeView();
-    const Tab* t = model_.active();
-    std::wstring left;
-    if (v && !v->status.empty()) left = v->status;   // the link under the pointer
-    else if (t && t->loading && !hostOf(t->url).empty()) left = L"Loading " + widen(hostOf(t->url)) + L"...";
-    else if (engineOffForDevelopment_) left = L"Development build: the engine is off (--no-engine). Pages won't load.";
-    else if (!engineOk_ && !engineFailed_) left = L"Starting the browser engine...";
-    else left = L"NorthRay Browser " CJ_VERSION_WSTR;
-    gfx_.text(left, {r.x + 14, r.y, r.w * 0.62f, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-    gfx_.text(flashText(), {r.x + r.w * 0.3f, r.y, r.w * 0.7f - 14, r.h}, Font::Small, flashColor(pal_.ink),
-              {Align::Right, false, true, true});
+// ------------------------------------------------------------------ the note
+
+namespace {
+LRESULT CALLBACK noteProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_NCHITTEST) return HTTRANSPARENT;   // clicks go through to the page
+    if (msg == WM_PAINT) {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        const bool dark = GetWindowLongPtrW(h, GWLP_USERDATA) != 0;
+        HBRUSH bg = CreateSolidBrush(dark ? RGB(0x3A, 0x3D, 0x46) : RGB(0x26, 0x2A, 0x33));
+        FillRect(dc, &rc, bg);
+        DeleteObject(bg);
+        const int len = GetWindowTextLengthW(h);
+        std::wstring t((size_t)len, L'\0');
+        if (len) GetWindowTextW(h, t.data(), len + 1);
+        const UINT dpi = GetDpiForWindow(h);
+        HFONT f = CreateFontW(-MulDiv(14, (int)dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        HGDIOBJ old = SelectObject(dc, f);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(0xF2, 0xF4, 0xF8));
+        DrawTextW(dc, t.c_str(), (int)t.size(), &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, old);
+        DeleteObject(f);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+}  // namespace
+
+// Shows the flash message (if any) as a small rounded note near the bottom of the window, fading with it.
+void BrowserWindow::updateNote() {
+    const std::wstring& t = flashText();
+    const float a = t.empty() ? 0.0f : flashColor(Color{1, 1, 1, 1}).a;
+    if (a <= 0.01f || IsIconic(hwnd()) || !IsWindowVisible(hwnd())) {
+        if (note_ && IsWindowVisible(note_)) ShowWindow(note_, SW_HIDE);
+        return;
+    }
+    if (!note_) {
+        static bool registered = false;
+        if (!registered) {
+            WNDCLASSW wc{};
+            wc.lpfnWndProc = noteProc;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = L"NorthRayBrowserNote";
+            wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            RegisterClassW(&wc);
+            registered = true;
+        }
+        note_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, L"NorthRayBrowserNote", L"",
+                                WS_POPUP, 0, 0, 10, 10, hwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!note_) return;
+    }
+    SetWindowLongPtrW(note_, GWLP_USERDATA, pal_.dark ? 1 : 0);
+    const float s = gfx_.dpiScale();
+    const float w = std::min(gfx_.measureWidth(t, Font::Body) + 40, 620.0f), h = 40;
+    RECT rc;
+    GetClientRect(hwnd(), &rc);
+    POINT origin{0, 0};
+    ClientToScreen(hwnd(), &origin);
+    const int pw = (int)std::lround(w * s), ph = (int)std::lround(h * s);
+    const int x = origin.x + (rc.right - pw) / 2;
+    const int y = origin.y + rc.bottom - ph - (int)std::lround((28 - (1 - a) * 8) * s);
+    if (t != noteText_) {
+        noteText_ = t;
+        SetWindowTextW(note_, t.c_str());
+        InvalidateRect(note_, nullptr, TRUE);
+    }
+    SetLayeredWindowAttributes(note_, 0, (BYTE)std::lround(245 * a), LWA_ALPHA);
+    SetWindowPos(note_, HWND_TOP, x, y, pw, ph, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    HRGN rgn = CreateRoundRectRgn(0, 0, pw + 1, ph + 1, (int)(20 * s), (int)(20 * s));
+    SetWindowRgn(note_, rgn, TRUE);   // the window owns the region now
 }
 
 }  // namespace nrb

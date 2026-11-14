@@ -140,6 +140,19 @@ void StudioApp::editorMessage(const std::string& text) {
             saveSettings();
             invalidate();
         }
+    } else if (type == "styleRules") {
+        // The writer's own rules (and ignored words) changed: kept with the world, or the independent book.
+        const StyleScope sc = styleScope();
+        if (sc.key.empty()) return;
+        json st = {{"version", 1},
+                   {"rules", m.contains("rules") && m["rules"].is_array() ? m["rules"] : json::array()},
+                   {"ignore", m.contains("ignore") && m["ignore"].is_object() ? m["ignore"] : json::object()}};
+        if (st["rules"].size() > 1000) return;
+        if (!lib_->setSetting(sc.key, st.dump())) flash(w("Couldn't save the style rules: " + lib_->lastError()), 8);
+    } else if (type == "styleExport") {
+        if (m.contains("data")) styleFileExport(m["data"].dump());
+    } else if (type == "styleImport") {
+        styleFileImport();
     } else if (type == "entry") {
         // Ctrl+click on a name from the bible: its page in Worldbuilding.
         if (const Entry* e = lib_->entry(m.value("id", "")); e && !e->deleted) {
@@ -205,7 +218,82 @@ void StudioApp::sendView() {
             msg["names"].push_back({{"id", e->id}, {"names", names}});
         }
     }
+    const StyleScope sc = styleScope();
+    if (!sc.key.empty()) {
+        json st = json::parse(lib_->setting(sc.key), nullptr, false);
+        msg["style"] = {{"scope", sc.key}, {"name", sc.name}, {"label", sc.label},
+                        {"rules", st.is_object() && st.contains("rules") && st["rules"].is_array() ? st["rules"] : json::array()},
+                        {"ignore", st.is_object() && st.contains("ignore") && st["ignore"].is_object() ? st["ignore"] : json::object()}};
+    }
     editor_.send(msg.dump());
+}
+
+StudioApp::StyleScope StudioApp::styleScope() const {
+    StyleScope s;
+    const Book* b = lib_ ? lib_->book(writingBook_) : nullptr;
+    if (!b) return s;
+    if (const World* wd = b->worldId.empty() ? nullptr : lib_->world(b->worldId)) {
+        s.key = "style:world:" + wd->id;
+        s.name = wd->name;
+        s.label = "the world " + wd->name;
+    } else {
+        s.key = "style:book:" + b->id;
+        s.name = b->title;
+        s.label = "this book";
+    }
+    return s;
+}
+
+void StudioApp::styleFileExport(const std::string& text) {
+    IFileSaveDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC types[] = {{L"NorthRay style rules", L"*.nrstyle.json"}};
+    dlg->SetFileTypes(1, types);
+    dlg->SetDefaultExtension(L"nrstyle.json");
+    std::wstring name = w(styleScope().name);
+    for (auto& c : name) if (wcschr(L"\\/:*?\"<>|", c)) c = L'-';
+    dlg->SetFileName((name + L" style rules.nrstyle.json").c_str());
+    dlg->SetTitle(L"Export style rules");
+    std::string path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = narrow(p); CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    json j = json::parse(text, nullptr, false);
+    std::string err;
+    if (j.is_object() && atomicWrite(path, j.dump(2), err)) editor_.send(json{{"type", "notice"}, {"text", "Style rules exported."}}.dump());
+    else MessageBoxW(hwnd(), w("The rules couldn't be saved.\n\n" + err).c_str(), L"Export style rules", MB_OK | MB_ICONWARNING);
+}
+
+void StudioApp::styleFileImport() {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC types[] = {{L"NorthRay style rules", L"*.nrstyle.json;*.json"}};
+    dlg->SetFileTypes(1, types);
+    dlg->SetTitle(L"Import style rules");
+    std::wstring path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = p; CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    std::ifstream f(path.c_str(), std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (text.size() > 4 * 1024 * 1024) { editor_.send(json{{"type", "notice"}, {"text", "That file is too big to be style rules."}}.dump()); return; }
+    json j = json::parse(text, nullptr, false);
+    if (!j.is_object()) { editor_.send(json{{"type", "notice"}, {"text", "That file isn't NorthRay style rules."}}.dump()); return; }
+    editor_.send(json{{"type", "styleImported"}, {"data", j}}.dump());   // the editor checks every rule
 }
 
 void StudioApp::placeEditor() {

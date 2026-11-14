@@ -267,7 +267,7 @@ void Page::attach(ComPtr<ICoreWebView2Controller> controller) {
         settings->put_AreDefaultContextMenusEnabled(TRUE);
         settings->put_AreDevToolsEnabled(TRUE);
         settings->put_IsZoomControlEnabled(TRUE);
-        settings->put_IsStatusBarEnabled(FALSE);        // NorthRay's own status bar shows link targets
+        settings->put_IsStatusBarEnabled(TRUE);         // the engine's own bubble shows where a link goes (NorthRay has no status bar)
         settings->put_IsBuiltInErrorPageEnabled(FALSE); // NorthRay draws its own error pages
         if (auto s3 = settings.as<ICoreWebView2Settings3>()) s3->put_AreBrowserAcceleratorKeysEnabled(TRUE);
         // Microsoft Defender SmartScreen checks pages and downloads against

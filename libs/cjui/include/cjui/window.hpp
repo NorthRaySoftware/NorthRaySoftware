@@ -144,6 +144,9 @@ protected:
     // A short message, e.g. for a status bar. Clears itself after `seconds`.
     void flash(const std::wstring& message, int seconds = 4);
     const std::wstring& flashText() const { return flashVisible_ ? flash_ : empty_; }
+    // The flash message as a toast: a small rounded note near the bottom of `area`
+    // that rises in and fades out (the apps have no status bar).
+    void drawToast(const Rect& area);
 
     void clearFocus() { focus_.clear(); keyboardFocus_ = false; }
 

@@ -145,6 +145,24 @@ Color AppWindow::flashColor(Color c) {
     return c.withAlpha(c.a * a);
 }
 
+void AppWindow::drawToast(const Rect& area) {
+    if (flashText().empty()) return;
+    const float a = flashColor(Color{1, 1, 1, 1}).a;
+    if (a <= 0.01f) return;
+    const std::wstring& t = flashText();
+    const float maxW = std::min(area.w - 48, 620.0f);
+    const float tw = std::min(gfx_.measureWidth(t, Font::Body), maxW - 36);
+    const float th = gfx_.measureHeight(t, tw + 1, Font::Body);
+    const float w = tw + 36, h = std::max(40.0f, th + 20);
+    const float rise = (1.0f - a) * 10;
+    const Rect r{area.x + (area.w - w) / 2, area.bottom() - h - 24 + rise, w, h};
+    softShadow(r, 10, a);
+    const Color bg = pal_.dark ? pal_.surface.mix(pal_.ink, 0.12f) : pal_.ink.mix(pal_.paper, 0.06f);
+    const Color fg = pal_.dark ? pal_.ink : pal_.paper;
+    gfx_.fillRounded(r, 10, bg.withAlpha(0.96f * a));
+    gfx_.text(t, {r.x + 18, r.y + (h - th) / 2, tw + 1, th + 2}, Font::Body, fg.withAlpha(a), {Align::Center, true});
+}
+
 void AppWindow::applyPalette(const Palette& p) {
     pal_ = p;
     BOOL useDark = p.dark;

@@ -53,7 +53,6 @@ private:
     void checkbox(const std::string& id, const Rect& r, const std::wstring& label, bool on, std::function<void()> toggle, bool night);
 
     void drawNav(const Rect& r);
-    void drawStatusBar(const Rect& r);
     void drawAurora(const Rect& r);
     void drawIcon(const AppItem& a, const Rect& r);
     float drawHeader(const Rect& r, const std::wstring& title, const std::wstring& subtitle);

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.2.1",
+      "date": "2026-11-14",
+      "notes": [
+        "No more status bar along the bottom of the window: where a link goes shows in a small bubble over the page, and messages appear for a moment as a note near the bottom."
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-14",
       "notes": [

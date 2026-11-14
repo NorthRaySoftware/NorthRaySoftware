@@ -31,7 +31,6 @@ namespace {
 
 constexpr float kSidebarW = 236;
 constexpr float kToolbarH = 56;
-constexpr float kStatusH = 28;
 constexpr float kHeaderH = 32;
 constexpr UINT_PTR kSpinTimer = 1;
 
@@ -818,8 +817,9 @@ void FilesWindow::drawFrame(float W, float H) {
     const float side = W >= 760 ? kSidebarW : 0;   // a narrow window gives the files the room
     if (side > 0) drawSidebar({0, 0, side, H});
     drawToolbar({side, 0, W - side, kToolbarH});
-    drawContent({side, kToolbarH, W - side, H - kToolbarH - kStatusH});
-    drawStatus({side, H - kStatusH, W - side, kStatusH});
+    drawContent({side, kToolbarH, W - side, H - kToolbarH});
+    if (side <= 0) drawStatusNote({side, kToolbarH, W - side, H - kToolbarH});
+    drawToast({side, kToolbarH, W - side, H - kToolbarH});
 }
 
 void FilesWindow::drawSidebar(const Rect& r) {
@@ -873,11 +873,18 @@ void FilesWindow::drawSidebar(const Rect& r) {
     for (const Drive& d : drives_)
         if (d.icon >= 0) { pcIcon = d.icon; break; }
     row("tb:thispc", L"This PC", pcIcon, here_.thisPC, [this] { go({true, L""}); });
+    // What's here, at the foot of the sidebar.
+    const std::wstring status = statusText();
+    const float statusH = status.empty() ? 0 : gfx_.measureHeight(status, r.w - 44, Font::Small) + 30;
     for (const Drive& d : drives_) {
-        if (y > r.bottom() - 40) break;
+        if (y > r.bottom() - 40 - statusH) break;
         const bool inHere = !here_.thisPC && here_.path.size() >= 3 && samePath(here_.path.substr(0, 3), d.root) && isDriveRoot(here_.path);
         row("tb:drive:" + narrow(d.root), d.label + L" (" + d.root.substr(0, 2) + L")", d.icon, inHere,
             [this, root = d.root] { goPath(root); }, d.ready ? L"" : L"empty");
+    }
+    if (!status.empty()) {
+        gfx_.line(r.x + 22, r.bottom() - statusH + 4, r.right() - 22, r.bottom() - statusH + 4, nr::kNightInk.withAlpha(0.10f));
+        gfx_.text(status, {r.x + 22, r.bottom() - statusH + 14, r.w - 44, statusH}, Font::Small, nr::kNightMuted);
     }
 }
 
@@ -1193,9 +1200,9 @@ void FilesWindow::drawThisPC(const Rect& r) {
     }
 }
 
-void FilesWindow::drawStatus(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.x, r.y + 0.5f, r.right(), r.y + 0.5f, pal_.rule);
+// What's here and what's selected (there's no status bar: it sits at the foot of the
+// sidebar, or in a small note at the corner of the list when the sidebar is tucked away).
+std::wstring FilesWindow::statusText() const {
     std::wstring left;
     if (here_.thisPC) {
         left = std::to_wstring(drives_.size()) + (drives_.size() == 1 ? L" drive" : L" drives");
@@ -1203,20 +1210,30 @@ void FilesWindow::drawStatus(const Rect& r) {
         const std::size_t n = shown_.size(), hidden = listed_.size() - shown_.size();
         left = std::to_wstring(n) + (n == 1 ? L" item" : L" items");
         if (hidden) left += L" (" + std::to_wstring(hidden) + L" hidden)";
-        if (loading_) left += L"  ·  still reading...";
+        if (loading_) left += L"\nStill reading...";
         const auto sel = sel_.indices();
         if (!sel.empty()) {
             std::uint64_t bytes = 0;
             bool anyFile = false;
             for (std::size_t i : sel)
                 if (!shown_[i].folder()) { bytes += shown_[i].size; anyFile = true; }
-            left += L"  ·  " + std::to_wstring(sel.size()) + L" selected";
+            left += L"\n" + std::to_wstring(sel.size()) + L" selected";
             if (anyFile) left += L" (" + formatSize(bytes) + L")";
         }
-        if (partial_) left += L"  ·  stopped part-way (error " + std::to_wstring(errorCode_) + L"); press F5 to try again";
+        if (partial_) left += L"\nStopped part-way (error " + std::to_wstring(errorCode_) + L"); press F5 to try again";
     }
-    gfx_.text(left, {r.x + 16, r.y, r.w * 0.65f, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-    gfx_.text(flashText(), {r.x + r.w * 0.3f, r.y, r.w * 0.7f - 16, r.h}, Font::Small, flashColor(pal_.ink), {Align::Right, false, true, true});
+    return left;
+}
+
+void FilesWindow::drawStatusNote(const Rect& content) {
+    std::wstring t = statusText();
+    for (auto& c : t) if (c == L'\n') c = L' ';
+    if (t.empty()) return;
+    const float tw = gfx_.measureWidth(t, Font::Small) + 22;
+    const Rect r{content.right() - tw - 14, content.bottom() - 36, tw, 26};
+    gfx_.fillRounded(r, 13, pal_.surface.withAlpha(0.94f));
+    gfx_.strokeRounded(r, 13, pal_.rule);
+    gfx_.text(t, r, Font::Small, pal_.inkMuted, {Align::Center, false, true, true});
 }
 
 }  // namespace nrf

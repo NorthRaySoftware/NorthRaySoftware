@@ -25,7 +25,7 @@ using nrl::JobState;
 static const UINT_PTR kRefreshTimer = 1, kSoonTimer = 2;
 static const UINT WM_APP_JOBS = WM_APP + 1;
 static const UINT WM_APP_CATALOGUE = WM_APP + 2;
-static const float kHeaderH = 118, kFooterH = 52;
+static const float kHeaderH = 118;
 
 // CJ Philip Community's own look: deep wine, as the suite's ribbon colour.
 static const char* kWine = "#6A2E3F";
@@ -457,10 +457,22 @@ void CommunityApp::drawFrame(float W, float H) {
         gfx_.strokeRounded(tb, 14, hexColor("#CDB9BF").withAlpha(0.35f + 0.4f * hv));
         gfx_.text(names[theme_], tb, Font::Small, hexColor("#E8DCD6"), {Align::Center, false, false, true});
         if (focused(id)) focusRing(tb);
+        // NorthRay Launcher, beside it (it used to be in a footer).
+        if (!launcherExe_.empty() || !downloadPage_.empty()) {
+            const std::wstring more = launcherExe_.empty() ? L"Get NorthRay Launcher" : L"Open NorthRay Launcher";
+            const float lw = gfx_.measureWidth(more, Font::Small) + 24;
+            const Rect lb{tb.x - lw - 10, 56, lw, 28};
+            const std::string lid = "launcher";
+            addHit(lid, lb, [this] { openLauncher(); });
+            const float lh = hoverAmount(lid);
+            gfx_.strokeRounded(lb, 14, hexColor("#CDB9BF").withAlpha(0.35f + 0.4f * lh));
+            gfx_.text(more, lb, Font::Small, hexColor("#E8DCD6"), {Align::Center, false, false, true});
+            if (focused(lid)) focusRing(lb);
+        }
     }
 
     // Cards.
-    const Rect area{0, kHeaderH, W, H - kHeaderH - kFooterH};
+    const Rect area{0, kHeaderH, W, H - kHeaderH};
     const float top = beginScroll(area);
     float y = top + 28;
     gfx_.text(L"YOUR CJ APPS", {pad, y, 400, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
@@ -472,19 +484,12 @@ void CommunityApp::drawFrame(float W, float H) {
     }
     y += 28;
     y += drawCards({pad, y, W - pad * 2, 0});
+    y += 18;
+    y += gfx_.text(w(developer_) + L"  ·  CJ Philip Community " CJ_VERSION_WSTR, {pad, y, W - pad * 2, 20}, Font::Small, pal_.inkFaint,
+                   {Align::Left, false}) + 8;
     endScroll(y - top + 20);
 
-    // Footer.
-    const Rect foot{0, H - kFooterH, W, kFooterH};
-    gfx_.fill(foot, pal_.sunken);
-    gfx_.line(0, foot.y + 0.5f, W, foot.y + 0.5f, pal_.rule);
-    const std::wstring left = !flashText().empty() ? flashText() : w(developer_) + L"  ·  Version " CJ_VERSION_WSTR;
-    gfx_.text(left, {pad, foot.y, W - pad * 2 - 260, foot.h}, Font::Small,
-              !flashText().empty() ? flashColor(pal_.ink) : pal_.inkFaint, {Align::Left, false, true, true});
-    const std::wstring more = launcherExe_.empty() ? L"Get NorthRay Launcher" : L"Open NorthRay Launcher";
-    const float mw = gfx_.measureWidth(more, Font::Small);
-    if (!launcherExe_.empty() || !downloadPage_.empty())
-        linkText("launcher", W - pad - mw, foot.y + (foot.h - 18) / 2, more, [this] { openLauncher(); });
+    drawToast(area);   // messages (there's no footer)
 }
 
 }  // namespace cjp

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.21.0",
+      "date": "2026-11-14",
+      "notes": [
+        "No more status bar along the bottom of the window. Messages appear for a moment as a small note near the bottom instead. When updates were last checked is on the Updates page."
+      ]
+    },
+    {
       "version": "0.20.0",
       "date": "2026-11-14",
       "notes": [

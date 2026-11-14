@@ -120,7 +120,7 @@ private:
     void drawStartPage(const cjui::Rect& r);
     void drawErrorPage(const cjui::Rect& r, TabView& v);
     void drawEngineProblem(const cjui::Rect& r);
-    void drawStatusBar(const cjui::Rect& r);
+
     void placePages(const cjui::Rect& content);
     void updateAddressText();
     void updateTitle();
@@ -139,6 +139,11 @@ private:
     std::vector<std::wstring> queued_;   // addresses waiting for the window
 
     HWND edit_ = nullptr;
+    // Messages float over the page in a small window of their own (the page is a
+    // separate window that nothing can be drawn on). There's no status bar.
+    HWND note_ = nullptr;
+    std::wstring noteText_;
+    void updateNote();
     HFONT editFont_ = nullptr;
     HBRUSH editBrush_ = nullptr;
     float editScale_ = 0;

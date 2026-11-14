@@ -18,7 +18,7 @@
 
 namespace nrl {
 
-static const float kNavW = 232, kStatusH = 28;
+static const float kNavW = 232;
 static const UINT WM_APP_JOBS = WM_APP + 1;
 static const UINT WM_APP_CATALOGUE = WM_APP + 2;
 static const UINT WM_APP_TRAY = WM_APP + 3;
@@ -531,17 +531,6 @@ void Launcher::drawNav(const Rect& r) {
               kNightMuted.withAlpha(0.8f));
 }
 
-void Launcher::drawStatusBar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.x, r.y + 0.5f, r.right(), r.y + 0.5f, pal_.rule);
-    std::wstring left = L"NorthRay Launcher " CJ_VERSION_WSTR;
-    if (checking_) left += L"  ·  Checking for updates...";
-    else if (model_.catalogueChecked) left += L"  ·  Checked " + cjui::formatRelative(model_.catalogueChecked, nowUtc());
-    else if (!model_.catalogueConfigured()) left += L"  ·  Offline catalogue";
-    gfx_.text(left, {r.x + 14, r.y, r.w * 0.6f, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-    gfx_.text(flashText(), {r.x + r.w * 0.35f, r.y, r.w * 0.65f - 14, r.h}, Font::Small, flashColor(pal_.ink), {Align::Right, false, true, true});
-}
-
 float Launcher::drawHeader(const Rect& r, const std::wstring& title, const std::wstring& subtitle) {
     gfx_.text(title, {r.x, r.y, r.w, 36}, Font::Title, pal_.ink, {Align::Left, false, true});
     float h = 40;
@@ -627,7 +616,7 @@ void Launcher::drawFrame(float W, float H) {
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = W - kNavW > 900 ? 44 : 30;
     const float capH = 40;   // the top strip: moves the window, holds minimise, maximise and close
-    const float top = beginScroll({kNavW, capH, W - kNavW, H - kStatusH - capH});
+    const float top = beginScroll({kNavW, capH, W - kNavW, H - capH});
     Rect page{kNavW + pad, top + 4, std::min(W - kNavW - pad * 2, 960.0f), 0};
     float h = 0;
     switch (page_) {
@@ -640,8 +629,8 @@ void Launcher::drawFrame(float W, float H) {
     endScroll(h + 60);
     gfx_.fill({kNavW, 0, W - kNavW, capH}, pal_.paper);
     drawCaptionButtons({kNavW, 0, W - kNavW, capH}, false);
-    drawNav({0, 0, kNavW, H - kStatusH});
-    drawStatusBar({0, H - kStatusH, W, kStatusH});
+    drawNav({0, 0, kNavW, H});
+    drawToast({kNavW, capH, W - kNavW, H - capH});   // messages (no status bar)
     drawLightbox(W, H);
 }
 
@@ -1019,9 +1008,16 @@ float Launcher::pageApp(const Rect& r) {
 }
 
 float Launcher::pageUpdates(const Rect& r) {
-    float y = r.y + drawHeader(r, L"Updates", model_.catalogueConfigured()
-                                                  ? L"Updates are checked when the launcher starts and every few hours, also while it waits in the notification area."
-                                                  : L"There's no online catalogue yet, so updates can't be checked. Installed apps keep working.");
+    std::wstring sub = model_.catalogueConfigured()
+                           ? L"Updates are checked when the launcher starts and every few hours, also while it waits in the notification area."
+                           : L"There's no online catalogue yet, so updates can't be checked. Installed apps keep working.";
+    if (checking_) sub += L" Checking now...";
+    else if (model_.catalogueChecked) {
+        std::wstring when = cjui::formatRelative(model_.catalogueChecked, nowUtc());
+        if (when == L"Today" || when == L"Yesterday") when[0] = (wchar_t)towlower(when[0]);
+        sub += L" Last checked " + when + L".";
+    }
+    float y = r.y + drawHeader(r, L"Updates", sub);
     if (model_.catalogueConfigured()) {
         button("upd:check", {r.x, y, 170, 32}, checking_ ? L"Checking..." : L"Check now", [this] { checkCatalogue(true); });
         int n = 0;

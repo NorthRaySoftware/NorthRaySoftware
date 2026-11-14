@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.21.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Style hints, rebuilt: they now tell dialogue from narration, so characters can talk naturally. New kinds: echoes (the same word again within a few lines), repeated sentence starts, adverbs on dialogue tags, fancy dialogue tags, redundancies (\"nodded his head\"), clichés, and mixed spellings or dash styles. Names from your bible are never counted as echoes.",
+        "Hints have three modes: Off, Quiet (only clear slips, the new default) and Full. Click the hint count in the editor's toolbar to turn each kind on or off, see how many are in the chapter, jump from one to the next, and see a reading-ease figure.",
+        "Hover a hint to see why it's marked, with Ignore once, Ignore it everywhere in this world, or Turn off this kind.",
+        "Your own style rules, kept with the world (or with the book when it isn't in a world): flag words, suggest a replacement, limit how often a word is used, flag a word used again too soon, keep to one spelling of a name, or, for experts, a pattern (run safely, so it can never freeze the editor). Each shows how many times it matches in the open chapter as you make it. Rules can be exported and imported as files to share.",
+        "No more status bar along the bottom of the window. Messages appear for a moment as a small note near the bottom instead. Today's words are at the foot of the outline while you write."
+      ]
+    },
+    {
       "version": "0.20.0",
       "date": "2026-11-14",
       "notes": [

@@ -18,6 +18,7 @@ NorthRay Software is a project identity, not a company or a team: credits never 
 ## Writing Studio (0.5.0)
 
 - **ProseMirror** (MIT): the manuscript editor, bundled into `apps/studio/web/editor.js`. Licence: `apps/studio/licenses/ProseMirror-LICENSE.txt`.
+- **re2js** (MIT, 2.9.0): runs writers' own style-hint patterns in linear time (a JavaScript port of RE2), bundled into `apps/studio/web/editor.js`. Licence: `apps/studio/licenses/re2js-LICENSE.txt`. The style-hint word lists were written for NorthRay; none are copied from other tools.
 - **miniz** (MIT): reading EPUB (ZIP) files. `libs/third_party/miniz/LICENSE`.
 - **PDFium** (BSD-3-Clause / Apache-2.0) and the libraries it bundles: PDF import. Windows build from bblanchon/pdfium-binaries. `apps/studio/licenses/PDFium/`.
 - **Microsoft Edge WebView2** loader (BSD-style licence from Microsoft): hosts the editor, as in CJ Radio. `apps/studio/licenses/WebView2-LICENSE.txt`.
