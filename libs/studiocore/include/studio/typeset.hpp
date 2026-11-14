@@ -124,6 +124,17 @@ struct Source {
 };
 Source snapshot(const Library& lib, const Id& bookId);
 
+// A chapter title split into its label and the rest: "Chapter 3: The Storm" -> {3, "", "The Storm"};
+// "Chapter Three" -> {3, "Three", ""}. Prologues, acknowledgements and the like are `special` (never numbered).
+struct ChapterTitle {
+    int number = 0;
+    std::string word;   // the number as written, when it's a word
+    std::string rest;
+    bool special = false;
+};
+ChapterTitle chapterTitleParts(const std::string& title);
+std::string spelledNumber(int n);   // 3 -> "Three", 21 -> "Twenty-One"
+
 struct Book {
     double width = 0, height = 0;       // pt
     Design design;

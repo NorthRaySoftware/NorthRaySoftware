@@ -23,6 +23,20 @@ struct Content {
     std::vector<Chapter> chapters;
 };
 
+// How the ebook looks, from the book's Typesetting design (`styleFrom`). The default is the plain
+// reading look (titles only, indented paragraphs, no lead-in).
+struct Style {
+    std::string chapterStyle = "title";   // "title", "number" ("Chapter One" over the title), "numeral" (a large figure)
+    bool leadIn = false;                  // a chapter's first words in small capitals
+    bool dropCap = false;                 // a chapter's first letter large
+    bool justify = true, hyphenate = true;
+    double indentEm = 1.2;
+    bool spaced = false;                  // paragraphs with space between and no indent
+    std::string sceneBreak = "* * *";
+    std::string fontFamily;               // the CSS family when the typeface is embedded ("" = the reader's own)
+};
+Style styleFrom(const typeset::Design& d);
+
 // Where a picture is found, as a URL for the HTML (the preview's image host, or
 // a file inside the EPUB).
 using PictureUrl = std::function<std::string(const std::string& blob)>;
@@ -34,14 +48,19 @@ using CroppedPictureUrl = std::function<std::string(const std::string& blob, con
 // Each chapter as semantic HTML: h1 for its title, p with paragraph-style
 // classes, em/strong/span.sc marks, hr.scene for scene breaks, figure for
 // pictures (crop kept as data for the reader's stylesheet).
-Content build(const typeset::Source& src, const PictureUrl& pictureUrl);
-Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& pictureUrl);
+Content build(const typeset::Source& src, const PictureUrl& pictureUrl, const Style& style = {});
+Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& pictureUrl, const Style& style = {});
 
 // One document's body (document JSON) as HTML, without the chapter title.
 std::string documentHtml(const std::string& docJson, const PictureUrl& pictureUrl);
 
 // The reading stylesheet shared by the preview and the EPUB.
-std::string stylesheet();
+std::string stylesheet(const Style& style = {});
+
+// A chapter's opening heading (<h1>) for a style; `number` is the chapter's number, 0 for none.
+std::string chapterHeading(const std::string& title, int number, const std::string& numberWord, const std::string& rest, const Style& style);
+// The first paragraph of a chapter with its lead-in and drop cap marked (spans), as the style asks.
+std::string markOpening(const std::string& bodyHtml, const Style& style);
 
 std::string escape(const std::string& text);   // &, <, >, " as entities
 

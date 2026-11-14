@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
@@ -230,12 +231,31 @@ std::string bookUuid(const typeset::Source& src) {
     return h.substr(0, 8) + "-" + h.substr(8, 4) + "-" + h.substr(12, 4) + "-" + h.substr(16, 4) + "-" + h.substr(20, 12);
 }
 
+// A font's embedding permission (OpenType OS/2 fsType): false when its licence forbids putting it in a
+// document (restricted licence) or allows bitmaps only.
+bool fontMayBeEmbedded(const std::string& ttf) {
+    auto u16 = [&](size_t at) { return at + 2 <= ttf.size() ? ((unsigned)(unsigned char)ttf[at] << 8) | (unsigned char)ttf[at + 1] : 0u; };
+    auto u32 = [&](size_t at) { return (u16(at) << 16) | u16(at + 2); };
+    if (ttf.size() < 12) return false;
+    const unsigned tables = u16(4);
+    for (unsigned i = 0; i < tables; ++i) {
+        const size_t rec = 12 + (size_t)i * 16;
+        if (rec + 16 > ttf.size()) return false;
+        if (ttf.compare(rec, 4, "OS/2") == 0) {
+            const unsigned fsType = u16(u32(rec + 8) + 8);
+            return !(fsType & 0x0002) && !(fsType & 0x0200);
+        }
+    }
+    return true;   // no OS/2 table: no restriction stated
+}
+
 const char* kEpubCss = R"CSS(
 /* EPUB pages */
 body { margin: 0 4%; }
 body.cover { margin: 0; padding: 0; text-align: center; }
-div.cover { height: 100%; text-align: center; page-break-inside: avoid; }
+div.cover { height: 100%; height: 100vh; text-align: center; page-break-inside: avoid; }
 div.cover img { max-width: 100%; max-height: 100%; height: auto; }
+div.cover svg { display: block; width: 100%; height: 100%; }
 section.titlepage { text-align: center; padding-top: 25%; }
 section.titlepage h1 { font-size: 2em; margin: 0 0 0.5em; }
 section.titlepage p.subtitle { font-size: 1.2em; font-style: italic; margin: 0 0 3em; text-indent: 0; text-align: center; }
@@ -261,6 +281,43 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     const std::string lang = src.language.empty() ? "en-GB" : src.language;
     const std::string title = src.title.empty() ? std::string("Untitled") : src.title;
     const int maxSide = std::max(320, options.maxPicturePixels);
+
+    // The typeface: inside the ebook when its licence allows (the reader can still choose their own).
+    ebook::Style style = options.style;
+    std::vector<std::pair<std::string, std::string>> fontFiles;   // href -> bytes
+    std::string fontCss, fontName, fontLicence;
+    if (!options.fontsFolder.empty() && !options.fontId.empty()) {
+        namespace fs = std::filesystem;
+        const fs::path dir = detail::u8path(options.fontsFolder) / detail::u8path(options.fontId);
+        struct Want { const char* suffix; const char* weight; const char* styleName; };
+        bool refused = false;
+        for (const Want& w : {Want{"Regular", "normal", "normal"}, Want{"Italic", "normal", "italic"}, Want{"Bold", "bold", "normal"},
+                              Want{"BoldItalic", "bold", "italic"}}) {
+            std::error_code ec;
+            for (auto& e : fs::directory_iterator(dir, ec)) {
+                const std::string n = detail::fromPath(e.path().filename());
+                const std::string want = std::string("-") + w.suffix + ".ttf";
+                if (n.size() <= want.size() || n.compare(n.size() - want.size(), want.size(), want) != 0) continue;
+                const std::string bytes = readAll(detail::fromPath(e.path()));
+                if (bytes.empty()) continue;
+                if (!fontMayBeEmbedded(bytes)) { refused = true; break; }
+                const std::string href = "fonts/" + n;
+                fontFiles.push_back({href, bytes});
+                fontCss += std::string("@font-face { font-family: \"NR Book\"; font-weight: ") + w.weight + "; font-style: " + w.styleName +
+                           "; src: url(\"" + href + "\"); }\n";
+            }
+            if (refused) break;
+        }
+        if (refused) {
+            fontFiles.clear();
+            fontCss.clear();
+            r.notes.push_back("The book's typeface doesn't allow being put inside an ebook, so readers see their own.");
+        } else if (!fontFiles.empty()) {
+            style.fontFamily = "NR Book";
+            for (const typeset::FontFamilyInfo& f : typeset::fontFamilies(options.fontsFolder)) if (f.id == options.fontId) fontName = f.name;
+            fontLicence = readAll(detail::fromPath(dir / "OFL.txt"));
+        }
+    }
 
     // Pictures: each blob and crop becomes one file in images/.
     struct Pic { std::string file, mime; bool ok = false; };
@@ -300,7 +357,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
         }
         pics[key] = pic;
         return pic.file;
-    });
+    }, style);
     for (const auto& sec : src.sections)
         if (sec.content.find("\"type\":\"image\"") != std::string::npos) {
             // Every picture needs a description for readers who can't see it.
@@ -317,11 +374,20 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
 
     // The cover.
     Encoded cover;
+    int coverW = 0, coverH = 0;
     if (!src.coverPath.empty()) {
         const std::string bytes = readAll(src.coverPath);
         const ImageInfo info = imageInfo(bytes);
-        if (info.ok && mimeOf(info.format) && info.format != "gif") cover = Encoded{bytes, extOf(info.format), mimeOf(info.format)};
-        else if (const Rgba px = decodeRgba(bytes); px.w > 0) cover = encode(shrink(px, 2560), true);
+        if (info.ok && mimeOf(info.format) && info.format != "gif") {
+            cover = Encoded{bytes, extOf(info.format), mimeOf(info.format)};
+            coverW = info.width;
+            coverH = info.height;
+        } else if (const Rgba px = decodeRgba(bytes); px.w > 0) {
+            const Rgba small = shrink(px, 2560);
+            cover = encode(small, true);
+            coverW = small.w;
+            coverH = small.h;
+        }
         if (cover.bytes.empty()) r.notes.push_back("The cover couldn't be read, so the ebook has none.");
     }
 
@@ -335,9 +401,19 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     std::vector<std::pair<std::string, std::string>> docs;   // href -> xhtml
     if (!cover.bytes.empty()) {
         items.push_back({"cover-image", "images/cover." + cover.ext, cover.mime, "cover-image", false});
-        docs.push_back({"cover.xhtml", xhtml(lang, title, "<div class=\"cover\"><img src=\"images/cover." + cover.ext + "\" alt=\"" +
-                                                                 escape("The cover of " + title) + "\"/></div>\n", "cover")});
-        items.push_back({"cover", "cover.xhtml", "application/xhtml+xml", "", true});
+        // The cover fills the screen, whatever its shape: an SVG keeps the picture's proportions (the way
+        // the stores' own cover pages do), with the picture as a fallback description.
+        const std::string href = "images/cover." + cover.ext, alt = escape("The cover of " + title);
+        std::string body;
+        if (coverW > 0 && coverH > 0) {
+            const std::string vw = std::to_string(coverW), vh = std::to_string(coverH);
+            body = "<div class=\"cover\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.1\" "
+                   "width=\"100%\" height=\"100%\" viewBox=\"0 0 " + vw + " " + vh + "\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" "
+                   "aria-label=\"" + alt + "\"><title>" + alt + "</title><image width=\"" + vw + "\" height=\"" + vh + "\" xlink:href=\"" + href +
+                   "\"/></svg></div>\n";
+        } else body = "<div class=\"cover\"><img src=\"" + href + "\" alt=\"" + alt + "\"/></div>\n";
+        docs.push_back({"cover.xhtml", xhtml(lang, title, body, "cover")});
+        items.push_back({"cover", "cover.xhtml", "application/xhtml+xml", coverW > 0 ? "svg" : "", true});
     }
     {
         std::string b = "<section class=\"titlepage\" epub:type=\"titlepage\">\n<h1>" + escape(title) + "</h1>\n";
@@ -356,6 +432,8 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
         if (!src.isbns.empty())
             for (auto& [label, i] : src.isbns) b += "<p>ISBN " + escape(i) + (label.empty() ? std::string() : " (" + escape(label) + ")") + "</p>\n";
         else if (!isbn.empty()) b += "<p>ISBN " + escape(src.isbn) + " (ebook)</p>\n";
+        if (!fontName.empty())
+            b += "<p>Set in " + escape(fontName) + (fontLicence.empty() ? std::string(".") : std::string(", under the SIL Open Font License (inside this ebook).")) + "</p>\n";
         b += "</section>\n";
         docs.push_back({"copyright.xhtml", xhtml(lang, "Copyright", b)});
         items.push_back({"copyright", "copyright.xhtml", "application/xhtml+xml", "", true});
@@ -365,6 +443,9 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     // Chapters, and the contents (parts hold the chapters after them).
     std::string navList, ncxPoints;
     int play = 1;
+    std::string sceneText = escape(style.sceneBreak.empty() ? std::string("* * *") : style.sceneBreak);
+    replaceAll(sceneText, " ", "&#160;&#160;");
+    const std::string sceneDiv = "<div class=\"scene\" role=\"separator\" aria-label=\"Scene break\">" + sceneText + "</div>";
     bool inPart = false;
     std::string firstChapter;
     for (size_t i = 0; i < content.chapters.size(); ++i) {
@@ -374,7 +455,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
         std::string html = ch.html;
         replaceAll(html, "<section class=\"chapter\">", "<section class=\"chapter\" epub:type=\"chapter\" role=\"doc-chapter\">");
         replaceAll(html, "<section class=\"part\">", "<section class=\"part\" epub:type=\"part\" role=\"doc-part\">");
-        replaceAll(html, "<hr class=\"scene\"/>", "<div class=\"scene\" role=\"separator\" aria-label=\"Scene break\">*&#160;&#160;*&#160;&#160;*</div>");
+        replaceAll(html, "<hr class=\"scene\"/>", sceneDiv);
         docs.push_back({name, xhtml(lang, ch.title, html)});
         items.push_back({"c" + std::to_string(i + 1), name, "application/xhtml+xml", "", true});
         if (firstChapter.empty() && !ch.part) firstChapter = name;
@@ -455,6 +536,9 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
                     (it.properties.empty() ? std::string() : " properties=\"" + it.properties + "\"") + "/>\n";
         if (it.spine) spine += "<itemref idref=\"" + it.id + "\"" + (it.id == "cover" ? " linear=\"yes\"" : "") + "/>\n";
     }
+    int fontNo = 0;
+    for (const auto& f : fontFiles) manifest += "<item id=\"font" + std::to_string(++fontNo) + "\" href=\"" + f.first + "\" media-type=\"font/ttf\"/>\n";
+    if (!fontLicence.empty()) manifest += "<item id=\"fontlicence\" href=\"fonts/OFL.txt\" media-type=\"text/plain\"/>\n";
     int n = 0;
     for (const auto& [path, e] : files) manifest += "<item id=\"img" + std::to_string(++n) + "\" href=\"" + path + "\" media-type=\"" + e.mime + "\"/>\n";
     r.pictures = n;
@@ -479,7 +563,9 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
                                        "<rootfiles>\n<rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/>\n</rootfiles>\n</container>\n");
     zip.add("OEBPS/content.opf", opf);
     zip.add("OEBPS/toc.ncx", ncx);
-    zip.add("OEBPS/style.css", ebook::stylesheet() + kEpubCss);
+    zip.add("OEBPS/style.css", fontCss + ebook::stylesheet(style) + kEpubCss);
+    for (const auto& [href, bytes] : fontFiles) zip.add("OEBPS/" + href, bytes, true);
+    if (!fontLicence.empty()) zip.add("OEBPS/fonts/OFL.txt", fontLicence);
     for (const auto& [href, x] : docs) zip.add("OEBPS/" + href, x);
     if (!cover.bytes.empty()) zip.add("OEBPS/images/cover." + cover.ext, cover.bytes, cover.ext == "png");
     // JPEGs are already compressed; PNGs and GIFs gain a little.
@@ -600,7 +686,7 @@ std::vector<Check> preflight(const typeset::Source& src, const typeset::Book* pr
     // Cover (the ebook's: a print cover is a separate file made to the printer's template).
     if (printEdition) {
     } else if (src.coverPath.empty())
-        add(Check::Advice, "Ebook", "No cover", src.editionKind == "ebook" ? "Ebook stores need a cover. Add one in the book's details." : "Ebook stores need a cover. The print cover is made separately, using the spine width below.");
+        add(Check::Advice, "Ebook", "No cover", src.editionKind == "ebook" ? "Ebook stores need a cover. Design one under Cover and look, or add a picture in the book's details." : "Ebook stores need a cover. The print cover is made separately, using the spine width below.");
     else if (const ImageInfo c = imageInfo(readAll(src.coverPath)); c.ok) {
         if (c.height < 1600)
             add(Check::Advice, "Ebook", "The cover is small (" + std::to_string(c.width) + " x " + std::to_string(c.height) + " pixels)",

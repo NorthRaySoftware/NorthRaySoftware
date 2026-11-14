@@ -91,9 +91,11 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Publishing && lib_ && lib_->book(pb_.book)) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        drawPublishPage(pageRect_);
+        const bool designing = cv_.open && cv_.book == pb_.book;
+        if (designing) drawCoverDesigner(pageRect_);
+        else drawPublishPage(pageRect_);
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
-        if (panel) drawPublishPanel(panelRect_);
+        if (panel) { if (designing) drawCoverPanel(panelRect_); else drawPublishPanel(panelRect_); }
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();

@@ -17,6 +17,7 @@ add_executable(WritingStudio WIN32
   src/studio_plot.cpp
   src/studio_review.cpp
   src/studio_comments.cpp
+  src/studio_cover.cpp
   src/web_pane.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )

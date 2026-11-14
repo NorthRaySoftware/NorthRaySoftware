@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.29.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Design a cover: Publishing › Cover and look › “Design a cover…” makes an ebook cover from the title, author and series line, at 1600 × 2560 pixels (the size ebook stores ask for). Four layouts (Classic frame, Picture, Picture and band, Minimal), seven colour sets, your own picture if you like, and the typeface. The design is kept, so the cover can be changed later.",
+        "EPUBs look like the printed book: chapters open as in your Typesetting design (“Chapter One” over the title, or a large number), with the drop cap and first words in small capitals if you chose them, your own scene-break symbol, and left-aligned text if you set that. Prologues and front matter are never numbered.",
+        "The book's typeface goes inside the ebook (with its licence), and the copyright page says what it's set in. Readers can still choose their own.",
+        "A choice of spaced paragraphs with no indent, for non-fiction ebooks.",
+        "The cover fills the screen on every e-reader, whatever its shape.",
+        "“Read it as an ebook” shows the same styling as the EPUB."
+      ]
+    },
+    {
       "version": "0.28.0",
       "date": "2026-11-14",
       "notes": [

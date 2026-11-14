@@ -1,6 +1,7 @@
 // Tests for the Writing & Publishing Studio's library core. Each test works in
 // a fresh temporary folder and reopens the library to prove what was saved.
 #include "studio/artwork.hpp"
+#include "studio/cover.hpp"
 #include "studio/ebook.hpp"
 #include "studio/document.hpp"
 #include "studio/import.hpp"
@@ -1248,7 +1249,93 @@ static void testPublish() {
     CHECK(publish::writeEpub(src, dir + "/book.epub", o).ok && fs::file_size(dir + "/book.epub") == r2.bytes.size());
     typeset::Source none;
     CHECK(!publish::buildEpub(none).ok);
+    // The cover fills the screen through an SVG of the picture's own size.
+    CHECK(unzipped(z, "OEBPS/cover.xhtml").find("viewBox=\"0 0 200 100\"") != std::string::npos && opf.find("cover.xhtml\" media-type=\"application/xhtml+xml\" properties=\"svg\"") != std::string::npos);
+
+    // Styled like the printed book: numbered chapter openings, lead-in, drop cap, the scene break, the typeface inside.
+    {
+        typeset::Design d;
+        d.chapterStyle = "number";
+        d.leadIn = true;
+        d.dropCap = true;
+        d.sceneBreak = "\u2042";
+        d.justify = false;
+        publish::EpubOptions so = o;
+        so.style = ebook::styleFrom(d);
+        so.fontsFolder = appFolder("fonts");
+        so.fontId = "crimson-text";
+        typeset::Source s2 = src;
+        typeset::Source::Section pro;
+        pro.title = "Prologue";
+        pro.content = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Before."}]}]})";
+        s2.sections.insert(s2.sections.begin() + 1, pro);
+        s2.sections[2].content = R"J({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"\u201CWhere were you?\u201D she asked."}]},{"type":"scene_break"},{"type":"paragraph","content":[{"type":"text","text":"Later."}]}]})J";
+        const auto e = publish::buildEpub(s2, so);
+        CHECK(e.ok);
+        const std::string pr = unzipped(e.bytes, "OEBPS/chapter-002.xhtml"), c1 = unzipped(e.bytes, "OEBPS/chapter-003.xhtml"),
+                          c2b = unzipped(e.bytes, "OEBPS/chapter-004.xhtml");
+        CHECK(pr.find("<h1>Prologue</h1>") != std::string::npos);                                    // never numbered
+        CHECK(c1.find("<span class=\"chapnum\">Chapter One</span><span class=\"chaptitle\">The Ledger</span>") != std::string::npos);
+        CHECK(c2b.find("<span class=\"chapnum\">Chapter Two</span>") != std::string::npos);
+        CHECK(c1.find("<p class=\"first opening\"><span class=\"dropcap\">\u201CW</span><span class=\"leadin\">here were you?\u201D</span> she asked.") != std::string::npos);
+        CHECK(c1.find(">\u2042</div>") != std::string::npos);
+        const std::string css = unzipped(e.bytes, "OEBPS/style.css");
+        CHECK(css.find("@font-face { font-family: \"NR Book\"; font-weight: normal; font-style: italic; src: url(\"fonts/CrimsonText-Italic.ttf\"); }") != std::string::npos);
+        CHECK(css.find("font-family: \"NR Book\", serif") != std::string::npos && css.find("text-align: left") != std::string::npos);
+        CHECK(css.find("content: \"\\2042 \"") != std::string::npos);
+        CHECK(unzipped(e.bytes, "OEBPS/fonts/CrimsonText-Regular.ttf").size() > 10000 && !unzipped(e.bytes, "OEBPS/fonts/OFL.txt").empty());
+        const std::string opf2 = unzipped(e.bytes, "OEBPS/content.opf");
+        CHECK(opf2.find("media-type=\"font/ttf\"") != std::string::npos);
+        CHECK(unzipped(e.bytes, "OEBPS/copyright.xhtml").find("Set in Crimson Text") != std::string::npos);
+        // Lead-in alone: the first three words.
+        ebook::Style ls;
+        ls.leadIn = true;
+        CHECK(ebook::markOpening("<p class=\"first\">The wind came over the hill.</p>", ls) ==
+              "<p class=\"first opening\"><span class=\"leadin\">The wind came</span> over the hill.</p>");
+        ls.dropCap = true;
+        CHECK(ebook::markOpening("<p class=\"first\">A wind came over.</p>", ls) ==
+              "<p class=\"first opening\"><span class=\"leadin\">A wind came</span> over.</p>");   // a one-letter word: no drop cap
+        CHECK(ebook::chapterHeading("Chapter 7: Rain", 7, "", "Rain", [] { ebook::Style n; n.chapterStyle = "numeral"; return n; }()) ==
+              "<h1 class=\"numeral\"><span class=\"numeral\">7</span><span class=\"chaptitle\">Rain</span></h1>\n");
+    }
     fs::remove_all(dir);
+}
+
+// Ebook covers drawn in the Studio.
+static void testCovers() {
+    using namespace studio;
+    cover::Spec sp;
+    sp.title = "The Glass Harbour";
+    sp.subtitle = "A Novel";
+    sp.author = "Ada Example";
+    sp.series = "Book One of the Tides";
+    for (const auto& l : cover::layouts()) {
+        sp.layout = l.id;
+        const auto r = cover::render(sp, appFolder("fonts"), 400, 640);
+        CHECK(r.ok && r.width == 400 && r.height == 640);
+        const ImageInfo info = imageInfo(r.png);
+        CHECK(info.ok && info.format == "png" && info.width == 400 && info.height == 640);
+        if (std::getenv("COVER_DUMP")) {
+            cover::Spec dp = sp;
+            if (std::getenv("COVER_PICTURE") && std::string(l.id) != "minimal") dp.picturePath = std::getenv("COVER_PICTURE");
+            const auto big = cover::render(dp, appFolder("fonts"));
+            std::ofstream(std::string(std::getenv("COVER_DUMP")) + "/" + l.id + ".png", std::ios::binary) << big.png;
+        }
+    }
+    // Different words, a different picture.
+    sp.layout = "classic";
+    const auto a = cover::render(sp, appFolder("fonts"), 400, 640);
+    sp.title = "Low Tide";
+    const auto b = cover::render(sp, appFolder("fonts"), 400, 640);
+    CHECK(a.ok && b.ok && a.png != b.png);
+    // A picture that can't be read is an error, not a blank cover.
+    sp.layout = "picture";
+    sp.picturePath = "/nonexistent/picture.png";
+    CHECK(!cover::render(sp, appFolder("fonts"), 400, 640).ok);
+    // Kept as JSON.
+    sp.background = "#102030";
+    const cover::Spec back = cover::fromJson(cover::toJson(sp));
+    CHECK(back.layout == "picture" && back.title == "Low Tide" && back.background == "#102030" && back.series == sp.series);
 }
 
 // Worldbuilding: entries, relationships, where they appear, the Trash.
@@ -1593,6 +1680,7 @@ int main() {
     testReview();
     testWorldbuilding();
     testPublish();
+    testCovers();
     testEbookHtml();
     testPdfLikeHeadings();
     testTypeset();

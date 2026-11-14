@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.29.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.29.0: an ebook cover designer, and EPUBs styled like the printed book with the book's typeface inside."
+      ]
+    },
+    {
       "version": "0.28.0",
       "date": "2026-11-14",
       "notes": [

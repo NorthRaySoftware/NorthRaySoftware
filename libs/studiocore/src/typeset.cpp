@@ -933,6 +933,12 @@ struct Flow {
 
 }  // namespace
 
+ChapterTitle chapterTitleParts(const std::string& title) {
+    const ChapterName c = splitChapterTitle(title);
+    return {c.number, c.word, c.rest, c.special};
+}
+std::string spelledNumber(int n) { return spelled(n); }
+
 Source snapshot(const Library& lib, const Id& bookId) {
     Source s;
     const studio::Book* b = lib.book(bookId);

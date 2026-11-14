@@ -1564,6 +1564,11 @@ void StudioApp::loadFields() {
             setFieldText(FName, e->name);
             setFieldText(FIsbn, e->isbn);
         }
+    } else if (focus_.kind == Focus::Cover) {
+        setFieldText(FName, cv_.spec.title);
+        setFieldText(FSubtitle, cv_.spec.subtitle);
+        setFieldText(FAuthor, cv_.spec.author);
+        setFieldText(FDescription, cv_.spec.series);
     } else if (focus_.kind == Focus::Artwork) {
         if (const Artwork* a = lib_->artwork(focus_.id)) {
             setFieldText(FName, a->name);
@@ -1705,6 +1710,14 @@ void StudioApp::commitFields() {
             }
             if (ok && n.id == currentNode_ && editor_.ready())
                 editor_.send(json{{"type", "title"}, {"title", n.title}}.dump());
+        }
+    } else if (f.kind == Focus::Cover) {
+        if (cv_.open) {
+            cv_.spec.title = fieldText(FName);
+            cv_.spec.subtitle = fieldText(FSubtitle);
+            cv_.spec.author = fieldText(FAuthor);
+            cv_.spec.series = fieldText(FDescription);
+            renderCoverPreview();
         }
     } else if (f.kind == Focus::Book) {
         if (const Book* b = lib_->book(f.id)) {

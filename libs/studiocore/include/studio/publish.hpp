@@ -8,6 +8,7 @@
 //   width for the cover.
 #pragma once
 
+#include "studio/ebook.hpp"
 #include "studio/typeset.hpp"
 
 #include <string>
@@ -19,6 +20,9 @@ namespace studio::publish {
 
 struct EpubOptions {
     int maxPicturePixels = 2400;        // a picture's longer side, at most (larger ones are scaled down)
+    ebook::Style style;                 // how it looks (ebook::styleFrom the book's design)
+    // The book's typeface, inside the ebook (when its licence allows): fonts/<fontId>/*-Regular.ttf ...
+    std::string fontsFolder, fontId;
     std::string modified;               // "2026-11-13T10:00:00Z"; empty = now
 };
 

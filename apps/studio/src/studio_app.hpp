@@ -7,6 +7,8 @@
 #pragma once
 
 #include "cjui/window.hpp"
+#include "studio/cover.hpp"
+#include "studio/ebook.hpp"
 #include "studio/artwork.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
@@ -44,7 +46,7 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover } kind = None;
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
     Id id;
@@ -302,6 +304,16 @@ private:
     void drawPublishSidebar(const Rect& r);
     void drawPublishPage(const Rect& r);
     void drawPublishPanel(const Rect& r);
+    // The ebook cover designer and the ebook's look (studio_cover.cpp).
+    studio::ebook::Style ebookStyleFor(const Id& book, const Id& edition, std::string* fontId);
+    void setEbookLook(const std::string& key, bool value);
+    void openCoverDesigner();
+    void closeCoverDesigner();
+    void renderCoverPreview();
+    void chooseCoverPicture();
+    void useDesignedCover();
+    void drawCoverDesigner(const Rect& r);
+    void drawCoverPanel(const Rect& r);
     // Typesetting (studio_typeset.cpp)
     void openTypesetting(const Id& bookId);
     void prepareTypeset(const Id& bookId);   // the book's design loaded and its pages set (any workspace)
@@ -529,6 +541,15 @@ private:
         float sectionY[3] = {0, 0, 0};   // where each step starts on the page
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
     } pb_;
+    struct CoverDesigner {
+        bool open = false;
+        Id book;
+        studio::cover::Spec spec;
+        std::string pictureBlob;
+        std::wstring preview;     // the preview picture's file
+        int serial = 0;
+        std::string error;
+    } cv_;
     // The picture selected in the editor, and dragging its crop.
     struct PictureSel {
         int pos = -1;

@@ -229,7 +229,14 @@ void StudioApp::exportEpub() {
     const std::wstring path = askSavePath(L"EPUB", L"*.epub", L"epub", w(b->title), L"Export the ebook (EPUB)");
     if (path.empty()) return;
     SetCursor(LoadCursorW(nullptr, IDC_WAIT));
-    const auto r = pub::writeEpub(pub::editionSource(*lib_, *e), narrow(path));
+    pub::EpubOptions o;
+    std::string fontId;
+    o.style = ebookStyleFor(pb_.book, e->id, &fontId);
+    if (!fontId.empty()) {
+        o.fontsFolder = narrow(exeDir() + L"\\fonts");
+        o.fontId = fontId;
+    }
+    const auto r = pub::writeEpub(pub::editionSource(*lib_, *e), narrow(path), o);
     if (!r.ok) {
         cjui::messageBox(hwnd(), w("The EPUB couldn't be written.\n\n" + r.error).c_str(), L"Export EPUB", MB_OK | MB_ICONWARNING);
         return;
@@ -299,6 +306,7 @@ void StudioApp::drawPublishSidebar(const Rect& r) {
         {L"Check the edition", problems ? std::to_wstring(problems) + (problems == 1 ? L" thing to fix" : L" things to fix")
                              : advice ? std::to_wstring(advice) + (advice == 1 ? L" suggestion" : L" suggestions") : L"Ready", 0}};
     if (cur && cur->print()) steps.push_back({L"Spine and cover", L"Measurements for the cover", 1});
+    else if (cur) steps.push_back({L"Cover and look", L"The ebook's cover and type", 1});
     steps.push_back({L"Make the files", cur && cur->print() ? L"Print PDF and proof" : L"EPUB", 2});
     int n = 0;
     for (const Step& s : steps) {
@@ -455,6 +463,73 @@ void StudioApp::drawPublishPage(const Rect& r) {
                           std::wstring(pages < 100 ? L" At this length the spine is too narrow for text." : L"");
             y += gfx_.text(note, {m.x, y, cw, 60}, Font::Small, pal_.inkFaint) + 26;
         }
+    } else {
+        // ---- 2. The ebook's cover and look.
+        gfx_.text(std::to_wstring(++step) + L"   COVER AND LOOK", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 30;
+        const float tw = 110, th = 176;
+        const Rect tr{m.x, y, tw, th};
+        if (b->coverBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(b->coverBlob)), tr, true)) {
+            gfx_.fill(tr, pal_.sunken);
+            gfx_.text(L"No cover", tr, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+        }
+        gfx_.stroke(tr, pal_.rule, 1);
+        const float cx = tr.right() + 24, cwid = m.right() - cx;
+        float cy = y;
+        std::wstring about = L"Ebook stores need a cover. Design one here from the title and author, or use a picture you made.";
+        if (!b->coverBlob.empty()) {
+            const auto sz = gfx_.imageSize(w(lib_->blobPath(b->coverBlob)));
+            about = L"The cover is " + std::to_wstring(sz.first) + L" \u00D7 " + std::to_wstring(sz.second) + L" pixels. ";
+            about += sz.first >= 1600 && sz.second >= 2400 ? L"That's the size ebook stores ask for (1600 \u00D7 2560)."
+                                                          : L"Ebook stores ask for 1600 \u00D7 2560; a smaller cover can look soft.";
+        }
+        cy += gfx_.text(about, {cx, cy, cwid, 60}, Font::Small, pal_.inkMuted) + 12;
+        const std::wstring design = L"Design a cover\u2026", pick = L"Use a picture\u2026";
+        const float dw = gfx_.measureWidth(design, Font::Small) + 28, pw2 = gfx_.measureWidth(pick, Font::Small) + 28;
+        button("pb:designcover", {cx, cy, dw, 30}, design, [this] { openCoverDesigner(); }, false);
+        button("pb:pickcover", {cx + dw + 8, cy, pw2, 30}, pick, [this] {
+            chooseImage(Focus::Book, pb_.book, 0);
+            setFocus({Focus::Edition, pb_.edition, {}});
+            editionChanged();
+        }, false);
+        cy += 46;
+        // The look: from the book's Typesetting design, with two ebook choices.
+        std::string fontId;
+        const auto st = ebookStyleFor(pb_.book, ed->id, &fontId);
+        const auto design0 = ts::designFromJson(lib_->setting("typeset:" + pb_.book));
+        std::wstring fontName = w(design0.font);
+        for (const auto& f : ts::fontFamilies(narrow(exeDir() + L"\\fonts"))) if (f.id == design0.font) fontName = w(f.name);
+        auto toggle = [&](const std::string& id, const std::wstring& t, bool on, std::function<void()> flip) {
+            const Rect hit{cx - 4, cy, 28 + gfx_.measureWidth(t, Font::Small) + 8, 26};
+            addHit(id, hit, std::move(flip));
+            const Rect cb{cx, cy + 4, 18, 18};
+            gfx_.strokeRounded(cb, 3, pal_.inkMuted.mix(pal_.ink, hoverAmount(id)), 1.5f);
+            const float a = anim(id + "#on", on ? 1.0f : 0.0f, 24.0f);
+            if (a > 0.01f) gfx_.fillRounded(cb.inset(4 + 3 * (1 - a)), 2, pal_.ribbon.withAlpha(a));
+            gfx_.text(t, {cx + 28, cy, cwid - 28, 26}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+            if (focused(id)) focusRing(hit);
+            cy += 30;
+        };
+        toggle("pb:ebfont", L"Put the book's typeface (" + fontName + L") inside the ebook", !fontId.empty(),
+               [this, on = !fontId.empty()] { setEbookLook("font", !on); });
+        toggle("pb:ebspaced", L"Paragraphs with space between, no indent (for non-fiction)", st.spaced,
+               [this, on = st.spaced] { setEbookLook("spaced", !on); });
+        std::wstring opening = st.chapterStyle == "number" ? L"\u201CChapter One\u201D over the title" : st.chapterStyle == "numeral" ? L"a large number" : L"the title";
+        if (st.dropCap) opening += L", a drop cap";
+        if (st.leadIn) opening += L", the first words in small capitals";
+        std::wstring sceneShown;
+        for (wchar_t ch : w(st.sceneBreak)) {
+            const bool space = iswspace(ch) || ch == 0x2003 || ch == 0x2002 || ch == 0xA0;
+            if (space) { if (!sceneShown.empty() && sceneShown.back() != L' ') sceneShown += L' '; }
+            else sceneShown += ch;
+        }
+        cy += 4;
+        cy += gfx_.text(L"Chapters open with " + opening + L"; scene breaks are \u201C" + sceneShown + L"\u201D. These follow the book's "
+                        L"Typesetting design, so the ebook matches the print book. Readers can still choose their own font and size.",
+                        {cx, cy, cwid, 80}, Font::Small, pal_.inkFaint) + 6;
+        linkText("pb:ebtypeset", cx, cy + 4, L"Change the design in Typesetting", [this] { openTypesetting(pb_.book); });
+        cy += 36;
+        y = std::max(tr.bottom(), cy) + 26;
     }
 
     // ---- Files.
@@ -521,8 +596,8 @@ void StudioApp::drawPublishPage(const Rect& r) {
              pagesReady && !pb_.busy, [this] { exportEditionPdf(false); }, nullptr);
     } else {
         card("pb:epub", L"Ebook", L"EPUB 3",
-             L"For ebook stores and e-readers. The same chapters as the Preview, with your cover, a contents list, the copyright page and "
-             L"descriptions of the pictures for screen readers. Readers choose their own font and size.",
+             L"For ebook stores and e-readers. The same chapters as the Preview, styled as above, with your cover, a contents list, the "
+             L"copyright page and descriptions of the pictures for screen readers.",
              L"Export...", true, [this] { exportEpub(); }, nullptr);
     }
     y += 10;

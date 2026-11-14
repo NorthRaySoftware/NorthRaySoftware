@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <nlohmann/json.hpp>
 
@@ -165,12 +166,35 @@ std::string docHtml(const std::string& docJson, const Pictures& url) {
     return out;
 }
 
-Content buildWith(const typeset::Source& src, const Pictures& url) {
+// One UTF-8 character's length from its first byte.
+size_t charLen(unsigned char c) { return c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1; }
+
+// A CSS string ("..."): quotes and backslashes escaped, everything outside ASCII as \HEX.
+std::string cssString(const std::string& t) {
+    std::string out = "\"";
+    for (size_t i = 0; i < t.size();) {
+        const unsigned char c = (unsigned char)t[i];
+        const size_t n = charLen(c);
+        if (c < 0x20) { ++i; continue; }
+        if (c == '"' || c == '\\') { out += '\\'; out += (char)c; ++i; continue; }
+        if (n == 1) { out += (char)c; ++i; continue; }
+        std::uint32_t cp = n == 2 ? (c & 0x1F) : n == 3 ? (c & 0x0F) : (c & 0x07);
+        for (size_t k = 1; k < n && i + k < t.size(); ++k) cp = (cp << 6) | ((unsigned char)t[i + k] & 0x3F);
+        char b[16];
+        std::snprintf(b, sizeof b, "\\%X ", (unsigned)cp);
+        out += b;
+        i += n;
+    }
+    return out + "\"";
+}
+
+Content buildWith(const typeset::Source& src, const Pictures& url, const Style& style) {
     Content c;
     c.title = src.title;
     c.subtitle = src.subtitle;
     c.author = src.author;
     c.language = src.language.empty() ? "en-GB" : src.language;
+    int chapterNo = 0;
     for (const auto& sec : src.sections) {
         if (sec.kind == NodeKind::Scene && !c.chapters.empty()) {
             // A scene page from an import continues its chapter after a scene break.
@@ -182,8 +206,17 @@ Content buildWith(const typeset::Source& src, const Pictures& url) {
         ch.title = sec.title;
         ch.part = sec.kind == NodeKind::Part;
         ch.words = sec.words;
-        const std::string body = docHtml(sec.content, url);
-        ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n<h1>" + escape(sec.title) + "</h1>\n" + body + "</section>\n";
+        std::string body = docHtml(sec.content, url);
+        std::string heading = "<h1>" + escape(sec.title) + "</h1>\n";
+        if (!ch.part) {
+            // Numbered as the printed book is: chapters in the story, not prologues or front and back matter.
+            const typeset::ChapterTitle t = typeset::chapterTitleParts(sec.title);
+            int number = 0;
+            if (!t.special && sec.matter == 0) number = t.number ? (chapterNo = t.number) : ++chapterNo;
+            heading = chapterHeading(sec.title, number, t.word, t.rest, style);
+            if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
+        }
+        ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n" + heading + body + "</section>\n";
         c.chapters.push_back(std::move(ch));
     }
     return c;
@@ -199,16 +232,112 @@ Pictures plain(const PictureUrl& url) {
 
 std::string documentHtml(const std::string& docJson, const PictureUrl& url) { return docHtml(docJson, plain(url)); }
 
-Content build(const typeset::Source& src, const PictureUrl& url) { return buildWith(src, plain(url)); }
+Content build(const typeset::Source& src, const PictureUrl& url, const Style& style) { return buildWith(src, plain(url), style); }
 
-Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& url) {
+Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& url, const Style& style) {
     Pictures p;
     p.url = url;
     p.applied = true;
-    return buildWith(src, p);
+    return buildWith(src, p, style);
 }
 
-std::string stylesheet() {
+static std::string base();
+
+Style styleFrom(const typeset::Design& d) {
+    Style s;
+    s.chapterStyle = d.chapterStyle;
+    s.leadIn = d.leadIn;
+    s.dropCap = d.dropCap;
+    s.justify = d.justify;
+    s.hyphenate = d.hyphenate;
+    s.indentEm = d.indentEm;
+    s.sceneBreak = d.sceneBreak.empty() ? std::string("* * *") : d.sceneBreak;
+    return s;
+}
+
+std::string chapterHeading(const std::string& title, int number, const std::string& word, const std::string& rest, const Style& style) {
+    if (number > 0 && style.chapterStyle == "number") {
+        // "Chapter One" letter-spaced over the title; the whole heading is still the chapter's name for readers.
+        std::string h = "<h1 class=\"numbered\"><span class=\"chapnum\">Chapter " + escape(word.empty() ? typeset::spelledNumber(number) : word) + "</span>";
+        if (!rest.empty()) h += "<span class=\"chaptitle\">" + escape(rest) + "</span>";
+        return h + "</h1>\n";
+    }
+    if (number > 0 && style.chapterStyle == "numeral") {
+        std::string h = "<h1 class=\"numeral\"><span class=\"numeral\">" + std::to_string(number) + "</span>";
+        if (!rest.empty()) h += "<span class=\"chaptitle\">" + escape(rest) + "</span>";
+        return h + "</h1>\n";
+    }
+    return "<h1>" + escape(title) + "</h1>\n";
+}
+
+std::string markOpening(const std::string& html, const Style& style) {
+    if (!style.leadIn && !style.dropCap) return html;
+    const std::string open = "<p class=\"first\">";
+    const size_t at = html.find(open);
+    if (at == std::string::npos) return html;
+    // Only when nothing but other first-paragraph kinds (an epigraph, a heading) comes before it.
+    const size_t start = at + open.size();
+    size_t stop = html.find('<', start);
+    if (stop == std::string::npos) stop = html.size();
+    const std::string text = html.substr(start, stop - start);
+    if (text.empty()) return html;
+    size_t i = 0;
+    std::string drop;
+    if (style.dropCap) {
+        // The first letter, with any opening quotation marks before it.
+        while (i < text.size()) {
+            const size_t n = charLen((unsigned char)text[i]);
+            const std::string ch = text.substr(i, n);
+            const bool mark = ch == "\"" || ch == "'" || ch == "\u201C" || ch == "\u2018" || ch == "\u00AB" || ch == "&quot;";
+            if (ch == "&") {   // an entity (&quot;): keep it whole
+                const size_t semi = text.find(';', i);
+                if (semi == std::string::npos) break;
+                const std::string ent = text.substr(i, semi + 1 - i);
+                drop += ent;
+                i = semi + 1;
+                if (ent != "&quot;") break;
+                continue;
+            }
+            drop += ch;
+            i += n;
+            if (!mark) break;
+        }
+        if (drop.empty() || i >= text.size() || text[i] == ' ') { drop.clear(); i = 0; }   // a one-letter word: no drop cap
+    }
+    size_t lead = i;
+    if (style.leadIn) {
+        int words = drop.empty() ? 0 : 1;
+        if (!drop.empty()) while (lead < text.size() && text[lead] != ' ') ++lead;   // the rest of the first word
+        while (lead < text.size() && words < 3) {
+            while (lead < text.size() && text[lead] == ' ') ++lead;
+            const size_t w0 = lead;
+            while (lead < text.size() && text[lead] != ' ') ++lead;
+            if (lead > w0) ++words;
+        }
+    }
+    std::string out = html.substr(0, at) + "<p class=\"first opening\">";
+    if (!drop.empty()) out += "<span class=\"dropcap\">" + drop + "</span>";
+    if (lead > i) out += "<span class=\"leadin\">" + text.substr(i, lead - i) + "</span>";
+    out += html.substr(start + lead);
+    return out;
+}
+
+std::string stylesheet(const Style& style) {
+    std::string extra;
+    if (!style.fontFamily.empty()) extra += "body { font-family: " + cssString(style.fontFamily) + ", serif; }\n";
+    char b[160];
+    std::snprintf(b, sizeof b, "p { text-indent: %.2gem; }\n", style.spaced ? 0.0 : style.indentEm);
+    extra += b;
+    if (style.spaced) extra += "p { margin: 0 0 0.75em; }\np.empty { margin: 0; }\n";
+    if (!style.justify) extra += "p { text-align: left; }\n";
+    if (!style.hyphenate) extra += "p { hyphens: manual; -webkit-hyphens: manual; }\n";
+    std::string brk = style.sceneBreak.empty() ? std::string("* * *") : style.sceneBreak;
+    for (size_t at = 0; (at = brk.find(' ', at)) != std::string::npos;) brk.replace(at, 1, "\u2003");   // wide spaces, as in print
+    extra += "hr.scene::after { content: " + cssString(brk) + "; }\n";
+    return base() + extra;
+}
+
+std::string base() {
     return R"CSS(/* NorthRay Writing Studio: reading stylesheet (ebook preview and EPUB). */
 section { break-before: page; page-break-before: always; }
 section.part { text-align: center; padding-top: 30%; }
@@ -238,6 +367,12 @@ figure.pic .frame { overflow: hidden; line-height: 0; }
 figure.pic img { max-width: 100%; }
 figcaption { font-style: italic; font-size: 0.9em; margin-top: 0.4em; text-align: center; }
 a { color: inherit; }
+h1 span.chapnum { display: block; font-size: 0.6em; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 1em; }
+h1 span.numeral { display: block; font-size: 2.6em; line-height: 1; margin-bottom: 0.25em; }
+h1 span.chaptitle { display: block; }
+h1.numeral span.chaptitle { font-style: italic; font-size: 0.85em; }
+span.leadin { font-variant: small-caps; letter-spacing: 0.05em; }
+span.dropcap { float: left; font-size: 3.4em; line-height: 0.82; margin: 0.06em 0.08em 0 0; }
 )CSS";
 }
 

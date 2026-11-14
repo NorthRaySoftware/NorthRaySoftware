@@ -53,9 +53,14 @@ void StudioApp::ensurePreview() {
 void StudioApp::sendPreview() {
     if (!lib_ || !lib_->book(pv_.book)) return;
     const auto src = typeset::snapshot(*lib_, pv_.book);
+    // Styled as the EPUB will be: the book's design, and the ebook edition's choices.
+    Id ebookEdition;
+    for (const Edition* e : lib_->editionsOf(pv_.book)) if (e->kind == "ebook") { ebookEdition = e->id; break; }
+    const ebook::Style pvStyle = ebookStyleFor(pv_.book, ebookEdition, nullptr);
+    const std::string pvCss = ebook::stylesheet(pvStyle);
     const auto content = ebook::build(src, [](const std::string& h) {
         return "https://objects.nrstudio.localhost/" + h.substr(0, 2) + "/" + h.substr(2);
-    });
+    }, pvStyle);
     pv_.chapters.clear();
     pv_.words = 0;
     json chapters = json::array();
@@ -86,7 +91,7 @@ void StudioApp::sendPreview() {
     if (!preview_.ready()) { pv_.sent = false; return; }   // sent when the page says it's ready
     json msg = {{"type", "load"},
                 {"chapters", chapters},
-                {"css", ebook::stylesheet()},
+                {"css", pvCss},
                 {"title", content.title},
                 {"language", content.language},
                 {"fonts", fonts},
