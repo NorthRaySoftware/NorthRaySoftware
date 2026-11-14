@@ -1225,6 +1225,14 @@ static void testWorldbuilding() {
             const Id inn = lib->createEntry(world, {}, "place", "Blue Anchor");
             auto mi = lib->mentionsOf(*lib->entry(inn));
             CHECK(mi.empty());                                                   // places aren't split into parts
+            // Names in a piece of text (links between bible pages): longest first, shared names give every entry.
+            const Id maren = lib->createEntry(world, {}, "character", "Maren Holt");
+            const std::string t = "Tomas Holt and Maren Holt sailed; Holt steered past Highcliff.";
+            const auto spans = findNames(t, lib->entriesOf(world));
+            std::vector<std::string> found;
+            for (auto& sp : spans) found.push_back(t.substr(sp.start, sp.end - sp.start) + "=" + std::to_string(sp.ids.size()));
+            CHECK((found == std::vector<std::string>{"Tomas Holt=1", "Maren Holt=1", "Holt=2", "Highcliff=1"}));
+            CHECK(lib->trashEntry(maren));
             CHECK(lib->trashEntry(tomas) && lib->trashEntry(inn) && lib->trashNode(ch2) && lib->emptyTrash());
         }
         CHECK(lib->mentionsOf(*lib->entry(lone)).empty());

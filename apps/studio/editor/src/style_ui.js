@@ -36,6 +36,22 @@ function showCard(target) {
   const card = $("hintcard");
   card.replaceChildren();
   const scope = api.scope();
+  if (hint.cat === "spell") {
+    // A spelling mistake: suggestions to click, or keep the word.
+    card.append(el("div", { class: "hc-name", text: "Spelling" }), el("div", { class: "hc-msg", text: hint.msg }));
+    const sugg = api.suggestions(hint.text);
+    const row = el("div", { class: "hc-sugg" });
+    if (sugg.length) for (const s of sugg) row.append(el("button", { class: "hc-word", text: s, onclick: () => { api.replaceWord(hint, s); hideCard(true); } }));
+    else row.append(el("span", { class: "hc-why", text: "No suggestions." }));
+    card.append(row);
+    const acts = el("div", { class: "hc-actions" });
+    acts.append(el("button", { text: `Add to the dictionary for ${scope.name}`, title: `"${hint.text}" won't be marked again in ${scope.label}`,
+      onclick: () => { api.addWord(hint.text); hideCard(true); } }));
+    acts.append(el("button", { text: "Ignore once", onclick: () => { api.ignoreOnce(hint); hideCard(true); } }));
+    card.append(acts);
+    placeCard(card, target);
+    return;
+  }
   card.append(el("div", { class: "hc-name", text: hint.name || "Your rule" }), el("div", { class: "hc-msg", text: hint.msg || "" }));
   if (hint.why) card.append(el("div", { class: "hc-why", text: hint.why }));
   const row = el("div", { class: "hc-actions" });
@@ -46,6 +62,10 @@ function showCard(target) {
   if (hint.cat) row.append(el("button", { text: "Turn off this kind", onclick: () => { api.setCategory(hint.cat, false); hideCard(true); } }));
   else row.append(el("button", { text: "Edit the rule", onclick: () => { hideCard(true); openRules(hint.rule); } }));
   card.append(row);
+  placeCard(card, target);
+}
+
+function placeCard(card, target) {
   card.hidden = false;
   const r = target.getBoundingClientRect();
   const w = Math.min(380, window.innerWidth - 16);
@@ -208,6 +228,14 @@ export function renderRules() {
     side.append(el("button", { class: "rl-item" + (r.id === editing ? " sel" : "") + (r.enabled === false ? " off" : ""), onclick: () => { editing = r.id; renderRules(); } },
       el("span", { class: "rl-iname", text: r.name || RULE_TYPES[r.type] }),
       el("span", { class: "rl-ikind", text: RULE_TYPES[r.type] + (n == null ? "  ·  needs fixing" : `  ·  ${n} here`) })));
+  }
+  // The world's dictionary.
+  const words = api.words ? api.words() : [];
+  if (words.length) {
+    side.append(el("div", { class: "vm-label rl-iglabel", text: "Dictionary" }));
+    for (const wd of words)
+      side.append(el("div", { class: "rl-ig" }, el("span", { text: wd }), el("span", { class: "rl-igk", text: "" }),
+        el("button", { text: "×", title: "Take it out of the dictionary", onclick: () => { api.removeWord(wd); renderRules(); } })));
   }
   // Ignored words.
   const ign = Object.entries(api.ignore()).filter(([, v]) => v.length);

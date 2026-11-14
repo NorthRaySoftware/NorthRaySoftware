@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.23.0",
+      "date": "2026-11-14",
+      "notes": [
+        "A spell checker of the Studio's own, with British or American English dictionaries to match the book's language. It knows every name in your bible, accepts Oxford -ize spellings in British English, and keeps a dictionary for each world (or independent book). Hover a mistake for suggestions (click one to use it), Add to the dictionary, or Ignore once. Your added words are listed with your style rules.",
+        "Fixed: style hints could stay switched off after updating. They're now on (Full) unless you chose Off.",
+        "Worldbuilding pages link to each other like a wiki: names of other entries in a summary, details or notes are links (a name shared by several offers a choice), and each page lists the entries that mention it under Linked from.",
+        "Image boards: boards of pictures for a world or an independent book (characters, maps, places, moods). Drag pictures anywhere, resize them by the corner, caption them, tie them to an entry (and use one as the entry's picture). Pictures are kept in the library and listed in Artwork."
+      ]
+    },
+    {
       "version": "0.22.0",
       "date": "2026-11-14",
       "notes": [

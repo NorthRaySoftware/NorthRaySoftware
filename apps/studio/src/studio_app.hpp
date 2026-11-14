@@ -44,7 +44,8 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem } kind = None;
+    // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
     Id id;
     Id contextSeries;  // for a book shown inside a series: its number and kind there
@@ -264,6 +265,19 @@ private:
     void drawWorldSidebar(const Rect& r);
     void drawWorldPage(const Rect& r);
     void drawWorldPanel(const Rect& r);
+    // Text with the bible's names as links to their pages (wiki-style). Returns its height.
+    float drawLinkedText(const std::string& text, const Rect& r, Font f, Color c, const Id& self, const std::string& hitPrefix);
+    void openEntryChoice(const std::vector<Id>& ids);   // one entry, or a menu when several share a name
+    // Image boards (studio_boards.cpp): pictures arranged freely, kept with the world or independent book.
+    void drawBoard(const Rect& r);
+    void drawBoardPanel(const Rect& r);
+    void newBoard();
+    void addBoardPictures();
+    nlohmann::json boardsData() const;
+    void saveBoards(const nlohmann::json& j);
+    bool boardMouseDown(float x, float y);
+    bool boardMouseMove(float x, float y, bool leftDown);
+    bool boardMouseUp(float x, float y);
     // Publishing (studio_publish.cpp)
     void openPublishing(const Id& bookId);
     const studio::Edition* currentEdition() const;
@@ -479,6 +493,14 @@ private:
         Id mentionsFor;
         std::string mentionsKey;   // the names they were found for
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
+        std::vector<const studio::Entry*> scopeEntries;   // this frame's entries, for links
+        // Image boards
+        std::string board;         // the board open ("" = none)
+        std::string item;          // the picture selected on it
+        struct { bool armed = false, active = false, resize = false; std::string item; float sx = 0, sy = 0, ox = 0, oy = 0, ow = 0; } boardDrag;
+        float boardOriginX = 0, boardOriginY = 0;   // where the board's (0, 0) was drawn
+        std::map<std::string, std::pair<float, float>> boardDragPos;   // live position while dragging
+        float boardDragW = 0;
     } wb_;
     // Publishing
     struct PublishState {

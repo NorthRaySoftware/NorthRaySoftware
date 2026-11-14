@@ -33,6 +33,7 @@ import { splitListItem, liftListItem, sinkListItem, wrapInList } from "prosemirr
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { analyse } from "./hints.js";
+import * as spell from "./spell.js";
 import { initStyleUi, renderList, renderRules, imported as styleImported } from "./style_ui.js";
 import { initNameCard, setEntries, showNameCard } from "./namecard.js";
 
@@ -378,7 +379,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true };
+const VIEW_DEFAULTS = { v: 2, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "full", hintCats: {}, names: true };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -398,7 +399,8 @@ function applyView() {
   root.classList.toggle("focus-mode", !!v.focus);
   root.classList.toggle("typewriter", !!v.typewriter);
   if (view) {
-    view.dom.setAttribute("spellcheck", v.spellcheck ? "true" : "false");
+    // The Studio's own checker once its dictionary is loaded (it knows the bible's names); the browser's until then.
+    view.dom.setAttribute("spellcheck", v.spellcheck && !spell.ready() ? "true" : "false");
     view.dispatch(view.state.tr.setMeta("view", true));
     keepCaretCentred();
   }
@@ -445,7 +447,7 @@ function keepCaretCentred() {
 
 // Style hints (hints.js): worked out for the whole chapter a moment after typing stops,
 // and moved along with the text in between, so typing never waits for them.
-let style = { scope: "", name: "this book", label: "this book", rules: [], ignore: {} };
+let style = { scope: "", name: "this book", label: "this book", rules: [], ignore: {}, words: [] };
 let ignoreOnceSet = new Set();
 let lastHints = { hints: [], counts: {}, slow: [] };
 let pausedRules = new Set();
@@ -471,8 +473,20 @@ function hintDecorations(doc) {
     const r = style.rules.find((x) => x.id === id);
     notice(`Your rule "${r ? r.name : id}" took too long on this chapter, so it's paused until the Studio is opened again.`);
   }
-  lastHints = res;
   hintCount = res.hints.length;
+  // Spelling, in the same pass (not counted as style hints).
+  if (viewSettings.spellcheck && spell.ready()) {
+    const spellIgnored = new Set(style.ignore["spell"] || []);
+    for (const b of textBlocks(doc))
+      for (const m of spell.misspelt(b.text)) {
+        const context = b.text.slice(Math.max(0, m.from - 24), m.to + 24);
+        const low = m.word.toLocaleLowerCase();
+        if (spellIgnored.has(low) || ignoreOnceSet.has("spell|" + low + "|" + context)) continue;
+        res.hints.push({ from: b.pos + m.from, to: b.pos + m.to, key: "spell", cat: "spell", name: "Spelling", text: m.word, context,
+          msg: `"${m.word}" isn't in the ${document.documentElement.lang === "en-US" ? "American" : "British"} English dictionary.`, why: "" });
+      }
+  }
+  lastHints = res;
   setTimeout(() => { renderList(); }, 0);
   return DecorationSet.create(doc, res.hints.map((h, i) =>
     Decoration.inline(h.from, h.to, { class: "hint hint-" + (h.cat || "rule"), "data-hint": String(i) })));
@@ -588,7 +602,7 @@ const lookups = new Plugin({
   },
 });
 
-function saveStyle() { send({ type: "styleRules", rules: style.rules, ignore: style.ignore }); }
+function saveStyle() { send({ type: "styleRules", rules: style.rules, ignore: style.ignore, words: style.words }); }
 function rehintNow() { if (view) view.dispatch(view.state.tr.setMeta("rehint", true)); }
 
 // Moves to the next hint of a kind after the cursor (round to the start at the end).
@@ -761,6 +775,8 @@ function load(msg) {
   readOnly = !!msg.readOnly;
   placeholderText = msg.placeholder || "";
   document.documentElement.lang = msg.language || "en-GB";
+  // The dictionary for the book's language (loaded once; the text is checked again when it's ready).
+  spell.load(document.documentElement.lang, (ok) => { if (ok && view) { applyView(); rehintNow(); } });
   document.getElementById("title").textContent = msg.title || "";
   const state = makeState(msg.doc);
   if (!view) {
@@ -890,14 +906,20 @@ function receive(msg) {
   else if (msg.type === "styleImported") styleImported(msg.data);
   else if (msg.type === "notice") notice(String(msg.text || ""));
   else if (msg.type === "view") {
-    if (msg.settings && typeof msg.settings === "object") viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
+    if (msg.settings && typeof msg.settings === "object") {
+      viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
+      // Settings from before 0.22.1 could have left hints off or quiet by default: show them, unless Off was chosen.
+      if (!(msg.settings.v >= 2)) { if (msg.settings.hints !== "off") viewSettings.hints = "full"; viewSettings.v = 2; }
+    }
     if ("names" in msg) { setNames(msg.names); setEntries(msg.names); }
     if (msg.style && typeof msg.style === "object") {
       if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
       style = { scope: String(msg.style.scope || ""), name: String(msg.style.name || "this book"), label: String(msg.style.label || "this book"),
-        rules: Array.isArray(msg.style.rules) ? msg.style.rules : [], ignore: msg.style.ignore && typeof msg.style.ignore === "object" ? msg.style.ignore : {} };
+        rules: Array.isArray(msg.style.rules) ? msg.style.rules : [], ignore: msg.style.ignore && typeof msg.style.ignore === "object" ? msg.style.ignore : {},
+        words: Array.isArray(msg.style.words) ? msg.style.words.map(String) : [] };
       renderRules();
     }
+    spell.setExtraWords([...nameWords, ...style.words]);
     applyView();
     stats();
   }
@@ -934,6 +956,35 @@ initStyleUi({
   saveRules: saveStyle,
   setCategory: (id, on) => changeView({ hintCats: { ...(viewSettings.hintCats || {}), [id]: on } }),
   ignoreOnce: (h) => { ignoreOnceSet.add(h.key + "|" + h.text.toLocaleLowerCase().replace(/\s+/g, " ") + "|" + h.context); rehintNow(); },
+  suggestions: (word) => spell.suggestions(word),
+  words: () => style.words,
+  removeWord: (word) => {
+    style.words = style.words.filter((w) => w !== word);
+    spell.setExtraWords([...nameWords, ...style.words]);
+    saveStyle();
+    rehintNow();
+  },
+  replaceWord: (h, text) => {
+    if (!view) return;
+    const doc = view.state.doc;
+    let from = Math.min(h.from, doc.content.size), to = Math.min(h.to, doc.content.size);
+    if (doc.textBetween(from, to) !== h.text) {   // the text moved: find it again close by
+      const around = doc.textBetween(Math.max(0, from - 200), Math.min(doc.content.size, to + 200), "\n", " ");
+      const i = around.indexOf(h.text);
+      if (i < 0) return;
+      from = Math.max(0, from - 200) + i;
+      to = from + h.text.length;
+      if (doc.textBetween(from, to) !== h.text) return;
+    }
+    view.dispatch(view.state.tr.insertText(text, from, to));
+    view.focus();
+  },
+  addWord: (word) => {
+    style.words = [...new Set([...style.words, word])].sort((a, b) => a.localeCompare(b));
+    spell.setExtraWords([...nameWords, ...style.words]);
+    saveStyle();
+    rehintNow();
+  },
   ignoreAlways: (h) => {
     const low = h.text.toLocaleLowerCase().replace(/\s+/g, " ");
     style.ignore[h.key] = [...new Set([...(style.ignore[h.key] || []), low])];

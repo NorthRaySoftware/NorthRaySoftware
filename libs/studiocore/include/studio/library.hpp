@@ -194,6 +194,10 @@ const std::vector<std::string>& entryKinds();          // in display order
 std::vector<std::string> nameParts(const std::string& fullName);
 // Every name an entry goes by in the text: name, other names, and (characters) their parts.
 std::vector<std::string> searchNames(const Entry& e);
+// Where entries' names appear in a piece of text (byte offsets), longest names first and never
+// overlapping; a name several entries share gives all their ids. For links between bible pages.
+struct NameSpan { size_t start = 0, end = 0; std::vector<Id> ids; };
+std::vector<NameSpan> findNames(const std::string& text, const std::vector<const Entry*>& entries);
 const char* entryKindLabel(const std::string& kind);   // "Character"
 const char* entryKindPlural(const std::string& kind);  // "Characters"
 

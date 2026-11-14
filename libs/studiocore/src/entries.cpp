@@ -308,6 +308,37 @@ std::vector<std::string> searchNames(const Entry& e) {
     return n;
 }
 
+std::vector<NameSpan> findNames(const std::string& text, const std::vector<const Entry*>& entries) {
+    // Every (name, entry) pair, longest names first.
+    std::vector<std::pair<std::string, Id>> all;
+    for (const Entry* e : entries)
+        for (auto& n : searchNames(*e)) all.push_back({n, e->id});
+    std::stable_sort(all.begin(), all.end(), [](auto& a, auto& b) { return a.first.size() > b.first.size(); });
+    std::vector<NameSpan> out;
+    for (auto& [name, id] : all) {
+        size_t at = 0;
+        while ((at = text.find(name, at)) != std::string::npos) {
+            const size_t end = at + name.size();
+            const bool whole = (at == 0 || !wordByte((unsigned char)text[at - 1])) && (end >= text.size() || !wordByte((unsigned char)text[end]));
+            if (whole) {
+                bool merged = false, overlaps = false;
+                for (auto& s : out) {
+                    if (s.start == at && s.end == end) {   // the same words: another entry with this name
+                        if (std::find(s.ids.begin(), s.ids.end(), id) == s.ids.end()) s.ids.push_back(id);
+                        merged = true;
+                        break;
+                    }
+                    if (at < s.end && end > s.start) { overlaps = true; break; }
+                }
+                if (!merged && !overlaps) out.push_back({at, end, {id}});
+            }
+            at = end;
+        }
+    }
+    std::sort(out.begin(), out.end(), [](auto& a, auto& b) { return a.start < b.start; });
+    return out;
+}
+
 std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
     std::map<Id, std::vector<Id>> out;
     const Book* b = book(bookId);

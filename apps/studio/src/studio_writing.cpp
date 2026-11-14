@@ -147,7 +147,8 @@ void StudioApp::editorMessage(const std::string& text) {
         if (sc.key.empty()) return;
         json st = {{"version", 1},
                    {"rules", m.contains("rules") && m["rules"].is_array() ? m["rules"] : json::array()},
-                   {"ignore", m.contains("ignore") && m["ignore"].is_object() ? m["ignore"] : json::object()}};
+                   {"ignore", m.contains("ignore") && m["ignore"].is_object() ? m["ignore"] : json::object()},
+                   {"words", m.contains("words") && m["words"].is_array() ? m["words"] : json::array()}};   // the world's dictionary
         if (st["rules"].size() > 1000) return;
         if (!lib_->setSetting(sc.key, st.dump())) flash(w("Couldn't save the style rules: " + lib_->lastError()), 8);
     } else if (type == "styleExport") {
@@ -236,7 +237,8 @@ void StudioApp::sendView() {
         json st = json::parse(lib_->setting(sc.key), nullptr, false);
         msg["style"] = {{"scope", sc.key}, {"name", sc.name}, {"label", sc.label},
                         {"rules", st.is_object() && st.contains("rules") && st["rules"].is_array() ? st["rules"] : json::array()},
-                        {"ignore", st.is_object() && st.contains("ignore") && st["ignore"].is_object() ? st["ignore"] : json::object()}};
+                        {"ignore", st.is_object() && st.contains("ignore") && st["ignore"].is_object() ? st["ignore"] : json::object()},
+                        {"words", st.is_object() && st.contains("words") && st["words"].is_array() ? st["words"] : json::array()}};
     }
     editor_.send(msg.dump());
 }

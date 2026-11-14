@@ -312,3 +312,10 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .nc-small { width: 44px; height: 44px; }
 .nc-small.nc-initials { font-size: 16px; }
 .wl-shared { text-decoration-style: dashed; }
+
+/* Spelling: the familiar red wavy line, and suggestions as buttons on the card. */
+.hint-spell { text-decoration-color: #D92D20; text-decoration-style: wavy; }
+:root[data-theme="dark"] .hint-spell { text-decoration-color: #F97066; }
+.hc-sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.hc-word { font: 600 13px/1 var(--ui); color: var(--accent); background: var(--sel); border: 1px solid transparent; border-radius: 5px; height: 28px; padding: 0 10px; }
+.hc-word:hover { border-color: var(--accent); }

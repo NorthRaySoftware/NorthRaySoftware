@@ -1114,6 +1114,7 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 bool StudioApp::onMouseDown(float x, float y) {
     drag_ = {};
     if (planMouseDown(x, y)) return true;   // a card on the timeline
+    if (boardMouseDown(x, y)) return true;  // a picture's resize handle on an image board
     // Cropping a picture in the details panel: a corner resizes, inside moves.
     if (focus_.kind == Focus::Picture && cropBox_.w > 0 && cropBox_.inset(-8).contains(x, y)) {
         const Rect& b = cropBox_;
@@ -1159,6 +1160,7 @@ bool StudioApp::onMouseDown(float x, float y) {
 
 void StudioApp::onMouseMove(float x, float y, bool leftDown) {
     if (planMouseMove(x, y, leftDown)) return;
+    if (boardMouseMove(x, y, leftDown)) return;
     if (crop_.mode && leftDown && cropBox_.w > 0) {
         const double dx = (x - crop_.sx) / cropBox_.w, dy = (y - crop_.sy) / cropBox_.h;
         Placement p = crop_.start;
@@ -1205,6 +1207,7 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
 
 bool StudioApp::onMouseUp(float x, float y) {
     if (planMouseUp(x, y)) return true;
+    if (boardMouseUp(x, y)) return true;
     if (crop_.mode) {
         crop_.mode = 0;
         sendPicture();   // the text shows the new crop
@@ -1534,6 +1537,13 @@ void StudioApp::loadFields() {
     } else if (focus_.kind == Focus::Plan) {
         const std::int64_t t = bookTarget(focus_.id);
         setFieldText(FTarget, t > 0 ? std::to_string(t) : std::string());
+    } else if (focus_.kind == Focus::Board || focus_.kind == Focus::BoardItem) {
+        const json bj = boardsData();
+        for (auto& bd : bj["boards"]) {
+            if (focus_.kind == Focus::Board && bd.value("id", "") == focus_.id) setFieldText(FName, bd.value("name", ""));
+            if (focus_.kind == Focus::BoardItem && bd.value("id", "") == focus_.contextSeries)
+                for (auto& it : bd["items"]) if (it.value("id", "") == focus_.id) setFieldText(FCaption, it.value("caption", ""));
+        }
     } else if (focus_.kind == Focus::Entry) {
         if (const Entry* e = lib_->entry(focus_.id)) {
             setFieldText(FName, e->name);
@@ -1616,6 +1626,19 @@ void StudioApp::commitFields() {
             const std::string t = fieldText(FTarget);
             setBookTarget(f.id, t.empty() ? 0 : std::strtoll(t.c_str(), nullptr, 10));
         }
+    } else if (f.kind == Focus::Board || f.kind == Focus::BoardItem) {
+        json bj = boardsData();
+        bool changed = false;
+        for (auto& bd : bj["boards"]) {
+            if (f.kind == Focus::Board && bd.value("id", "") == f.id) {
+                std::string nm = fieldText(FName);
+                if (!nm.empty() && nm != bd.value("name", "")) { bd["name"] = nm; changed = true; }
+            }
+            if (f.kind == Focus::BoardItem && bd.value("id", "") == f.contextSeries)
+                for (auto& it : bd["items"])
+                    if (it.value("id", "") == f.id && it.value("caption", "") != fieldText(FCaption)) { it["caption"] = fieldText(FCaption); changed = true; }
+        }
+        if (changed) saveBoards(bj);
     } else if (f.kind == Focus::Entry) {
         if (const Entry* x = lib_->entry(f.id)) {
             Entry n = *x;

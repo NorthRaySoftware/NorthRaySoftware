@@ -12,6 +12,8 @@
 
 namespace nrs {
 
+using nlohmann::json;
+
 using namespace studio;
 
 static std::wstring w(const std::string& s) { return widen(s); }
@@ -97,6 +99,8 @@ void StudioApp::openWorldbuilding(const Id& worldId, const Id& bookId) {
 
 void StudioApp::openEntry(const Id& id) {
     commitFields();
+    wb_.board.clear();   // out of any image board
+    wb_.item.clear();
     wb_.entry = id;
     wb_.scroll = 0;
     wb_.mentionsFor.clear();   // looked up again
@@ -145,6 +149,76 @@ void StudioApp::addRelationship() {
 
 // ---------------------------------------------------------------- drawing
 
+// Text whose words include the bible's names, drawn with those names as links (like a wiki):
+// a click opens the entry, or offers a choice when several share the name. Wraps by words;
+// a newline starts a new line. Returns the height used.
+float StudioApp::drawLinkedText(const std::string& text, const Rect& r, Font f, Color c, const Id& self, const std::string& hitPrefix) {
+    std::vector<const Entry*> others;
+    for (const Entry* e : wb_.scopeEntries) if (e->id != self) others.push_back(e);
+    const auto spans = findNames(text, others);
+    struct Tok { std::wstring s; int span = -1; bool space = false, newline = false; };
+    std::vector<Tok> toks;
+    auto addPiece = [&](const std::string& piece, int span) {
+        const std::wstring wpc = w(piece);
+        std::wstring cur;
+        auto push = [&](bool sp) { if (!cur.empty()) { toks.push_back({cur, span, sp, false}); cur.clear(); } };
+        for (wchar_t ch : wpc) {
+            if (ch == L'\r') continue;
+            if (ch == L'\n') { push(false); toks.push_back({L"", -1, false, true}); continue; }
+            const bool sp = ch == L' ' || ch == L'\t';
+            if (!cur.empty() && (cur.back() == L' ') != sp) push(!sp);
+            cur += sp ? L' ' : ch;
+        }
+        if (!cur.empty()) toks.push_back({cur, span, !cur.empty() && cur[0] == L' ', false});
+    };
+    size_t at = 0;
+    for (size_t i = 0; i < spans.size(); ++i) {
+        if (spans[i].start > at) addPiece(text.substr(at, spans[i].start - at), -1);
+        addPiece(text.substr(spans[i].start, spans[i].end - spans[i].start), (int)i);
+        at = spans[i].end;
+    }
+    if (at < text.size()) addPiece(text.substr(at), -1);
+    const float lineH = gfx_.measureHeight(L"Ag", 1000, f);
+    float x = r.x, y = r.y;
+    for (size_t k = 0; k < toks.size(); ++k) {
+        const Tok& t = toks[k];
+        if (t.newline) { x = r.x; y += lineH; continue; }
+        if (t.space && x == r.x) continue;   // no space at the start of a line
+        const float tw = gfx_.measureWidth(t.s, f);
+        if (!t.space && x > r.x && x + tw > r.right()) { x = r.x; y += lineH; }
+        if (t.space) { x += tw; continue; }
+        if (t.span < 0) {
+            gfx_.text(t.s, {x, y, tw + 2, lineH}, f, c, {Align::Left, false});
+        } else {
+            const auto& ids = spans[(size_t)t.span].ids;
+            const std::string id = hitPrefix + std::to_string(t.span) + ":" + std::to_string(k);
+            addHit(id, {x, y, tw, lineH}, [this, ids] { openEntryChoice(ids); }, false);
+            const float hv = hoverAmount(id);
+            gfx_.text(t.s, {x, y, tw + 2, lineH}, f, pal_.ribbon.mix(pal_.ink, 0.25f * hv), {Align::Left, false});
+            // A dotted underline (dashed when several entries share the name).
+            const float uy = y + lineH - 2;
+            const float dash = ids.size() > 1 ? 4.0f : 1.5f, gap = ids.size() > 1 ? 3.0f : 2.0f;
+            for (float ux = x; ux < x + tw; ux += dash + gap)
+                gfx_.line(ux, uy, std::min(x + tw, ux + dash), uy, pal_.ribbon.withAlpha(0.55f + 0.45f * hv), 1.0f);
+        }
+        x += tw;
+    }
+    return y + lineH - r.y;
+}
+
+void StudioApp::openEntryChoice(const std::vector<Id>& ids) {
+    if (ids.empty()) return;
+    if (ids.size() == 1) { openEntry(ids[0]); return; }
+    std::vector<cjui::MenuItem> items;
+    for (size_t i = 0; i < ids.size(); ++i)
+        if (const Entry* e = lib_->entry(ids[i]))
+            items.push_back(cjui::MenuItem::item(w(e->name) + L"  (" + w(entryKindLabel(e->kind)) + L")", (UINT)(i + 1)));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
+    if (c && c <= ids.size()) openEntry(ids[c - 1]);
+}
+
 void StudioApp::drawWorldSidebar(const Rect& r) {
     gfx_.fill(r, pal_.sunken);
     gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
@@ -181,7 +255,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.entry.empty();
+        const bool sel = wb_.kind == kind && wb_.entry.empty() && wb_.board.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -195,6 +269,40 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         int n = 0;
         for (auto* e : all) if (e->kind == k) ++n;
         row(k, w(entryKindPlural(k)), n);
+    }
+    y += 20;
+    // Image boards.
+    gfx_.text(L"IMAGE BOARDS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    linkText("side:wb:newboard", tx0 + cw - gfx_.measureWidth(L"+ New", Font::Small), y - 2, L"+ New", [this] { newBoard(); });
+    y += 24;
+    {
+        const json bj = boardsData();
+        for (auto& bd : bj["boards"]) {
+            const std::string bid = bd.value("id", "");
+            const std::string id = "side:wb:board:" + bid;
+            const Rect rr{x, y, wd, 30};
+            addHit(id, rr, [this, bid] {
+                commitFields();
+                wb_.board = bid;
+                wb_.item.clear();
+                wb_.entry.clear();
+                wb_.scroll = 0;
+                setFocus({Focus::Board, bid, {}});
+                invalidate();
+            });
+            const bool sel = wb_.board == bid;
+            const float hv = hoverAmount(id);
+            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            gfx_.text(w(bd.value("name", "Board")), {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink,
+                      {Align::Left, false, true, true});
+            gfx_.text(std::to_wstring(bd["items"].size()), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+            if (focused(id)) focusRing(rr);
+            y += 32;
+        }
+        if (bj["boards"].empty()) {
+            y += gfx_.text(L"Pictures for this world: characters, maps, places, moods.", {tx0, y, cw, 40}, Font::Small, pal_.inkFaint) + 6;
+        }
     }
     y += 20;
     // The books it covers.
@@ -214,6 +322,8 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
 }
 
 void StudioApp::drawWorldPage(const Rect& r) {
+    wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
+    if (!wb_.board.empty()) { drawBoard(r); return; }
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
@@ -294,7 +404,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             for (size_t i = 0; i < e->aliases.size(); ++i) a += (i ? L", " : L"") + std::wstring(L"“") + w(e->aliases[i]) + L"”";
             ty += gfx_.text(a, {tx, ty, tw, 60}, Font::Small, pal_.inkMuted) + 8;
         }
-        if (!e->summary.empty()) ty += gfx_.text(w(e->summary), {tx, ty, std::min(tw, 640.0f), 200}, Font::Body, pal_.ink) + 12;
+        if (!e->summary.empty()) ty += drawLinkedText(e->summary, {tx, ty, std::min(tw, 640.0f), 0}, Font::Body, pal_.ink, e->id, "wb:ls:") + 12;
         // Details: "Label: value" lines as a table.
         if (!e->details.empty()) {
             ty += 8;
@@ -312,7 +422,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     std::string val = line.substr(colon + 1);
                     while (!val.empty() && val.front() == ' ') val.erase(0, 1);
                     gfx_.text(w(line.substr(0, colon)), {tx, ty, lw - 10, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-                    ty += std::max(20.0f, gfx_.text(w(val), {tx + lw, ty, std::min(tw - lw, 480.0f), 80}, Font::Small, pal_.ink)) + 4;
+                    ty += std::max(20.0f, drawLinkedText(val, {tx + lw, ty, std::min(tw - lw, 480.0f), 0}, Font::Small, pal_.ink, e->id,
+                                                         "wb:ld" + std::to_string(at) + ":")) + 4;
                 } else {
                     ty += gfx_.text(w(line), {tx, ty, std::min(tw, 640.0f), 80}, Font::Small, pal_.ink) + 4;
                 }
@@ -352,7 +463,38 @@ void StudioApp::drawWorldPage(const Rect& r) {
         if (!e->notes.empty()) {
             gfx_.text(L"NOTES", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
             y += 26;
-            y += gfx_.text(w(e->notes), {m.x, y, std::min(cw, 680.0f), 4000}, Font::Body, pal_.ink) + 26;
+            y += drawLinkedText(e->notes, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:ln:") + 26;
+        }
+
+        // Linked from: other entries whose text names this one.
+        {
+            std::vector<const Entry*> from;
+            const std::vector<const Entry*> self{e};
+            for (const Entry* o : wb_.scopeEntries) {
+                if (o->id == e->id) continue;
+                const std::string all = o->summary + "\n" + o->details + "\n" + o->notes;
+                if (!findNames(all, self).empty()) from.push_back(o);
+            }
+            if (!from.empty()) {
+                gfx_.text(L"LINKED FROM", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 28;
+                float lx = m.x;
+                for (const Entry* o : from) {
+                    const std::wstring nm = w(o->name);
+                    const float lw2 = gfx_.measureWidth(nm, Font::Body) + 30;
+                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 34; }
+                    const Rect chip{lx, y, lw2, 28};
+                    const std::string id = "wb:from:" + o->id;
+                    addHit(id, chip, [this, oid = o->id] { openEntry(oid); });
+                    const float hv = hoverAmount(id);
+                    gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+                    gfx_.strokeRounded(chip, 14, pal_.rule.mix(pal_.ribbon, hv));
+                    gfx_.text(nm, chip, Font::Body, pal_.ink, {Align::Center, false, true, true});
+                    if (focused(id)) focusRing(chip);
+                    lx += lw2 + 8;
+                }
+                y += 50;
+            }
         }
 
         // Where it appears: looked up when the entry or its names change.
@@ -408,6 +550,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
 void StudioApp::drawWorldPanel(const Rect& r) {
     gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
     gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (!(focus_ == loadedFocus_)) loadFields();
     gfx_.pushClip(r);
     setHitClip(r);
