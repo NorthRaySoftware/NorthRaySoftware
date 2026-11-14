@@ -50,6 +50,9 @@ bool Settings::load(const std::wstring& path) {
     sceneCollection = sc.empty() || sc.find_first_of("\\/:*?\"<>|") != std::string::npos ? "Default" : sc;
     recordingsFolder = widen(cj::valueOr(j, "recordingsFolder", std::string()));
     welcomed = cj::valueOr(j, "welcomed", false);
+    monitorDevice = widen(cj::valueOr(j, "monitorDevice", std::string("default")));
+    if (monitorDevice.empty()) monitorDevice = L"default";
+    monitorHeadphones = cj::valueOr(j, "monitorHeadphones", true);
     return true;
 }
 
@@ -60,7 +63,8 @@ bool Settings::save(const std::wstring& path) const {
     const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
-                              {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed}};
+                              {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
+                              {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

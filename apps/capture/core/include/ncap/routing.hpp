@@ -67,6 +67,14 @@ std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std:
 // stream) · Monitor → Headphones".
 std::string describeRoute(const AudioSource& s);
 
+// Where a new source goes until it's changed: the stream, track 1 (everything), and a track of its
+// own kind so it can be edited separately afterwards (microphones 2, desktop audio 3, applications 4).
+std::uint32_t defaultBuses(Kind k);
+// The bus's name in the interface: "Stream", "Track 3", "Monitor".
+std::string busLabel(std::uint32_t bus);
+// The apps a desktop audio source carries right now (playing on its device, not left out), sorted.
+std::vector<std::string> carriedApps(const AudioSource& desktop, const std::vector<PlayingApp>& playing);
+
 // "minecraft.exe" from "C:\Games\Minecraft\Minecraft.exe" or "Minecraft.EXE".
 std::string exeKey(const std::string& pathOrName);
 

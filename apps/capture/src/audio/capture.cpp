@@ -166,11 +166,26 @@ void Capture::run() {
             const bool input = kind_ == SourceKind::InputAudio;
             std::wstring id = widen(str(s, "device"));
             if (id.empty() || id == L"default") id = defaultDevice(input);
-            if (id.empty()) {
+            // Desktop audio that leaves one program out: process loopback in exclude mode while that
+            // program runs (Windows 11), the whole device otherwise (it can't be heard if it isn't running).
+            const std::wstring leaveOut = input ? std::wstring() : widen(str(s, "exclude"));
+            const DWORD leaveOutPid = !leaveOut.empty() && applicationAudioSupported() ? findProgram(leaveOut) : 0;
+            if (leaveOutPid) {
+                hr = readFrom({}, true, leaveOutPid, true, leaveOut);
+                if (hr == S_OK) continue;
+                if (FAILED(hr)) {
+                    wchar_t code[16];
+                    swprintf(code, 16, L"%08lX", (unsigned long)hr);
+                    setStatus(L"Couldn't leave " + describeExe(leaveOut) + L" out \u00B7 error " + code, true);
+                }
+            } else if (!leaveOut.empty() && !applicationAudioSupported()) {
+                setStatus(L"Leaving a program out needs Windows 11", true);
+                hr = S_FALSE;
+            } else if (id.empty()) {
                 setStatus(input ? L"No microphone or input device found" : L"No output device found", true);
                 hr = S_FALSE;
             } else {
-                hr = readFrom(id, !input, 0);
+                hr = readFrom(id, !input, 0, false, leaveOut);
                 if (hr == S_OK) continue;
                 if (hr == E_ACCESSDENIED)
                     setStatus(L"Windows' microphone privacy settings are blocking desktop apps (Settings › Privacy & security › Microphone)", true);
@@ -190,7 +205,7 @@ void Capture::run() {
 
 // Reads until stopped (S_OK: the settings changed, the default device changed, or the program
 // closed) or until the device fails (an error).
-HRESULT Capture::readFrom(const std::wstring& deviceId, bool loopback, DWORD pid) {
+HRESULT Capture::readFrom(const std::wstring& deviceId, bool loopback, DWORD pid, bool exclude, const std::wstring& watchExe) {
     ComPtr<IAudioClient> client;
     HRESULT hr;
     std::wstring what;
@@ -199,7 +214,7 @@ HRESULT Capture::readFrom(const std::wstring& deviceId, bool loopback, DWORD pid
         ActivationParams params{};
         params.ActivationType = kActivationProcessLoopback;
         params.ProcessLoopbackParams.TargetProcessId = pid;
-        params.ProcessLoopbackParams.ProcessLoopbackMode = kIncludeTree;
+        params.ProcessLoopbackParams.ProcessLoopbackMode = exclude ? kExcludeTree : kIncludeTree;
         PROPVARIANT pv{};
         pv.vt = VT_BLOB;
         pv.blob.cbSize = sizeof params;
@@ -246,7 +261,8 @@ HRESULT Capture::readFrom(const std::wstring& deviceId, bool loopback, DWORD pid
         return hr;
     }
     live_ = true;
-    if (pid) setStatus(L"Capturing only this program’s sound");
+    if (pid && exclude) setStatus(L"Everything Windows plays, except " + describeExe(watchExe));
+    else if (pid) setStatus(L"Capturing only this program’s sound");
     else setStatus(what.empty() ? L"Capturing" : what);
     const std::wstring defaultAtStart = deviceId;
     const bool followsDefault = [&] {
@@ -283,6 +299,7 @@ HRESULT Capture::readFrom(const std::wstring& deviceId, bool loopback, DWORD pid
         if (now - lastCheck >= 1000) {
             lastCheck = now;
             if (process && WaitForSingleObject(process, 0) == WAIT_OBJECT_0) break;   // the program closed
+            if (!watchExe.empty() && !pid && findProgram(watchExe)) break;           // the program to leave out has started
             if (followsDefault && defaultDevice(kind_ == SourceKind::InputAudio) != defaultAtStart) break;   // a new default
         }
     }

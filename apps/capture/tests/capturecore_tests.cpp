@@ -328,6 +328,12 @@ static void testRouting() {
     off.muted = true;
     CHECK(describeRoute(off) == "Spotify (application) → muted");
     CHECK(describeRoute(desk).find("Everything playing on the default output") == 0);
+    // Defaults and labels; what a desktop source carries.
+    CHECK(defaultBuses(Kind::Input) == (Stream | Track1 | Track2) && (defaultBuses(Kind::Application) & Monitor) == 0);
+    CHECK(busLabel(Stream) == "Stream" && busLabel(Track5) == "Track 5" && busLabel(Monitor) == "Monitor");
+    AudioSource everything{"e", "Desktop audio", Kind::Desktop, "", "", {"Spotify.exe"}, Stream, false, 1.0f};
+    const auto carried = carriedApps(everything, {{"Minecraft.exe", ""}, {"spotify.exe", ""}, {"chrome.exe", "Headphones"}, {"discord.exe", ""}});
+    CHECK(carried.size() == 2 && carried[0] == "discord.exe" && carried[1] == "minecraft.exe");
 }
 
 static void testDiagnostics() {

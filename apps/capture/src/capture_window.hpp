@@ -9,6 +9,7 @@
 
 #include "ncap/diag.hpp"
 #include "ncap/placement.hpp"
+#include "ncap/routing.hpp"
 #include "ncap/scenes.hpp"
 
 #include "audio/capture.hpp"
@@ -121,6 +122,13 @@ private:
     bool audioMuted(const Source& s) const;
     void setAudioSetting(const Id& source, const char* key, const nlohmann::json& value);
     void drawMeter(const cjui::Rect& r, audio::Meter& left, audio::Meter& right, bool muted);
+    std::uint32_t audioBuses(const Source& s) const;
+    routing::AudioSource routingOf(const Source& s) const;
+    void analyseRouting();                      // the leak and echo checks, against what's playing now
+    void saveMixClip(int bus);
+    void applyMonitor();
+    void monitorMenu(POINT screen);
+    float drawRoutes(float x, float y, float w);   // the settings page's routing view; returns its height
 
     // Layout
     void layoutMenu(POINT screen);
@@ -183,9 +191,13 @@ private:
         audio::Meter left, right;
     };
     std::map<Id, AudioLive> audio_;           // by source id
-    audio::Meter mixLeft_, mixRight_;
+    audio::Meter mixLeft_, mixRight_, monLeft_, monRight_;
+    std::vector<routing::Warning> warnings_;
+    std::map<Id, std::vector<std::string>> carried_;   // desktop sources: the apps they carry now
     std::vector<std::pair<Id, cjui::Rect>> audioRows_;
     bool metersRunning_ = false;
+    float mixerScroll_ = 0, mixerContentH_ = 0;
+    cjui::Rect mixerBody_{};
 
     // Status
     sys::UsageSampler sampler_;

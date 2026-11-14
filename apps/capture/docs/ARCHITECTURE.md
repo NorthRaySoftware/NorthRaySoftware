@@ -274,3 +274,42 @@ advanced scenes and audio milestones if wanted.
   drift-corrected resampling arrives with recording and A/V sync in Milestone 5.
 - No monitoring (headphones), no separate stream/recording mixes, no filters yet (Milestones 4 and 9). The leak
   warnings in `core/routing` are used from Milestone 4, when routing exists.
+
+## 11. Milestone 4: Audio routing (status: done, 14 Nov 2026; released as 0.4.0)
+
+**Built**
+- Mixer buses: Stream, Track 1-6, Monitor (`busBit(i)` matches `routing::Bus`). A source's block is added only to
+  the buses in its `buses` setting, after its volume and mute; a source not routed to a bus contributes nothing to it.
+  Meters for every bus; test clips of any bus (`Mixer::busKey`).
+- `MonitorOutput`: the Monitor bus played on a chosen output (Settings › Audio: Windows' default, a device, or off),
+  event-driven WASAPI render with AUTOCONVERTPCM, about 40 ms buffer, trimmed if it falls behind, follows the
+  default device. It only runs while some unmuted source is sent to Monitor.
+- Defaults (`routing::defaultBuses`): Stream + Track 1 + a track per kind (input 2, desktop 3, application 4).
+- Desktop audio "leave a program out": process loopback in EXCLUDE mode for that program's tree while it runs
+  (Windows 11; one program per source, a Windows limit), the device's ordinary loopback while it isn't, switching
+  when it starts. (Process loopback exclude captures what Windows plays rather than one device.)
+- Leak and feedback checks (`routing::analyse`, Milestone 1's rules) run every status tick against every program
+  with an audio session on each device (active or not, to warn before it plays). Shown as banners at the top of the
+  mixer (up to three; leaks get a one-click "Leave X out of desktop audio"), red status on the sources involved, and
+  in Settings › Audio, which also lists each source's route (`describeRoute`, with device names). Desktop sources
+  show which programs they hear now (`carriedApps`).
+- Mixer panel: routing chips (Stream, 1-6, Mon) under each fader; Stream and Monitor meters; wheel scrolling
+  (no scroll bar; the edges fade when there's more).
+
+**Tested**
+- capturecore: 133 tests (routing analysis, defaults, labels, carried apps, plus earlier milestones').
+- In Wine with PulseAudio null devices: a "microphone" (880 Hz) sent to Stream + tracks, and a second input
+  (440 Hz, standing in for a private app) sent to tracks + Monitor but not Stream. 10-second clips: the Stream mix held
+  880 Hz with 440 Hz at −94 dB relative (absent); Track 1 held both. The monitor device (a null sink) received the
+  440 Hz source only, recorded independently with `parec`. The feedback warning appeared when desktop audio was
+  monitored on its own device and cleared when monitoring was turned off. Routing chips, Send to menu, monitor device
+  menu, the routes view, wheel scrolling.
+
+**Not tested / limits**
+- The leak warnings and the leave-a-program-out fix with real programs: Wine has no Windows programs playing sound
+  and no process loopback. The logic is unit-tested; the Windows behaviour needs CJ's PC (the test clip of the stream
+  mix is the check: a program kept off the stream must not be audible in it).
+- One program per desktop source can be left out (Windows' process loopback takes one process tree). To leave out
+  several, use application sources for what should be heard instead of desktop audio.
+- Monitoring adds the device's own latency (~40 ms buffer); there's no per-source monitor delay or "monitor only"
+  vs "monitor and output" distinction beyond the Monitor and Stream buttons, which already cover both.

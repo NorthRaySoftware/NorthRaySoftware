@@ -1,24 +1,127 @@
 #include "audio/mixer.hpp"
 
-#include <windows.h>
+#include "audio/devices.hpp"
+
+#include <audioclient.h>
+#include <mmdeviceapi.h>
 #include <timeapi.h>
+#include <windows.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <cstring>
 
 namespace ncap::audio {
 
+using Microsoft::WRL::ComPtr;
+
+// ---------------------------------------------------------------- the monitor output
+
+void MonitorOutput::start(const std::wstring& device) {
+    stop();
+    quit_ = false;
+    ring_.skip(ring_.available());
+    thread_ = std::thread([this, device] { run(device); });
+}
+
+void MonitorOutput::stop() {
+    quit_ = true;
+    if (thread_.joinable()) thread_.join();
+    std::lock_guard<std::mutex> l(m_);
+    status_.clear();
+}
+
+void MonitorOutput::push(const float* frames, std::size_t count) {
+    if (!thread_.joinable()) return;
+    // Keep the delay short: if the device has fallen behind, drop what it hasn't played.
+    if (ring_.available() > (std::size_t)kBlock * 8) ring_.skip(ring_.available() - (std::size_t)kBlock * 2);
+    ring_.write(frames, count);
+}
+
+std::wstring MonitorOutput::status() const {
+    std::lock_guard<std::mutex> l(m_);
+    return status_;
+}
+
+void MonitorOutput::run(std::wstring device) {
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    auto setStatus = [&](const std::wstring& s) {
+        std::lock_guard<std::mutex> l(m_);
+        status_ = s;
+    };
+    std::vector<float> tmp;
+    while (!quit_) {
+        std::wstring id = device.empty() || device == L"default" ? defaultDevice(false) : device;
+        ComPtr<IMMDeviceEnumerator> e;
+        ComPtr<IMMDevice> dev;
+        ComPtr<IAudioClient> client;
+        ComPtr<IAudioRenderClient> render;
+        HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        WAVEFORMATEX fmt{};
+        fmt.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+        fmt.nChannels = kChannels;
+        fmt.nSamplesPerSec = kRate;
+        fmt.wBitsPerSample = 32;
+        fmt.nBlockAlign = kChannels * 4;
+        fmt.nAvgBytesPerSec = kRate * fmt.nBlockAlign;
+        HRESULT hr = id.empty() ? HRESULT_FROM_WIN32(ERROR_NOT_FOUND) : CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&e));
+        if (SUCCEEDED(hr)) hr = e->GetDevice(id.c_str(), &dev);
+        if (SUCCEEDED(hr)) hr = dev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
+        if (SUCCEEDED(hr))
+            hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                                    400000 /* 40 ms */, 0, &fmt, nullptr);
+        UINT32 size = 0;
+        if (SUCCEEDED(hr)) hr = client->SetEventHandle(ready);
+        if (SUCCEEDED(hr)) hr = client->GetBufferSize(&size);
+        if (SUCCEEDED(hr)) hr = client->GetService(IID_PPV_ARGS(&render));
+        if (SUCCEEDED(hr)) hr = client->Start();
+        if (FAILED(hr)) {
+            setStatus(L"The monitor device isn't available");
+            CloseHandle(ready);
+            for (int i = 0; i < 40 && !quit_; ++i) Sleep(50);
+            continue;
+        }
+        setStatus(L"Monitoring on " + deviceName(id));
+        ULONGLONG lastCheck = GetTickCount64();
+        while (!quit_) {
+            WaitForSingleObject(ready, 50);
+            UINT32 padding = 0;
+            if (FAILED(hr = client->GetCurrentPadding(&padding))) break;
+            const UINT32 room = size - padding;
+            if (room == 0) continue;
+            BYTE* data = nullptr;
+            if (FAILED(hr = render->GetBuffer(room, &data))) break;
+            const std::size_t got = ring_.read(reinterpret_cast<float*>(data), room);
+            if (got < room) std::memset(data + got * kChannels * 4, 0, (room - got) * kChannels * 4);
+            render->ReleaseBuffer(room, 0);
+            const ULONGLONG now = GetTickCount64();
+            if ((device.empty() || device == L"default") && now - lastCheck > 1000) {
+                lastCheck = now;
+                if (defaultDevice(false) != id) break;   // follow the new default
+            }
+        }
+        client->Stop();
+        CloseHandle(ready);
+    }
+    if (SUCCEEDED(co)) CoUninitialize();
+}
+
+// ---------------------------------------------------------------- the mixer
+
 void Mixer::start() {
     if (thread_.joinable()) return;
     quit_ = false;
     buf_.assign((size_t)kBlock * kChannels, 0);
-    mix_.assign((size_t)kBlock * kChannels, 0);
+    for (auto& b : bus_) b.assign((size_t)kBlock * kChannels, 0);
     thread_ = std::thread([this] { run(); });
 }
 
 void Mixer::stop() {
     quit_ = true;
     if (thread_.joinable()) thread_.join();
+    monitor_.stop();
     std::lock_guard<std::mutex> l(m_);
     if (clip_) {
         std::fclose(clip_);
@@ -32,6 +135,13 @@ void Mixer::setSources(std::vector<MixSource> s) {
     sources_ = std::move(s);
 }
 
+void Mixer::setMonitorDevice(const std::wstring& device) {
+    if (device == monitorDevice_) return;
+    monitorDevice_ = device;
+    if (device == L"off") monitor_.stop();
+    else monitor_.start(device);
+}
+
 std::map<Id, Levels> Mixer::takeLevels() {
     std::lock_guard<std::mutex> l(m_);
     std::map<Id, Levels> out;
@@ -39,14 +149,14 @@ std::map<Id, Levels> Mixer::takeLevels() {
     return out;
 }
 
-bool Mixer::startClip(const Id& source, const std::wstring& path, int seconds) {
+bool Mixer::startClip(const Id& key, const std::wstring& path, int seconds) {
     std::lock_guard<std::mutex> l(m_);
     if (clip_) return false;
     clip_ = _wfopen(path.c_str(), L"wb");
     if (!clip_) return false;
     const auto header = wavHeader(kRate, kChannels, 0);   // the sizes are filled in at the end
     std::fwrite(header.data(), 1, header.size(), clip_);
-    clipSource_ = source;
+    clipKey_ = key;
     clipPath_ = path;
     clipFrames_ = 0;
     clipWanted_ = (std::uint32_t)(seconds * kRate);
@@ -88,13 +198,28 @@ void Mixer::run() {
     if (timer) CloseHandle(timer);
 }
 
+// Under the lock.
+void Mixer::clipWrite(const Id& key, const float* frames) {
+    if (!clip_ || key != clipKey_) return;
+    std::fwrite(frames, sizeof(float), (size_t)kBlock * kChannels, clip_);
+    clipFrames_ += kBlock;
+    if (clipFrames_ < clipWanted_) return;
+    const auto header = wavHeader(kRate, kChannels, clipFrames_ * kChannels * 4);
+    std::fseek(clip_, 0, SEEK_SET);
+    std::fwrite(header.data(), 1, header.size(), clip_);
+    finishedOk_ = std::ferror(clip_) == 0;
+    std::fclose(clip_);
+    clip_ = nullptr;
+    finishedClip_ = clipPath_;
+}
+
 void Mixer::block() {
     std::vector<MixSource> sources;
     {
         std::lock_guard<std::mutex> l(m_);
         sources = sources_;
     }
-    std::fill(mix_.begin(), mix_.end(), 0.0f);
+    for (auto& b : bus_) std::fill(b.begin(), b.end(), 0.0f);
     std::map<Id, Levels> peaks;
     for (auto& s : sources) {
         if (!s.capture) continue;
@@ -106,31 +231,24 @@ void Mixer::block() {
         if (got < (size_t)kBlock) std::fill(buf_.begin() + (long)(got * kChannels), buf_.end(), 0.0f);
         {
             std::lock_guard<std::mutex> l(m_);
-            if (clip_ && s.id == clipSource_) {
-                std::fwrite(buf_.data(), sizeof(float), buf_.size(), clip_);
-                clipFrames_ += kBlock;
-                if (clipFrames_ >= clipWanted_) {
-                    const std::uint32_t bytes = clipFrames_ * kChannels * 4;
-                    const auto header = wavHeader(kRate, kChannels, bytes);
-                    std::fseek(clip_, 0, SEEK_SET);
-                    std::fwrite(header.data(), 1, header.size(), clip_);
-                    finishedOk_ = std::ferror(clip_) == 0;
-                    std::fclose(clip_);
-                    clip_ = nullptr;
-                    finishedClip_ = clipPath_;
-                }
-            }
+            clipWrite(s.id, buf_.data());
         }
         const float gain = s.muted ? 0.0f : s.gain;
         Levels& lv = peaks[s.id];
         lv.left = peakOf(buf_.data(), kBlock, 0) * gain;
         lv.right = peakOf(buf_.data(), kBlock, 1) * gain;
-        mixInto(mix_.data(), buf_.data(), mix_.size(), gain);
+        if (gain == 0) continue;
+        for (int b = 0; b < kBuses; ++b)
+            if (s.buses & busBit(b)) mixInto(bus_[(size_t)b].data(), buf_.data(), buf_.size(), gain);
     }
-    Levels& master = peaks[Id{}];
-    master.left = peakOf(mix_.data(), kBlock, 0);
-    master.right = peakOf(mix_.data(), kBlock, 1);
+    for (int b = 0; b < kBuses; ++b) {
+        Levels& lv = peaks[busKey(b)];
+        lv.left = peakOf(bus_[(size_t)b].data(), kBlock, 0);
+        lv.right = peakOf(bus_[(size_t)b].data(), kBlock, 1);
+    }
+    monitor_.push(bus_[7].data(), kBlock);
     std::lock_guard<std::mutex> l(m_);
+    for (int b = 0; b < kBuses; ++b) clipWrite(busKey(b), bus_[(size_t)b].data());
     for (auto& [id, p] : peaks) {
         Levels& have = levels_[id];
         have.left = std::max(have.left, p.left);

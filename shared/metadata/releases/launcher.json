@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.49.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.4.0: audio routing (stream, six recording tracks, monitor), monitoring in your headphones, and warnings when sound kept off the stream would still reach it."
+      ]
+    },
+    {
       "version": "0.48.0",
       "date": "2026-11-14",
       "notes": [

@@ -27,6 +27,7 @@ struct App {
     std::wstring name;          // "Spotify" (the program's own description where it has one)
     DWORD pid = 0;              // the top process of its tree
     bool playing = false;       // an active session right now
+    std::vector<std::wstring> devices;   // the output devices it has sessions on
 };
 std::vector<App> listAudioApps();
 // The top process of a running program's tree, or 0. Prefers a process with an audio session.

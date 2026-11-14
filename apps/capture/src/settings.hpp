@@ -21,6 +21,8 @@ struct Settings {
     std::string sceneCollection = "Default";
     std::wstring recordingsFolder;    // "" = the Videos folder
     bool welcomed = false;
+    std::wstring monitorDevice = L"default";   // where the monitor mix plays: "default", an endpoint id, or "off"
+    bool monitorHeadphones = true;    // the monitor device is headphones (no echo into a microphone)
 
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;   // atomic: written beside, then swapped in

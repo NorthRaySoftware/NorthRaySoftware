@@ -1,13 +1,22 @@
-// NorthRay Capture: the audio mixer (system 6, first part). Every 10 ms it takes a block from each
-// sound source, applies its volume and mute, measures it, and adds it to the mix. In Milestone 4 the
-// one mix becomes the stream mix, the recording tracks and the monitor (headphones) mix.
+// NorthRay Capture: the audio mixer and router (system 6). Every 10 ms it takes a block from each
+// sound source, applies its volume and mute, measures it, and adds it to each bus it's routed to:
 //
-// The mixer keeps its own steady clock; a source with nothing new (a loopback while nothing
-// plays) adds silence, and a source that has run ahead is trimmed so its delay stays small.
+//   Stream       what viewers hear
+//   Track 1-6    the recording's separate tracks (track 1: everything, by default)
+//   Monitor      what you hear in your headphones, played on the monitor device
+//
+// A source that isn't routed to a bus contributes nothing to it at all (not "turned down": absent),
+// which is what keeps a private app out of the broadcast.
+//
+// The mixer keeps its own steady clock; a source with nothing new (a loopback while nothing plays)
+// adds silence, and a source that has run ahead is trimmed so its delay stays small.
 #pragma once
 
 #include "audio/capture.hpp"
 
+#include "ncap/routing.hpp"
+
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <map>
@@ -19,15 +28,37 @@
 
 namespace ncap::audio {
 
+constexpr int kBuses = 8;   // 0 Stream, 1-6 Track 1-6, 7 Monitor
+inline std::uint32_t busBit(int index) { return 1u << index; }   // matches routing::Bus
+
 struct MixSource {
     Id id;
     std::shared_ptr<Capture> capture;
     float gain = 1;
     bool muted = false;
+    std::uint32_t buses = routing::Stream | routing::Track1;
 };
 
 struct Levels {
     float left = 0, right = 0;   // the loudest samples since last asked (after volume and mute)
+};
+
+// Plays the monitor bus on an output device (event-driven WASAPI render, shared mode).
+class MonitorOutput {
+public:
+    ~MonitorOutput() { stop(); }
+    void start(const std::wstring& deviceId);   // "" or "default": Windows' default output
+    void stop();
+    void push(const float* frames, std::size_t count);   // the mixer thread
+    std::wstring status() const;
+
+private:
+    void run(std::wstring device);
+    Ring ring_{kRate / 4};
+    std::thread thread_;
+    std::atomic<bool> quit_{false};
+    mutable std::mutex m_;
+    std::wstring status_;
 };
 
 class Mixer {
@@ -36,29 +67,38 @@ public:
     void start();
     void stop();
     void setSources(std::vector<MixSource> sources);
-    std::map<Id, Levels> takeLevels();   // per source, and "" for the mix
-    // Saves `seconds` of one source's own sound (before volume and mute) as a WAV file: the proof
-    // that a source holds only what it should. False if one is already being saved.
-    bool startClip(const Id& source, const std::wstring& path, int seconds);
-    // The file of a clip that has finished (once), or "".
-    std::wstring takeFinishedClip(bool* ok = nullptr);
+    // The monitor device ("" or "default" for Windows' default; "off" for none).
+    void setMonitorDevice(const std::wstring& device);
+    std::wstring monitorStatus() const { return monitor_.status(); }
+    // Per source; "#bus0".."#bus7" for the buses.
+    std::map<Id, Levels> takeLevels();
+    static Id busKey(int index) { return "#bus" + std::to_string(index); }
+    // Saves `seconds` of a source's own sound (before volume and mute), or of a bus (`busKey`), as a
+    // WAV file: the proof that a source or a mix holds only what it should. False if one is already
+    // being saved.
+    bool startClip(const Id& sourceOrBus, const std::wstring& path, int seconds);
+    std::wstring takeFinishedClip(bool* ok = nullptr);   // once, when a clip is done
 
 private:
     void run();
     void block();
+    void clipWrite(const Id& key, const float* frames);
 
     std::thread thread_;
     std::atomic<bool> quit_{false};
     std::mutex m_;
     std::vector<MixSource> sources_;
     std::map<Id, Levels> levels_;
+    MonitorOutput monitor_;
+    std::wstring monitorDevice_ = L"off";
     // A test clip in progress (mixer thread), and the one that's finished (for the UI).
-    Id clipSource_;
+    Id clipKey_;
     std::FILE* clip_ = nullptr;
     std::wstring clipPath_, finishedClip_;
     bool finishedOk_ = false;
     std::uint32_t clipFrames_ = 0, clipWanted_ = 0;
-    std::vector<float> buf_, mix_;
+    std::vector<float> buf_;
+    std::array<std::vector<float>, kBuses> bus_;
 };
 
 }  // namespace ncap::audio

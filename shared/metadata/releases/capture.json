@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Audio routing: each sound source can be sent to the stream (what viewers hear), recording tracks 1 to 6, and the monitor (what you hear) independently, with the buttons under its fader or “Send to” in its right-click menu. A source that isn't sent to the stream is absent from it, not just turned down.",
+        "New sources start on the stream and track 1 (everything), plus a track of their own kind: microphones on 2, desktop audio on 3, programs on 4, ready for editing later.",
+        "Monitoring: the monitor mix plays on the device chosen in Settings › Audio (Windows' default to begin with). The mixer shows meters for the stream and the monitor.",
+        "Warnings in the mixer when a program kept off the stream would still reach viewers through desktop audio, when the same sound reaches a mix twice, when monitoring desktop audio would feed back into itself, and when a microphone could pick up monitoring played through speakers. A leak can be fixed in one click (on Windows 11): desktop audio leaves that program out.",
+        "Desktop audio can leave one program out (right-click › Leave a program out, Windows 11). Windows allows one program per desktop audio source.",
+        "Settings › Audio lists where each sound source goes, and any problems.",
+        "Save a 10-second test clip of the stream mix, any track or the monitor (right-click a sound source › Save a test clip of a mix).",
+        "The mixer scrolls with the mouse wheel when its sources don't all fit."
+      ]
+    },
+    {
       "version": "0.3.0",
       "date": "2026-11-14",
       "notes": [

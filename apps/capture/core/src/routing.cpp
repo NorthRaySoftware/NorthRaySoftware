@@ -133,6 +133,31 @@ std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std:
     return out;
 }
 
+std::uint32_t defaultBuses(Kind k) {
+    switch (k) {
+        case Kind::Input: return Stream | Track1 | Track2;
+        case Kind::Desktop: return Stream | Track1 | Track3;
+        case Kind::Application: return Stream | Track1 | Track4;
+    }
+    return Stream | Track1;
+}
+
+std::string busLabel(std::uint32_t bus) {
+    if (bus == Stream) return "Stream";
+    if (bus == Monitor) return "Monitor";
+    for (int n = 1; n <= 6; ++n)
+        if (bus == track(n)) return "Track " + std::to_string(n);
+    return "Mix";
+}
+
+std::vector<std::string> carriedApps(const AudioSource& d, const std::vector<PlayingApp>& playing) {
+    std::set<std::string> excluded, out;
+    for (const auto& e : d.excluded) excluded.insert(exeKey(e));
+    for (const auto& p : playing)
+        if (sameDevice(p.device, d.device) && !excluded.count(exeKey(p.app))) out.insert(exeKey(p.app));
+    return {out.begin(), out.end()};
+}
+
 std::string describeRoute(const AudioSource& s) {
     std::string from = s.kind == Kind::Application ? appLabel(exeKey(s.app)) + " (application)"
                      : s.kind == Kind::Desktop     ? "Everything playing on " + (s.device.empty() ? std::string("the default output") : s.device)

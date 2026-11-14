@@ -547,7 +547,12 @@ bool CaptureWindow::onRightClick(float x, float y) {
     return false;
 }
 
-bool CaptureWindow::onWheel(float, float, float) { return false; }
+bool CaptureWindow::onWheel(float x, float y, float lines) {
+    if (settingsOpen_ || asking_ || !mixerBody_.contains(x, y)) return false;
+    mixerScroll_ = std::clamp(mixerScroll_ + lines * 16, 0.0f, std::max(0.0f, mixerContentH_ - mixerBody_.h));
+    invalidate();
+    return true;
+}
 
 LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     if (msg == WM_APP_ENCODERS) {
@@ -576,6 +581,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
     if (id == kStatsTimer) {
         usage_ = sampler_.sample();
         checkPendingFits();
+        if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
         meterTick();
@@ -652,6 +658,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     sceneRows_.clear();
     sourceRows_.clear();
     audioRows_.clear();
+    mixerBody_ = {};
     // The selection belongs to the current scene.
     if (!selected_.empty() && !scenes_.item(scenes_.current(), selected_)) selected_.clear();
     if (!hoverItem_.empty() && !scenes_.item(scenes_.current(), hoverItem_)) hoverItem_.clear();
@@ -1118,6 +1125,31 @@ void CaptureWindow::drawSettings(const Rect& area) {
             engine_.setOutputFps(v[i]);
         });
         y += std::max(h2, 34.0f) + 14;
+    }
+
+    section(L"AUDIO");
+    {
+        const float h = row(L"Monitor device", L"Where you hear the Monitor mix (sources sent to Monitor). Viewers never hear it.", 300);
+        std::wstring dev = settings_.monitorDevice == L"default" ? L"Windows\u2019 default" : settings_.monitorDevice == L"off" ? L"Off"
+                                                                                                                                 : audio::deviceName(settings_.monitorDevice);
+        if (dev.empty()) dev = L"A device that isn\u2019t connected";
+        button("set:monitor", {x + colW - 300, y - 2, 300, 32}, dev, [this] {
+            POINT pt;
+            GetCursorPos(&pt);
+            monitorMenu(pt);
+        });
+        y += std::max(h, 34.0f) + 14;
+        const float h2 = row(L"I monitor with headphones",
+                             L"Turn off if the monitor plays through speakers: Capture then warns when a microphone could pick it up as an echo.", 60);
+        toggle("set:phones", x + colW - 44, y, settings_.monitorHeadphones, [this] {
+            settings_.monitorHeadphones = !settings_.monitorHeadphones;
+            settings_.save(settingsPath_);
+            analyseRouting();
+        });
+        y += std::max(h2, 34.0f) + 14;
+        gfx_.text(L"Where each sound source goes", {x, y, colW, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        y += 28;
+        y += drawRoutes(x, y, colW) + 8;
     }
 
     section(L"ENCODERS ON THIS PC");

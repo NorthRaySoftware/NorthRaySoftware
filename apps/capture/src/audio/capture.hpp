@@ -37,7 +37,9 @@ public:
 private:
     void run();
     void setStatus(const std::wstring& s, bool problem = false);
-    HRESULT readFrom(const std::wstring& deviceId, bool loopback, DWORD processId);
+    // `processId`: process loopback of that tree (with `exclude`: everything except it). `watchExe`:
+    // stop when that program starts (a desktop capture that should leave it out once it runs).
+    HRESULT readFrom(const std::wstring& deviceId, bool loopback, DWORD processId, bool exclude = false, const std::wstring& watchExe = {});
 
     SourceKind kind_;
     Ring ring_{kRate / 2};   // 0.5 s

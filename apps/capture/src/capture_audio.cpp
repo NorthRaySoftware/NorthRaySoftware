@@ -28,6 +28,7 @@ constexpr UINT_PTR kMeterTimer = 3;
 enum : UINT {
     CmdInDefault = 5000, CmdIn0 = 5001, CmdOutDefault = 6000, CmdOut0 = 6001, CmdApp0 = 7000,
     CmdARename = 100, CmdAMute, CmdAClip, CmdARemove, CmdADevice0 = 200,
+    CmdBus0 = 300, CmdBusClip0 = 320, CmdLeaveOutNone = 340, CmdLeaveOut0 = 341,
 };
 
 double seconds() {
@@ -50,7 +51,7 @@ json settingsOf(const Source& s) {
 std::string captureKey(const Source& s) {
     const json j = settingsOf(s);
     auto get = [&](const char* k) { return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : std::string(); };
-    return get("device") + "|" + get("exe");
+    return get("device") + "|" + get("exe") + "|" + get("exclude");
 }
 
 }  // namespace
@@ -60,6 +61,7 @@ std::string captureKey(const Source& s) {
 void CaptureWindow::startAudio() {
     mixer_.start();
     syncAudio();
+    analyseRouting();
 }
 
 float CaptureWindow::audioGain(const Source& s) const {
@@ -70,6 +72,96 @@ float CaptureWindow::audioGain(const Source& s) const {
 bool CaptureWindow::audioMuted(const Source& s) const {
     const json j = settingsOf(s);
     return j.contains("muted") && j["muted"].is_boolean() && j["muted"].get<bool>();
+}
+
+std::uint32_t CaptureWindow::audioBuses(const Source& s) const {
+    const json j = settingsOf(s);
+    if (j.contains("buses") && j["buses"].is_number_unsigned()) return j["buses"].get<std::uint32_t>() & 0xFFu;
+    const routing::Kind k = s.kind == SourceKind::InputAudio ? routing::Kind::Input
+                          : s.kind == SourceKind::DesktopAudio ? routing::Kind::Desktop : routing::Kind::Application;
+    return routing::defaultBuses(k);
+}
+
+routing::AudioSource CaptureWindow::routingOf(const Source& s) const {
+    const json j = settingsOf(s);
+    auto get = [&](const char* k) { return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : std::string(); };
+    routing::AudioSource r;
+    r.id = s.id;
+    r.name = s.name;
+    r.kind = s.kind == SourceKind::InputAudio ? routing::Kind::Input : s.kind == SourceKind::DesktopAudio ? routing::Kind::Desktop : routing::Kind::Application;
+    r.device = get("device");
+    if (r.kind == routing::Kind::Desktop && (r.device.empty() || r.device == "default")) r.device = narrow(audio::defaultDevice(false));
+    r.app = routing::exeKey(get("exe"));
+    if (!get("exclude").empty()) r.excluded = {routing::exeKey(get("exclude"))};
+    r.buses = audioBuses(s);
+    r.muted = audioMuted(s);
+    r.volume = audioGain(s);
+    return r;
+}
+
+void CaptureWindow::analyseRouting() {
+    std::vector<routing::AudioSource> list;
+    for (auto& s : scenes_.sources())
+        if (isAudioOnly(s.kind)) list.push_back(routingOf(s));
+    warnings_.clear();
+    carried_.clear();
+    if (list.empty()) return;
+    // Every app with a sound session, on each device it has one: playing now or able to start.
+    std::vector<routing::PlayingApp> playing;
+    for (auto& a : audio::listAudioApps())
+        for (auto& d : a.devices) playing.push_back({routing::exeKey(narrow(a.exe)), narrow(d)});
+    std::string monitor = narrow(settings_.monitorDevice);
+    if (monitor == "default") monitor = narrow(audio::defaultDevice(false));
+    if (settings_.monitorDevice == L"off")
+        for (auto& r : list) r.buses &= ~(std::uint32_t)routing::Monitor;   // nothing is played back
+    warnings_ = routing::analyse(list, playing, monitor, settings_.monitorHeadphones);
+    for (auto& r : list)
+        if (r.kind == routing::Kind::Desktop) carried_[r.id] = routing::carriedApps(r, playing);
+}
+
+void CaptureWindow::applyMonitor() {
+    // Played only when something is sent to the monitor.
+    bool any = false;
+    for (auto& s : scenes_.sources())
+        if (isAudioOnly(s.kind) && (audioBuses(s) & routing::Monitor) && !audioMuted(s)) any = true;
+    mixer_.setMonitorDevice(any ? settings_.monitorDevice : L"off");
+}
+
+void CaptureWindow::monitorMenu(POINT screen) {
+    const auto outs = audio::listOutputs();
+    std::vector<MenuItem> items = {MenuItem::item(L"Whichever is Windows\u2019 default", 1, {}, true, settings_.monitorDevice == L"default"),
+                                   MenuItem::item(L"Off (hear nothing)", 2, {}, true, settings_.monitorDevice == L"off"), MenuItem::sep()};
+    for (size_t i = 0; i < outs.size() && i < 90; ++i) items.push_back(MenuItem::item(outs[i].name, 10 + (UINT)i, {}, true, outs[i].id == settings_.monitorDevice));
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (!cmd) return;
+    settings_.monitorDevice = cmd == 1 ? L"default" : cmd == 2 ? L"off" : outs[cmd - 10].id;
+    settings_.save(settingsPath_);
+    mixer_.setMonitorDevice(L"off");   // restart on the new device
+    applyMonitor();
+    analyseRouting();
+    invalidate();
+}
+
+void CaptureWindow::saveMixClip(int bus) {
+    std::wstring folder = settings_.recordingsFolder;
+    if (folder.empty()) {
+        PWSTR videos = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos))) folder = std::wstring(videos) + L"\\NorthRay Capture";
+        CoTaskMemFree(videos);
+    }
+    SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
+    wchar_t stamp[32];
+    const std::time_t t = std::time(nullptr);
+    std::tm tmv{};
+    localtime_s(&tmv, &t);
+    wcsftime(stamp, 32, L"%Y-%m-%d %H.%M.%S", &tmv);
+    const std::wstring name = widen(routing::busLabel(audio::busBit(bus)));
+    const std::wstring path = folder + L"\\Test clip - " + name + L" mix - " + stamp + L".wav";
+    if (!mixer_.startClip(audio::Mixer::busKey(bus), path, 10)) {
+        flash(L"A test clip is already being saved, or the folder can\u2019t be written to.", 5);
+        return;
+    }
+    flash(L"Saving 10 seconds of the " + name + L" mix: exactly what it carries\u2026", 10);
 }
 
 void CaptureWindow::syncAudio() {
@@ -88,9 +180,10 @@ void CaptureWindow::syncAudio() {
             a.key = key.empty() ? "|" : key;
             a.capture->setSettings(s.settings);
         }
-        mix.push_back({s.id, a.capture, audioGain(s), audioMuted(s)});
+        mix.push_back({s.id, a.capture, audioGain(s), audioMuted(s), audioBuses(s)});
     }
     mixer_.setSources(std::move(mix));
+    applyMonitor();
     // Meters run while there's something to measure (slower in low-resource mode).
     const bool want = !audio_.empty();
     if (want != metersRunning_) {
@@ -103,9 +196,14 @@ void CaptureWindow::syncAudio() {
 void CaptureWindow::meterTick() {
     const double now = seconds();
     for (auto& [id, lv] : mixer_.takeLevels()) {
-        if (id.empty()) {
+        if (id == audio::Mixer::busKey(0)) {
             mixLeft_.feed(lv.left, now);
             mixRight_.feed(lv.right, now);
+            continue;
+        }
+        if (id == audio::Mixer::busKey(7)) {
+            monLeft_.feed(lv.left, now);
+            monRight_.feed(lv.right, now);
             continue;
         }
         auto it = audio_.find(id);
@@ -177,6 +275,7 @@ bool CaptureWindow::audioAddCommand(UINT cmd, const AudioChoices& c) {
         const Id id = scenes_.addSource(kind, name, j.dump());
         log::info(std::string("Sound source added: ") + kindKey(kind) + " \"" + scenes_.source(id)->name + "\"");
         syncAudio();
+        analyseRouting();
         scenesChanged();
     };
     if (cmd == CmdInDefault) add(SourceKind::InputAudio, "Microphone", {{"device", "default"}});
@@ -205,6 +304,7 @@ void CaptureWindow::removeAudio(const Id& source) {
         return;
     scenes_.removeSource(source);
     syncAudio();
+    analyseRouting();
     scenesChanged();
 }
 
@@ -262,11 +362,52 @@ void CaptureWindow::audioItemMenu(const Id& source, POINT screen) {
             from.push_back(MenuItem::item(devices[i].name, CmdADevice0 + (UINT)i, {}, true, narrow(devices[i].id) == cur));
         menu.push_back(MenuItem::sub(L"Device", from));
     }
+    // Where it goes.
+    const std::uint32_t buses = audioBuses(*s);
+    std::vector<MenuItem> to;
+    for (int b = 0; b < audio::kBuses; ++b) {
+        if (b == 1 || b == 7) to.push_back(MenuItem::sep());
+        std::wstring label = widen(routing::busLabel(audio::busBit(b)));
+        if (b == 0) label = L"Stream (what viewers hear)";
+        if (b == 7) label = L"Monitor (your headphones)";
+        to.push_back(MenuItem::item(label, CmdBus0 + (UINT)b, {}, true, (buses & audio::busBit(b)) != 0));
+    }
+    menu.push_back(MenuItem::sub(L"Send to", to));
+    // Desktop audio: leave one program out (Windows takes one per source).
+    std::vector<audio::App> leaveOut;
+    if (s->kind == SourceKind::DesktopAudio) {
+        const std::string ex = j.contains("exclude") && j["exclude"].is_string() ? j["exclude"].get<std::string>() : std::string();
+        std::vector<MenuItem> lo = {MenuItem::item(L"Nothing: everything it plays", CmdLeaveOutNone, {}, true, ex.empty())};
+        if (!audio::applicationAudioSupported()) lo.push_back(MenuItem::item(L"Needs Windows 11", 1, {}, false));
+        else {
+            leaveOut = audio::listAudioApps();
+            for (size_t i = 0; i < leaveOut.size() && i < 90; ++i)
+                lo.push_back(MenuItem::item(leaveOut[i].name, CmdLeaveOut0 + (UINT)i, {}, true, routing::exeKey(narrow(leaveOut[i].exe)) == routing::exeKey(ex)));
+        }
+        menu.push_back(MenuItem::sub(L"Leave a program out", lo));
+    }
+    std::vector<MenuItem> clips;
+    for (int b = 0; b < audio::kBuses; ++b) clips.push_back(MenuItem::item(widen(routing::busLabel(audio::busBit(b))) + L" mix", CmdBusClip0 + (UINT)b));
     menu.push_back(MenuItem::sep());
     menu.push_back(MenuItem::item(L"Save a 10-second test clip", CmdAClip));
+    menu.push_back(MenuItem::sub(L"Save a test clip of a mix", clips));
     menu.push_back(MenuItem::sep());
     menu.push_back(MenuItem::item(L"Remove", CmdARemove));
     const UINT cmd = cjui::showMenu(hwnd(), menu, screen, pal_);
+    if (cmd >= CmdBus0 && cmd < CmdBus0 + audio::kBuses) {
+        setAudioSetting(source, "buses", buses ^ audio::busBit((int)(cmd - CmdBus0)));
+        analyseRouting();
+        return;
+    }
+    if (cmd >= CmdBusClip0 && cmd < CmdBusClip0 + audio::kBuses) {
+        saveMixClip((int)(cmd - CmdBusClip0));
+        return;
+    }
+    if (cmd == CmdLeaveOutNone || (cmd >= CmdLeaveOut0 && cmd < CmdLeaveOut0 + leaveOut.size())) {
+        setAudioSetting(source, "exclude", cmd == CmdLeaveOutNone ? std::string() : narrow(leaveOut[cmd - CmdLeaveOut0].exe));
+        analyseRouting();
+        return;
+    }
     if (cmd == CmdARename) renameSource(source);
     else if (cmd == CmdAMute) setAudioSetting(source, "muted", !muted);
     else if (cmd == CmdAClip) saveTestClip(source);
@@ -318,33 +459,89 @@ void CaptureWindow::drawMixer(const Rect& b) {
              L"(Windows 11): for example a game, while music and voice chat stay out. Sound sources are heard in every scene.");
         return;
     }
-    float y = b.y + 8;
-    // The mix: everything added together, as it will be streamed (routing arrives in Milestone 4).
-    gfx_.text(L"Mix", {b.x + 14, y, 60, 16}, Font::SmallStrong, pal_.inkMuted, {Align::Left, false});
-    drawMeter({b.x + 52, y + 3, b.w - 66, 10}, mixLeft_, mixRight_, false);
-    y += 26;
-    gfx_.line(b.x + 10, y - 4, b.right() - 10, y - 4, pal_.rule);
+    gfx_.pushClip(b);
+    mixerBody_ = b;
+    mixerScroll_ = std::clamp(mixerScroll_, 0.0f, std::max(0.0f, mixerContentH_ - b.h));
+    float y = b.y + 8 - mixerScroll_;
+    // What viewers hear, and what you hear.
+    gfx_.text(L"Stream", {b.x + 12, y, 70, 16}, Font::SmallStrong, pal_.inkMuted, {Align::Left, false});
+    drawMeter({b.x + 70, y + 3, b.w - 82, 10}, mixLeft_, mixRight_, false);
+    y += 20;
+    gfx_.text(L"Monitor", {b.x + 12, y, 70, 16}, Font::SmallStrong, pal_.inkMuted, {Align::Left, false});
+    drawMeter({b.x + 70, y + 3, b.w - 82, 10}, monLeft_, monRight_, settings_.monitorDevice == L"off");
+    y += 24;
+    // Warnings: sound that would reach viewers against the routing, feedback, echo.
+    const Color warn = cjui::hexColor("#E0566A");
+    for (size_t i = 0; i < warnings_.size() && i < 3; ++i) {
+        const routing::Warning& w = warnings_[i];
+        const std::wstring msg = widen(w.message);
+        const float th = gfx_.measureHeight(msg, b.w - 40, Font::Small);
+        bool canFix = false;
+        Id desk;
+        if (w.type == routing::Warning::LeakThroughDesktop && audio::applicationAudioSupported())
+            for (auto& id : w.sources)
+                if (const Source* src = scenes_.source(id); src && src->kind == SourceKind::DesktopAudio) {
+                    const json j = settingsOf(*src);
+                    if (!(j.contains("exclude") && j["exclude"].is_string() && !j["exclude"].get<std::string>().empty())) {
+                        canFix = true;
+                        desk = id;
+                    }
+                }
+        const Rect box{b.x + 8, y, b.w - 16, th + (canFix ? 44 : 14)};
+        gfx_.fillRounded(box, 8, warn.withAlpha(pal_.dark ? 0.16f : 0.10f));
+        gfx_.strokeRounded(box, 8, warn.withAlpha(0.55f), 1);
+        gfx_.text(msg, {box.x + 12, box.y + 7, box.w - 24, th + 4}, Font::Small, pal_.ink);
+        if (canFix) {
+            const std::string app = w.app;
+            button("fix:" + std::to_string(i), {box.x + 12, box.bottom() - 34, std::min(box.w - 24, 230.0f), 28},
+                   L"Leave " + audio::describeExe(widen(app)) + L" out of desktop audio", [this, desk, app] {
+                       setAudioSetting(desk, "exclude", app);
+                       analyseRouting();
+                   });
+        }
+        y += box.h + 8;
+    }
+    gfx_.line(b.x + 10, y - 2, b.right() - 10, y - 2, pal_.rule);
+    y += 4;
     for (const Source* s : list) {
-        const Rect row{b.x + 6, y, b.w - 12, 74};
-        if (row.y > b.bottom()) break;
-        audioRows_.push_back({s->id, row});
+        const Rect row{b.x + 6, y, b.w - 12, 100};
+        if (row.y > b.bottom()) {
+            y += 106;
+            continue;
+        }
+        if (row.bottom() > b.y) audioRows_.push_back({s->id, row});
         AudioLive& a = audio_[s->id];
         const bool muted = audioMuted(*s);
         const float gain = audioGain(*s);
+        const std::uint32_t buses = audioBuses(*s);
         const std::string id = "aud:" + s->id;
+        bool flagged = false;
+        for (auto& w : warnings_)
+            for (auto& wid : w.sources) flagged = flagged || wid == s->id;
         gfx_.text(widen(s->name), {row.x + 8, row.y + 2, row.w - 90, 20}, Font::BodyStrong, muted ? pal_.inkFaint : pal_.ink, {Align::Left, false, true, true});
         gfx_.text(audio::dbText(audio::gainToDb(gain)), {row.x, row.y + 2, row.w - 8, 20}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
         const bool problem = a.capture && a.capture->problem();
-        const std::wstring st = a.capture ? a.capture->status() : L"";
-        gfx_.text(st, {row.x + 8, row.y + 21, row.w - 16, 16}, Font::Small, problem ? cjui::hexColor("#E0566A") : pal_.inkMuted, {Align::Left, false, true, true});
+        std::wstring st = a.capture ? a.capture->status() : L"";
+        if (s->kind == SourceKind::DesktopAudio && !problem) {
+            auto c = carried_.find(s->id);
+            if (c != carried_.end() && !c->second.empty()) {
+                st += L" · hears ";
+                for (size_t k = 0; k < c->second.size() && k < 4; ++k) st += (k ? L", " : L"") + audio::describeExe(widen(c->second[k]));
+                if (c->second.size() > 4) st += L"…";
+            }
+        }
+        gfx_.text(st, {row.x + 8, row.y + 21, row.w - 16, 16}, Font::Small, problem || flagged ? warn : pal_.inkMuted, {Align::Left, false, true, true});
         drawMeter({row.x + 8, row.y + 41, row.w - 16, 10}, a.left, a.right, muted);
         // Mute, then the fader.
         const Rect mute{row.x + 4, row.y + 52, 26, 22};
         const Id sid = s->id;
-        addHit(id + ":mute", mute, [this, sid, muted] { setAudioSetting(sid, "muted", !muted); });
+        addHit(id + ":mute", mute, [this, sid, muted] {
+            setAudioSetting(sid, "muted", !muted);
+            analyseRouting();
+        });
         const float hm = hoverAmount(id + ":mute");
         if (hm > 0.01f) gfx_.fillRounded(mute, 5, pal_.ink.withAlpha(0.08f * hm));
-        const Color ic = muted ? cjui::hexColor("#E0566A") : pal_.inkMuted.mix(pal_.ink, hm);
+        const Color ic = muted ? warn : pal_.inkMuted.mix(pal_.ink, hm);
         // A speaker: a box and a cone, crossed out when muted, with a wave when not.
         const float mx = mute.x + 6, my = mute.y + 11;
         gfx_.fill({mx, my - 3, 4, 6}, ic);
@@ -363,9 +560,67 @@ void CaptureWindow::drawMixer(const Rect& b) {
             const float g = audio::faderToGain(v);
             setAudioSetting(sid, "volume", std::round(g * 10000) / 10000);
         });
-        y += 80;
+        // Where it goes: Stream, tracks 1-6, Monitor. Each toggles.
+        float cx = row.x + 8;
+        const float cy = row.y + 77;
+        for (int bi = 0; bi < audio::kBuses; ++bi) {
+            const std::wstring label = bi == 0 ? L"Stream" : bi == 7 ? L"Mon" : std::to_wstring(bi);
+            const float cw = bi == 0 || bi == 7 ? gfx_.measureWidth(label, Font::Small) + 12 : 16;
+            if (cx + cw > row.right() - 4) break;
+            const Rect chip{cx, cy, cw, 18};
+            const bool on = (buses & audio::busBit(bi)) != 0;
+            const std::string cid = id + ":bus" + std::to_string(bi);
+            addHit(cid, chip, [this, sid, buses, bi] {
+                setAudioSetting(sid, "buses", buses ^ audio::busBit(bi));
+                analyseRouting();
+            });
+            const float hc = hoverAmount(cid);
+            const Color accent = bi == 0 ? pal_.ribbon : bi == 7 ? cjui::hexColor("#7AA7FF") : pal_.inkMuted;
+            if (on) gfx_.fillRounded(chip, 5, accent.withAlpha(pal_.dark ? 0.30f : 0.22f));
+            gfx_.strokeRounded(chip, 5, on ? accent : pal_.rule.mix(pal_.ink, 0.25f * hc), 1);
+            gfx_.text(label, chip, Font::Small, on ? pal_.ink : pal_.inkFaint.mix(pal_.ink, hc), {Align::Center, false, false, true});
+            if (focused(cid)) focusRing(chip);
+            cx += cw + (bi == 0 || bi == 6 ? 6 : 2);
+        }
+        y += 106;
         gfx_.line(b.x + 10, y - 4, b.right() - 10, y - 4, pal_.rule.withAlpha(0.6f));
     }
+    mixerContentH_ = y + mixerScroll_ - b.y;
+    // More below (or above): the edge fades out; the mouse wheel scrolls.
+    if (mixerScroll_ < mixerContentH_ - b.h - 1)
+        for (int i = 0; i < 8; ++i) gfx_.fill({b.x, b.bottom() - 24 + i * 3.0f, b.w, 3}, pal_.surface.withAlpha(0.12f * (float)(i + 1)));
+    if (mixerScroll_ > 1)
+        for (int i = 0; i < 8; ++i) gfx_.fill({b.x, b.y + 21 - i * 3.0f, b.w, 3}, pal_.surface.withAlpha(0.12f * (float)(i + 1)));
+    gfx_.popClip();
+}
+
+float CaptureWindow::drawRoutes(float x, float y0, float w) {
+    float y = y0;
+    std::vector<const Source*> list;
+    for (auto& s : scenes_.sources())
+        if (isAudioOnly(s.kind)) list.push_back(&s);
+    if (list.empty()) {
+        return gfx_.text(L"No sound sources yet. Add them from + in the Audio mixer.", {x, y, w, 40}, Font::Small, pal_.inkMuted) + 4;
+    }
+    for (const Source* s : list) {
+        routing::AudioSource r = routingOf(*s);
+        if (!r.device.empty()) {   // the device's name, not its id
+            const std::wstring n = audio::deviceName(widen(r.device));
+            r.device = n.empty() ? std::string("a device that isn't connected") : narrow(n);
+        }
+        if (s->kind == SourceKind::InputAudio && (r.device.empty() || r.device == "default")) r.device = "Windows' default microphone";
+        const std::wstring route = widen(routing::describeRoute(r));
+        gfx_.text(widen(s->name), {x, y, w, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        y += 22;
+        y += gfx_.text(route, {x, y, w, 60}, Font::Small, pal_.inkMuted) + 10;
+    }
+    if (warnings_.empty()) {
+        y += gfx_.text(L"No problems found: nothing kept off the stream reaches it, nothing is doubled, and nothing feeds back.", {x, y, w, 40},
+                       Font::Small, cjui::hexColor("#3FCF8E")) + 6;
+    } else {
+        for (auto& wn : warnings_) y += gfx_.text(L"⚠ " + widen(wn.message), {x, y, w, 80}, Font::Small, cjui::hexColor("#E0566A")) + 8;
+    }
+    return y - y0;
 }
 
 }  // namespace ncap

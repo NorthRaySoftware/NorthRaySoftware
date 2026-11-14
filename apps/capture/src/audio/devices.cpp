@@ -164,6 +164,14 @@ std::vector<App> listAudioApps() {
                 continue;
             int count = 0;
             sessions->GetCount(&count);
+            std::wstring devId;
+            {
+                LPWSTR raw = nullptr;
+                if (SUCCEEDED(d->GetId(&raw)) && raw) {
+                    devId = raw;
+                    CoTaskMemFree(raw);
+                }
+            }
             for (int s = 0; s < count; ++s) {
                 ComPtr<IAudioSessionControl> ctl;
                 ComPtr<IAudioSessionControl2> ctl2;
@@ -184,6 +192,7 @@ std::vector<App> listAudioApps() {
                     if (app.name.empty()) app.name = describeExe(app.exe);
                 }
                 app.playing = app.playing || state == AudioSessionStateActive;
+                if (std::find(app.devices.begin(), app.devices.end(), devId) == app.devices.end()) app.devices.push_back(devId);
             }
         }
     }
