@@ -386,12 +386,12 @@ void AppWindow::paint() {
         animating_ = false;
         hits_.clear();
         sliders_.clear();
-        g_ambientTime = animationsOn_ ? std::fmod(double(c.QuadPart) / double(f.QuadPart), 86400.0) : -1;
+        g_ambientTime = animationsOn_ && ambientAllowed_ ? std::fmod(double(c.QuadPart) / double(f.QuadPart), 86400.0) : -1;
         g_ambientWanted = false;
         gfx_.clear(pal_.paper);
         drawFrame((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         gfx_.end();
-        ambient_ = g_ambientWanted && animationsOn_;
+        ambient_ = g_ambientWanted && animationsOn_ && ambientAllowed_;
         g_ambientWanted = false;
         lastHits_ = hits_;
         lastSliders_ = sliders_;

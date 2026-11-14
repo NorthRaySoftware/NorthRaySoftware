@@ -1,0 +1,3 @@
+#pragma once
+#define CJ_VERSION_WSTR L"@NCAP_VERSION@"
+#define CJ_VERSION_STR "@NCAP_VERSION@"

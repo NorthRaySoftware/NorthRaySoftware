@@ -39,6 +39,7 @@ endif()
 # NorthRay Browser: its portable core and tests build everywhere, the app on Windows.
 add_subdirectory(apps/browser)
 add_subdirectory(apps/files)
+add_subdirectory(apps/capture)
 
 if(CJ_BUILD_TESTS)
   add_executable(cjcore_tests tests/cjcore_tests.cpp)

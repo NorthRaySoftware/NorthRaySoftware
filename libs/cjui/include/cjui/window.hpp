@@ -126,6 +126,9 @@ protected:
     float slideTo(const std::string& key, float target) { return anim(key, target, 20.0f); }
     void setAnim(const std::string& key, float value);  // jump without animating
     bool animationsEnabled() const { return animationsOn_; }
+    // Ambient motion (twinkling stars) on or off for this window; on by default. Apps that must
+    // stay light (Capture) turn it off so an idle window doesn't redraw.
+    void setAmbientAllowed(bool on) { ambientAllowed_ = on; }
     // Page fade-in progress, 0..1, eased (fast start, gentle landing).
     float pageProgress();
     // A soft shadow under a raised card; `amount` 0..1 (e.g. hoverAmount).
@@ -219,6 +222,7 @@ private:
     bool animating_ = false;
     bool animationsOn_ = true;
     bool ambient_ = false;
+    bool ambientAllowed_ = true;
     float scrollTarget_ = 0;
     double lastScrollTime_ = -10;
     void readAnimationSetting();
