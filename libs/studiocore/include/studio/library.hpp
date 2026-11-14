@@ -394,6 +394,18 @@ public:
     bool updateEntry(const Entry& e);
     bool trashEntry(const Id& id);                     // restore() brings it back
     std::vector<EntryLink> linksOf(const Id& entryId) const;   // both directions, as stored
+    // Tidying the bible. An entry already there by this name (any case, either apostrophe), of `kind` if given.
+    const Entry* findEntryNamed(const Id& worldId, const Id& bookId, const std::string& name, const std::string& kind = {}) const;
+    // Folds `other` into `keep`: its names become other names, its text and picture are added, its links and
+    // viewpoint chapters move over; then it goes to the Trash (so a merge can be undone from there).
+    bool mergeEntries(const Id& keep, const Id& other);
+    struct TidyReport { int merged = 0, moved = 0; std::vector<std::string> mergedNames; };
+    // A world's bible: entries left with its books (from before they joined the world) move into it, and
+    // copies of one entry (the same name and kind; or a character and a creature of one name) are merged.
+    TidyReport tidyBible(const Id& worldId);
+    // Entries that look filed under the wrong kind, with why.
+    struct KindSuggestion { Id entry; std::string kind; std::string why; };
+    std::vector<KindSuggestion> kindSuggestions(const Id& worldId, const Id& bookId = {}) const;
     bool addLink(const Id& from, const Id& to, const std::string& label);
     bool removeLink(const Id& from, const Id& to, const std::string& label);
     // Searches the manuscripts of the entry's world (or its book) for its names.

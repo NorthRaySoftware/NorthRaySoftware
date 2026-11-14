@@ -18,6 +18,7 @@
 #include "web_pane.hpp"
 
 #include <map>
+#include <set>
 #include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
@@ -272,6 +273,12 @@ private:
     void newEntry(const std::string& kind);   // "" = ask which kind
     void addRelationship();
     void addMembers();
+    float drawCreatureTree(const Rect& m, float y);
+    float drawKindSuggestions(const Rect& m, float y);
+    void setKindOf(const Id& entry, const Id& parent);   // parent "" = a species of its own
+    void addKindUnder(const Id& parent);
+    void entryKindMenu(const Id& entry);
+    void tidyBibles();
     void drawWorldSidebar(const Rect& r);
     void drawWorldPage(const Rect& r);
     void drawWorldPanel(const Rect& r);
@@ -367,7 +374,7 @@ private:
 
     // Drag and drop
     struct Drop {
-        enum Kind { ToWorld, ToIndependent, ToSeries, ReorderSeriesBooks, ReorderStandalone, ReorderSeriesList, ReorderWorlds, NodeRow } kind;
+        enum Kind { ToWorld, ToIndependent, ToSeries, ReorderSeriesBooks, ReorderStandalone, ReorderSeriesList, ReorderWorlds, NodeRow, KindOf } kind;
         Rect rect;
         Id id;              // world, series, or the item at this position
         Id listOwner;       // series id / world id the list belongs to
@@ -406,7 +413,7 @@ private:
 
     struct DragState {
         bool armed = false, active = false;
-        enum Kind { Book, Series, World, Node } kind = Book;
+        enum Kind { Book, Series, World, Node, Entry } kind = Book;
         Id id;
         float sx = 0, sy = 0;
         std::wstring label;
@@ -513,6 +520,7 @@ private:
         std::string kind;          // the kind shown ("" = everything)
         std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
         std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
+        std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)
         std::vector<studio::Mention> mentions;
         Id mentionsFor;

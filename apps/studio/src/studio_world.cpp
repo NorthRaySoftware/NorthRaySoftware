@@ -675,7 +675,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
             });
             y += 40;
         }
-        if (list.empty()) {
+        y = drawKindSuggestions(m, y);
+        if (wb_.kind == "creature" && wb_.facet.empty()) {
+            y = drawCreatureTree(m, y);
+        } else if (list.empty()) {
             const std::wstring hint = wb_.kind.empty()
                 ? L"Keep track of who and what is in your books: characters, places, groups, things, lore and events. Each entry has "
                   L"its details, notes and relationships, and lists the chapters it appears in."
@@ -1097,29 +1100,31 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             lib_->updateEntry(u);
             invalidate();
         });
-        if (e->kind == "creature") {
-            // What it's a kind of: another creature in the bible (Dragon > Glimmerwyrm > Bluebolt).
-            const Entry* parent = lib_->entry(parentPlace(*lib_, *e));
-            panelChoice("wb:kindof", c, y, L"A kind of", parent ? w(parent->name) : L"Nothing (a kind of its own)", [this] {
+        if (e->kind == "creature" || e->kind == "character") {
+            // What it's a kind of: another creature in the bible (Dragon > Wyvern > Bluebolt). A character
+            // that's a kind of creature is a named one (Bluebolt the wyvern), listed under its kind.
+            Id pid;
+            for (const EntryLink& l : lib_->linksOf(e->id))
+                if (l.from == e->id && l.label == "Kind of") if (const Entry* o = lib_->entry(l.to); o && !o->deleted && o->kind == "creature") pid = o->id;
+            const Entry* parent = lib_->entry(pid);
+            const bool ch = e->kind == "character";
+            panelChoice("wb:kindof", c, y, ch ? L"A creature? (a named one)" : L"A kind of",
+                        parent ? w(parent->name) : ch ? L"No" : L"Nothing (a species of its own)", [this] {
                 const Entry* x = lib_->entry(wb_.entry);
                 if (!x) return;
                 std::vector<const Entry*> options;
                 for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
                     if (o->kind == "creature" && o->id != x->id && !isUnder(*lib_, *o, x->id)) options.push_back(o);   // never under itself
                 std::vector<std::wstring> items;
-                const Id now = parentPlace(*lib_, *x);
+                Id now;
+                for (const EntryLink& l : lib_->linksOf(x->id)) if (l.from == x->id && l.label == "Kind of") now = l.to;
                 int checked = (int)options.size();
                 for (size_t i = 0; i < options.size(); ++i) { items.push_back(w(options[i]->name)); if (options[i]->id == now) checked = (int)i; }
-                items.push_back(L"Nothing (a kind of its own)");
+                items.push_back(x->kind == "character" ? L"No (not a creature)" : L"Nothing (a species of its own)");
                 if (options.empty()) { flash(L"Add the kinds of creature to the bible first (a Dragon, say), then choose one here.", 6); return; }
                 const int i = popupAt(hwnd(), items, checked);
                 if (i < 0 || i == checked) return;
-                for (const EntryLink& l : lib_->linksOf(x->id)) {
-                    if (l.from == x->id && l.label == "Kind of") lib_->removeLink(l.from, l.to, l.label);
-                    if (l.to == x->id && l.label == "Has kind") lib_->removeLink(l.from, l.to, l.label);
-                }
-                if (i < (int)options.size()) lib_->addLink(x->id, options[(size_t)i]->id, "Kind of");
-                invalidate();
+                setKindOf(x->id, i < (int)options.size() ? options[(size_t)i]->id : Id{});
             });
         }
         for (const Facet* f : facetsFor(e->kind)) {
@@ -1189,6 +1194,242 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     wb_.panelContent = y + wb_.panelScroll - r.y + 20;
     clearHitClip();
     gfx_.popClip();
+}
+
+// ------------------------------------------------------------- tidying and the creature tree
+
+// Every world's bible tidied when a library opens: copies merged, books' own entries moved in.
+void StudioApp::tidyBibles() {
+    if (!lib_) return;
+    int merged = 0, moved = 0;
+    std::vector<std::string> names;
+    for (const World* wo : lib_->liveWorlds()) {
+        const auto r = lib_->tidyBible(wo->id);
+        merged += r.merged;
+        moved += r.moved;
+        for (auto& n : r.mergedNames) names.push_back(n);
+    }
+    if (!merged && !moved) return;
+    std::wstring msg = L"Tidied the world bible: ";
+    if (merged) {
+        msg += std::to_wstring(merged) + (merged == 1 ? L" copy merged" : L" copies merged");
+        std::wstring list;
+        for (size_t i = 0; i < names.size() && i < 4; ++i) list += (i ? L", " : L"") + w(names[i]);
+        if (names.size() > 4) list += L"…";
+        msg += L" (" + list + L")";
+    }
+    if (moved) msg += std::wstring(merged ? L"; " : L"") + std::to_wstring(moved) + L" entries moved in from their books";
+    msg += L". The copies are in the Trash if you want one back.";
+    flash(msg, 12);
+}
+
+void StudioApp::setKindOf(const Id& entryId, const Id& parent) {
+    const Entry* x = lib_->entry(entryId);
+    if (!x) return;
+    if (!parent.empty()) {
+        const Entry* p = lib_->entry(parent);
+        if (!p || p->kind != "creature") return;
+        if (isUnder(*lib_, *p, entryId)) { flash(L"A kind can't go under one of its own kinds.", 5); return; }
+    }
+    commitFields();
+    for (const EntryLink& l : lib_->linksOf(entryId)) {
+        if (l.from == entryId && l.label == "Kind of") lib_->removeLink(l.from, l.to, l.label);
+        if (l.to == entryId && l.label == "Has kind") lib_->removeLink(l.from, l.to, l.label);
+    }
+    if (!parent.empty()) lib_->addLink(entryId, parent, "Kind of");
+    if (const Entry* p = lib_->entry(parent)) {
+        wb_.collapsed.erase(p->id);   // show where it went
+        flash(w(x->name) + L" is now a kind of " + w(p->name) + L".", 4);
+    } else flash(w(x->name) + L" is now a species of its own.", 4);
+    invalidate();
+}
+
+void StudioApp::addKindUnder(const Id& parent) {
+    const Entry* p = lib_->entry(parent);
+    if (!p) return;
+    commitFields();
+    const Id id = lib_->createEntry(wb_.world, wb_.book, "creature", "New kind of " + p->name);
+    if (id.empty()) { flash(w(lib_->lastError()), 6); return; }
+    lib_->addLink(id, parent, "Kind of");
+    wb_.collapsed.erase(parent);
+    openEntry(id);
+    flash(L"Name the new kind on the right.", 4);
+}
+
+// Right-click an entry: change what kind it is.
+void StudioApp::entryKindMenu(const Id& id) {
+    const Entry* x = lib_->entry(id);
+    if (!x) return;
+    std::vector<std::wstring> items;
+    int cur = 0;
+    for (size_t i = 0; i < entryKinds().size(); ++i) {
+        items.push_back(L"Change to " + w(entryKindLabel(entryKinds()[i])));
+        if (entryKinds()[i] == x->kind) cur = (int)i;
+    }
+    items.push_back(L"Open");
+    const int i = popupAt(hwnd(), items, cur);
+    if (i < 0 || i == cur) return;
+    if (i == (int)entryKinds().size()) { openEntry(id); return; }
+    commitFields();
+    Entry u = *x;
+    u.kind = entryKinds()[(size_t)i];
+    lib_->updateEntry(u);
+    flash(w(x->name) + L" is now " + w(entryKindLabel(u.kind)) + L".", 4);
+    invalidate();
+}
+
+// Kinds that look wrong, with a way to change them or let them be.
+float StudioApp::drawKindSuggestions(const Rect& m, float y) {
+    const std::string key = "kind-ok:" + (wb_.world.empty() ? wb_.book : wb_.world);
+    json ok = json::parse(lib_->setting(key), nullptr, false);
+    if (!ok.is_array()) ok = json::array();
+    std::vector<Library::KindSuggestion> list;
+    for (auto& s : lib_->kindSuggestions(wb_.world, wb_.book)) {
+        bool dismissed = false;
+        for (auto& o : ok) if (o.is_string() && o.get<std::string>() == s.entry + ":" + s.kind) dismissed = true;
+        const Entry* e = lib_->entry(s.entry);
+        if (!dismissed && e && (wb_.kind.empty() || e->kind == wb_.kind || s.kind == wb_.kind)) list.push_back(s);
+    }
+    if (list.empty()) return y;
+    const float rowH = 44;
+    const Rect card{m.x, y, m.w, 40 + rowH * std::min<size_t>(list.size(), 6) + 8};
+    gfx_.fillRounded(card, 6, pal_.surface);
+    gfx_.strokeRounded(card, 6, pal_.demo.withAlpha(0.6f), 1);
+    gfx_.text(L"CHECK THESE KINDS", {card.x + 18, card.y + 12, card.w - 36, 18}, Font::Label, pal_.inkMuted, {Align::Left, false});
+    float ry = card.y + 40;
+    for (size_t i = 0; i < list.size() && i < 6; ++i) {
+        const auto& s = list[i];
+        const Entry* e = lib_->entry(s.entry);
+        const std::wstring head = w(e->name) + L" is filed as " + w(entryKindLabel(e->kind)) + L".";
+        gfx_.text(head, {card.x + 18, ry, card.w - 320, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
+        gfx_.text(w(s.why), {card.x + 18, ry + 19, card.w - 320, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        const std::wstring keep = L"Keep it", change = L"Make it a " + w(entryKindLabel(s.kind));
+        const float kw = gfx_.measureWidth(keep, Font::Small), cw2 = gfx_.measureWidth(change, Font::Small);
+        linkText("wb:sug:keep:" + s.entry, card.right() - 18 - kw, ry + 8, keep, [this, key, tag = s.entry + ":" + s.kind] {
+            json j = json::parse(lib_->setting(key), nullptr, false);
+            if (!j.is_array()) j = json::array();
+            j.push_back(tag);
+            lib_->setSetting(key, j.dump());
+            invalidate();
+        });
+        linkText("wb:sug:make:" + s.entry, card.right() - 18 - kw - 30 - cw2, ry + 8, change, [this, id = s.entry, kind = s.kind] {
+            const Entry* x = lib_->entry(id);
+            if (!x) return;
+            commitFields();
+            Entry u = *x;
+            u.kind = kind;
+            lib_->updateEntry(u);
+            flash(w(u.name) + L" is now " + w(entryKindLabel(kind)) + L".", 4);
+            invalidate();
+        });
+        ry += rowH;
+    }
+    return card.bottom() + 22;
+}
+
+// Creatures as an indented list: species, their breeds, and the named ones (characters) under them.
+float StudioApp::drawCreatureTree(const Rect& m, float y) {
+    const auto all = lib_->entriesOf(wb_.world, wb_.book);
+    std::map<Id, std::vector<const Entry*>> kids, named;
+    std::vector<const Entry*> roots;
+    for (const Entry* e : all) {
+        Id up;
+        for (const EntryLink& l : lib_->linksOf(e->id))
+            if ((l.from == e->id && l.label == "Kind of") || (l.to == e->id && l.label == "Has kind")) {
+                const Entry* o = lib_->entry(l.from == e->id ? l.to : l.from);
+                if (o && !o->deleted && o->kind == "creature") up = o->id;
+            }
+        if (e->kind == "creature") {
+            if (up.empty()) roots.push_back(e);
+            else kids[up].push_back(e);
+        } else if (!up.empty()) named[up].push_back(e);   // a named creature
+    }
+    std::function<int(const Id&)> under = [&](const Id& id) {
+        int n = 0;
+        for (const Entry* k : kids[id]) n += 1 + under(k->id);
+        return n + (int)named[id].size();
+    };
+    if (drag_.active && drag_.kind == DragState::Entry) {
+        // Dropping here (in place of the buttons, so nothing moves): a species of its own.
+        const Rect zone{m.x, y - 4, m.w, 38};
+        gfx_.fillRounded(zone, 6, pal_.surface);
+        gfx_.strokeRounded(zone, 6, pal_.inkFaint, 1);
+        gfx_.text(L"Drop here to make it a species of its own", zone, Font::Small, pal_.inkMuted, {Align::Center, false, false, true});
+        addDrop({Drop::KindOf, zone, Id{}, {}, false, false, {}});
+    } else {
+        const std::wstring add = L"+ New species";
+        button("wb:newspecies", {m.x, y, gfx_.measureWidth(add, Font::Small) + 28, 30}, add, [this] { newEntry("creature"); }, false);
+        gfx_.text(L"Drag a kind onto another to put it under it. Right-click to change what kind of entry it is.",
+                  {m.x + gfx_.measureWidth(add, Font::Small) + 44, y, m.w - 200, 30}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
+    }
+    y += 46;
+    if (roots.empty())
+        return y + gfx_.text(L"No creatures yet. Add a species (a Dragon, say), then its kinds under it (a Wyvern), and the named ones "
+                             L"(Bluebolt) as characters that are a kind of it.", {m.x, y, std::min(m.w, 640.0f), 80}, Font::Body, pal_.inkMuted) + 16;
+    std::function<void(const Entry*, int, bool, const Entry*)> row = [&](const Entry* e, int depth, bool individual, const Entry* parent) {
+        // A card per entry, indented under its species or kind; the arrow at its left opens and closes the family.
+        const float indent = depth * 34.0f, ch = 76;
+        const Rect cr{m.x + 26 + indent, y, std::min(m.w - 26 - indent, 640.0f), ch};
+        const std::string id = "wb:tree:" + e->id;
+        const bool hasKids = !kids[e->id].empty() || !named[e->id].empty();
+        const bool open = !wb_.collapsed.count(e->id);
+        if (depth > 0) {   // the line joining it to its parent
+            const float lx = m.x + 26 + indent - 20;
+            gfx_.line(lx, y - 8, lx, y + ch / 2, pal_.rule, 1.2f);
+            gfx_.line(lx, y + ch / 2, cr.x, y + ch / 2, pal_.rule, 1.2f);
+        }
+        if (hasKids) {
+            const Rect chev{cr.x - 24, cr.y + ch / 2 - 10, 20, 20};
+            addHit("wb:tree:fold:" + e->id, chev, [this, eid = e->id] {
+                if (wb_.collapsed.count(eid)) wb_.collapsed.erase(eid); else wb_.collapsed.insert(eid);
+                invalidate();
+            }, false);
+            gfx_.fillRounded(chev, 10, pal_.paper);
+            const float cx = chev.x + 10, cy = chev.y + 10;
+            if (open) { gfx_.line(cx - 4, cy - 2, cx, cy + 2.5f, pal_.inkMuted, 1.6f); gfx_.line(cx + 4, cy - 2, cx, cy + 2.5f, pal_.inkMuted, 1.6f); }
+            else { gfx_.line(cx - 2, cy - 4, cx + 2.5f, cy, pal_.inkMuted, 1.6f); gfx_.line(cx - 2, cy + 4, cx + 2.5f, cy, pal_.inkMuted, 1.6f); }
+        }
+        addHit(id, cr, [this, eid = e->id] { openEntry(eid); });
+        if (!individual) addDrop({Drop::KindOf, cr, e->id, {}, false, false, {}});
+        const float hv = hoverAmount(id);
+        softShadow(cr, 4, hv);
+        const cjui::Color kc = kindColor(e->kind, pal_.dark);
+        gfx_.fillRounded(cr, 4, pal_.surface);
+        gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
+        gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
+        const Rect pic{cr.x + 14, cr.y + 10, 56, 56};
+        if (e->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), pic, true)) {
+            gfx_.fillRounded(pic, 28, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+            gfx_.strokeRounded(pic.inset(0.75f), 27.25f, kc.withAlpha(0.45f), individual ? 2.0f : 1.5f);
+            gfx_.text(initials(e->name), pic, Font::BodyStrong, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+        }
+        const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
+        std::wstring label = individual ? L"NAMED " + upper(w(parent ? parent->name : std::string())) + L"  ·  " + upper(w(entryKindLabel(e->kind)))
+                           : depth == 0 ? std::wstring(L"SPECIES") : L"KIND OF " + upper(w(parent ? parent->name : std::string()));
+        gfx_.text(label, {tx, cr.y + 11, tw - 90, 16}, Font::Label, kc, {Align::Left, false, true});
+        gfx_.text(w(e->name), {tx, cr.y + 28, tw - 90, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 50, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        if (!individual) {
+            if (hv > 0.01f) {
+                const std::wstring add = L"+ Add a kind";
+                linkText("wb:tree:add:" + e->id, cr.right() - 14 - gfx_.measureWidth(add, Font::Small), cr.y + 10, add,
+                         [this, eid = e->id] { addKindUnder(eid); });
+            } else if (const int n = under(e->id)) {
+                gfx_.text(std::to_wstring(n) + (n == 1 ? L" under it" : L" under it"), {cr.right() - 110, cr.y + 10, 96, 18}, Font::Small, pal_.inkFaint,
+                          {Align::Right, false, false, true});
+            }
+        }
+        if (focused(id)) focusRing(cr);
+        y += ch + 10;
+        if (!open) return;
+        for (const Entry* k : kids[e->id]) row(k, depth + 1, false, e);
+        for (const Entry* n : named[e->id]) row(n, depth + 1, true, e);
+    };
+    for (const Entry* r : roots) {
+        row(r, 0, false, nullptr);
+        y += 10;
+    }
+    return y + 20;
 }
 
 }  // namespace nrs

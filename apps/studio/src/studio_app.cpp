@@ -260,6 +260,7 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
     loadedFocus_ = {Focus::None, "-", ""};
     resetScroll();
     flash(r.created ? L"Created a new, empty library." : L"Library opened. A backup copy was made.", 5);
+    tidyBibles();
     invalidate();
     return true;
 }
@@ -765,6 +766,8 @@ void StudioApp::moveSeriesTo(const Id& seriesId, const Id& worldId) {
 void StudioApp::contextMenuFor(const std::string& hitId, float, float) {
     if (!lib_) return;
     if (hitId.rfind("node:", 0) == 0) { nodeContextMenu(hitId.substr(5)); return; }
+    if (hitId.rfind("wb:card:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }
+    if (hitId.rfind("wb:tree:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }
     auto idAfter = [&](const std::string& prefix) -> std::string {
         if (hitId.rfind(prefix, 0) != 0) return {};
         std::string rest = hitId.substr(prefix.size());
@@ -1150,7 +1153,7 @@ bool StudioApp::onMouseDown(float x, float y) {
         return true;
     };
     take("node:", DragState::Node) || take("pl:card:", DragState::Node) || take("book:", DragState::Book) || take("side:book:", DragState::Book) || take("series:", DragState::Series) ||
-        take("side:series:", DragState::Series) || take("side:world:", DragState::World);
+        take("side:series:", DragState::Series) || take("side:world:", DragState::World) || take("wb:tree:", DragState::Entry);
     if (drag_.armed && lib_) {
         if (drag_.kind == DragState::Node) {
             const ManuscriptNode* n = lib_->node(drag_.id);
@@ -1158,6 +1161,7 @@ bool StudioApp::onMouseDown(float x, float y) {
             else drag_ = {};
         } else if (drag_.kind == DragState::Book) { if (auto* b = lib_->book(drag_.id)) drag_.label = w(b->title); }
         else if (drag_.kind == DragState::Series) { if (auto* s = lib_->seriesById(drag_.id)) drag_.label = w(s->name); }
+        else if (drag_.kind == DragState::Entry) { if (auto* en = lib_->entry(drag_.id)) drag_.label = w(en->name); else drag_ = {}; }
         else if (auto* wd = lib_->world(drag_.id)) drag_.label = w(wd->name);
     }
     return false;  // the normal click handling still runs
@@ -1204,7 +1208,8 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
                             d.kind == Drop::ReorderSeriesBooks || d.kind == Drop::ReorderStandalone)) ||
                           (drag_.kind == DragState::Series && (d.kind == Drop::ReorderSeriesList || d.kind == Drop::ToWorld)) ||
                           (drag_.kind == DragState::World && d.kind == Drop::ReorderWorlds) ||
-                          (drag_.kind == DragState::Node && d.kind == Drop::NodeRow && d.id != drag_.id);
+                          (drag_.kind == DragState::Node && d.kind == Drop::NodeRow && d.id != drag_.id) ||
+                          (drag_.kind == DragState::Entry && d.kind == Drop::KindOf && d.id != drag_.id);
         if (fits) found = &d;
     }
     return found;
@@ -1273,6 +1278,7 @@ void StudioApp::applyDrop(const Drop& d, float x, float y) {
             break;
         }
         case Drop::ReorderWorlds: lib_->reorderWorlds(reordered(d.list)); break;
+        case Drop::KindOf: setKindOf(moving, d.id); break;
         case Drop::NodeRow: {
             // Middle of a part or chapter: move inside it. Top or bottom half: before or after it.
             const ManuscriptNode* target = lib_->node(d.id);

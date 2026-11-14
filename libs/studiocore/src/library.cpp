@@ -854,7 +854,11 @@ bool Library::moveBookToWorld(const Id& bookId, const Id& worldId) {
     if (!b) { error_ = "That book no longer exists."; return false; }
     if (!worldId.empty() && !world(worldId)) { error_ = "That world doesn't exist."; return false; }
     if (b->worldId == worldId) return true;
-    STUDIO_TX(moveBookToWorldTx(*b, worldId));
+    if (!begin()) return false;
+    if (!moveBookToWorldTx(*b, worldId)) { rollback(); return false; }
+    if (!commit()) return false;
+    if (!worldId.empty()) tidyBible(worldId);   // the book's own entries join the world's bible
+    return true;
 }
 
 bool Library::addBookToSeries(const Id& bookId, const Id& seriesId) {
@@ -876,8 +880,11 @@ bool Library::addBookToSeries(const Id& bookId, const Id& seriesId) {
     m.readingOrder = maxR + 1;
     m.chronoOrder = maxC + 1;
     m.number = std::to_string(numbered + 1);
+    const bool moved = !s->worldId.empty() && s->worldId != b->worldId;
     if (!saveMembership(m)) { rollback(); return false; }
     if (!commit()) return false;
+    if (!s->worldId.empty()) tidyBible(s->worldId);
+    (void)moved;
     memberships_.push_back(m);
     return true;
 }

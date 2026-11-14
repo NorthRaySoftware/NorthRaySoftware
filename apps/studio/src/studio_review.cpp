@@ -551,6 +551,12 @@ void StudioApp::drawReviewPage(const Rect& r) {
                 DestroyMenu(m);
                 if (k < 0) return;
                 const std::string kind = entryKinds()[(size_t)k];
+                if (const Entry* had = lib_->findEntryNamed(bk->worldId, bk->worldId.empty() ? bk->id : Id{}, nm)) {
+                    // Already there (perhaps written with the other apostrophe): never a second copy.
+                    rv_.namesDone = false;
+                    flash(L"\u201C" + w(had->name) + L"\u201D is already in the bible.", 5);
+                    return;
+                }
                 const Id id = lib_->createEntry(bk->worldId, bk->worldId.empty() ? bk->id : Id{}, kind, nm);
                 if (id.empty()) { flash(w(lib_->lastError()), 6); return; }
                 rv_.namesDone = false;

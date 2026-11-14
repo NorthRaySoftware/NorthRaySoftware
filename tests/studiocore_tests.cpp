@@ -1366,6 +1366,80 @@ static void testCovers() {
     CHECK(back.layout == "picture" && back.title == "Low Tide" && back.background == "#102030" && back.series == sp.series);
 }
 
+// Tidying a world's bible: copies merged, a book's entries moved in, kinds suggested.
+static void testBibleTidy() {
+    using namespace studio;
+    const std::string dir = tempLibrary("tidy");
+    {
+        auto lib = openOk(dir);
+        const Id world = lib->createWorld("Alvora");
+        const Id shards = lib->createBook("Shards of Light", {});   // on its own, with its own entries
+        const Id inBook = lib->createEntry({}, shards, "character", "Thomas Terrance Smith");
+        Entry e = *lib->entry(inBook);
+        e.details = "Gender: Male\nThe blacksmith's son.";
+        e.aliases = {"Tom"};
+        lib->updateEntry(e);
+        const Id inWorld = lib->createEntry(world, {}, "character", "Thomas Terrance Smith");
+        Entry w = *lib->entry(inWorld);
+        w.details = "Gender: Man\nHas a scar.";
+        w.aliases = {"Scion"};
+        lib->updateEntry(w);
+        const Id astrid = lib->createEntry(world, {}, "character", "Astrid");
+        CHECK(lib->addLink(astrid, inBook, "Sibling of") || true);   // a link to the book's copy (from before)
+        // 3 copies of Zah’mes, one with a straight apostrophe.
+        const Id z1 = lib->createEntry(world, {}, "character", "Zah’mes");
+        lib->createEntry(world, {}, "character", "Zah’mes");
+        lib->createEntry(world, {}, "character", "Zah'mes");
+        // Bluebolt: a character and a creature (a Wyvern).
+        const Id dragon = lib->createEntry(world, {}, "creature", "Dragon");
+        const Id wyvern = lib->createEntry(world, {}, "creature", "Wyvern");
+        lib->addLink(wyvern, dragon, "Kind of");
+        const Id boltC = lib->createEntry(world, {}, "creature", "Bluebolt");
+        lib->addLink(boltC, wyvern, "Kind of");
+        const Id boltP = lib->createEntry(world, {}, "character", "Bluebolt");
+        // A place and a character of one name stay apart.
+        lib->createEntry(world, {}, "place", "Lamentis");
+        lib->createEntry(world, {}, "character", "Lamentis");
+        CHECK(lib->findEntryNamed(world, {}, "zah'MES", "character") != nullptr);
+
+        // Moving the book in tidies the bible.
+        CHECK(lib->moveBookToWorld(shards, world));
+        const auto all = lib->entriesOf(world);
+        auto count = [&](const char* n) { int c = 0; for (auto* x : all) if (x->name == n) ++c; return c; };
+        CHECK(count("Thomas Terrance Smith") == 1 && count("Zah’mes") + count("Zah'mes") == 1 && count("Bluebolt") == 1 && count("Lamentis") == 2);
+        const Entry* tom = lib->findEntryNamed(world, {}, "Thomas Terrance Smith");
+        CHECK(tom && tom->aliases.size() == 2);                          // Tom and Scion
+        CHECK(tom && tom->details.find("Has a scar.") != std::string::npos && tom->details.find("The blacksmith's son.") != std::string::npos);
+        CHECK(tom && (tom->details.find("Gender: Man") == std::string::npos) != (tom->details.find("Gender: Male") == std::string::npos));   // one gender line
+        bool sibling = false;
+        for (auto& l : lib->linksOf(tom->id)) if (l.from == astrid && l.label == "Sibling of") sibling = true;
+        CHECK(sibling);                                                  // the link followed the merge
+        const Entry* bolt = lib->findEntryNamed(world, {}, "Bluebolt");
+        CHECK(bolt && bolt->id == boltP && bolt->kind == "character");
+        bool kindOf = false;
+        for (auto& l : lib->linksOf(boltP)) if (l.from == boltP && l.to == wyvern && l.label == "Kind of") kindOf = true;
+        CHECK(kindOf);                                                   // still listed under Wyvern
+        CHECK(lib->entry(z1) != nullptr);
+        CHECK(!lib->trashedEntries().empty());                           // merged copies can be brought back
+        CHECK(lib->tidyBible(world).merged == 0);                        // nothing left to do
+
+        // Kinds that look wrong.
+        const Id demon = lib->createEntry(world, {}, "character", "Demon");
+        const Id zornov = lib->createEntry(world, {}, "character", "Zornov");
+        Entry zo = *lib->entry(zornov);
+        zo.details = "Race: Demon";
+        lib->updateEntry(zo);
+        const Id flux = lib->createEntry(world, {}, "character", "Fluxians");
+        const auto sug = lib->kindSuggestions(world);
+        auto suggested = [&](const Id& id, const char* kind) {
+            for (auto& s2 : sug) if (s2.entry == id && s2.kind == kind) return true;
+            return false;
+        };
+        CHECK(suggested(demon, "race") && suggested(flux, "race") && !suggested(zornov, "race"));
+    }
+    std::filesystem::remove_all(dir);
+}
+
 // Worldbuilding: entries, relationships, where they appear, the Trash.
 static void testWorldbuilding() {
     using namespace studio;
@@ -1709,6 +1783,7 @@ int main() {
     testWorldbuilding();
     testPublish();
     testCovers();
+    testBibleTidy();
     testEbookHtml();
     testPdfLikeHeadings();
     testTypeset();

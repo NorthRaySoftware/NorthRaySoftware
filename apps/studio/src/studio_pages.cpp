@@ -118,6 +118,13 @@ void StudioApp::drawFrame(float W, float H) {
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
+        if (drag_.active) {   // a creature being moved in the tree
+            if (const Drop* d = dropAt(mouseX(), mouseY())) gfx_.strokeRounded(d->rect.inset(1), 4, pal_.ribbon, 2);
+            const float lw = std::min(gfx_.measureWidth(drag_.label, Font::BodyStrong) + 24, 320.0f);
+            const Rect g{mouseX() + 14, mouseY() + 10, lw, 30};
+            gfx_.fillRounded(g, 3, pal_.ink.withAlpha(0.88f));
+            gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
+        }
         lastDrops_ = drops_;
         return;
     }

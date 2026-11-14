@@ -6,6 +6,8 @@
 #include "internal.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <sstream>
 #include <set>
 #include <cctype>
 #include <nlohmann/json.hpp>
@@ -302,6 +304,206 @@ bool Library::removeLink(const Id& from, const Id& to, const std::string& label)
     links_.erase(std::remove_if(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == from && l.to == to && l.label == label; }),
                  links_.end());
     return true;
+}
+
+// ---------------------------------------------------------------- tidying
+
+namespace {
+
+// A name as compared for "the same entry": lower case, curly apostrophes straight, spaces squeezed.
+std::string nameKey(const std::string& n) {
+    std::string out;
+    bool sp = false;
+    for (size_t i = 0; i < n.size(); ++i) {
+        if (n.compare(i, 3, "\xE2\x80\x99") == 0 || n.compare(i, 3, "\xE2\x80\x98") == 0) { out += '\''; i += 2; sp = false; continue; }
+        const unsigned char c = (unsigned char)n[i];
+        if (c == ' ' || c == '\t') { if (!sp && !out.empty()) out += ' '; sp = true; continue; }
+        out += (char)std::tolower(c);
+        sp = false;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
+std::string facetLabel(const std::string& line) {
+    const size_t c = line.find(':');
+    if (c == std::string::npos || c == 0 || c > 24) return {};
+    std::string l = line.substr(0, c);
+    for (auto& ch : l) ch = (char)std::tolower((unsigned char)ch);
+    return l;
+}
+
+// Two blocks of text together: the second's lines that the first doesn't have, after it. Facet lines
+// ("Gender: Female") only when the first has no line with that label.
+std::string joinText(const std::string& a, const std::string& b) {
+    if (a.empty()) return b;
+    if (b.empty() || a == b) return a;
+    std::vector<std::string> la;
+    std::istringstream ia(a);
+    for (std::string l; std::getline(ia, l);) la.push_back(l);
+    std::string extra;
+    std::istringstream ib(b);
+    for (std::string l; std::getline(ib, l);) {
+        if (l.empty() || std::find(la.begin(), la.end(), l) != la.end()) continue;
+        const std::string f = facetLabel(l);
+        if (!f.empty() && std::any_of(la.begin(), la.end(), [&](const std::string& x) { return facetLabel(x) == f; })) continue;
+        extra += (extra.empty() ? "" : "\n") + l;
+    }
+    if (extra.empty()) return a;
+    return a + "\n" + extra;
+}
+
+int richness(const Entry& e, size_t links) {
+    return (int)(e.summary.size() + e.details.size() + e.notes.size()) + (e.imageBlob.empty() ? 0 : 200) + (int)e.aliases.size() * 20 + (int)links * 40;
+}
+
+}  // namespace
+
+const Entry* Library::findEntryNamed(const Id& worldId, const Id& bookId, const std::string& name, const std::string& kind) const {
+    const std::string k = nameKey(name);
+    for (const Entry* e : entriesOf(worldId, bookId))
+        if ((kind.empty() || e->kind == kind) && nameKey(e->name) == k) return e;
+    return nullptr;
+}
+
+bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
+    Entry* keep = entryMut(keepId);
+    const Entry* other = entry(otherId);
+    if (!keep || !other || keepId == otherId) { error_ = "Those entries can't be merged."; return false; }
+    if (!begin()) return false;
+    Entry k = *keep;
+    if (nameKey(other->name) != nameKey(k.name)) k.aliases.push_back(other->name);
+    for (const auto& a : other->aliases) k.aliases.push_back(a);
+    std::vector<std::string> al;
+    for (auto& a : k.aliases)
+        if (nameKey(a) != nameKey(k.name) && std::none_of(al.begin(), al.end(), [&](const std::string& x) { return nameKey(x) == nameKey(a); })) al.push_back(a);
+    k.aliases = al;
+    k.summary = joinText(k.summary, other->summary);
+    k.details = joinText(k.details, other->details);
+    k.notes = joinText(k.notes, other->notes);
+    if (k.imageBlob.empty()) k.imageBlob = other->imageBlob;
+    k.modified = now();
+    if (!saveEntry(k)) { rollback(); return false; }
+    // Its links, now the kept entry's (none to itself, none twice).
+    std::vector<EntryLink> moved;
+    for (const EntryLink& l : links_) {
+        if (l.from != otherId && l.to != otherId) continue;
+        EntryLink n{l.from == otherId ? keepId : l.from, l.to == otherId ? keepId : l.to, l.label};
+        if (n.from != n.to) moved.push_back(n);
+    }
+    {
+        Stmt d(db_, "DELETE FROM entry_links WHERE from_id = ?1 OR to_id = ?1");
+        d.bind(1, otherId);
+        if (!d.run()) { error_ = sqlite3_errmsg(db_); rollback(); return false; }
+    }
+    for (const EntryLink& n : moved) {
+        Stmt s(db_, "INSERT OR IGNORE INTO entry_links(from_id, to_id, label) VALUES (?1, ?2, ?3)");
+        s.bind(1, n.from).bind(2, n.to).bind(3, n.label);
+        if (!s.run()) { error_ = sqlite3_errmsg(db_); rollback(); return false; }
+    }
+    {
+        Stmt p(db_, "UPDATE nodes SET pov_id = ?1 WHERE pov_id = ?2");
+        p.bind(1, keepId).bind(2, otherId);
+        if (!p.run()) { error_ = sqlite3_errmsg(db_); rollback(); return false; }
+    }
+    Entry o = *other;
+    o.deleted = now();
+    if (!saveEntry(o)) { rollback(); return false; }
+    if (!commit()) return false;
+    // In memory too.
+    *entryMut(keepId) = k;
+    *entryMut(otherId) = o;
+    links_.erase(std::remove_if(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == otherId || l.to == otherId; }), links_.end());
+    for (const EntryLink& n : moved)
+        if (std::none_of(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == n.from && l.to == n.to && l.label == n.label; }))
+            links_.push_back(n);
+    for (auto& n : nodes_) if (n.povId == otherId) n.povId = keepId;
+    return true;
+}
+
+Library::TidyReport Library::tidyBible(const Id& worldId) {
+    TidyReport r;
+    if (!world(worldId)) return r;
+    // Entries kept with a book of this world (from before it joined): into the world's bible.
+    for (auto& e : entries_) {
+        if (e.deleted || !e.worldId.empty() || e.bookId.empty()) continue;
+        const Book* b = book(e.bookId);
+        if (!b || b->worldId != worldId) continue;
+        Stmt s(db_, "UPDATE entries SET world_id = ?1, book_id = NULL WHERE id = ?2");
+        s.bind(1, worldId).bind(2, e.id);
+        if (!s.run()) { error_ = sqlite3_errmsg(db_); continue; }
+        e.worldId = worldId;
+        e.bookId.clear();
+        ++r.moved;
+    }
+    // Copies: the same name and kind, or a character and a creature of one name (one entry that's both:
+    // the character keeps the creature's "Kind of", so it's listed under its breed).
+    for (bool again = true; again;) {
+        again = false;
+        const auto all = entriesOf(worldId);
+        for (size_t i = 0; i < all.size() && !again; ++i)
+            for (size_t j = i + 1; j < all.size() && !again; ++j) {
+                const Entry* a = all[i];
+                const Entry* b = all[j];
+                if (nameKey(a->name) != nameKey(b->name) || nameKey(a->name).empty()) continue;
+                const bool sameKind = a->kind == b->kind;
+                const bool charCreature = (a->kind == "character" && b->kind == "creature") || (a->kind == "creature" && b->kind == "character");
+                if (!sameKind && !charCreature) continue;
+                const Entry* keep = a;
+                const Entry* drop = b;
+                if (charCreature) {
+                    if (a->kind != "character") std::swap(keep, drop);
+                } else if (richness(*b, linksOf(b->id).size()) > richness(*a, linksOf(a->id).size()) ||
+                           (richness(*b, linksOf(b->id).size()) == richness(*a, linksOf(a->id).size()) && b->created < a->created)) {
+                    std::swap(keep, drop);
+                }
+                const std::string name = keep->name;
+                if (mergeEntries(keep->id, drop->id)) {
+                    ++r.merged;
+                    if (std::find(r.mergedNames.begin(), r.mergedNames.end(), name) == r.mergedNames.end()) r.mergedNames.push_back(name);
+                    again = true;   // the list changed
+                }
+            }
+    }
+    return r;
+}
+
+std::vector<Library::KindSuggestion> Library::kindSuggestions(const Id& worldId, const Id& bookId) const {
+    std::vector<KindSuggestion> out;
+    const auto all = entriesOf(worldId, bookId);
+    auto suggest = [&](const Entry* e, const std::string& kind, const std::string& why) {
+        if (e->kind == kind) return;
+        for (auto& s : out) if (s.entry == e->id) return;
+        out.push_back({e->id, kind, why});
+    };
+    for (const Entry* e : all) {
+        // Used as another entry's race ("Race: Demon").
+        for (const Entry* o : all) {
+            if (o == e) continue;
+            std::istringstream in(o->details);
+            for (std::string l; std::getline(in, l);)
+                if (facetLabel(l) == "race") {
+                    std::string v = l.substr(l.find(':') + 1);
+                    while (!v.empty() && v.front() == ' ') v.erase(0, 1);
+                    if (nameKey(v) == nameKey(e->name) && e->kind != "race")
+                        suggest(e, "race", o->name + "'s race is " + e->name + ", so it reads like a race (a people).");
+                }
+        }
+        // Something is "a kind of" it: a species or breed.
+        if (e->kind == "character")
+            for (const auto& l : links_)
+                if (l.to == e->id && l.label == "Kind of")
+                    if (const Entry* o = entry(l.from); o && !o->deleted && o->kind == "creature")
+                        suggest(e, "creature", o->name + " is a kind of " + e->name + ", so it reads like a creature (a species or breed).");
+        // A people's name: "Fluxians", "Ironfolk".
+        if (e->kind == "character" && e->name.find(' ') == std::string::npos) {
+            const std::string k = nameKey(e->name);
+            auto ends = [&](const char* s) { const size_t n = std::strlen(s); return k.size() > n + 2 && k.compare(k.size() - n, n, s) == 0; };
+            if (ends("ians") || ends("ites") || ends("folk") || ends("kin") || ends("ese") || ends("ans"))
+                suggest(e, "race", e->name + " sounds like the name of a people.");
+        }
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------- mentions
