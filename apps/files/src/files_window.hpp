@@ -17,6 +17,7 @@
 #include "cjui/window.hpp"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -43,6 +44,9 @@ protected:
     LRESULT onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) override;
     bool onMouseDown(float x, float y) override;
     bool onRightClick(float x, float y) override;
+    bool onWheel(float x, float y, float deltaLines) override;
+    void onMouseMove(float x, float y, bool leftDown) override;
+    bool onMouseUp(float x, float y) override;
     const char* navPrefix() const override { return "tb:"; }
 
 private:
@@ -52,6 +56,67 @@ private:
         std::wstring path;
         bool operator==(const Location& o) const { return thisPC == o.thisPC && path == o.path; }
     };
+
+    // Tabs and panes (0.3). Each tab is a View: where it is, its history, its listing, selection and
+    // scroll. The active tab's view lives in the window's own fields (here_, shown_, sel_...); the others
+    // wait in tabs_, and swapView() trades one in and out to draw it or give it a listing.
+    struct View {
+        Location here;
+        std::vector<Location> backStack, forwardStack;
+        std::vector<Entry> listed, shown;
+        Selection sel;
+        std::wstring selectAfterLoad;
+        bool loading = false, loadedOnce = false, partial = false, quiet = false;
+        ListError error = ListError::None;
+        DWORD errorCode = 0;
+        std::uint64_t request = 0;
+        std::shared_ptr<std::atomic<std::uint64_t>> latest = std::make_shared<std::atomic<std::uint64_t>>(0);
+        DWORD loadStarted = 0;
+        std::vector<Entry> pending;
+        std::set<std::wstring> selectNames;
+        cjui::Rect listClip{};
+        float listTop = 0, tileW = 156, listX = 0;
+        int columns = 1;
+        ScrollState scroll{};
+    };
+    void swapView(View& v);
+    View* viewForRequest(std::uint64_t request);
+    const Location& tabLocation(int pane, int tab) const;
+    void activate(int pane, int tab);
+    void newTab(Location at);   // by value: it may be the active tab's own location
+    void closeTab(int pane, int tab);
+    void setTwoPanes(bool on);
+    void transferToOtherPane(bool move);
+    void drawTabs(const cjui::Rect& r, int pane);
+    int paneAt(float x, float y) const;
+    std::uint64_t nextRequest() { return ++nextRequest_; }
+    std::vector<View> tabs_[2];
+    int activeTab_[2] = {0, 0};
+    int pane_ = 0;                       // the active pane
+    bool twoPanes_ = false;
+    int swappedIn_ = 0;
+    int swappedPane_ = -1;               // while drawing the other pane: whose tab is in the window's fields                  // >0 while another tab's view is swapped in (drawing it, giving it a listing)
+    std::uint64_t nextRequest_ = 0;
+    cjui::Rect paneRect_[2]{};
+    std::string idPrefix_;               // hit ids of the pane being drawn ("" or "p1:")
+
+    // Pinned folders and dragging (0.3)
+    void pinFolder(const std::wstring& path);
+    void unpinFolder(const std::wstring& path);
+    void sidebarMenu(const std::wstring& pinnedPath, POINT screen);
+    std::vector<std::pair<std::wstring, cjui::Rect>> pinnedRects_;
+    // The folder tree (the sidebar's drives, opening like folders).
+    const std::vector<std::wstring>& treeChildren(const std::wstring& path);
+    void drawTree(const cjui::Rect& r, float& y, float bottom);
+    std::map<std::wstring, std::vector<std::wstring>> treeKids_;   // lower-case path -> sub-folder names
+    std::set<std::wstring> treeOpen_;                              // lower-case paths shown open
+    std::wstring treeFollows_;                                     // the folder the tree last opened its way to
+    bool treeReveal_ = false;
+    float treeScroll_ = 0, treeContent_ = 0;
+    cjui::Rect treeRect_{};
+    cjui::Rect sidebarRect_{};
+    struct Drag { bool armed = false, active = false; float sx = 0, sy = 0, x = 0, y = 0; std::vector<std::wstring> paths; int fromPane = 0, clickRow = -1; } drag_;
+    std::wstring dropTargetFolder(float x, float y, int* pane = nullptr);   // a folder row under the pointer, or a pane's folder
 
     // Navigation
     void go(const Location& to, bool remember = true, const std::wstring& select = L"");

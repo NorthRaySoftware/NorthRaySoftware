@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.3.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Tabs: Ctrl+T opens one, Ctrl+W closes it, Ctrl+Tab moves between them, and “Open in a new tab” is in a folder's right-click menu.",
+        "Two panes side by side (Ctrl+\\ or the toolbar button), each with its own tabs; F6 moves between them, and “Copy to” or “Move to the other pane” is in the right-click menu.",
+        "Drag and drop: drag files onto a folder or into the other pane to move them (hold Ctrl to copy; between drives they are copied, as in File Explorer).",
+        "Pinned folders: drag a folder to the sidebar, or choose “Pin to the sidebar”; right-click a pinned folder to unpin it.",
+        "A folder tree under This PC: open a drive or folder with its arrow, and it opens itself to the folder you're in.",
+        "Your tabs, panes and pinned folders are there again next time you open Files."
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-14",
       "notes": [

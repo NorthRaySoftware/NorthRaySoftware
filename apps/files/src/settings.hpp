@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace nrf {
 
@@ -20,6 +21,11 @@ struct Settings {
     bool showHidden = false;
     bool showProtected = false;   // protected operating system files: off, as in File Explorer
     std::wstring lastFolder;      // opened next time ("" = Home)
+    // Tabs open last time, in each pane ("::thispc" for This PC), and which was showing.
+    std::vector<std::wstring> tabs[2];
+    int activeTab[2] = {0, 0};
+    bool twoPanes = false;
+    std::vector<std::wstring> pinned;   // folders pinned to the sidebar, in order
 
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;

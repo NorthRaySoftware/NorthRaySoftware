@@ -110,6 +110,10 @@ protected:
     // Back to the top, with the page fade-in (call when the page changes).
     void resetScroll();
     void scrollBy(float dy);
+    // Where the scrolling area is scrolled to, for a window with several (NorthRay Files' panes and tabs).
+    struct ScrollState { float scroll = 0, target = 0, content = 0, viewport = 0; };
+    ScrollState scrollState() const { return {scroll_, scrollTarget_, contentHeight_, viewportHeight_}; }
+    void setScrollState(const ScrollState& s) { scroll_ = s.scroll; scrollTarget_ = s.target; contentHeight_ = s.content; viewportHeight_ = s.viewport; }
 
     // Animation. Values ease towards their target over a few frames; the base
     // keeps repainting until everything has settled. With Windows' "Animation

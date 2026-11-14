@@ -3,18 +3,21 @@
   "id": "files",
   "name": "NorthRay Files",
   "tagline": "A file manager for Windows in the NorthRay look, with creative tools planned.",
-  "description": "NorthRay Files is a file manager for Windows, being built in stages towards a full alternative to File Explorer. This first preview browses your folders and drives: a sidebar of places and drives, a breadcrumb address bar you can type or paste into, Details and Icons views with Windows' own icons (and the pictures themselves for image files), sorting, selection with the mouse and keyboard, This PC with free space, and plain-words messages for empty, missing and inaccessible folders. Files open in their usual app. It doesn't change, move or delete anything yet: copying, moving, renaming and deleting come next, then tabs and two panes, search and previews, and tools for creative work (galleries, tags and collections).",
+  "description": "NorthRay Files is a file manager for Windows, being built in stages towards a full alternative to File Explorer. It browses your folders and drives with a sidebar of places, pinned folders and a folder tree, a breadcrumb address bar you can type or paste into, and Details and Icons views with Windows' own icons (and the pictures themselves for image files). You can copy, move, rename, make folders and delete to the Recycle Bin through Windows' own file operations, use Windows' own right-click menu, and work in tabs and two panes side by side, dragging between them. Search and previews come next, then tools for creative work (galleries, tags and collections).",
   "features": [
     "Browse folders and drives, with Home, Desktop, Documents, Downloads, Pictures, Music, Videos and This PC in the sidebar",
     "A breadcrumb address bar: click a part to go there, or type or paste a path (including network paths and %USERPROFILE%)",
     "Details and Icons views with Windows' own icons and file types; in Icons view, pictures show the image itself, turned the right way up; sort by name, date, type or size, in natural order",
     "Select with Click, Ctrl+Click, Shift+Click and the keyboard; type a name to jump to it",
+    "Copy, cut, paste, rename (F2), new folder and delete to the Recycle Bin, through Windows' own file operations; Windows' own right-click menu; folders refresh themselves",
+    "Tabs (Ctrl+T) and two panes side by side (Ctrl+\\); drag files between panes or onto a folder, and drag a folder to the sidebar to pin it",
+    "A folder tree under This PC that opens to the folder you're in",
     "Folders load in the background, so even very large ones never freeze the window",
-    "Hidden and protected system files stay hidden unless you choose to show them; nothing is changed or deleted in this version"
+    "Hidden and protected system files stay hidden unless you choose to show them"
   ],
   "category": "File manager",
   "status": "preview",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "accent": "#3A8FD8",
   "artwork": {
     "fallbackStyle": "sketchbook",

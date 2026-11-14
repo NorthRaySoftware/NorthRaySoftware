@@ -27,6 +27,17 @@ bool Settings::load(const std::wstring& path) {
     showHidden = cj::valueOr(j, "showHidden", false);
     showProtected = cj::valueOr(j, "showProtected", false);
     lastFolder = cjui::widen(cj::valueOr(j, "lastFolder", ""));
+    auto list = [&](const char* key, std::vector<std::wstring>& out, size_t most) {
+        out.clear();
+        if (j.contains(key) && j[key].is_array())
+            for (auto& x : j[key]) if (x.is_string() && out.size() < most && x.get<std::string>().size() < 4000) out.push_back(cjui::widen(x.get<std::string>()));
+    };
+    list("tabs", tabs[0], 30);
+    list("tabs2", tabs[1], 30);
+    list("pinned", pinned, 60);
+    activeTab[0] = std::clamp(cj::valueOr(j, "activeTab", 0), 0, 29);
+    activeTab[1] = std::clamp(cj::valueOr(j, "activeTab2", 0), 0, 29);
+    twoPanes = cj::valueOr(j, "twoPanes", false);
     return true;
 }
 
@@ -36,6 +47,17 @@ bool Settings::save(const std::wstring& path) const {
                         {"sortKey", sortKey},           {"sortDescending", sortDescending},
                         {"showHidden", showHidden},     {"showProtected", showProtected},
                         {"lastFolder", cjui::narrow(lastFolder)}};
+    auto list = [](const std::vector<std::wstring>& v) {
+        nlohmann::json a = nlohmann::json::array();
+        for (auto& x : v) a.push_back(cjui::narrow(x));
+        return a;
+    };
+    j["tabs"] = list(tabs[0]);
+    j["tabs2"] = list(tabs[1]);
+    j["pinned"] = list(pinned);
+    j["activeTab"] = activeTab[0];
+    j["activeTab2"] = activeTab[1];
+    j["twoPanes"] = twoPanes;
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

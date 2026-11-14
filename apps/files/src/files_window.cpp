@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
+#include <functional>
 #include <set>
 
 namespace nrf {
@@ -40,12 +41,13 @@ constexpr UINT_PTR kSpinTimer = 1;
 constexpr UINT_PTR kRefreshTimer = 2;   // the folder changed: list it again after a moment
 constexpr UINT WM_APP_CHANGED = WM_APP + 50;
 
-enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu };
+enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes };
 
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
 };
 
 COLORREF toColorRef(Color c) {
@@ -66,6 +68,10 @@ void arcLines(cjui::Gfx& g, float cx, float cy, float r, float a0, float a1, Col
 }
 
 bool samePath(const std::wstring& a, const std::wstring& b) { return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL; }
+std::wstring lowerKey(std::wstring s) {
+    for (auto& c : s) c = (wchar_t)towlower(c);
+    return s;
+}
 
 LRESULT CALLBACK quietEditProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
     if (m == WM_CHAR && (w == VK_RETURN || w == VK_ESCAPE || w == 1 /* Ctrl+A */)) {
@@ -126,6 +132,39 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
 
+    // Tabs from last time (each pane), unless a folder was asked for.
+    auto toLocation = [&](const std::wstring& t) -> std::optional<Location> {
+        if (t == L"::thispc") return Location{true, L""};
+        auto n = normalizePath(t, L"");
+        if (n) return Location{false, *n};
+        return std::nullopt;
+    };
+    if (startPath.empty() && !settings_.tabs[0].empty()) {
+        tabs_[0].assign(1, View{});
+        bool first = true;
+        for (auto& t : settings_.tabs[0]) {
+            auto loc = toLocation(t);
+            if (!loc) continue;
+            if (first) { go(*loc, false); first = false; }
+            else newTab(*loc);
+        }
+        if (first) go({true, L""}, false);
+        if (settings_.twoPanes && !settings_.tabs[1].empty()) {
+            setTwoPanes(true);
+            bool f2 = true;
+            for (auto& t : settings_.tabs[1]) {
+                auto loc = toLocation(t);
+                if (!loc) continue;
+                if (f2) { go(*loc, false); f2 = false; }
+                else newTab(*loc);
+            }
+            activate(1, std::clamp(settings_.activeTab[1], 0, (int)tabs_[1].size() - 1));
+        }
+        activate(0, std::clamp(settings_.activeTab[0], 0, (int)tabs_[0].size() - 1));
+        listDrivesAsync(hwnd(), 0, std::make_shared<std::atomic<std::uint64_t>>(0));
+        return true;
+    }
+    tabs_[0].assign(1, View{});
     // Where to start: the folder asked for, else the last one, else Home.
     std::wstring start = startPath;
     if (start.empty()) start = settings_.lastFolder;
@@ -140,9 +179,19 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
 }
 
 void FilesWindow::onDestroy() {
-    latest_->store(~0ull);   // any worker still reading gives up
     settings_.lastFolder = here_.thisPC ? L"::thispc" : here_.path;
+    for (int p = 0; p < 2; ++p) {
+        settings_.tabs[p].clear();
+        for (int t = 0; t < (int)tabs_[p].size(); ++t) {
+            const Location& l = tabLocation(p, t);
+            settings_.tabs[p].push_back(l.thisPC ? L"::thispc" : l.path);
+        }
+        settings_.activeTab[p] = activeTab_[p];
+    }
+    settings_.twoPanes = twoPanes_;
     settings_.save(settingsPath_);
+    latest_->store(~0ull);   // any worker still reading gives up
+    for (auto& pane : tabs_) for (auto& v : pane) if (v.latest) v.latest->store(~0ull);
 }
 
 void FilesWindow::applyTheme() {
@@ -181,14 +230,15 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
     resetScroll();
     loading_ = true;
     loadStarted_ = GetTickCount();
-    latest_->store(++request_);
+    request_ = nextRequest();
+    latest_->store(request_);
     if (to.thisPC) listDrivesAsync(hwnd(), request_, latest_);
     else listFolderAsync(hwnd(), to.path, request_, latest_);
     SetTimer(hwnd(), kSpinTimer, 120, nullptr);
 
     const std::wstring name = to.thisPC ? L"This PC" : (isDriveRoot(to.path) ? to.path.substr(0, 2) : nameOf(to.path));
     const std::wstring title = name + L" – NorthRay Files";
-    if (title != windowTitle_) {
+    if (title != windowTitle_ && !swappedIn_) {
         windowTitle_ = title;
         SetWindowTextW(hwnd(), title.c_str());
     }
@@ -260,7 +310,17 @@ void FilesWindow::openSelection() {
 // ---------------------------------------------------------------- results
 
 void FilesWindow::receive(ListBatch* b) {
-    if (b->request != request_ || here_.thisPC) return;
+    if (b->request != request_) {
+        // Another tab's listing: give it to that tab.
+        if (View* v = viewForRequest(b->request)) {
+            swapView(*v);
+            receive(b);
+            swapView(*v);
+            invalidate();
+        }
+        return;
+    }
+    if (here_.thisPC) return;
     if (b->error == ListError::NotAFolder) {
         // A file's path: its folder, with it selected.
         here_.path = parentOf(here_.path);
@@ -270,8 +330,10 @@ void FilesWindow::receive(ListBatch* b) {
     if (!b->canonical.empty() && b->canonical != here_.path && samePath(b->canonical, here_.path)) {
         here_.path = b->canonical;
         const std::wstring title = (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path)) + L" \u2013 NorthRay Files";
-        windowTitle_ = title;
-        SetWindowTextW(hwnd(), title.c_str());
+        if (!swappedIn_) {
+            windowTitle_ = title;
+            SetWindowTextW(hwnd(), title.c_str());
+        }
     }
     if (quiet_) {
         // Listing again in the background: swap in the new list when it's all here.
@@ -452,6 +514,10 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
             case 'A': sel_.selectAll(); return true;
             case 'C': copyOrCut(false); return true;
             case 'X': copyOrCut(true); return true;
+            case 'T': newTab(here_); return true;
+            case 'W': closeTab(pane_, activeTab_[pane_]); return true;
+            case VK_TAB: activate(pane_, (activeTab_[pane_] + 1) % (int)tabs_[pane_].size()); return true;
+            case VK_OEM_5: setTwoPanes(!twoPanes_); return true;   // Ctrl and the backslash key
             case 'V': paste(); return true;
             case 'L': beginEditingAddress(); return true;
             case 'R': refresh(); return true;
@@ -463,6 +529,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         switch (vk) {
             case 'C': copyPaths(); return true;
             case 'N': newFolder(); return true;
+            case VK_TAB: activate(pane_, (activeTab_[pane_] + (int)tabs_[pane_].size() - 1) % (int)tabs_[pane_].size()); return true;
             case '6': setView(ViewMode::Details); return true;
             case '2': setView(ViewMode::Icons); return true;
             default: break;
@@ -471,6 +538,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     switch (vk) {
         case VK_F4: beginEditingAddress(); return true;
         case VK_F2: beginRename(); return true;
+        case VK_F6: if (twoPanes_) { activate(1 - pane_, activeTab_[1 - pane_]); return true; } break;
         case VK_DELETE: deleteSelection(shift); return true;
         case VK_F5: refresh(); return true;
         case VK_BACK: back(); return true;
@@ -504,6 +572,12 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 bool FilesWindow::onMouseDown(float x, float y) {
     if (editing_) endEditingAddress(false);
     if (renaming_) endRename(true);
+    drag_ = Drag{};
+    // A click in the other pane makes it the active one first.
+    if (const int p = paneAt(x, y); p >= 0 && p != pane_) {
+        activate(p, activeTab_[p]);
+        invalidate();
+    }
     if (here_.thisPC || !listClip_.contains(x, y) || error_ != ListError::None) return false;
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
     long long row = -1;
@@ -539,11 +613,29 @@ bool FilesWindow::onMouseDown(float x, float y) {
     lastClickRow_ = (int)row;
     lastClickTime_ = now;
     lastClickPt_ = pt;
-    sel_.click((std::size_t)row, ctrl, shift);
+    // Pressing on something already selected keeps the selection (it may be dragged); otherwise select.
+    const bool keep = sel_.selected((std::size_t)row) && !ctrl && !shift;
+    if (!keep) sel_.click((std::size_t)row, ctrl, shift);
+    drag_.armed = true;
+    drag_.sx = drag_.x = x;
+    drag_.sy = drag_.y = y;
+    drag_.paths = selectedPaths();
+    drag_.fromPane = pane_;
+    drag_.clickRow = keep ? (int)row : -1;
     return true;
 }
 
 bool FilesWindow::onRightClick(float x, float y) {
+    if (const int p = paneAt(x, y); p >= 0 && p != pane_) activate(p, activeTab_[p]);
+    // A pinned folder in the sidebar.
+    for (auto& [path, rr] : pinnedRects_)
+        if (rr.contains(x, y)) {
+            const float s = gfx_.dpiScale();
+            POINT pt{(LONG)(x * s), (LONG)(y * s)};
+            ClientToScreen(hwnd(), &pt);
+            sidebarMenu(path, pt);
+            return true;
+        }
     if (here_.thisPC || !listClip_.contains(x, y) || error_ != ListError::None) return false;
     long long row = -1;
     if (settings_.view == ViewMode::Details) {
@@ -586,7 +678,13 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
         }
         case WM_APP_CHANGED:
             // Something in the folder changed (here or in another program): list it again shortly, keeping the place.
+            if ((std::uint64_t)wp == request_ && !here_.thisPC) treeKids_.erase(lowerKey(here_.path));   // its sub-folders may have changed
             if ((std::uint64_t)wp == request_ && !here_.thisPC && !renaming_) SetTimer(hwnd(), kRefreshTimer, 350, nullptr);
+            else if (View* v = viewForRequest((std::uint64_t)wp); v && !v->here.thisPC) {
+                swapView(*v);
+                reloadQuietly();   // another tab's folder: listed again in the background
+                swapView(*v);
+            }
             handled = true;
             return 0;
         case WM_INITMENUPOPUP:
@@ -699,6 +797,7 @@ void FilesWindow::sortBy(SortKey k) {
 }
 
 void FilesWindow::toggleHidden() {
+    treeKids_.clear();
     settings_.showHidden = !settings_.showHidden;
     settings_.save(settingsPath_);
     showHere();
@@ -750,6 +849,9 @@ void FilesWindow::showMenu() {
                                    MenuItem::item(L"Descending", CmdSortDesc, {}, true, settings_.sortDescending)}),
         MenuItem::item(L"Refresh", CmdRefresh, L"F5"),
         MenuItem::sep(),
+        MenuItem::item(L"New tab", CmdNewTab, L"Ctrl+T"),
+        MenuItem::item(L"Two panes side by side", CmdTwoPanes, L"Ctrl+\\", true, twoPanes_),
+        MenuItem::sep(),
         MenuItem::item(L"Show hidden items", CmdHidden, {}, true, settings_.showHidden),
         MenuItem::item(L"Show protected operating system files", CmdProtected, {}, true, settings_.showProtected),
         MenuItem::sep(),
@@ -774,6 +876,8 @@ void FilesWindow::showMenu() {
         case CmdSortAsc: settings_.sortDescending = false; settings_.save(settingsPath_); showHere(); break;
         case CmdSortDesc: settings_.sortDescending = true; settings_.save(settingsPath_); showHere(); break;
         case CmdRefresh: refresh(); break;
+        case CmdNewTab: newTab(here_); break;
+        case CmdTwoPanes: setTwoPanes(!twoPanes_); break;
         case CmdHidden: toggleHidden(); break;
         case CmdProtected: toggleProtected(); break;
         case CmdThemeSystem: case CmdThemeLight: case CmdThemeDark:
@@ -801,6 +905,13 @@ void FilesWindow::showItemMenu(POINT screen) {
         const auto rows = sel_.indices();
         const bool oneFolder = n == 1 && shown_[rows[0]].folder();
         items.push_back(MenuItem::item(L"Open", CmdOpen, L"Enter"));
+        if (oneFolder) items.push_back(MenuItem::item(L"Open in a new tab", CmdNewTabHere, L""));
+        if (oneFolder) items.push_back(MenuItem::item(L"Pin to the sidebar", CmdPin));
+        if (twoPanes_) {
+            items.push_back(MenuItem::sep());
+            items.push_back(MenuItem::item(L"Copy to the other pane", CmdCopyOther));
+            items.push_back(MenuItem::item(L"Move to the other pane", CmdMoveOther));
+        }
         items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(L"Cut", CmdCut, L"Ctrl+X"));
         items.push_back(MenuItem::item(L"Copy", CmdCopy, L"Ctrl+C"));
@@ -826,6 +937,10 @@ void FilesWindow::showItemMenu(POINT screen) {
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     switch (cmd) {
         case CmdOpen: openSelection(); break;
+        case CmdNewTabHere: { const auto rows = sel_.indices(); if (rows.size() == 1) newTab({false, rowPath(rows[0])}); break; }
+        case CmdPin: { const auto rows = sel_.indices(); if (rows.size() == 1) pinFolder(rowPath(rows[0])); break; }
+        case CmdCopyOther: transferToOtherPane(false); break;
+        case CmdMoveOther: transferToOtherPane(true); break;
         case CmdCut: copyOrCut(true); break;
         case CmdCopy: copyOrCut(false); break;
         case CmdPaste: paste(); break;
@@ -1011,7 +1126,8 @@ void FilesWindow::reloadQuietly(std::vector<std::wstring> select) {
     pending_.clear();
     selectNames_.clear();
     for (auto& n : select) selectNames_.insert(n);
-    latest_->store(++request_);
+    request_ = nextRequest();
+    latest_->store(request_);
     listFolderAsync(hwnd(), here_.path, request_, latest_);
 }
 
@@ -1045,6 +1161,435 @@ void FilesWindow::recycleBinMenu(POINT screen) {
         updateRecycleBin();
     }
     invalidate();
+}
+
+
+
+// ---------------------------------------------------------------- the folder tree
+
+// A folder's sub-folders (names, in File Explorer's order), read once and kept until it's opened again.
+const std::vector<std::wstring>& FilesWindow::treeChildren(const std::wstring& path) {
+    const std::wstring key = lowerKey(path);
+    if (auto it = treeKids_.find(key); it != treeKids_.end()) return it->second;
+    std::vector<Entry> found;
+    WIN32_FIND_DATAW fd;
+    const std::wstring pattern = extendedPath(join(path, L"*"));
+    HANDLE h = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchLimitToDirectories, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
+            Entry e;
+            e.name = fd.cFileName;
+            e.attributes = fd.dwFileAttributes;
+            if (!isVisible(e, {settings_.showHidden, settings_.showProtected})) continue;
+            found.push_back(e);
+        } while (found.size() < 2000 && FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    sortEntries(found, {SortKey::Name, false});
+    std::vector<std::wstring> names;
+    for (auto& e : found) names.push_back(e.name);
+    return treeKids_[key] = std::move(names);
+}
+
+// The drives as the roots of a tree: a triangle opens or closes a folder, a click opens it. The tree
+// opens its way to the folder you're in.
+void FilesWindow::drawTree(const Rect& r, float& y, float bottom) {
+    if (!here_.thisPC && here_.path != treeFollows_) {
+        treeFollows_ = here_.path;
+        for (std::wstring p = parentOf(here_.path); !p.empty(); p = parentOf(p)) treeOpen_.insert(lowerKey(p));
+        // Scroll so the folder you're in shows (worked out below from where its row lands, once the
+        // drives and folders it sits in have been read).
+        treeReveal_ = true;
+    }
+    const Rect area{r.x, y, r.w, std::max(0.0f, bottom - y)};
+    treeRect_ = area;
+    gfx_.pushClip(area);
+    setHitClip(area);
+    float ty = y - treeScroll_;
+    float hereY = -1;
+    const float rowH = 28;
+    std::function<void(const std::wstring&, const std::wstring&, int, int)> draw = [&](const std::wstring& path, const std::wstring& label, int icon, int depth) {
+        const bool open = treeOpen_.count(lowerKey(path)) != 0;
+        const bool selected = !here_.thisPC && samePath(here_.path, path);
+        if (selected) hereY = ty;
+        const float indent = 14.0f * (float)depth;
+        const Rect rr{r.x + 10, ty, r.w - 20, rowH - 2};
+        if (ty + rowH >= area.y && ty <= area.bottom()) {
+            const std::string id = "tb:tree:" + narrow(path);
+            addHit(id, {rr.x + 22 + indent, rr.y, rr.w - 22 - indent, rr.h}, [this, path] { goPath(path); });
+            const float hv = hoverAmount(id);
+            if (selected) {
+                gfx_.fillRounded(rr, 7, nr::kNightInk.withAlpha(0.10f));
+                gfx_.fillRounded({rr.x, rr.y + 7, 3, rr.h - 14}, 1.5f, nr::kAuroraGreen);
+            } else if (hv > 0.01f) {
+                gfx_.fillRounded(rr, 7, nr::kNightInk.withAlpha(0.06f * hv));
+            }
+            // The triangle: open or closed.
+            const std::string tid = id + ":open";
+            const Rect tri{rr.x + 4 + indent, rr.y + (rr.h - 18) / 2, 18, 18};
+            addHit(tid, tri, [this, path, open] {
+                const std::wstring k = lowerKey(path);
+                if (open) treeOpen_.erase(k);
+                else { treeKids_.erase(k); treeOpen_.insert(k); }   // read again when opened
+                invalidate();
+            }, false);
+            const float cx = tri.x + 9, cy = tri.y + 9;
+            const Color tc = nr::kNightMuted.mix(nr::kNightInk, hoverAmount(tid) * 0.6f);
+            if (open) { gfx_.line(cx - 3.5f, cy - 1.5f, cx, cy + 2, tc, 1.3f); gfx_.line(cx, cy + 2, cx + 3.5f, cy - 1.5f, tc, 1.3f); }
+            else { gfx_.line(cx - 1.5f, cy - 3.5f, cx + 2, cy, tc, 1.3f); gfx_.line(cx + 2, cy, cx - 1.5f, cy + 3.5f, tc, 1.3f); }
+            drawIcon(icon, {rr.x + 24 + indent, rr.y + (rr.h - 16) / 2, 16, 16});
+            gfx_.text(label, {rr.x + 46 + indent, rr.y, rr.w - 52 - indent, rr.h}, selected ? Font::BodyStrong : Font::Body,
+                      selected ? nr::kNightInk : nr::kNightMuted.mix(nr::kNightInk, 0.35f + 0.4f * hv), {Align::Left, false, true, true});
+            if (focused(id)) focusRing(rr);
+        }
+        ty += rowH;
+        if (!open || depth > 14) return;
+        int folderIcon = icon;
+        for (const Place& p : places_) if (p.icon >= 0) { folderIcon = p.icon; break; }
+        for (const std::wstring& name : treeChildren(path)) draw(join(path, name), name, folderIcon, depth + 1);
+    };
+    for (const Drive& d : drives_) {
+        if (!d.ready) continue;   // an empty card reader has nothing to open
+        draw(d.root, d.label + L" (" + d.root.substr(0, 2) + L")", d.icon, 0);
+    }
+    treeContent_ = ty + treeScroll_ - y;
+    clearHitClip();
+    gfx_.popClip();
+    if (treeReveal_ && hereY > -1) {
+        // Bring the folder you're in into view.
+        treeReveal_ = false;
+        if (hereY < area.y || hereY + rowH > area.bottom()) {
+            treeScroll_ = std::max(0.0f, treeScroll_ + hereY - area.y - area.h / 2);
+            treeScroll_ = std::min(treeScroll_, std::max(0.0f, treeContent_ - area.h));
+            invalidate();
+        }
+    }
+    treeScroll_ = std::clamp(treeScroll_, 0.0f, std::max(0.0f, treeContent_ - area.h));
+    y = area.bottom();
+}
+
+// ---------------------------------------------------------------- tabs and panes
+
+void FilesWindow::swapView(View& v) {
+    using std::swap;
+    swap(here_, v.here);
+    swap(backStack_, v.backStack);
+    swap(forwardStack_, v.forwardStack);
+    swap(listed_, v.listed);
+    swap(shown_, v.shown);
+    swap(sel_, v.sel);
+    swap(selectAfterLoad_, v.selectAfterLoad);
+    swap(loading_, v.loading);
+    swap(loadedOnce_, v.loadedOnce);
+    swap(partial_, v.partial);
+    swap(quiet_, v.quiet);
+    swap(error_, v.error);
+    swap(errorCode_, v.errorCode);
+    swap(request_, v.request);
+    swap(latest_, v.latest);
+    swap(loadStarted_, v.loadStarted);
+    swap(pending_, v.pending);
+    swap(selectNames_, v.selectNames);
+    swap(listClip_, v.listClip);
+    swap(listTop_, v.listTop);
+    swap(tileW_, v.tileW);
+    swap(listX_, v.listX);
+    swap(columns_, v.columns);
+    const ScrollState mine = scrollState();
+    setScrollState(v.scroll);
+    v.scroll = mine;
+    // Swapped in from outside (anything but the active tab): don't touch the window's title.
+    swappedIn_ += (&v == &tabs_[pane_][(size_t)activeTab_[pane_]]) ? 0 : 1;
+    if (swappedIn_ > 1) swappedIn_ -= 2;   // the second swap of a pair
+}
+
+FilesWindow::View* FilesWindow::viewForRequest(std::uint64_t request) {
+    for (int p = 0; p < 2; ++p)
+        for (int t = 0; t < (int)tabs_[p].size(); ++t) {
+            if (p == pane_ && t == activeTab_[p]) continue;   // the active tab's slot holds nothing (it's in the window)
+            if (tabs_[p][(size_t)t].request == request) return &tabs_[p][(size_t)t];
+        }
+    return nullptr;
+}
+
+const FilesWindow::Location& FilesWindow::tabLocation(int pane, int tab) const {
+    // The tab whose view is in the window's fields: the active one, or the other pane's while it's drawn.
+    if (tab == activeTab_[pane] && (swappedPane_ >= 0 ? pane == swappedPane_ : pane == pane_)) return here_;
+    return tabs_[pane][(size_t)tab].here;
+}
+
+void FilesWindow::activate(int pane, int tab) {
+    if (pane < 0 || pane > 1 || tab < 0 || tab >= (int)tabs_[pane].size()) return;
+    if (pane == pane_ && tab == activeTab_[pane]) return;
+    if (renaming_) endRename(true);
+    if (editing_) endEditingAddress(false);
+    View& from = tabs_[pane_][(size_t)activeTab_[pane_]];
+    swappedIn_ = 0;
+    {
+        // The active tab's state goes into its slot...
+        using std::swap;
+        View tmp;
+        swap(tmp, from);   // (the slot's leftovers, unused)
+        swapView(from);    // window fields -> slot
+        swappedIn_ = 0;
+    }
+    pane_ = pane;
+    activeTab_[pane] = tab;
+    swapView(tabs_[pane][(size_t)tab]);   // ...and the chosen one comes out of its slot
+    swappedIn_ = 0;
+    const std::wstring name = here_.thisPC ? L"This PC" : (isDriveRoot(here_.path) ? here_.path.substr(0, 2) : nameOf(here_.path));
+    windowTitle_ = name + L" – NorthRay Files";
+    SetWindowTextW(hwnd(), windowTitle_.c_str());
+    invalidate();
+}
+
+void FilesWindow::newTab(Location at) {
+    tabs_[pane_].push_back(View{});
+    activate(pane_, (int)tabs_[pane_].size() - 1);
+    go(at, false);
+}
+
+void FilesWindow::closeTab(int pane, int tab) {
+    if (pane < 0 || pane > 1 || tab < 0 || tab >= (int)tabs_[pane].size()) return;
+    if (tabs_[pane].size() == 1) {
+        if (pane == 1 || twoPanes_) { setTwoPanes(false); return; }   // the second pane's last tab closes the pane
+        PostMessageW(hwnd(), WM_CLOSE, 0, 0);                         // the last tab: the window closes
+        return;
+    }
+    const bool active = pane == pane_ && tab == activeTab_[pane];
+    if (active) {
+        // Show a neighbour first, then let the closed one go.
+        const int next = tab + 1 < (int)tabs_[pane].size() ? tab + 1 : tab - 1;
+        activate(pane, next);
+    }
+    View& v = tabs_[pane][(size_t)tab];
+    if (v.latest) v.latest->store(~0ull);   // its workers give up
+    tabs_[pane].erase(tabs_[pane].begin() + tab);
+    if (activeTab_[pane] > tab) --activeTab_[pane];
+    invalidate();
+}
+
+void FilesWindow::setTwoPanes(bool on) {
+    if (on == twoPanes_) return;
+    if (on) {
+        twoPanes_ = true;
+        if (tabs_[1].empty()) {
+            const Location here = here_;
+            tabs_[1].push_back(View{});
+            activate(1, 0);
+            go(here, false);   // the second pane starts where the first one is
+        } else {
+            activate(1, activeTab_[1]);
+        }
+    } else {
+        if (pane_ == 1) activate(0, activeTab_[0]);
+        for (auto& v : tabs_[1]) if (v.latest) v.latest->store(~0ull);
+        tabs_[1].clear();
+        activeTab_[1] = 0;
+        twoPanes_ = false;
+    }
+    settings_.twoPanes = twoPanes_;
+    settings_.save(settingsPath_);
+    invalidate();
+}
+
+int FilesWindow::paneAt(float x, float y) const {
+    if (!twoPanes_ || tabs_[1].empty()) return paneRect_[0].contains(x, y) ? 0 : -1;
+    for (int p = 0; p < 2; ++p) if (paneRect_[p].contains(x, y)) return p;
+    return -1;
+}
+
+void FilesWindow::transferToOtherPane(bool move) {
+    if (!twoPanes_) return;
+    const int other = 1 - pane_;
+    const Location& to = tabLocation(other, activeTab_[other]);
+    if (to.thisPC) { flash(L"Open a folder in the other pane first.", 5); return; }
+    const auto paths = selectedPaths();
+    if (paths.empty()) return;
+    const TransferPlan plan = planTransfer(paths, to.path, move);
+    if (plan.nothingToDo) { flash(L"They're in that folder already.", 5); return; }
+    if (!plan.problem.empty()) flash(plan.problem, 6);
+    if (plan.sources.empty()) return;
+    const ops::Result r = ops::transfer(hwnd(), plan.sources, to.path, move);
+    if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
+                                                L"NorthRay Files", MB_OK | MB_ICONWARNING);
+    else if (r.ok) flash((move ? L"Moved to “" : L"Copied to “") + (isDriveRoot(to.path) ? to.path : nameOf(to.path)) + L"”.", 5);
+    if (move) reloadQuietly();
+}
+
+// The tabs along the top of a pane: each folder's name, a close button on the hovered or active one,
+// and "+" for a new tab.
+void FilesWindow::drawTabs(const Rect& r, int pane) {
+    gfx_.fill(r, pal_.surface.mix(pal_.paper, 0.5f));
+    gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
+    const int n = (int)tabs_[pane].size();
+    const float plusW = 34;
+    const float tw = n ? std::clamp((r.w - 16 - plusW) / (float)n, 60.0f, 220.0f) : 0;
+    float x = r.x + 8;
+    for (int t = 0; t < n; ++t) {
+        const Location& l = tabLocation(pane, t);
+        const std::wstring name = l.thisPC ? L"This PC" : (isDriveRoot(l.path) ? l.path.substr(0, 2) : nameOf(l.path));
+        const Rect tr{x, r.y + 4, tw - 4, r.h - 4};
+        const std::string id = "tab:" + std::to_string(pane) + ":" + std::to_string(t);
+        addHit(id, {tr.x, tr.y, tr.w - 24, tr.h}, [this, pane, t] { activate(pane, t); });
+        const bool on = t == activeTab_[pane];
+        const float hv = hoverAmount(id);
+        if (on) {
+            gfx_.fillRounded({tr.x, tr.y, tr.w, tr.h + 6}, 7, pal_.paper);
+            gfx_.strokeRounded({tr.x, tr.y, tr.w, tr.h + 6}, 7, pal_.rule);
+            gfx_.fill({tr.x + 1, tr.bottom() - 1, tr.w - 2, 6}, pal_.paper);
+        } else if (hv > 0.01f) {
+            gfx_.fillRounded(tr, 7, pal_.ink.withAlpha(0.05f * hv));
+        }
+        gfx_.text(name, {tr.x + 12, tr.y, tr.w - 38, tr.h}, on ? Font::SmallStrong : Font::Small, on ? pal_.ink : pal_.inkMuted, {Align::Left, false, true, true});
+        if (n > 1 || pane == 1) {
+            const Rect xb{tr.right() - 24, tr.y + (tr.h - 18) / 2, 18, 18};
+            const std::string xid = "tabx:" + std::to_string(pane) + ":" + std::to_string(t);
+            addHit(xid, xb, [this, pane, t] { closeTab(pane, t); }, false);
+            const float xh = hoverAmount(xid);
+            if (on || hv > 0.01f || xh > 0.01f) {
+                if (xh > 0.01f) gfx_.fillRounded(xb, 4, pal_.ink.withAlpha(0.08f * xh));
+                const float cx = xb.x + 9, cy = xb.y + 9;
+                gfx_.line(cx - 3.5f, cy - 3.5f, cx + 3.5f, cy + 3.5f, pal_.inkMuted, 1.2f);
+                gfx_.line(cx + 3.5f, cy - 3.5f, cx - 3.5f, cy + 3.5f, pal_.inkMuted, 1.2f);
+            }
+        }
+        if (focused(id)) focusRing(tr);
+        x += tw;
+    }
+    const Rect pb{x + 2, r.y + 6, 28, r.h - 10};
+    const std::string pid = "tab+:" + std::to_string(pane);
+    addHit(pid, pb, [this, pane] {
+        if (pane != pane_) activate(pane, activeTab_[pane]);
+        newTab(here_);
+    });
+    const float ph = hoverAmount(pid);
+    if (ph > 0.01f) gfx_.fillRounded(pb, 6, pal_.ink.withAlpha(0.06f * ph));
+    gfx_.line(pb.x + 14, pb.y + pb.h / 2 - 5, pb.x + 14, pb.y + pb.h / 2 + 5, pal_.inkMuted, 1.4f);
+    gfx_.line(pb.x + 9, pb.y + pb.h / 2, pb.x + 19, pb.y + pb.h / 2, pal_.inkMuted, 1.4f);
+    if (focused(pid)) focusRing(pb);
+}
+
+// ---------------------------------------------------------------- pinned folders and dragging
+
+void FilesWindow::pinFolder(const std::wstring& path) {
+    for (auto& p : settings_.pinned) if (samePath(p, path)) { flash(L"It's pinned already.", 4); return; }
+    settings_.pinned.push_back(path);
+    settings_.save(settingsPath_);
+    flash(L"Pinned “" + (isDriveRoot(path) ? path : nameOf(path)) + L"” to the sidebar.", 4);
+    invalidate();
+}
+
+void FilesWindow::unpinFolder(const std::wstring& path) {
+    auto& v = settings_.pinned;
+    v.erase(std::remove_if(v.begin(), v.end(), [&](const std::wstring& p) { return samePath(p, path); }), v.end());
+    settings_.save(settingsPath_);
+    invalidate();
+}
+
+void FilesWindow::sidebarMenu(const std::wstring& path, POINT screen) {
+    const std::vector<MenuItem> items = {MenuItem::item(L"Open", CmdPinnedOpen), MenuItem::item(L"Open in a new tab", CmdPinnedTab), MenuItem::sep(),
+                                         MenuItem::item(L"Unpin from the sidebar", CmdUnpin)};
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd == CmdPinnedOpen) goPath(path);
+    else if (cmd == CmdPinnedTab) newTab({false, path});
+    else if (cmd == CmdUnpin) unpinFolder(path);
+    invalidate();
+}
+
+std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
+    const int p = paneAt(x, y);
+    if (paneOut) *paneOut = p;
+    if (p < 0) return {};
+    const bool swapped = p != pane_;
+    if (swapped) swapView(tabs_[p][(size_t)activeTab_[p]]);
+    std::wstring out;
+    if (!here_.thisPC && error_ == ListError::None) {
+        long long row = -1;
+        if (listClip_.contains(x, y)) {
+            if (settings_.view == ViewMode::Details) {
+                const long long r = (long long)std::floor((y - listTop_) / rowH_);
+                if (r >= 0 && r < (long long)shown_.size()) row = r;
+            } else {
+                const long long line = (long long)std::floor((y - listTop_) / tileH_), col = (long long)std::floor((x - listX_) / tileW_);
+                if (line >= 0 && col >= 0 && col < columns_ && line * columns_ + col < (long long)shown_.size()) row = line * columns_ + col;
+            }
+        }
+        std::wstring rowFolder;
+        if (row >= 0 && shown_[(size_t)row].folder()) rowFolder = rowPath((size_t)row);
+        bool dragged = false;
+        for (auto& d : drag_.paths) if (samePath(d, rowFolder)) dragged = true;
+        if (!rowFolder.empty() && !dragged) out = rowFolder;
+        else if (p != drag_.fromPane) out = here_.path;   // the other pane's folder
+    }
+    if (swapped) swapView(tabs_[p][(size_t)activeTab_[p]]);
+    return out;
+}
+
+void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (!leftDown) { if (drag_.armed && !drag_.active) drag_ = Drag{}; return; }
+    if (!drag_.armed) return;
+    drag_.x = x;
+    drag_.y = y;
+    if (!drag_.active && std::hypot(x - drag_.sx, y - drag_.sy) > 6 && !drag_.paths.empty()) drag_.active = true;
+    if (drag_.active) invalidate();
+}
+
+bool FilesWindow::onMouseUp(float x, float y) {
+    if (!drag_.armed) return false;
+    Drag d = drag_;
+    drag_ = Drag{};
+    if (!d.active) {
+        // A press on something already selected, without dragging: select just it.
+        if (d.clickRow >= 0 && (size_t)d.clickRow < shown_.size()) sel_.click((size_t)d.clickRow, false, false);
+        invalidate();
+        return false;
+    }
+    invalidate();
+    if (sidebarRect_.contains(x, y)) {
+        int pinned = 0;
+        for (auto& p : d.paths) {
+            const DWORD a = GetFileAttributesW(extendedPath(p).c_str());
+            if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) { pinFolder(p); ++pinned; }
+        }
+        if (!pinned) flash(L"Only folders can be pinned to the sidebar.", 5);
+        return true;
+    }
+    drag_ = d;   // dropTargetFolder looks at what's dragged
+    int tp = -1;
+    const std::wstring target = dropTargetFolder(x, y, &tp);
+    drag_ = Drag{};
+    if (target.empty()) return true;
+    // As in File Explorer: a move on the same drive, a copy to another (Ctrl copies, Shift moves).
+    const bool ctrl = GetKeyState(VK_CONTROL) & 0x8000, shift = GetKeyState(VK_SHIFT) & 0x8000;
+    const bool sameDrive = !d.paths.empty() && towupper(d.paths[0][0]) == towupper(target[0]) && d.paths[0][1] == L':' && target[1] == L':';
+    const bool move = shift || (!ctrl && sameDrive);
+    const TransferPlan plan = planTransfer(d.paths, target, move);
+    if (plan.nothingToDo || plan.sources.empty()) { if (!plan.problem.empty()) flash(plan.problem, 6); return true; }
+    if (!plan.problem.empty()) flash(plan.problem, 6);
+    const ops::Result r = ops::transfer(hwnd(), plan.sources, target, move);
+    if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
+                                                L"NorthRay Files", MB_OK | MB_ICONWARNING);
+    else if (r.ok) flash((move ? L"Moved to “" : L"Copied to “") + (isDriveRoot(target) ? target : nameOf(target)) + L"”.", 5);
+    reloadQuietly();
+    return true;
+}
+
+bool FilesWindow::onWheel(float x, float y, float deltaLines) {
+    if (treeRect_.contains(x, y)) {
+        treeScroll_ = std::clamp(treeScroll_ + deltaLines * 20.0f, 0.0f, std::max(0.0f, treeContent_ - treeRect_.h));
+        invalidate();
+        return true;
+    }
+    const int p = paneAt(x, y);
+    if (p < 0 || p == pane_) return false;   // the active pane scrolls as usual
+    swapView(tabs_[p][(size_t)activeTab_[p]]);
+    scrollBy(deltaLines * 20.0f);
+    swapView(tabs_[p][(size_t)activeTab_[p]]);
+    invalidate();
+    return true;
 }
 
 // ---------------------------------------------------------------- drawing
@@ -1116,6 +1661,10 @@ void FilesWindow::navButton(const std::string& id, const Rect& r, int icon, bool
         case IconMenu:
             for (int i = -1; i <= 1; ++i) gfx_.circle(cx + i * 6.0f, cy, 1.6f, c, true);
             break;
+        case IconPanes:   // two panes side by side
+            gfx_.strokeRounded({cx - 8, cy - 6, 16, 12}, 2, c, 1.4f);
+            gfx_.line(cx, cy - 6, cx, cy + 6, c, 1.4f);
+            break;
         default: break;
     }
     if (enabled && focused(id)) focusRing(r);
@@ -1130,10 +1679,53 @@ void FilesWindow::drawFrame(float W, float H) {
         SendMessageW(address_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
     }
     const float side = W >= 760 ? kSidebarW : 0;   // a narrow window gives the files the room
+    sidebarRect_ = {0, 0, side, H};
     if (side > 0) drawSidebar({0, 0, side, H});
     drawToolbar({side, 0, W - side, kToolbarH});
-    drawContent({side, kToolbarH, W - side, H - kToolbarH});
+    // The panes: one, or two side by side, each with its tabs along the top. The other pane is drawn
+    // first with its own tab swapped in, then the active one (whose geometry the mouse and keys use).
+    const Rect area{side, kToolbarH, W - side, H - kToolbarH};
+    const bool two = twoPanes_ && area.w >= 700 && !tabs_[1].empty();
+    if (two) {
+        const float half = std::floor(area.w / 2);
+        paneRect_[0] = {area.x, area.y, half - 1, area.h};
+        paneRect_[1] = {area.x + half, area.y, area.w - half, area.h};
+    } else {
+        paneRect_[0] = area;
+        paneRect_[1] = {};
+    }
+    constexpr float kTabsH = 34;
+    for (int k = 0; k < (two ? 2 : 1); ++k) {
+        const int p = two ? (k == 0 ? 1 - pane_ : pane_) : pane_;   // the active pane last
+        const Rect pr = two ? paneRect_[p] : area;
+        const bool swapped = p != pane_;
+        if (swapped) { swapView(tabs_[p][(size_t)activeTab_[p]]); swappedPane_ = p; }
+        idPrefix_ = p == 1 ? "p1:" : "";
+        drawTabs({pr.x, pr.y, pr.w, kTabsH}, p);
+        drawContent({pr.x, pr.y + kTabsH, pr.w, pr.h - kTabsH});
+        if (two && p == pane_) gfx_.fill({pr.x, pr.y + kTabsH - 2, pr.w, 2}, pal_.ribbon.withAlpha(0.8f));   // the active pane
+        if (swapped) { swapView(tabs_[p][(size_t)activeTab_[p]]); swappedPane_ = -1; }
+        idPrefix_.clear();
+    }
+    if (two) gfx_.fill({paneRect_[1].x - 1, area.y, 1, area.h}, pal_.rule);
     if (side <= 0) drawStatusNote({side, kToolbarH, W - side, H - kToolbarH});
+    // Dragging: what's being dragged, and where it would go.
+    if (drag_.active) {
+        int tp = -1;
+        const std::wstring target = dropTargetFolder(drag_.x, drag_.y, &tp);
+        const bool toSidebar = sidebarRect_.contains(drag_.x, drag_.y);
+        std::wstring what = drag_.paths.size() == 1 ? nameOf(drag_.paths[0]) : std::to_wstring(drag_.paths.size()) + L" items";
+        std::wstring label = what;
+        if (toSidebar) label = L"Pin " + what + L" to the sidebar";
+        else if (!target.empty()) {
+            const bool copy = (GetKeyState(VK_CONTROL) & 0x8000) || (drag_.paths.size() && towupper(drag_.paths[0][0]) != towupper(target[0]));
+            label = (copy ? L"Copy " : L"Move ") + what + L" to " + (isDriveRoot(target) ? target : nameOf(target));
+        }
+        const float lw = std::min(gfx_.measureWidth(label, Font::Small) + 24, 420.0f);
+        const Rect g{drag_.x + 14, drag_.y + 16, lw, 28};
+        gfx_.fillRounded(g, 8, pal_.ink.withAlpha(0.88f));
+        gfx_.text(label, g, Font::Small, pal_.paper, {Align::Center, false, true, true});
+    }
     drawToast({side, kToolbarH, W - side, H - kToolbarH});
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
@@ -1185,6 +1777,19 @@ void FilesWindow::drawSidebar(const Rect& r) {
         if (focused(id)) focusRing(rr);
         y += 34;
     };
+    pinnedRects_.clear();
+    if (!settings_.pinned.empty()) {
+        gfx_.text(L"PINNED", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
+        y += 22;
+        int folderIcon = -1;
+        for (const Place& p : places_) if (p.icon >= 0) { folderIcon = p.icon; break; }
+        for (const auto& path : settings_.pinned) {
+            pinnedRects_.push_back({path, {r.x + 10, y, r.w - 20, 32}});
+            row("tb:pin:" + narrow(path), isDriveRoot(path) ? path : nameOf(path), folderIcon, !here_.thisPC && samePath(here_.path, path),
+                [this, path] { goPath(path); });
+        }
+        y += 12;
+    }
     gfx_.text(L"PLACES", {r.x + 22, y, r.w - 44, 16}, Font::Label, nr::kNightMuted.withAlpha(0.75f), {Align::Left, false});
     y += 22;
     for (const Place& p : places_)
@@ -1204,12 +1809,7 @@ void FilesWindow::drawSidebar(const Rect& r) {
     // What's here, at the foot of the sidebar.
     const std::wstring status = statusText();
     const float statusH = status.empty() ? 0 : gfx_.measureHeight(status, r.w - 44, Font::Small) + 30;
-    for (const Drive& d : drives_) {
-        if (y > r.bottom() - 40 - statusH) break;
-        const bool inHere = !here_.thisPC && here_.path.size() >= 3 && samePath(here_.path.substr(0, 3), d.root) && isDriveRoot(here_.path);
-        row("tb:drive:" + narrow(d.root), d.label + L" (" + d.root.substr(0, 2) + L")", d.icon, inHere,
-            [this, root = d.root] { goPath(root); }, d.ready ? L"" : L"empty");
-    }
+    drawTree(r, y, r.bottom() - statusH - 6);
     if (!status.empty()) {
         gfx_.line(r.x + 22, r.bottom() - statusH + 4, r.right() - 22, r.bottom() - statusH + 4, nr::kNightInk.withAlpha(0.10f));
         gfx_.text(status, {r.x + 22, r.bottom() - statusH + 14, r.w - 44, statusH}, Font::Small, nr::kNightMuted);
@@ -1230,8 +1830,10 @@ void FilesWindow::drawToolbar(const Rect& r) {
     navButton("tb:refresh", {x, by, bs, bs}, IconRefresh, true, [this] { refresh(); });
     x += bs + 10;
     const float right = r.right() - drawCaptionButtons(r, false) - 8;
-    const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2;
-    drawAddress({x, by - 1, detailsX - 12 - x, bs + 2});
+    const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2, panesX = detailsX - 10 - bs;
+    drawAddress({x, by - 1, panesX - 12 - x, bs + 2});
+    if (twoPanes_) gfx_.fillRounded({panesX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
+    navButton("tb:panes", {panesX, by, bs, bs}, IconPanes, true, [this] { setTwoPanes(!twoPanes_); });
     // Views: the current one is marked.
     const bool icons = settings_.view == ViewMode::Icons;
     gfx_.fillRounded({icons ? iconsX : detailsX, by, bs, bs}, 8, pal_.ribbon.withAlpha(pal_.dark ? 0.20f : 0.14f));
@@ -1364,7 +1966,7 @@ void FilesWindow::drawContent(const Rect& r) {
 
 void FilesWindow::drawRowBackground(const Rect& r, std::size_t row, float radius) {
     const bool sel = sel_.selected(row);
-    const bool hov = hoverId() == "row:" + std::to_string(row);
+    const bool hov = hoverId() == idPrefix_ + "row:" + std::to_string(row);
     if (sel) gfx_.fillRounded(r, radius, pal_.ribbon.withAlpha(pal_.dark ? (hov ? 0.30f : 0.22f) : (hov ? 0.22f : 0.15f)));
     else if (hov) gfx_.fillRounded(r, radius, pal_.ink.withAlpha(pal_.dark ? 0.06f : 0.04f));
     if ((int)row == sel_.focus() && GetFocus() == hwnd()) gfx_.strokeRounded(r, radius, pal_.ribbon.withAlpha(0.7f), 1);
@@ -1400,10 +2002,10 @@ void FilesWindow::drawDetails(const Rect& r) {
         }
         if (focused(id)) focusRing(c);
     };
-    head("tb:sort:name", L"Name", xName, nameW, SortKey::Name, false);
-    head("tb:sort:date", L"Date modified", xDate, dateW, SortKey::Modified, false);
-    head("tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
-    head("tb:sort:size", L"Size", xSize, sizeW - 14, SortKey::Size, true);
+    head(idPrefix_ + "tb:sort:name", L"Name", xName, nameW, SortKey::Name, false);
+    head(idPrefix_ + "tb:sort:date", L"Date modified", xDate, dateW, SortKey::Modified, false);
+    head(idPrefix_ + "tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
+    head(idPrefix_ + "tb:sort:size", L"Size", xSize, sizeW - 14, SortKey::Size, true);
 
     const Rect clip{r.x, hr.bottom() + 2, r.w, r.h - kHeaderH - 2};
     listClip_ = clip;
@@ -1415,7 +2017,7 @@ void FilesWindow::drawDetails(const Rect& r) {
     for (std::size_t i = first; i < last; ++i) {
         const Entry& e = shown_[i];
         const Rect row{r.x + pad - 6, listTop_ + (float)i * rowH_, r.w - pad * 2 + 12, rowH_ - 2};
-        addHit("row:" + std::to_string(i), row, nullptr, false);
+        addHit(idPrefix_ + "row:" + std::to_string(i), row, nullptr, false);
         drawRowBackground(row, i, 6);
         const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
         if (renaming_ && (int)i == renameRow_) renameRect_ = {xName + 26, row.y + 2, std::max(120.0f, nameW - 36), row.h - 4};
@@ -1462,7 +2064,7 @@ void FilesWindow::drawIcons(const Rect& r) {
             if (i >= n) break;
             const Entry& e = shown_[i];
             const Rect t{listX_ + (float)c * tileW_ + 3, listTop_ + (float)line * tileH_, tileW_ - 6, tileH_ - 6};
-            addHit("row:" + std::to_string(i), t, nullptr, false);
+            addHit(idPrefix_ + "row:" + std::to_string(i), t, nullptr, false);
             drawRowBackground(t, i, 8);
             const float fade = (e.hidden() || e.protectedSystem() || (!cutPaths_.empty() && cutPaths_.count(lowerPath(rowPath(i))))) ? 0.55f : 1.0f;
             const Rect box{t.x + (t.w - boxW) / 2, t.y + 8, boxW, boxH};
