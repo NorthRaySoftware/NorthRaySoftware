@@ -19,7 +19,7 @@ function initials(name) {
 }
 
 // "Character" -> "k-character": each kind has its own colour (--k), in the links and the cards.
-export function kindClass(kind) { return "k-" + String(kind || "character").toLocaleLowerCase().replace(/[^a-z]/g, ""); }
+export function kindClass(kind) { return "k-" + String(kind || "character").toLocaleLowerCase().split(/\s+/)[0].replace(/[^a-z]/g, ""); }
 
 // One entry's part of the card.
 function entryBlock(e, compact) {

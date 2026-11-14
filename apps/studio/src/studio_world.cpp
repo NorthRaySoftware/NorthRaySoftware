@@ -54,7 +54,7 @@ static std::wstring initials(const std::string& name) {
 // Each kind's colour (the editor's links and name cards use the same ones).
 static cjui::Color kindColor(const std::string& kind, bool dark) {
     struct K { const char* k; const char* light; const char* dark; };
-    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"}, {"race", "#6B8E23", "#A5C76A"},
+    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"}, {"race", "#6B8E23", "#A5C76A"}, {"realm", "#5B5FC7", "#9A9DF0"},
                            {"group", "#7D5BD0", "#AE93F2"},     {"thing", "#B08A1E", "#E0BE55"},    {"lore", "#1E97A6", "#55C6D4"},
                            {"event", "#C9476A", "#F07C98"}};
     for (auto& x : ks) if (kind == x.k) return cjui::hexColor(dark ? x.dark : x.light);
@@ -82,7 +82,7 @@ static const std::vector<Facet>& allFacets() {
         {"type", L"Type of place", "Type", {"type", "kind of place", "place type"},
          {L"City", L"Town", L"Village", L"Kingdom or country", L"Region", L"Castle or fortress", L"Building", L"Room", L"Forest",
           L"Mountain", L"River or lake", L"Sea or ocean", L"Island", L"Desert", L"Cave or dungeon", L"Ruin", L"Road or path",
-          L"Realm or plane", L"Planet", L"Other"}, false},
+          L"Planet", L"Other"}, false},
         {"ctype", L"Type of creature", "Type", {"type", "kind of creature", "creature type"},
          {L"Beast", L"Monster", L"Dragon", L"Undead", L"Spirit", L"Animal", L"Bird", L"Sea creature", L"Insect", L"Plant",
           L"Construct", L"Other"}, false},
@@ -158,10 +158,10 @@ static std::string withFacet(const Entry& e, const Facet& f, const std::string& 
 // The choices for a facet: for open lists, what this world already uses comes first.
 static std::vector<std::wstring> facetChoices(const Facet& f, const std::vector<const Entry*>& scope, const std::string& kind) {
     std::vector<std::wstring> out;
-    // Race: the bible's own races (Races entries) come first.
-    if (f.key == "race")
+    // Race and realm: the bible's own Races and Realms come first.
+    if (f.key == "race" || f.key == "realm")
         for (const Entry* x : scope)
-            if (x->kind == "race" && std::find(out.begin(), out.end(), widen(x->name)) == out.end()) out.push_back(widen(x->name));
+            if (x->kind == f.key && std::find(out.begin(), out.end(), widen(x->name)) == out.end()) out.push_back(widen(x->name));
     if (f.openList)
         for (const Entry* x : scope)
             if (x->kind == kind) {
@@ -196,6 +196,22 @@ static std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, 
     for (const studio::Book* b : lib.standaloneBooksIn(world))
         if (std::find(out.begin(), out.end(), b->id) == out.end()) out.push_back(b->id);
     return out;
+}
+
+// Gender groups: a sign and a colour each (the cards keep the same layout).
+static std::wstring genderSign(const std::wstring& g) {
+    if (g == L"Female") return L"\u2640";
+    if (g == L"Male") return L"\u2642";
+    if (g == L"Non-binary" || g == L"Genderfluid" || g == L"Agender" || g == L"Intersex") return L"\u26A7";
+    return L"";
+}
+static cjui::Color genderColor(const std::wstring& g, const cjui::Palette& p) {
+    const char* light = "#7A7F8C"; const char* dark = "#A6ABB8";
+    if (g == L"Female") { light = "#B4507A"; dark = "#E68AB0"; }
+    else if (g == L"Male") { light = "#3C72C4"; dark = "#7EA8EE"; }
+    else if (g == L"Non-binary" || g == L"Genderfluid" || g == L"Agender") { light = "#8A6A1C"; dark = "#D9B95C"; }
+    else if (g == L"Intersex") { light = "#6E4FB8"; dark = "#A992EC"; }
+    return cjui::hexColor(p.dark ? dark : light);
 }
 
 // The place a place is in ("Located in" / "Part of" from it, or "Contains" / "Includes" to it), if any.
@@ -627,9 +643,29 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.line(m.x, y + 26.5f, m.right(), y + 26.5f, pal_.rule);
                 y += 38;
             }
-            for (size_t i = 0; i < items.size(); ++i) {
-                const Entry* x = items[i].e;
-                const int depth = items[i].depth;
+            // Characters: by gender or sex within the book (the listed order, then anything else, then not set).
+            std::vector<std::pair<std::wstring, std::vector<Item>>> subs;
+            if (wb_.kind == "character" && wb_.facet.rfind("gender=", 0) != 0) {
+                const Facet* gf = findFacet("gender");
+                std::map<std::wstring, std::vector<Item>> by;
+                for (auto& it : items) by[w(facetOf(*it.e, *gf))].push_back(it);
+                for (auto& o : gf->options) if (auto f = by.find(o); f != by.end()) { subs.push_back({o, f->second}); by.erase(f); }
+                std::vector<Item> unset;
+                if (auto f = by.find(L""); f != by.end()) { unset = f->second; by.erase(f); }
+                for (auto& [k, v] : by) subs.push_back({k, v});
+                if (!unset.empty()) subs.push_back({L"Not set", unset});
+                if (subs.size() == 1 && subs[0].first == L"Not set") subs[0].first.clear();   // nothing set yet: no sub-headings
+            } else subs.push_back({L"", items});
+            for (auto& [subLabel, subItems] : subs) {
+            if (!subLabel.empty()) {
+                const std::wstring sign = genderSign(subLabel);
+                gfx_.text((sign.empty() ? L"" : sign + L"  ") + subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {m.x, y, cw, 20},
+                          Font::SmallStrong, genderColor(subLabel, pal_), {Align::Left, false, true});
+                y += 26;
+            }
+            for (size_t i = 0; i < subItems.size(); ++i) {
+                const Entry* x = subItems[i].e;
+                const int depth = subItems[i].depth;
                 const int col = (int)i % cols;
                 const Rect cr{m.x + col * (cardW + gap), y, cardW, cardH};
                 const std::string id = "wb:card:" + x->id;
@@ -654,6 +690,11 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
                     gfx_.text(label, {tx, cr.y + 13, tw, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
+                // A character's gender or sex: its sign in the card's corner, in the group's colour.
+                if (x->kind == "character")
+                    if (const std::wstring g = w(facetOf(*x, *findFacet("gender"))); !g.empty())
+                        if (const std::wstring sg = genderSign(g); !sg.empty())
+                            gfx_.text(sg, {cr.right() - 30, cr.y + 6, 22, 22}, Font::BodyStrong, genderColor(g, pal_), {Align::Center, false, false, true});
                 // A place inside another: "in Akunda", and a mark per level.
                 if (depth > 0)
                     if (auto pit = parentOf.find(x->id); pit != parentOf.end())
@@ -665,7 +706,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 18 : 34}, Font::Small, pal_.inkMuted,
                                                    {Align::Left, false, true});
                 if (focused(id)) focusRing(cr);
-                if (col == cols - 1 || i + 1 == items.size()) y += cardH + gap;
+                if (col == cols - 1 || i + 1 == subItems.size()) y += cardH + gap;
+            }
+            if (!subLabel.empty()) y += 6;
             }
             y += headings ? 10 : 0;
             }
@@ -888,12 +931,12 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 Entry u = *lib_->entry(wb_.entry);
                 u.details = withFacet(u, *f, i < (int)n ? narrow(items[i]) : std::string());
                 lib_->updateEntry(u);
-                // A race that isn't in the bible yet goes in as one of its Races.
-                if (f->key == "race" && i < (int)n) {
+                // A race or realm that isn't in the bible yet goes in as one of its Races or Realms.
+                if ((f->key == "race" || f->key == "realm") && i < (int)n) {
                     bool known = false;
-                    for (const Entry* r : lib_->entriesOf(wb_.world, wb_.book)) if (r->kind == "race" && w(r->name) == items[i]) known = true;
-                    if (!known && items[i] != L"Other" && !lib_->createEntry(wb_.world, wb_.book, "race", narrow(items[i])).empty())
-                        flash(L"Added " + items[i] + L" to the bible's races.", 4);
+                    for (const Entry* r : lib_->entriesOf(wb_.world, wb_.book)) if (r->kind == f->key && w(r->name) == items[i]) known = true;
+                    if (!known && items[i] != L"Other" && !lib_->createEntry(wb_.world, wb_.book, f->key, narrow(items[i])).empty())
+                        flash(L"Added " + items[i] + (f->key == "race" ? L" to the bible's races." : L" to the bible's realms."), 4);
                 }
                 loadedFocus_ = {Focus::None, "-", ""};   // the details field shows the new line
                 invalidate();
@@ -927,7 +970,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         panelHeading(c, y, L"KINDS", false);
         for (auto& k : entryKinds()) {
             static const std::map<std::string, const wchar_t*> what = {
-                {"character", L"The people in the story."}, {"race", L"Peoples and species: elves, dwarves, the Fluxians."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
+                {"character", L"The people in the story."}, {"race", L"Peoples and species: elves, dwarves, the Fluxians."}, {"realm", L"Worlds and planes: Heaven, Hell, the spirit world."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
                 {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
                 {"lore", L"History, magic, beliefs, languages, rules of the world."}, {"event", L"Battles, festivals, disasters, turning points."}};
             gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});

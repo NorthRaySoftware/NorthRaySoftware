@@ -1288,7 +1288,7 @@ static void testWorldbuilding() {
                   "Steinriket and Steinriket's gate, not Stienriketan." && c == 2);
         }
         // Relationships: each kind's list reads both ways, and places don't offer family ties.
-        for (const char* k : {"character", "race", "creature", "place", "group", "thing", "lore", "event"})
+        for (const char* k : {"character", "race", "creature", "place", "realm", "group", "thing", "lore", "event"})
             for (auto& rc : relationsFor(k)) {
                 const std::string back = reverseRelation(rc.label);
                 CHECK(reverseRelation(back) == rc.label);

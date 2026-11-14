@@ -257,6 +257,19 @@ void StudioApp::sendView() {
                                     {"summary", e->summary.substr(0, 600)}, {"details", details}, {"image", e->imageBlob}});
         }
     }
+    // Comic scripts: the styles, and where this chapter's page numbers start (pages in the chapters before it).
+    msg["comic"] = isComic(writingBook_);
+    if (msg["comic"].get<bool>()) {
+        int pages = 0;
+        for (const ManuscriptNode* n : lib_->manuscriptOf(writingBook_)) {
+            if (n->id == currentNode_) break;
+            const json d = json::parse(lib_->nodeContent(n->id), nullptr, false);
+            if (d.is_object() && d.contains("content") && d["content"].is_array())
+                for (auto& p : d["content"])
+                    if (p.is_object() && p.value("type", "") == "paragraph" && p.value("attrs", json::object()).value("style", "") == "page") ++pages;
+        }
+        msg["comicPageStart"] = pages;
+    }
     const StyleScope sc = styleScope();
     if (!sc.key.empty()) {
         json st = json::parse(lib_->setting(sc.key), nullptr, false);

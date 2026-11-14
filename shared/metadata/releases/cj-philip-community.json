@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.26.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The small text links are now proper buttons."
+      ]
+    },
+    {
       "version": "0.25.0",
       "date": "2026-11-14",
       "notes": [

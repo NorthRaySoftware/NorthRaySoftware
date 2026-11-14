@@ -144,6 +144,7 @@ private:
     void rememberPlace();
     void ensureEditor();
     void sendLoad();
+    bool isComic(const Id& book) const { return lib_ && lib_->setting("format:" + book) == "comic"; }
     void showInWriting(const Id& book, const Id& node, std::vector<std::string> words);
     void changeNameEverywhere(const std::string& from, const std::string& to);
     void editorMessage(const std::string& json);

@@ -1,5 +1,6 @@
 // Drawing: workspace bar, library sidebar, pages, properties panel.
 #include "studio_app.hpp"
+#include "cjui/menu.hpp"
 
 #include "cjui/format.hpp"
 #include "cjui/http.hpp"
@@ -12,6 +13,17 @@
 #include <functional>
 
 namespace nrs {
+
+static int popupAt(HWND owner, const std::vector<std::wstring>& items, int checked = -1) {
+    HMENU m = CreatePopupMenu();
+    for (size_t i = 0; i < items.size(); ++i)
+        AppendMenuW(m, MF_STRING | ((int)i == checked ? MF_CHECKED : 0), 1 + (UINT)i, items[i].c_str());
+    POINT pt;
+    GetCursorPos(&pt);
+    const int cmd = (int)cjui::trackMenu(m, pt, owner);
+    DestroyMenu(m);
+    return cmd - 1;
+}
 
 using namespace studio;
 
@@ -1254,6 +1266,20 @@ void StudioApp::drawPanel(const Rect& r) {
             y = panelImage(c, y, L"Cover", b->coverBlob, [this] { chooseImage(Focus::Book, focus_.id, 0); }, [this] {
                 Book n = *lib_->book(focus_.id); n.coverBlob.clear(); lib_->updateBook(n);
             }, false);
+            // A novel or a comic script: comics get Page, Panel, Dialogue, Caption and SFX in Writing,
+            // and the comic script layout in Typesetting.
+            panelChoice("panel:format", c, y, L"Format", isComic(b->id) ? L"Comic script" : L"Novel or prose", [this] {
+                const Id bid = focus_.id;
+                const int i = popupAt(hwnd(), {L"Novel or prose", L"Comic script"}, isComic(bid) ? 1 : 0);
+                if (i < 0) return;
+                lib_->setSetting("format:" + bid, i == 1 ? "comic" : "");
+                // A comic with no typesetting design of its own starts with the comic script layout.
+                if (i == 1 && lib_->setting("typeset:" + bid).empty()) lib_->setSetting("typeset:" + bid, R"({"preset":"comic-script"})");
+                if (ts_.book == bid) ts_.book.clear();   // its design is read again
+                sendView();
+                flash(i == 1 ? L"A comic script: Page, Panel, Dialogue, Caption and SFX are in Writing's style menu (Alt+1 to Alt+5)." : L"A novel.", 6);
+                invalidate();
+            });
             heading(L"PUBLISHING DETAILS");
             panelChoice("panel:trim", c, y, L"Trim size (for print)", w(trimSize(b->trim).label), [this] { popupTrimMenu(); });
             y = panelField(c, y, L"Author", FAuthor);

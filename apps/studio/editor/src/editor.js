@@ -43,7 +43,11 @@ export const STYLES = [
   ["body", "Body"], ["first", "First paragraph"], ["centered", "Centred"], ["epigraph", "Epigraph"],
   ["attribution", "Attribution"], ["verse", "Verse"], ["letter", "Letter"], ["note", "Note"],
 ];
-const STYLE_IDS = STYLES.map((s) => s[0]);
+// Comic scripts (a book marked as a comic): numbered for the writer as they type.
+export const COMIC_STYLES = [["page", "Page"], ["panel", "Panel"], ["dialogue", "Dialogue"], ["caption", "Caption"], ["sfx", "SFX"]];
+const COMIC_IDS = COMIC_STYLES.map((s) => s[0]);
+const STYLE_IDS = [...STYLES.map((s) => s[0]), ...COMIC_IDS];
+let comicMode = false;
 const OBJECTS = "https://objects.nrstudio.localhost/";
 
 export const schema = new Schema({
@@ -190,6 +194,76 @@ function setStyle(style) {
     return ok;
   };
 }
+
+// ----------------------------------------------------------------- comic scripts
+
+function comicStyle(style) {
+  return (state, dispatch) => (comicMode ? setStyle(style)(state, dispatch) : false);
+}
+
+// Enter at the end of a comic paragraph: the next line takes the likely next style
+// (after a page, a panel; after a panel, a caption or dialogue line; dialogue follows dialogue).
+const NEXT_STYLE = { page: "panel", panel: "dialogue", dialogue: "dialogue", caption: "dialogue", sfx: "dialogue" };
+function comicEnter(state, dispatch) {
+  if (!comicMode) return false;
+  const { $from, empty } = state.selection;
+  const p = $from.parent;
+  if (!empty || p.type !== S.paragraph || !NEXT_STYLE[p.attrs.style] || $from.parentOffset !== p.content.size) return false;
+  // Enter on an empty dialogue line ends the run of dialogue: back to a panel.
+  if (p.content.size === 0 && p.attrs.style !== "page" && p.attrs.style !== "panel") {
+    if (dispatch) dispatch(state.tr.setNodeMarkup($from.before(), null, { style: "panel" }));
+    return true;
+  }
+  if (!dispatch) return true;
+  const tr = state.tr.split($from.pos, 1, [{ type: S.paragraph, attrs: { style: NEXT_STYLE[p.attrs.style] } }]);
+  dispatch(tr.scrollIntoView());
+  return true;
+}
+
+const SPELLED = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen",
+  "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+function spelled(n) { return n < 20 ? SPELLED[n] : n < 100 ? TENS[Math.floor(n / 10)] + (n % 10 ? "-" + SPELLED[n % 10] : "") : String(n); }
+
+// The numbers a comic script shows: PAGE ONE (right · four panels), Panel 1, balloon numbers, the speaker in bold.
+// Pages count on from the book's earlier chapters (sent by the app as `comicPageStart`).
+let comicPageStart = 0;
+const comicLook = new Plugin({
+  props: {
+    decorations(state) {
+      if (!comicMode) return null;
+      const decos = [];
+      const doc = state.doc;
+      // Panels per page first.
+      const counts = [];
+      doc.forEach((n) => {
+        if (n.type !== S.paragraph) return;
+        if (n.attrs.style === "page") counts.push(0);
+        else if (n.attrs.style === "panel") { if (!counts.length) counts.push(0); counts[counts.length - 1]++; }
+      });
+      let page = comicPageStart, pageIdx = -1, panel = 0, balloon = 0;
+      doc.forEach((n, pos) => {
+        if (n.type !== S.paragraph) return;
+        const st = n.attrs.style;
+        let label = null;
+        if (st === "page") {
+          page++; pageIdx++; panel = 0; balloon = 0;
+          const c = counts[pageIdx] || 0;
+          label = `PAGE ${spelled(page).toUpperCase()} (${page % 2 ? "right" : "left"}${c ? ` \u00B7 ${spelled(c).toLowerCase()} panel${c === 1 ? "" : "s"}` : ""})`;
+        } else if (st === "panel") label = `Panel ${++panel}`;
+        else if (st === "dialogue") label = `${++balloon}.`;
+        else if (st === "caption") label = `${++balloon}. CAPTION:`;
+        else if (st === "sfx") label = "SFX:";
+        if (label) decos.push(Decoration.node(pos, pos + n.nodeSize, { "data-label": label }));
+        if (st === "dialogue") {
+          const t = n.textContent, colon = t.indexOf(":");
+          if (colon > 0 && colon < 48) decos.push(Decoration.inline(pos + 1, pos + 1 + colon + 1, { class: "cs-name" }));
+        }
+      });
+      return DecorationSet.create(doc, decos);
+    },
+  },
+});
 
 function insertSceneBreak(state, dispatch) {
   const { $from } = state.selection;
@@ -357,6 +431,8 @@ const keys = {
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
   "Enter": splitListItem(S.list_item), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
   "Mod-[": lift,
+  "Enter": comicEnter,
+  "Alt-1": comicStyle("page"), "Alt-2": comicStyle("panel"), "Alt-3": comicStyle("dialogue"), "Alt-4": comicStyle("caption"), "Alt-5": comicStyle("sfx"),
   "F3": () => { send({ type: "togglePanel", which: "side" }); return true; },
   "F4": () => { send({ type: "togglePanel", which: "details" }); return true; },
   "Mod-Shift-f": toggleFocus, "Mod-Shift-t": toggleTypewriter, "Mod-Shift-o": () => { otherWords(); return true; },
@@ -369,6 +445,20 @@ const rules = inputRules({
     wrappingInputRule(/^\s*([-+*])\s$/, S.bullet_list),
     wrappingInputRule(/^(\d+)\.\s$/, S.ordered_list, (m) => ({ start: +m[1] }), (m, n) => n.childCount + n.attrs.start === +m[1]),
     textblockTypeInputRule(/^(#{1,3})\s$/, S.heading, (m) => ({ level: m[1].length })),
+    // Comic scripts: "PAGE ", "PANEL ", "CAPTION: ", "SFX: " start those lines; "TOM: " starts a dialogue line.
+    new InputRule(/^(PAGE|PANEL|CAPTION:|SFX:)\s$/i, (state, match, start, end) => {
+      if (!comicMode) return null;
+      const $s = state.doc.resolve(start);
+      if ($s.parent.type !== S.paragraph || $s.depth !== 1) return null;
+      const style = { page: "page", panel: "panel", "caption:": "caption", "sfx:": "sfx" }[match[1].toLowerCase()];
+      return state.tr.delete(start, end).setNodeMarkup($s.before(), null, { style });
+    }),
+    new InputRule(/^([A-Z][A-Z0-9'’ .()\-]{0,30}):\s$/, (state, match, start) => {
+      if (!comicMode) return null;
+      const $s = state.doc.resolve(start);
+      if ($s.parent.type !== S.paragraph || $s.depth !== 1 || $s.parent.attrs.style === "dialogue" || /^(PAGE|PANEL|CAPTION|SFX)$/.test(match[1])) return null;
+      return state.tr.setNodeMarkup($s.before(), null, { style: "dialogue" }).insertText(" ");
+    }),
     // "***" or "* * *" on its own line: a scene break.
     new InputRule(/^(\*\s?\*\s?\*|#)$/, (state, match, start, end) => {
       const $s = state.doc.resolve(start);
@@ -820,7 +910,7 @@ function makeState(docJSON) {
   catch (e) { doc = schema.node("doc", null, [schema.node("paragraph")]); }
   return EditorState.create({
     doc,
-    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook],
+    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook, comicLook],
   });
 }
 
@@ -900,6 +990,12 @@ function buildToolbar() {
   const sel = document.getElementById("style");
   for (const [id, label] of STYLES) sel.add(new Option(label, id));
   for (const l of [1, 2, 3]) sel.add(new Option("Heading " + l, "h" + l));
+  const comic = document.createElement("optgroup");
+  comic.label = "Comic script";
+  comic.id = "comicstyles";
+  comic.hidden = true;
+  for (const [id, label] of COMIC_STYLES) comic.append(new Option(label, id));
+  sel.add(comic);
   sel.addEventListener("change", () => {
     const v = sel.value;
     run(v.startsWith("h") ? setBlockType(S.heading, { level: +v.slice(1) }) : setStyle(v));
@@ -964,6 +1060,13 @@ function receive(msg) {
   else if (msg.type === "styleImported") styleImported(msg.data);
   else if (msg.type === "notice") notice(String(msg.text || ""));
   else if (msg.type === "view") {
+    if ("comic" in msg) {
+      comicMode = !!msg.comic;
+      comicPageStart = Math.max(0, msg.comicPageStart | 0);
+      const g = document.getElementById("comicstyles");
+      if (g) g.hidden = !comicMode;
+      document.documentElement.classList.toggle("comic", comicMode);
+    }
     if (msg.settings && typeof msg.settings === "object") {
       viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
       // Settings from before 0.22.1 could have left hints off or quiet by default: show them, unless Off was chosen.

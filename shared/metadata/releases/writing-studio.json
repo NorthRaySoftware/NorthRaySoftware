@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.26.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Comic scripts: set a book's Format to \"Comic script\" (its details panel). Writing then has Page, Panel, Dialogue, Caption and SFX (style menu, or Alt+1 to Alt+5); typing \"PAGE \", \"PANEL \", \"CAPTION: \", \"SFX: \" or a name and a colon (\"TOM: \") starts that kind of line, and Enter moves on to the likely next one. Pages, panels and balloons are numbered for you as you write: PAGE ONE (right · two panels), Panel 1, 1. CAPTION:, 2. TOM:.",
+        "The \"Comic script\" typesetting design sets the script the way artists and letterers expect: Courier Prime on US Letter, each comic page on a new page, panels and balloons numbered, names in bold capitals. Export it from Typesetting as a PDF.",
+        "The world bible is grouped by the book each entry first appears in, in series reading order (\"Not in a book yet\" last). Places inside other places sit with them, marked \"in …\".",
+        "Characters are split by gender or sex within each book, with a sign on each card.",
+        "Races and Realms are categories in the bible. A character's race and realm (and a place's or creature's realm) are chosen from the bible's own; choosing a common one it doesn't have yet adds it.",
+        "The small text links are now proper buttons."
+      ]
+    },
+    {
       "version": "0.25.0",
       "date": "2026-11-14",
       "notes": [
