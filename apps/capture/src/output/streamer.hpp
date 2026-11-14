@@ -1,71 +1,93 @@
-// NorthRay Capture: streaming to one destination over RTMP or RTMPS (system 8).
+// NorthRay Capture: streaming to several destinations at once (system 8):
+// Capture → Composite → Encode → Distribute → Multiple Destinations.
 //
-// The canvas goes to an H.264 encoder at a constant bitrate (what platforms ask for), the Stream
-// mix to AAC, and both to the server as they're made. If the connection drops, the stream keeps
-// encoding and reconnects (after 2, 4, 8... up to 60 seconds) without being asked; a wrong stream
-// key isn't retried. If the network can't keep up, whole groups of frames are dropped (from the
-// oldest keyframe on) rather than the stream falling ever further behind, and counted.
+// Destinations that ask for the same video bitrate share one encode (one H.264 and one AAC encoder);
+// a destination at another bitrate gets its own encode path. Each destination sends on its own thread
+// with its own buffer and reconnects by itself (output/destination.hpp), so one failing never ends the
+// others. Destinations start and stop independently; an encode with no destinations left is stopped.
 #pragma once
 
 #include "audio/mixer.hpp"
 #include "encode/audio_encoder.hpp"
 #include "encode/video_encoder.hpp"
+#include "output/destination.hpp"
 #include "video/engine.hpp"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace ncap::output {
 
-struct StreamSettings {
-    std::string name;     // "Twitch"
-    std::string url;      // rtmp(s)://host[:port]/app
-    std::string key;      // never logged
-    encode::VideoSettings video;
+struct StreamCommon {
+    int width = 1920, height = 1080, fps = 60;
+    std::wstring encoder;            // as for recording: "" = automatic
     int audioKbps = 160;
+    int longestWaitSeconds = 60;     // between reconnection attempts
 };
 
-struct StreamStatus {
-    enum State { Off, Connecting, Live, Reconnecting, Failed } state = Off;
-    std::wstring message;          // in plain words: why it's reconnecting, why it failed
-    double seconds = 0;            // live time (this connection and earlier ones)
-    double kbps = 0;               // sent in the last second
-    std::uint64_t droppedFrames = 0;
-    int attempt = 0;               // reconnection attempts so far
-    int retryIn = 0;               // seconds until the next attempt
+struct DestinationStart {
+    std::string id;                  // the settings' destination id
+    std::string name;                // "Twitch"
+    std::string url, key;            // the key is never logged
+    int videoKbps = 6000;
+};
+
+struct EncodeStatus {
+    int videoKbps = 0;
     std::wstring encoder;
     bool hardware = false;
+    std::uint64_t encoderDropped = 0;
+    int destinations = 0;
 };
 
 class Streamer {
 public:
     ~Streamer() { stop(); }
-    bool start(video::Engine& engine, audio::Mixer& mixer, const StreamSettings& s, std::wstring& error);
-    void stop();
-    bool active() const { return running_.load(); }
-    StreamStatus status() const;
+    // False with a reason in plain words (no encoder, bad address...). Others already live carry on.
+    bool start(video::Engine& engine, audio::Mixer& mixer, const StreamCommon& common, const DestinationStart& d, std::wstring& error);
+    void stop(const std::string& id);
+    void stop();                                   // everything
+    bool active() const;                           // any destination running
+    bool active(const std::string& id) const;
+    bool known(const std::string& id) const;       // running, or failed and not yet cleared
+    void clear(const std::string& id);             // forget a failed destination
+    DestinationStatus status(const std::string& id) const;
+    std::vector<std::string> ids() const;
+    std::vector<EncodeStatus> encodes() const;
+    // Stops encodes nobody is using any more (their destinations failed). Call now and then.
+    void tick();
 
 private:
-    void run();
-    void frame(ID3D11Texture2D* canvas, LONGLONG qpc);
-    void setState(StreamStatus::State s, const std::wstring& message);
+    struct Path {
+        int kbps = 0;
+        std::string sink;
+        std::unique_ptr<encode::VideoEncoder> video;
+        std::unique_ptr<encode::AudioEncoder> audio;
+        std::shared_ptr<audio::Tap> tap;
+        std::thread thread;
+        std::atomic<bool> stopping{false};
+        LONGLONG t0 = 0, freq = 1;
+        std::int64_t lastFrame = -1;
+        std::mutex frameM;                         // the engine's frame callback vs. stopping
+        std::mutex m;                              // destinations, configuration
+        std::vector<std::shared_ptr<Destination>> dests;
+        media::Bytes avcC, aac;
+        int fps = 60;
+        void frame(ID3D11Texture2D* canvas, LONGLONG qpc);
+        void run();
+    };
+    void stopPath(int kbps);
 
     video::Engine* engine_ = nullptr;
     audio::Mixer* mixer_ = nullptr;
-    StreamSettings s_;
-    std::unique_ptr<encode::VideoEncoder> video_;
-    std::unique_ptr<encode::AudioEncoder> audio_;
-    std::shared_ptr<audio::Tap> tap_;
-    std::thread thread_;
-    std::atomic<bool> running_{false}, stopping_{false};
-    LONGLONG t0_ = 0, freq_ = 1;
-    std::int64_t lastFrame_ = -1;
-    std::mutex frameM_;
+    std::map<int, std::unique_ptr<Path>> paths_;                    // by video bitrate
+    std::map<std::string, std::pair<int, std::shared_ptr<Destination>>> dests_;   // id → (path, destination)
     mutable std::mutex m_;
-    StreamStatus st_;
 };
 
 }  // namespace ncap::output

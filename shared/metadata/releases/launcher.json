@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.52.0",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.7.0: multistreaming to up to six destinations at once, sharing one encode where they can (new, and not yet tried with a real platform)."
+      ]
+    },
+    {
       "version": "0.51.1",
       "date": "2026-11-14",
       "notes": [

@@ -35,10 +35,6 @@ if(NOT WIN32)
   return()
 endif()
 
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/oauth-clients.json")
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/oauth-clients.json" NCAP_OAUTH_CLIENTS)
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/oauth_clients.hpp
-  "// Generated from oauth-clients.json.\n#pragma once\ninline constexpr const char* kBuiltInOAuthClients = R\"NRJSON(${NCAP_OAUTH_CLIENTS})NRJSON\";\n")
 configure_file(src/version.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp @ONLY)
 configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc @ONLY)
 
@@ -51,8 +47,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/output/net.cpp
   src/output/credentials.cpp
-  src/output/http.cpp
-  src/output/accounts.cpp
+  src/output/destination.cpp
   src/output/streamer.cpp
   src/encode/video_encoder.cpp
   src/encode/audio_encoder.cpp
@@ -71,7 +66,7 @@ add_executable(NorthRayCapture WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayCapture PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32 winhttp bcrypt)
+target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32)
 if(MSVC)
   target_compile_options(NorthRayCapture PRIVATE /W4 /utf-8)
 else()

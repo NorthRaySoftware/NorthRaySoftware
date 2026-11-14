@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.7.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Multistreaming: stream to several places at once (up to six), straight from Capture, with no restreaming service. Add destinations in Settings › Streaming, each with its own service, server, stream key and bitrate.",
+        "Destinations at the same bitrate share one encode, so the video is encoded once; a destination at a different bitrate (say Twitch at 6 Mbit/s and YouTube at 8) gets its own.",
+        "Each destination has its own connection, buffer and reconnection: one dropping or failing never stops the others. In Controls, each has its own row (live time, bitrate, dropped frames, reconnections, or why it stopped); click a row to start or stop just that one.",
+        "Settings › Streaming shows the upload all the switched-on destinations need, and lets you choose the longest wait between reconnection attempts.",
+        "Your 0.6 streaming settings and stream key carry over as the first destination.",
+        "Signing in to Twitch and YouTube has been taken out again: stream keys are pasted in, per destination.",
+        "Please note: the destinations were tested here with four local test servers at once (stopping one, adding one, one reconnecting by itself). This computer has no H.264 or AAC encoders, so the shared encode and streaming to real platforms haven't been tried yet."
+      ]
+    },
+    {
       "version": "0.6.1",
       "date": "2026-11-14",
       "notes": [

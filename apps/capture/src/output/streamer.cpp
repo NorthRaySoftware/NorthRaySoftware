@@ -1,34 +1,24 @@
 #include "output/streamer.hpp"
 
-#include "output/net.hpp"
-
 #include "ncap/rtmp.hpp"
 
 #include <objbase.h>
 
 #include <algorithm>
-#include <deque>
 
 namespace ncap::output {
 
-namespace {
-std::wstring wide(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-    std::wstring w((size_t)n, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
-    return w;
-}
-}  // namespace
-
-bool Streamer::start(video::Engine& engine, audio::Mixer& mixer, const StreamSettings& s, std::wstring& error) {
-    if (running_) return true;
+bool Streamer::start(video::Engine& engine, audio::Mixer& mixer, const StreamCommon& c, const DestinationStart& d, std::wstring& error) {
     rtmp::Url url;
-    if (!rtmp::parseUrl(s.url, url)) {
+    if (d.url.empty()) {
+        error = L"There's no server address yet. Enter it in Settings › Streaming.";
+        return false;
+    }
+    if (!rtmp::parseUrl(d.url, url)) {
         error = L"The server address isn't an RTMP address (it should start with rtmp:// or rtmps://).";
         return false;
     }
-    if (s.key.empty()) {
+    if (d.key.empty()) {
         error = L"There's no stream key. Enter it in Settings › Streaming.";
         return false;
     }
@@ -36,236 +26,241 @@ bool Streamer::start(video::Engine& engine, audio::Mixer& mixer, const StreamSet
         error = L"Video capture isn't running, so there's nothing to stream.";
         return false;
     }
+    std::lock_guard<std::mutex> l(m_);
+    if (auto it = dests_.find(d.id); it != dests_.end()) {
+        if (it->second.second->active()) return true;
+        dests_.erase(it);   // a failed one being started again
+    }
     engine_ = &engine;
     mixer_ = &mixer;
-    s_ = s;
-    s_.video.constantBitrate = true;   // platforms want CBR
-    video_ = std::make_unique<encode::VideoEncoder>();
-    if (!video_->open(engine.gpu(), s_.video, error)) {
-        video_.reset();
-        return false;
+    // The encode for this bitrate: shared if one is running, else a new one.
+    Path* path = nullptr;
+    if (auto it = paths_.find(d.videoKbps); it != paths_.end()) path = it->second.get();
+    else {
+        auto p = std::make_unique<Path>();
+        p->kbps = d.videoKbps;
+        p->fps = c.fps;
+        encode::VideoSettings vs;
+        vs.width = c.width;
+        vs.height = c.height;
+        vs.fps = c.fps;
+        vs.bitrateKbps = d.videoKbps;
+        vs.encoder = c.encoder;
+        vs.constantBitrate = true;   // platforms want CBR
+        p->video = std::make_unique<encode::VideoEncoder>();
+        if (!p->video->open(engine.gpu(), vs, error)) return false;
+        p->audio = std::make_unique<encode::AudioEncoder>();
+        if (!p->audio->open(c.audioKbps, error)) {
+            p->video->close();
+            return false;
+        }
+        LARGE_INTEGER f, q;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&q);
+        p->freq = f.QuadPart;
+        p->t0 = q.QuadPart;
+        p->tap = std::make_shared<audio::Tap>(0);   // the Stream bus
+        mixer.addTap(p->tap);
+        p->sink = "stream:" + std::to_string(d.videoKbps);
+        Path* raw = p.get();
+        p->thread = std::thread([raw] { raw->run(); });
+        engine.setFrameSink(p->sink, [raw](ID3D11Texture2D* canvas, LONGLONG qpc) { raw->frame(canvas, qpc); });
+        path = raw;
+        paths_[d.videoKbps] = std::move(p);
     }
-    audio_ = std::make_unique<encode::AudioEncoder>();
-    if (!audio_->open(s_.audioKbps, error)) {
-        video_->close();
-        video_.reset();
-        audio_.reset();
-        return false;
-    }
+    auto dest = std::make_shared<Destination>();
+    Destination::Settings ds;
+    ds.name = d.name;
+    ds.url = d.url;
+    ds.key = d.key;
+    ds.width = c.width;
+    ds.height = c.height;
+    ds.fps = c.fps;
+    ds.videoKbps = d.videoKbps;
+    ds.audioKbps = c.audioKbps;
+    ds.longestWaitSeconds = c.longestWaitSeconds;
+    dest->start(ds);
     {
-        std::lock_guard<std::mutex> l(m_);
-        st_ = StreamStatus{};
-        st_.state = StreamStatus::Connecting;
-        st_.message = L"Connecting to " + wide(s_.name) + L"…";
-        st_.encoder = video_->name();
-        st_.hardware = video_->hardware();
+        std::lock_guard<std::mutex> pl(path->m);
+        if (!path->avcC.empty()) dest->configure(path->avcC, path->aac);
+        path->dests.push_back(dest);
     }
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    freq_ = f.QuadPart;
-    t0_ = c.QuadPart;
-    lastFrame_ = -1;
-    stopping_ = false;
-    running_ = true;
-    tap_ = std::make_shared<audio::Tap>(0);   // the Stream bus
-    mixer.addTap(tap_);
-    engine.setFrameSink("stream", [this](ID3D11Texture2D* canvas, LONGLONG qpc) { frame(canvas, qpc); });
-    thread_ = std::thread([this] { run(); });
+    dests_[d.id] = {d.videoKbps, dest};
     return true;
 }
 
-void Streamer::frame(ID3D11Texture2D* canvas, LONGLONG qpc) {
-    std::lock_guard<std::mutex> busy(frameM_);
-    if (stopping_ || !video_) return;
-    const std::int64_t index = (std::int64_t)((double)(qpc - t0_) * s_.video.fps / (double)freq_ + 0.5);
-    if (index <= lastFrame_) return;
-    lastFrame_ = index;
-    video_->submit(canvas, index * 1000000 / s_.video.fps);
+void Streamer::stop(const std::string& id) {
+    std::shared_ptr<Destination> d;
+    int kbps = 0;
+    {
+        std::lock_guard<std::mutex> l(m_);
+        auto it = dests_.find(id);
+        if (it == dests_.end()) return;
+        kbps = it->second.first;
+        d = it->second.second;
+        dests_.erase(it);
+        if (auto p = paths_.find(kbps); p != paths_.end()) {
+            std::lock_guard<std::mutex> pl(p->second->m);
+            auto& v = p->second->dests;
+            v.erase(std::remove(v.begin(), v.end(), d), v.end());
+        }
+    }
+    d->stop();
+    std::lock_guard<std::mutex> l(m_);
+    bool used = false;
+    for (auto& [_, e] : dests_)
+        if (e.first == kbps) used = true;
+    if (!used) stopPath(kbps);
 }
 
 void Streamer::stop() {
-    if (!running_) return;
-    stopping_ = true;
-    if (engine_) engine_->setFrameSink("stream", nullptr);
-    if (thread_.joinable()) thread_.join();
-    if (tap_) mixer_->removeTap(tap_);
-    tap_.reset();
-    running_ = false;
+    std::vector<std::string> all = ids();
+    for (auto& id : all) stop(id);
     std::lock_guard<std::mutex> l(m_);
-    st_.state = StreamStatus::Off;
+    while (!paths_.empty()) stopPath(paths_.begin()->first);
 }
 
-StreamStatus Streamer::status() const {
-    std::lock_guard<std::mutex> l(m_);
-    return st_;
+void Streamer::stopPath(int kbps) {   // m_ held
+    auto it = paths_.find(kbps);
+    if (it == paths_.end()) return;
+    Path& p = *it->second;
+    if (engine_) engine_->setFrameSink(p.sink, nullptr);
+    p.stopping = true;
+    { std::lock_guard<std::mutex> wait(p.frameM); }
+    if (p.thread.joinable()) p.thread.join();
+    if (mixer_ && p.tap) mixer_->removeTap(p.tap);
+    p.video->close();
+    paths_.erase(it);
 }
 
-void Streamer::setState(StreamStatus::State s, const std::wstring& message) {
+bool Streamer::active() const {
     std::lock_guard<std::mutex> l(m_);
-    st_.state = s;
-    st_.message = message;
+    for (auto& [_, e] : dests_)
+        if (e.second->active()) return true;
+    return false;
 }
 
-void Streamer::run() {
+bool Streamer::active(const std::string& id) const {
+    std::lock_guard<std::mutex> l(m_);
+    auto it = dests_.find(id);
+    return it != dests_.end() && it->second.second->active();
+}
+
+bool Streamer::known(const std::string& id) const {
+    std::lock_guard<std::mutex> l(m_);
+    return dests_.count(id) > 0;
+}
+
+void Streamer::clear(const std::string& id) {
+    if (!active(id)) stop(id);
+}
+
+DestinationStatus Streamer::status(const std::string& id) const {
+    std::lock_guard<std::mutex> l(m_);
+    auto it = dests_.find(id);
+    return it == dests_.end() ? DestinationStatus{} : it->second.second->status();
+}
+
+std::vector<std::string> Streamer::ids() const {
+    std::lock_guard<std::mutex> l(m_);
+    std::vector<std::string> v;
+    for (auto& [id, _] : dests_) v.push_back(id);
+    return v;
+}
+
+std::vector<EncodeStatus> Streamer::encodes() const {
+    std::lock_guard<std::mutex> l(m_);
+    std::vector<EncodeStatus> v;
+    for (auto& [kbps, p] : paths_) {
+        EncodeStatus e;
+        e.videoKbps = kbps;
+        e.encoder = p->video->name();
+        e.hardware = p->video->hardware();
+        e.encoderDropped = p->video->dropped();
+        for (auto& [_, d] : dests_)
+            if (d.first == kbps && d.second->active()) ++e.destinations;
+        v.push_back(e);
+    }
+    return v;
+}
+
+void Streamer::tick() {
+    // A destination that failed (a refused key) stops by itself; its encode isn't needed once no
+    // running destination uses it.
+    std::lock_guard<std::mutex> l(m_);
+    std::vector<int> idle;
+    for (auto& [kbps, p] : paths_) {
+        bool used = false;
+        for (auto& [_, d] : dests_)
+            if (d.first == kbps && d.second->active()) used = true;
+        if (!used) idle.push_back(kbps);
+    }
+    for (int k : idle) {
+        for (auto& [_, d] : dests_)
+            if (d.first == k) d.second->stop();   // joins the finished thread
+        stopPath(k);
+    }
+}
+
+// --- one encode ---
+
+void Streamer::Path::frame(ID3D11Texture2D* canvas, LONGLONG qpc) {
+    std::lock_guard<std::mutex> busy(frameM);
+    if (stopping || !video) return;
+    const std::int64_t index = (std::int64_t)((double)(qpc - t0) * fps / (double)freq + 0.5);
+    if (index <= lastFrame) return;
+    lastFrame = index;
+    video->submit(canvas, index * 1000000 / fps);
+}
+
+void Streamer::Path::run() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    rtmp::Url url;
-    rtmp::parseUrl(s_.url, url);
-    media::Bytes avcC;                     // from the encoder's first keyframe
-    std::deque<media::Packet> queue;       // encoded, waiting to be sent (in time order)
     media::Interleaver il(2, 300000);
     std::vector<float> block((size_t)1024 * audio::kChannels);
     bool anchored = false;
-    int attempt = 0;
-    ULONGLONG retryAt = 0;
-    std::unique_ptr<net::Tcp> tcp;
-    std::unique_ptr<net::Tls> tls;
-    std::unique_ptr<rtmp::Client> client;
-    bool needKeyframe = true;
-    std::int64_t baseUs = -1;              // this connection's first packet time (its timestamps start at 0)
-    double liveBefore = 0;                 // live seconds of earlier connections
-    ULONGLONG liveSince = 0, rateAt = GetTickCount64();
-    std::uint64_t rateBytes = 0, dropped = 0;
-
-    auto disconnect = [&](bool polite) {
-        if (client && polite) client->unpublish(s_.key);
-        client.reset();
-        tls.reset();
-        tcp.reset();
-        if (liveSince) liveBefore += (double)(GetTickCount64() - liveSince) / 1000.0;
-        liveSince = 0;
-    };
-    auto scheduleRetry = [&](const std::wstring& why) {
-        ++attempt;
-        const int wait = std::min(60, 1 << std::min(attempt, 6));   // 2, 4, 8, 16, 32, 60 s
-        retryAt = GetTickCount64() + (ULONGLONG)wait * 1000;
-        std::lock_guard<std::mutex> l(m_);
-        st_.state = StreamStatus::Reconnecting;
-        st_.message = why;
-        st_.attempt = attempt;
-    };
-
-    while (!stopping_) {
+    while (!stopping) {
         Sleep(5);
-        // Encoded sound and pictures, whatever the connection's doing.
-        while (tap_->ring.available() >= 1024) {
-            const std::size_t n = tap_->ring.read(block.data(), 1024);
+        while (tap->ring.available() >= 1024) {
+            const std::size_t n = tap->ring.read(block.data(), 1024);
             if (!anchored) {
                 anchored = true;
-                audio_->encode(block.data(), n, std::max<std::int64_t>(0, (std::int64_t)((double)(tap_->firstQpc.load() - t0_) * 1e6 / (double)freq_)));
+                audio->encode(block.data(), n, std::max<std::int64_t>(0, (std::int64_t)((double)(tap->firstQpc.load() - t0) * 1e6 / (double)freq)));
             } else {
-                audio_->encode(block.data(), n, 0);
+                audio->encode(block.data(), n, 0);
             }
         }
         media::Packet p;
-        while (audio_->take(p, 1)) il.push(std::move(p));
-        while (video_->take(p)) {
-            if (avcC.empty() && p.keyframe) {
-                media::Bytes sps, pps;
-                if (media::findParameterSets(p.data.data(), p.data.size(), sps, pps)) avcC = media::avcC(sps, pps);
+        while (audio->take(p, 1)) il.push(std::move(p));
+        while (video->take(p)) {
+            if (p.keyframe) {
+                bool first = false;
+                {
+                    std::lock_guard<std::mutex> l(m);
+                    if (avcC.empty()) {
+                        media::Bytes sps, pps;
+                        if (media::findParameterSets(p.data.data(), p.data.size(), sps, pps)) {
+                            avcC = media::avcC(sps, pps);
+                            aac = audio->config();
+                            first = true;
+                        }
+                    }
+                }
+                if (first) {
+                    std::lock_guard<std::mutex> l(m);
+                    for (auto& d : dests) d->configure(avcC, aac);
+                }
             }
             p.data = media::annexBToLengthPrefixed(p.data.data(), p.data.size(), true);
             il.push(std::move(p));
         }
-        while (il.pop(p)) queue.push_back(std::move(p));
-
-        // Never let the backlog grow: keep at most ~3 s, dropping from the front up to a keyframe.
-        if (!queue.empty() && queue.back().dts - queue.front().dts > 3000000) {
-            std::size_t cut = queue.size();
-            for (std::size_t i = queue.size(); i-- > 0;)
-                if (queue[i].stream == 0 && queue[i].keyframe) {
-                    cut = i;
-                    break;
-                }
-            for (std::size_t i = 0; i < cut; ++i)
-                if (queue[i].stream == 0) ++dropped;
-            queue.erase(queue.begin(), queue.begin() + (long)cut);
+        std::vector<std::shared_ptr<Destination>> now;
+        {
+            std::lock_guard<std::mutex> l(m);
+            now = dests;
         }
-
-        const ULONGLONG now = GetTickCount64();
-        // Connect (again).
-        if (!client && now >= retryAt && !avcC.empty()) {
-            setState(attempt ? StreamStatus::Reconnecting : StreamStatus::Connecting, L"Connecting to " + wide(s_.name) + L"…");
-            std::string err;
-            tcp = std::make_unique<net::Tcp>();
-            rtmp::Transport* t = tcp.get();
-            bool ok = tcp->open(url.host, url.port, 10000, err);
-            if (ok && url.tls) {
-                tls = std::make_unique<net::Tls>(*tcp);
-                ok = tls->handshake(url.host, 10000, err);
-                t = tls.get();
-            }
-            if (ok) {
-                client = std::make_unique<rtmp::Client>(*t);
-                ok = client->publish(url, s_.key, err);
-            }
-            if (ok)
-                ok = client->metadata(s_.video.width, s_.video.height, s_.video.fps, s_.video.bitrateKbps, s_.audioKbps) &&
-                     client->videoConfig(avcC) && client->audioConfig(audio_->config());
-            if (!ok) {
-                disconnect(false);
-                const bool badKey = err.find("Publishing failed") != std::string::npos || err.find("refused") != std::string::npos;
-                if (badKey && attempt == 0) {   // a wrong key or a closed channel: retrying won't help
-                    setState(StreamStatus::Failed, wide(err));
-                    break;
-                }
-                scheduleRetry(wide(err) + L" Trying again soon.");
-                continue;
-            }
-            attempt = 0;
-            needKeyframe = true;
-            baseUs = -1;
-            liveSince = GetTickCount64();
-            setState(StreamStatus::Live, L"Live on " + wide(s_.name));
-        }
-        // Send.
-        if (client) {
-            bool ok = true;
-            std::string err;
-            while (ok && !queue.empty()) {
-                media::Packet& q = queue.front();
-                if (needKeyframe) {   // a viewer's player can only start at a keyframe
-                    if (q.stream == 0 && q.keyframe) needKeyframe = false;
-                    else {
-                        queue.pop_front();
-                        continue;
-                    }
-                }
-                if (baseUs < 0) baseUs = q.dts;
-                const std::uint32_t ms = (std::uint32_t)std::max<std::int64_t>(0, (q.dts - baseUs) / 1000);
-                ok = q.stream == 0 ? client->video(ms, q.keyframe, q.data) : client->audio(ms, q.data);
-                queue.pop_front();
-            }
-            if (ok) ok = client->service(err, 0);
-            if (!ok) {
-                disconnect(false);
-                scheduleRetry((err.empty() ? std::wstring(L"The connection was lost.") : wide(err)) + L" Reconnecting.");
-            }
-        } else if (queue.size() > 2000) {
-            queue.clear();   // not connected for a long time: nothing old is worth sending
-        }
-        // Status, once a second or so.
-        if (now - rateAt >= 1000) {
-            const std::uint64_t sent = client ? client->bytesSent() : 0;
-            const double kbps = client ? (double)(sent - std::min(sent, rateBytes)) * 8.0 / (double)(now - rateAt) : 0;
-            rateBytes = sent;
-            rateAt = now;
-            std::lock_guard<std::mutex> l(m_);
-            st_.kbps = kbps;
-            st_.droppedFrames = dropped + video_->dropped();
-            st_.seconds = liveBefore + (liveSince ? (double)(GetTickCount64() - liveSince) / 1000.0 : 0);
-            st_.retryIn = client ? 0 : (int)((retryAt > now ? retryAt - now : 0) / 1000);
-        }
-    }
-    disconnect(true);
-    if (engine_) engine_->setFrameSink("stream", nullptr);
-    { std::lock_guard<std::mutex> wait(frameM_); }
-    video_->close();
-    video_.reset();
-    audio_.reset();
-    {
-        std::lock_guard<std::mutex> l(m_);
-        if (st_.state != StreamStatus::Failed) st_.state = StreamStatus::Off;
+        while (il.pop(p))
+            for (auto& d : now)
+                if (d->active()) d->push(p);
     }
     CoUninitialize();
 }

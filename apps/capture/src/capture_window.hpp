@@ -18,7 +18,6 @@
 #include "video/devices.hpp"
 #include "video/engine.hpp"
 #include "output/recorder.hpp"
-#include "output/accounts.hpp"
 #include "output/streamer.hpp"
 
 #include "cjui/menu.hpp"
@@ -34,10 +33,6 @@
 #include <vector>
 
 namespace ncap {
-
-// Posted by worker threads (capture_stream.cpp).
-constexpr UINT WM_APP_ACCOUNTS = WM_APP + 61;   // wParam: the service whose sign-in changed
-constexpr UINT WM_APP_TARGET = WM_APP + 62;     // lParam: a stream target from an account (owned by the window)
 
 
 class CaptureWindow : public cjui::AppWindow {
@@ -148,14 +143,14 @@ private:
     float drawRecordingSettings(float x, float y, float w);
 
     // Streaming (capture_stream.cpp)
-    void startStreaming();
-    void startStreamingTo(const std::string& url, const std::string& key, const std::wstring& note);
+    void startStreaming();                      // every destination that's switched on
     void stopStreaming();
+    bool startDestination(const std::string& id, bool quiet);
+    void stopDestination(const std::string& id);
     void streamTick();
-    void initAccounts();
-    void onAccountChange(int service);
-    void onStreamTarget(LPARAM result);
-    float drawAccountRow(int service, float x, float y, float w);
+    float drawStreamControls(float x, float y, float w, float bottom);   // the button and the destinations; returns the new y
+    std::wstring streamStatusText(bool& live) const;
+    float drawDestinationSettings(int index, float x, float y, float w);
     float drawStreamingSettings(float x, float y, float w);
 
     // Layout
@@ -230,9 +225,9 @@ private:
     // Recording
     output::Recorder recorder_;
     output::Streamer streamer_;
-    accounts::Accounts accounts_;
-    bool streamPending_ = false;            // getting the key from the account before going live
-    int accountKinds_[2] = {0, 0};          // last seen, to log changes
+    bool mfForStream_ = false;
+    std::vector<std::wstring> startErrors_;  // collected while starting several destinations              // MFStartup done for streaming
+    std::map<std::string, int> destStates_;  // last seen state per destination, to report changes
 
     // Status
     sys::UsageSampler sampler_;

@@ -60,11 +60,38 @@ bool Settings::load(const std::wstring& path) {
     if (!recordTracks) recordTracks = 1;
     const int ak = cj::valueOr(j, "audioKbps", 160);
     audioKbps = ak == 96 || ak == 128 || ak == 160 || ak == 192 ? ak : 160;
-    streamService = cj::valueOr(j, "streamService", std::string("twitch"));
-    if (streamService != "twitch" && streamService != "youtube" && streamService != "kick" && streamService != "custom") streamService = "twitch";
-    streamUrl = cj::valueOr(j, "streamUrl", streamUrl);
-    const int sk = cj::valueOr(j, "streamKbps", 6000);
-    streamKbps = sk >= 500 && sk <= 50000 ? sk : 6000;
+    auto validService = [](const std::string& v) { return v == "twitch" || v == "youtube" || v == "kick" || v == "custom"; };
+    auto validKbps = [](int k) { return k >= 500 && k <= 50000; };
+    destinations.clear();
+    if (auto it = j.find("streamDestinations"); it != j.end() && it->is_array()) {
+        for (auto& d : *it) {
+            if (!d.is_object() || destinations.size() >= 6) continue;
+            StreamDestination sd;
+            sd.id = cj::valueOr(d, "id", std::string());
+            if (sd.id.empty() || sd.id.size() > 32) continue;
+            bool dup = false;
+            for (auto& o : destinations) dup |= o.id == sd.id;
+            if (dup) continue;
+            sd.service = cj::valueOr(d, "service", std::string("custom"));
+            if (!validService(sd.service)) sd.service = "custom";
+            sd.url = cj::valueOr(d, "url", std::string());
+            const int k = cj::valueOr(d, "kbps", 6000);
+            sd.kbps = validKbps(k) ? k : 6000;
+            sd.enabled = cj::valueOr(d, "enabled", true);
+            destinations.push_back(sd);
+        }
+    } else if (j.contains("streamService")) {   // 0.6: one destination ("main", whose key is already "stream/main")
+        StreamDestination sd;
+        sd.service = cj::valueOr(j, "streamService", std::string("twitch"));
+        if (!validService(sd.service)) sd.service = "twitch";
+        sd.url = cj::valueOr(j, "streamUrl", sd.url);
+        const int k = cj::valueOr(j, "streamKbps", 6000);
+        sd.kbps = validKbps(k) ? k : 6000;
+        destinations.push_back(sd);
+    }
+    if (destinations.empty()) destinations.push_back(StreamDestination{});
+    const int rm = cj::valueOr(j, "streamRetryMax", 60);
+    streamRetryMax = rm == 15 || rm == 30 || rm == 60 || rm == 120 ? rm : 60;
     return true;
 }
 
@@ -72,13 +99,15 @@ bool Settings::save(const std::wstring& path) const {
     if (readOnly) return false;
     nlohmann::json layouts = nlohmann::json::object();
     for (auto& [k, v] : savedLayouts) layouts[k] = v;
+    nlohmann::json dests = nlohmann::json::array();
+    for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}});
     const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones},
                               {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps},
-                              {"streamService", streamService}, {"streamUrl", streamUrl}, {"streamKbps", streamKbps}};
+                              {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax}};
     const std::wstring tmp = path + L".new";
     {
         std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);

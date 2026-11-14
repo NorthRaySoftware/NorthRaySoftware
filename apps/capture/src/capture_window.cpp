@@ -113,7 +113,6 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
-    initAccounts();
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     log::info("Window open; scene collection \"" + settings_.sceneCollection + "\" with " + std::to_string(scenes_.scenes().size()) + " scene(s)");
@@ -570,16 +569,6 @@ LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
         handled = true;
         return 0;
     }
-    if (msg == WM_APP_ACCOUNTS) {
-        onAccountChange((int)wp);
-        handled = true;
-        return 0;
-    }
-    if (msg == WM_APP_TARGET) {
-        onStreamTarget(lp);
-        handled = true;
-        return 0;
-    }
     if (msg == WM_CTLCOLOREDIT && (HWND)lp == ask_) {
         HDC dc = (HDC)wp;
         SetTextColor(dc, toColorRef(pal_.ink));
@@ -597,7 +586,6 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         checkPendingFits();
         recordTick();
         streamTick();
-        accounts_.tick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -1010,37 +998,8 @@ void CaptureWindow::drawControls(const Rect& b) {
         y += 46;
     }
     struct C { const wchar_t* label; const wchar_t* when; };
-    // Streaming.
-    {
-        const bool on = streamer_.active();
-        const output::StreamStatus st = streamer_.status();
-        const Rect r{b.x + 12, y, w, 40};
-        const Color live = cjui::hexColor("#7A5CFF");
-        addHit("ctl:stream", r, [this, on] {
-            if (on) stopStreaming();
-            else startStreaming();
-        });
-        const float hv = hoverAmount("ctl:stream");
-        const bool connected = on && st.state == output::StreamStatus::Live;
-        gfx_.fillRounded(r, 8, on ? live.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
-        gfx_.strokeRounded(r, 8, on ? live : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
-        gfx_.circle(r.x + 18, r.y + r.h / 2, 5, connected ? cjui::hexColor("#3FCF8E") : on ? cjui::hexColor("#E8C547") : live.withAlpha(0.8f), true);
-        gfx_.text(on ? L"Stop streaming" : streamPending_ ? L"Getting your stream key…" : L"Start streaming", {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
-        if (on) {
-            std::wstring right;
-            if (connected) {
-                const int sec = (int)st.seconds;
-                wchar_t t[32];
-                swprintf(t, 32, L"%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
-                right = t;
-            } else {
-                right = st.state == output::StreamStatus::Reconnecting ? L"reconnecting" : L"connecting";
-            }
-            gfx_.text(right, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
-        }
-        if (focused("ctl:stream")) focusRing(r);
-        y += 46;
-    }
+    // Streaming: the button and each destination.
+    y = drawStreamControls(b.x + 12, y, w, b.bottom());
     const C cs[] = {{L"Replay buffer", L"Milestone 11"}, {L"Studio mode", L"Milestone 8"}, {L"Virtual camera", L"Milestone 11"}};
     for (const C& c : cs) {
         if (y + 34 > b.bottom()) break;
@@ -1076,22 +1035,11 @@ void CaptureWindow::drawStatusBar(const Rect& r) {
         gfx_.text(value, {x, r.y, vw + 4, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
         x += vw + 22;
     };
-    if (streamer_.active()) {
-        const output::StreamStatus st = streamer_.status();
-        wchar_t t[96];
-        const int sec = (int)st.seconds;
-        if (st.state == output::StreamStatus::Live)
-            swprintf(t, 96, L"live %d:%02d:%02d \u00B7 %.1f Mbit/s", sec / 3600, sec / 60 % 60, sec % 60, st.kbps / 1000.0);
-        else if (st.state == output::StreamStatus::Reconnecting)
-            swprintf(t, 96, L"reconnecting (try %d, in %d s)", st.attempt, st.retryIn);
-        else
-            swprintf(t, 96, L"connecting\u2026");
-        std::wstring v = t;
-        if (st.droppedFrames) v += L" \u00B7 " + std::to_wstring(st.droppedFrames) + L" dropped";
-        const Color c = st.state == output::StreamStatus::Live ? cjui::hexColor("#3FCF8E") : cjui::hexColor("#E8C547");
+    {
+        bool live = false;
+        const std::wstring v = streamStatusText(live);
+        const Color c = live ? cjui::hexColor("#3FCF8E") : streamer_.active() ? cjui::hexColor("#E8C547") : pal_.inkFaint;
         item(L"Stream", v, &c);
-    } else {
-        item(L"Stream", L"off", &pal_.inkFaint);
     }
     if (recorder_.active()) {
         const output::RecordStatus st = recorder_.status();

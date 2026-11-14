@@ -413,7 +413,12 @@ advanced scenes and audio milestones if wanted.
 - One destination at a time; several at once from one encode is Milestone 7. No bandwidth test, and no automatic
   bitrate lowering yet.
 
-## 14. Signing in to Twitch and YouTube (status: built, 14 Nov 2026; released as 0.6.1; waiting for NorthRay's app registrations)
+## 14. Signing in to Twitch and YouTube (status: parked, 14 Nov 2026; was in 0.6.1, taken out of the app in 0.7.0)
+
+CJ chose manual stream keys (pasted per destination) over signing in. The code below stays in the repository
+(`core/oauth` is still built and tested; `src/output/accounts.cpp` and `http.cpp` are not built into the app, and
+`tools/check-accounts.sh` still checks them) so it can come back if wanted; the steps under "To switch it on" would
+then apply, plus wiring the Account row back into Settings › Streaming.
 
 **Built**
 - `core/oauth`: SHA-256, base64url, PKCE (S256), URL/form encoding, and reading every answer used below (device
@@ -472,4 +477,47 @@ advanced scenes and audio milestones if wanted.
 - While the Google app is in Testing, only listed test users can sign in, they see an "unverified app" notice, and
   Google ends test sign-ins after 7 days (sign in again). For everyone: publish the app and complete Google's
   verification for the YouTube scope.
+
+## 15. Milestone 7: Multistreaming (status: built, 14 Nov 2026; released as 0.7.0; not yet run with a real encoder or platform)
+
+**Built**
+- Capture → Composite → Encode → Distribute → Multiple Destinations:
+  - `src/output/streamer`: one encode path per video bitrate (an H.264 encoder at CBR, an AAC encoder on the Stream
+    bus, its own frame sink "stream:<kbps>"); destinations at the same bitrate share it, a different bitrate gets
+    its own. Each path fans its packets out to its destinations. An encode is stopped once no running destination
+    uses it (also when its destinations have failed by themselves).
+  - `src/output/destination`: one connection per destination on its own thread with its own buffer (at most ~3 s;
+    older groups of frames dropped from a keyframe, counted only while connected), its own reconnection (2 s,
+    doubling, up to the chosen longest wait), and its own status: state, message, live time, kbit/s, bytes sent,
+    dropped frames, attempts, reconnections, retry countdown, connect time (TCP + TLS + RTMP). A connection
+    starts at the newest keyframe waiting. A refused key fails just that destination.
+- Settings: up to six destinations, each with a service (Twitch, YouTube, Kick, Custom), server, stream key (in
+  Credential Manager as "stream/<id>"), video bitrate (2.5-12 Mbit/s) and whether Start streaming starts it. 0.6
+  settings become the first destination ("main", whose key was already "stream/main"). Below them: the upload the
+  switched-on destinations need (video + audio + ~5%, each destination its own copy), how many encodes that means,
+  and the longest wait between reconnection attempts (15 s, 30 s, 1 or 2 min).
+- Controls: Start/Stop streaming for all switched-on destinations, then a row per destination (state dot, live
+  time, Mbit/s, dropped frames, reconnections, retry countdown, or why it stopped); clicking a row starts or stops
+  just that one. When several start at once, any that can't are listed with their reasons and the others go ahead;
+  one stopping later is shown briefly while the others carry on. The status bar: "live on 2 of 3 · 12.4 Mbit/s up".
+- The Account row (signing in) was removed from Settings › Streaming (section 14).
+
+**Tested**
+- `tools/check-destinations.sh` (Wine): one 20 s H.264 + AAC stream fed in real time (2x) to four local ffmpeg
+  RTMP servers through Capture's Destination: A received 600/600 frames; B, stopped at frame 240 while the others
+  carried on, 239 (the frame fed as it stopped); C, added at frame 360, 240/240 from there; D, whose server only
+  started ~4 s in, reconnected by itself and received everything from then (360). Every file decodes without
+  errors; no frames dropped.
+- The app in Wine: settings from 0.6.1 carried over (the saved key still found); adding destinations (a service not
+  yet used suggested, YouTube at 8 Mbit/s); the upload and encode summary (2 destinations at 6 and 8 Mbit/s: about
+  15 Mbit/s, 2 encodes); the destination rows in Controls; Start streaming with three destinations each failing for
+  its own reason (no encoder, no key, no server address), listed together.
+
+**Not tested / limits**
+- The shared encode itself (one encoder feeding several destinations) and separate encodes per bitrate have not run:
+  this machine has no H.264/AAC encoders. Nor has any real platform been streamed to.
+- Bandwidth is estimated from the chosen bitrates; there's no upload speed test, and no automatic lowering of the
+  bitrate when a connection can't keep up (frames are dropped instead, and counted).
+- All destinations use the canvas size and frame rate; per-destination resolutions (e.g. a vertical canvas to one
+  platform) come with Milestone 11's vertical canvases.
 
