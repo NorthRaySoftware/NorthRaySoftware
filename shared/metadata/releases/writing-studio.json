@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.31.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The world bible tidies itself: copies of one entry (the same name, either apostrophe) are merged into one, keeping every name, detail, picture and relationship. The merged copies go to the Trash, so one can be brought back. A character and a creature of the same name become one character that is that creature.",
+        "When a book joins a world, its own bible entries move into the world's bible (merging any it already has).",
+        "Fixed: “Add to the bible” in Review › Names could add the same name again and again.",
+        "“Check these kinds”: entries that look filed under the wrong kind are pointed out (Zornov's race is Demon, so Demon reads like a race), with “Make it a Race” or “Keep it”. Right-click any entry's card to change its kind.",
+        "Creatures, one level at a time: each species as a card; click it for its kinds; click a kind for the named characters of that kind. A path back up at the top, “+ Add a kind”, and drag a card onto another to move it under it. A character can be a creature too (“A creature?” on its page).",
+        "Bigger gender and sex signs on character cards and group headings."
+      ]
+    },
+    {
       "version": "0.30.0",
       "date": "2026-11-14",
       "notes": [

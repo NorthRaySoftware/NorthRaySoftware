@@ -788,8 +788,13 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 const cjui::Color sc = subKind == "gender" ? genderColor(subLabel, pal_)
                                      : subLabel == L"Not set" || subLabel == L"Other creatures" ? pal_.inkMuted
                                                                                                : kindColor(subKind, pal_.dark);
-                gfx_.text((sign.empty() ? L"" : sign + L"  ") + subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {m.x, y, cw, 20},
-                          Font::SmallStrong, sc, {Align::Left, false, true});
+                float lx = m.x;
+                if (!sign.empty()) {   // the sign large, then the group's name
+                    gfx_.text(sign, {m.x - 2, y - 8, 32, 34}, Font::Title, sc, {Align::Center, false, false, true});
+                    lx += 34;
+                }
+                gfx_.text(subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {lx, y, cw - (lx - m.x), 20}, Font::SmallStrong, sc,
+                          {Align::Left, false, true});
                 y += 26;
             }
             for (size_t i = 0; i < subItems.size(); ++i) {
@@ -823,7 +828,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 if (x->kind == "character")
                     if (const std::wstring g = w(facetOf(*x, *findFacet("gender"))); !g.empty())
                         if (const std::wstring sg = genderSign(g); !sg.empty())
-                            gfx_.text(sg, {cr.right() - 30, cr.y + 6, 22, 22}, Font::BodyStrong, genderColor(g, pal_), {Align::Center, false, false, true});
+                            gfx_.text(sg, {cr.right() - 40, cr.y + 4, 36, 36}, Font::Title, genderColor(g, pal_), {Align::Center, false, false, true});
                 // A place inside another: "in Akunda", and a mark per level.
                 if (depth > 0)
                     if (auto pit = parentOf.find(x->id); pit != parentOf.end())
@@ -1453,6 +1458,10 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
             for (const Facet* f : facetsFor(e->kind))
                 if (const std::string v = facetOf(*e, *f); !v.empty()) label += L"  ·  " + upper(w(v));
         gfx_.text(label, {tx, cr.y + 14, tw, 16}, Font::Label, kc, {Align::Left, false, true});
+        if (e->kind == "character")
+            if (const std::wstring g = w(facetOf(*e, *findFacet("gender"))); !g.empty())
+                if (const std::wstring sg = genderSign(g); !sg.empty())
+                    gfx_.text(sg, {cr.right() - 40, cr.y + 4, 36, 36}, Font::Title, genderColor(g, pal_), {Align::Center, false, false, true});
         gfx_.text(w(e->name), {tx, cr.y + 31, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
         if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 53, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         if (!isNamed) {

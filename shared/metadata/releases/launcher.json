@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.34.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.31.0: the world bible tidies its copies and kinds, and creatures are browsed species › kind › named ones."
+      ]
+    },
+    {
       "version": "0.33.0",
       "date": "2026-11-14",
       "notes": [
