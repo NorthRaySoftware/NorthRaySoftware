@@ -1,6 +1,7 @@
 // Tests for the Writing & Publishing Studio's library core. Each test works in
 // a fresh temporary folder and reopens the library to prove what was saved.
 #include "studio/artwork.hpp"
+#include "studio/bible_export.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
 #include "studio/document.hpp"
@@ -1384,6 +1385,10 @@ static void testEntryPages() {
         e.gallery.push_back({"abc", "At sixteen"});
         e.gallery.push_back({"def", ""});
         e.setBookNote(book, "Hides the shard.");
+        e.pronunciation = "AH-dah";
+        e.setRevealedIn("section:Backstory & goals", book);
+        e.setRevealedIn("detail:Age", book);
+        e.setRevealedIn("detail:Age", "");
         CHECK(lib->updateEntry(e));
         // A world's own template: reordered, one renamed away.
         CHECK(lib->setEntryTemplate(world, "character", parseEntryTemplate("- Backstory & goals\n\nLooks\nBackstory & goals\n")));
@@ -1394,6 +1399,8 @@ static void testEntryPages() {
         f.setBookNote(book, "Wakes in chapter 2.");
         f.gallery.push_back({"abc", ""});
         f.gallery.push_back({"ghi", ""});
+        f.mapBlob = "mapblob";
+        f.pins = {{ada, 0.25, 0.75}, {ada2, 2.0, -1.0}};
         lib->updateEntry(f);
     }
     {
@@ -1401,6 +1408,8 @@ static void testEntryPages() {
         const Entry* e = lib->entry(ada);
         CHECK(e && e->section("Backstory & goals") == "Raised by smiths." && e->gallery.size() == 2 && e->gallery[0].caption == "At sixteen");
         CHECK(e && e->bookNote(book) == "Hides the shard.");
+        CHECK(e && e->pronunciation == "AH-dah" && e->revealedIn("section:Backstory & goals") == book && e->revealedIn("detail:Age").empty());
+        CHECK(e && e->revealed.size() == 1);
         const auto secs = lib->entrySections(*e);
         // Template first (Backstory & goals, Looks), then the extra one it has.
         CHECK(secs.size() == 3 && secs[0].first == "Backstory & goals" && secs[1].first == "Looks" && secs[2].first == "Odd habits");
@@ -1409,6 +1418,7 @@ static void testEntryPages() {
         CHECK(lib->mergeEntries(ada, ada2));
         const Entry* m = lib->entry(ada);
         CHECK(m && m->section("Looks") == "Tall." && m->gallery.size() == 3);
+        CHECK(m && m->mapBlob == "mapblob" && m->pins.size() == 2 && m->pins[0].x == 0.25 && m->pins[1].x == 1.0 && m->pins[1].y == 0.0);
         CHECK(m && m->bookNote(book).find("Hides the shard.") != std::string::npos && m->bookNote(book).find("Wakes in chapter 2.") != std::string::npos);
         Entry n = *m;
         n.setBookNote(book, "");
@@ -1465,6 +1475,132 @@ static void testFamilyTree() {
     CHECK(fams[1].people == 2 && fams[1].surname == "");
     // Limited: the rest left out, and said so.
     CHECK(lib->familyLayout(ada, 3).cut && lib->familyLayout(ada, 3).people.size() == 3);
+}
+
+static void testContinuity() {
+    using namespace studio;
+    const std::string dir = tempLibrary("continuity");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id book = lib->createBook("Dragonfall", world);
+    const Id ada = lib->createEntry(world, {}, "character", "Ada Wren");
+    const Id tom = lib->createEntry(world, {}, "character", "Tom");
+    const Id never = lib->createEntry(world, {}, "place", "Nowhere Fen");
+    {
+        Entry e = *lib->entry(ada);
+        e.details = "Eyes: grey\nHair: black\nAge: 34\nGender: Female\nGender: Woman";
+        lib->updateEntry(e);
+        Entry t = *lib->entry(tom);
+        t.details = "Eyes: brown";
+        lib->updateEntry(t);
+    }
+    const Id ch = lib->createNode(book, {}, NodeKind::Chapter, "One");
+    CHECK(lib->saveNodeContent(ch, para("Ada Wren turned her bright blue eyes to the sea. Her black hair was wet. "
+                                        "Ada was a thirty-four-year-old harbourmaster. Tom looked at Ada with his green eyes. "
+                                        "Tom was twenty years old.")));
+    const auto c = review::continuityChecks(*lib, world);
+    int inBible = 0, eyes = 0, hair = 0, age = 0;
+    for (auto& f : c.facts) {
+        if (f.inBible) { ++inBible; CHECK(f.entry == ada && f.label == "Gender"); continue; }
+        if (f.label == "Eyes") { ++eyes; CHECK(f.entry == ada && f.other == "blue eyes" && f.nodeId == ch); }
+        if (f.label == "Hair") ++hair;
+        if (f.label == "Age") ++age;
+    }
+    CHECK(inBible == 1);
+    CHECK(eyes == 1);          // Tom's green eyes are in a sentence naming Ada too: left alone
+    CHECK(hair == 0 && age == 0);   // black hair and 34 agree
+    CHECK(c.unused.size() == 1 && c.unused[0] == never);
+    CHECK(!c.facts.empty() && !c.facts[0].key().empty());
+}
+
+static void testBibleExport() {
+    using namespace studio;
+    namespace ts = studio::typeset;
+    const std::string dir = tempLibrary("bibleexport");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id b1 = lib->createBook("Book One", world), b2 = lib->createBook("Book Two", world);
+    const Id ada = lib->createEntry(world, {}, "character", "Ada Wren");
+    const Id tom = lib->createEntry(world, {}, "character", "Tom Wren");
+    const Id ghost = lib->createEntry(world, {}, "character", "The Ghost");
+    const Id cliff = lib->createEntry(world, {}, "place", "Highcliff");
+    lib->addLink(tom, ada, "Parent of");
+    lib->addLink(ada, cliff, "Lives in");
+    {
+        Entry e = *lib->entry(ada);
+        e.summary = "Harbourmaster of Highcliff <and> keeper.";
+        e.details = "Age: 34\nSecret: Tom's heir";
+        e.pronunciation = "AH-dah";
+        e.aliases = {"Captain Wren"};
+        e.setSection("Backstory & goals", "Grew up in Highcliff.\n\nWants the ledger.");
+        e.setRevealedIn("detail:Secret", b2);
+        e.setBookNote(b1, "Finds the ledger.");
+        e.notes = "Private author note.";
+        lib->updateEntry(e);
+        Entry g = *lib->entry(ghost);
+        g.setRevealedIn("entry", b2);
+        lib->updateEntry(g);
+        Entry c = *lib->entry(cliff);
+        c.mapBlob = lib->storeBlob(std::string("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x08", 24));
+        c.pins = {{ada, 0.5, 0.25}, {ghost, 0.1, 0.1}};
+        lib->updateEntry(c);
+    }
+    CHECK(bible::booksInOrder(*lib, world, {}).size() == 2);
+    CHECK(bible::pictureSize(std::string("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x08", 24)) == std::make_pair(16, 8));
+    auto read = [](const std::string& p) { std::ifstream f(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); };
+    // The author's whole bible.
+    {
+        const std::string out = dir + "/site-all";
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, out, err, &pages));
+        CHECK(pages == 6);
+        const std::string a = read(out + "/e-" + ada + ".html");
+        CHECK(a.find("Ada Wren") != std::string::npos && a.find("AH-dah") != std::string::npos);
+        CHECK(a.find("&lt;and&gt;") != std::string::npos);                          // escaped
+        CHECK(a.find("<a href=\"e-" + cliff + ".html\">Highcliff</a>") != std::string::npos);   // linked
+        CHECK(a.find("s heir") != std::string::npos && a.find("Private author note.") != std::string::npos && a.find("Finds the ledger.") != std::string::npos);
+        CHECK(a.find("Parents") != std::string::npos && a.find("Lives in") != std::string::npos);
+        const std::string c = read(out + "/e-" + cliff + ".html");
+        CHECK(c.find("class=\"pin\"") != std::string::npos && c.find("The Ghost") != std::string::npos && c.find("left:50.00%;top:25.00%") != std::string::npos);
+        CHECK(read(out + "/glossary.html").find("Captain Wren") != std::string::npos);
+        CHECK(read(out + "/index.html").find("Characters") != std::string::npos);
+        CHECK(std::filesystem::exists(out + "/style.css"));
+    }
+    // A reader's guide for Book One: no spoilers from Book Two, no author's notes.
+    {
+        const std::string out = dir + "/site-guide";
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, {world, {}, true, b1}, out, err, &pages));
+        CHECK(pages == 5);   // the Ghost isn't met until Book Two
+        CHECK(!std::filesystem::exists(out + "/e-" + ghost + ".html"));
+        const std::string a = read(out + "/e-" + ada + ".html");
+        CHECK(a.find("s heir") == std::string::npos && a.find("Private author note.") == std::string::npos && a.find("Finds the ledger.") == std::string::npos);
+        CHECK(a.find("reader's guide") != std::string::npos && a.find("Age") != std::string::npos);
+        CHECK(read(out + "/e-" + cliff + ".html").find("The Ghost") == std::string::npos);
+        CHECK(read(out + "/glossary.html").find("Ghost") == std::string::npos);
+    }
+    // Printable: a part per kind, a chapter per entry, the glossary at the back; and it typesets.
+    {
+        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "CJ Philip");
+        int parts = 0, chapters = 0;
+        for (auto& sec : src.sections) (sec.kind == NodeKind::Part ? parts : chapters)++;
+        CHECK(parts == 2 && chapters == 5 && src.sections.back().title == "Glossary" && src.sections.back().matter == 2);
+        bool sawSecret = false;
+        for (auto& sec : src.sections) if (sec.content.find("Tom's heir") != std::string::npos) sawSecret = true;
+        CHECK(sawSecret);
+        const ts::Resources res{appFolder("fonts"), appFolder("hyphenation")};
+        const ts::Book book = ts::typesetBook(src, ts::presets()[0].design, res);
+        CHECK(book.pages.size() >= 8);
+        std::string err;
+        const std::string pdf = ts::pdfBytes(book, err);
+        CHECK(pdf.rfind("%PDF", 0) == 0);
+        auto guide = bible::printableSource(*lib, {world, {}, true, b1}, "Guide", "CJ Philip");
+        bool leak = false;
+        for (auto& sec : guide.sections) if (sec.content.find("Tom's heir") != std::string::npos || sec.title == "The Ghost") leak = true;
+        CHECK(!leak && guide.subtitle == "A reader's guide to Book One");
+    }
 }
 
 static void testBibleTidy() {
@@ -1886,6 +2022,8 @@ int main() {
     testBibleTidy();
     testEntryPages();
     testFamilyTree();
+    testContinuity();
+    testBibleExport();
     testEbookHtml();
     testPdfLikeHeadings();
     testTypeset();

@@ -286,10 +286,10 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 /* Names from the bible. */
 /* Each kind of bible entry has its own colour: name links, name cards (and the app's own cards). */
 .k-character { --k: #3E7BD6; } .k-creature { --k: #C26A2E; } .k-place { --k: #2E9A6C; } .k-group { --k: #7D5BD0; }
-.k-thing { --k: #B08A1E; } .k-race { --k: #6B8E23; } .k-realm { --k: #5B5FC7; } .k-lore { --k: #1E97A6; } .k-event { --k: #C9476A; }
+.k-thing { --k: #B08A1E; } .k-race { --k: #6B8E23; } .k-realm { --k: #5B5FC7; } .k-lore { --k: #1E97A6; } .k-magic { --k: #B3439E; } .k-event { --k: #C9476A; }
 :root[data-theme="dark"] .k-character { --k: #7AA9F0; } :root[data-theme="dark"] .k-creature { --k: #E69A5F; }
 :root[data-theme="dark"] .k-place { --k: #5BC99A; } :root[data-theme="dark"] .k-group { --k: #AE93F2; }
-:root[data-theme="dark"] .k-thing { --k: #E0BE55; } :root[data-theme="dark"] .k-lore { --k: #55C6D4; }
+:root[data-theme="dark"] .k-thing { --k: #E0BE55; } :root[data-theme="dark"] .k-lore { --k: #55C6D4; } :root[data-theme="dark"] .k-magic { --k: #E37FD0; }
 :root[data-theme="dark"] .k-event { --k: #F07C98; } :root[data-theme="dark"] .k-race { --k: #A5C76A; } :root[data-theme="dark"] .k-realm { --k: #9A9DF0; }
 .wl { text-decoration: underline dotted color-mix(in srgb, var(--k, var(--accent)) 80%, transparent); text-decoration-thickness: 1.5px;
   text-underline-offset: 3px; }

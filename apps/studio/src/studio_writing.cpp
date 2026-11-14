@@ -73,8 +73,34 @@ void StudioApp::ensureEditor() {
     const std::wstring objects = w(lib_->folder()) + L"\\objects";
     CreateDirectoryW(objects.c_str(), nullptr);
     if (!editor_.create(hwnd(), exeDir(), stateDir() + L"\\WebView2", objects, L"editor.html",
-                        [this](const std::string& m) { editorMessage(m); }))
+                        [this](const std::string& m) { editorMessage(m); })) {
         editorNote_ = editor_.error();
+        return;
+    }
+    // Right-click a name: "Add “Maren” to the bible…", or "Open “Maren” in the bible" when it's there.
+    editor_.setContextItems([this](const std::wstring& selection) {
+        std::vector<std::pair<std::wstring, std::function<void()>>> items;
+        std::string name = selection.empty() ? contextWord_ : narrow(selection);
+        while (!name.empty() && (name.back() == ' ' || name.back() == '\n' || name.back() == '\r')) name.pop_back();
+        while (!name.empty() && name.front() == ' ') name.erase(0, 1);
+        if (name.empty() || name.size() > 60 || name.find('\n') != std::string::npos || !lib_) return items;
+        const studio::Book* bk = lib_->book(writingBook_);
+        if (!bk) return items;
+        if (const Entry* had = lib_->findEntryNamed(bk->worldId, bk->worldId.empty() ? bk->id : Id{}, name)) {
+            items.push_back({L"Open \u201C" + w(had->name) + L"\u201D in the bible", [this, id = had->id] {
+                if (const Entry* e = lib_->entry(id); e && !e->deleted) {
+                    openWorldbuilding(e->worldId, e->worldId.empty() ? e->bookId : Id{});
+                    openEntry(id);
+                }
+            }});
+        } else {
+            items.push_back({L"Add \u201C" + w(name) + L"\u201D to the bible\u2026", [this, name] {
+                pendingBibleName_ = name;   // after the menu has closed
+                SetTimer(hwnd(), 6, 10, nullptr);
+            }});
+        }
+        return items;
+    });
 }
 
 // Opens a chapter in Writing with some words found and highlighted (Review's "Show it", Appears in).
@@ -181,6 +207,9 @@ void StudioApp::editorMessage(const std::string& text) {
         if (m.contains("data")) styleFileExport(m["data"].dump());
     } else if (type == "styleImport") {
         styleFileImport();
+    } else if (type == "contextWord") {
+        contextWord_ = m.value("text", "");
+        return;
     } else if (type == "entry") {
         // Ctrl+click on a name from the bible: its page in Worldbuilding.
         if (const Entry* e = lib_->entry(m.value("id", "")); e && !e->deleted) {
@@ -783,6 +812,7 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
         }
     });
     y = panelField(c, y, L"Synopsis", FSynopsis, 150);
+    if (n->id == currentNode_) drawNewNames(c, y);
 
     // Counts.
     panelHeading(c, y, L"WORDS", false);
@@ -1101,6 +1131,87 @@ float StudioApp::pageImport(const Rect& r0) {
                    L"Images are stored once in your library, and the original file is never changed.",
                    {r.x, y, r.w, 80}, Font::Small, pal_.inkFaint) + 10;
     return y - r.y + 20;
+}
+
+}  // namespace nrs
+
+namespace nrs {
+
+using nlohmann::json;
+using namespace studio;
+
+Id StudioApp::addNameToBible(const Id& bookId, const std::string& nm) {
+    const studio::Book* bk = lib_ ? lib_->book(bookId) : nullptr;
+    if (!bk || nm.empty()) return {};
+    const Id world = bk->worldId, own = bk->worldId.empty() ? bk->id : Id{};
+    if (const Entry* had = lib_->findEntryNamed(world, own, nm)) {
+        flash(L"“" + widen(had->name) + L"” is already in the bible.", 5);
+        return had->id;
+    }
+    std::vector<std::wstring> items;
+    for (auto& k : entryKinds()) items.push_back(L"As a " + widen(entryKindLabel(k)));
+    HMENU menu = CreatePopupMenu();
+    for (size_t i = 0; i < items.size(); ++i) AppendMenuW(menu, MF_STRING, 1 + (UINT)i, items[i].c_str());
+    POINT pt;
+    GetCursorPos(&pt);
+    const int k = (int)cjui::trackMenu(menu, pt, hwnd()) - 1;
+    DestroyMenu(menu);
+    if (k < 0) return {};
+    const std::string kind = entryKinds()[(size_t)k];
+    const Id id = lib_->createEntry(world, own, kind, nm);
+    if (id.empty()) { flash(widen(lib_->lastError()), 6); return {}; }
+    rv_.namesDone = false;
+    liveNamesKey_.clear();
+    sendView();   // the name links in the text now
+    std::string l = entryKindLabel(kind);
+    for (auto& c : l) c = (char)std::tolower((unsigned char)c);
+    flash(L"Added “" + widen(nm) + L"” to the bible as a " + widen(l) + L". Ctrl+click it in the text to open its page.", 6);
+    invalidate();
+    return id;
+}
+
+// Names written in this chapter that aren't in the bible yet (used more than once in the book, and
+// never in lower case), offered as you write. Worked out again every few seconds while the text changes.
+void StudioApp::drawNewNames(const Rect& c, float& y) {
+    if (!lib_ || writingBook_.empty()) return;
+    const std::string key = writingBook_ + "|" + std::to_string(lib_->changesMade());
+    const unsigned long long now = GetTickCount64();
+    if (key != liveNamesKey_ && (liveNamesKey_.empty() || now - liveNamesAt_ > 4000)) {
+        liveNames_ = review::nameChecks(*lib_, writingBook_);
+        liveNamesKey_ = key;
+        liveNamesAt_ = now;
+    }
+    std::set<std::string> ok;
+    {
+        const json j = json::parse(lib_->setting("names-ok:" + writingBook_), nullptr, false);
+        if (j.is_array()) for (auto& x : j) if (x.is_string()) ok.insert(x.get<std::string>());
+    }
+    std::vector<const review::NameIssue*> here;
+    for (const auto& is : liveNames_)
+        if (is.kind == review::NameIssue::Unknown && !ok.count(is.name) &&
+            std::find(is.nodes.begin(), is.nodes.end(), currentNode_) != is.nodes.end())
+            here.push_back(&is);
+    if (here.empty()) return;
+    panelHeading(c, y, L"NEW NAMES", false);
+    y += gfx_.text(L"Names in this chapter that aren't in the bible yet.", {c.x, y, c.w, 40}, Font::Small, pal_.inkMuted) + 8;
+    for (size_t i = 0; i < here.size() && i < 8; ++i) {
+        const auto& is = *here[i];
+        gfx_.text(widen(is.name), {c.x, y, c.w - 70, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
+        gfx_.text(std::to_wstring(is.count) + L"×", {c.right() - 60, y, 60, 20}, Font::Small, pal_.inkFaint, {Align::Right, false});
+        y += 22;
+        float bw = 0;
+        linkText("wr:nn:add:" + is.name, c.x, y, L"Add to the bible…", [this, nm = is.name] { addNameToBible(writingBook_, nm); }, Font::Small);
+        bw = gfx_.measureWidth(L"Add to the bible…", Font::Small) + 20;
+        linkText("wr:nn:ok:" + is.name, c.x + bw, y, L"Not a name", [this, nm = is.name] {
+            json j = json::parse(lib_->setting("names-ok:" + writingBook_), nullptr, false);
+            if (!j.is_array()) j = json::array();
+            j.push_back(nm);
+            lib_->setSetting("names-ok:" + writingBook_, j.dump());
+            invalidate();
+        }, Font::Small);
+        y += 28;
+    }
+    y += 8;
 }
 
 }  // namespace nrs

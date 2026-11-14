@@ -153,6 +153,13 @@ private:
     bool isComic(const Id& book) const { return lib_ && lib_->setting("format:" + book) == "comic"; }
     void showInWriting(const Id& book, const Id& node, std::vector<std::string> words);
     void changeNameEverywhere(const std::string& from, const std::string& to);
+    // A name from the text into the bible: asks what kind, never makes a second copy, relinks the editor.
+    Id addNameToBible(const Id& bookId, const std::string& name);
+    void drawNewNames(const Rect& c, float& y);   // Writing's panel: names in this chapter not in the bible yet
+    std::string contextWord_, pendingBibleName_;  // the word right-clicked in the text; the one to add
+    std::vector<studio::review::NameIssue> liveNames_;
+    std::string liveNamesKey_;
+    unsigned long long liveNamesAt_ = 0;
     void editorMessage(const std::string& json);
     void addNode(studio::NodeKind kind);
     void addSceneBreak();
@@ -282,6 +289,15 @@ private:
     void drawFamilyTree(const Rect& r);
     void addFamilyMember(const Id& who, int relation);   // 0 parent, 1 partner, 2 sibling, 3 child
     void openFamilyTree(const Id& root);
+    // Maps (studio_world.cpp): a place's or realm's map picture, with entries pinned on it.
+    float drawMapSection(const Rect& m, float y, const studio::Entry& e);
+    void chooseMapPicture(const Id& entryId);
+    // Checks (studio_world.cpp): names spelt like a bible name, facts that disagree, entries never named.
+    void drawChecks(const Rect& r);
+    void checkIsFine(const std::string& key);
+    void drawGlossary(const Rect& r);   // every name in the bible, A to Z, with how it's said
+    void shareBible();                  // a website or a printable PDF: everything, or a reader's guide
+    void pinMenu(const Id& mapEntry, const Id& pinned);
     float drawKindSuggestions(const Rect& m, float y);
     void addGalleryPictures();
     void galleryMenu(size_t index);
@@ -542,6 +558,12 @@ private:
         Id boardEntry;             // the board open belongs to this entry (back goes to it)
         int picture = -1;          // the gallery picture selected on the entry's page
         Id familyRoot;             // the family tree shown ("" = none), drawn from this person
+        Id pinning;                // placing this entry's pin on the open map: the next click on it says where
+        bool checks = false;       // the Checks page
+        bool glossary = false;     // the Glossary page
+        studio::review::Continuity continuity;           // worked out for the Checks page
+        std::vector<std::pair<Id, studio::review::NameIssue>> spellings;   // book, name spelt like a bible name
+        std::string checksKey;
         float treeX = 0, treeW = 0;   // the tree scrolled across (Shift and the wheel), and its width
         std::vector<studio::Mention> mentions;
         Id mentionsFor;

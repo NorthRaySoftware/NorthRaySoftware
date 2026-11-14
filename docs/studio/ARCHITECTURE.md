@@ -327,3 +327,24 @@ The Studio uses `cjui::northray::palette` (cool neutrals, aurora-green ribbon) i
   - `wb_.familyRoot` shows `drawFamilyTree`: cards of 176 × 66 scaled to fit, down to 0.66, and wider than that `wb_.treeX` is moved with Shift and the wheel.
   - Partners have one line between them, or two for "Married to". Children are grouped by parent set: a line down from a couple's midpoint (or below a single parent), a bar across, and a line down to each child.
   - A "Family trees" chip row sits on the Characters list.
+
+## 0.34.0: the world bible's last round (names as you write, maps, checks, glossary, magic, spoilers, sharing)
+
+- **Names as you write.**
+  - `WebPane::setContextItems` adds NorthRay's items to the editor's WebView2 right-click menu (`ICoreWebView2_11::add_ContextMenuRequested`). The Studio now builds against `libs/third_party/webview2-sdk` (`WebView2MinGW.h` supplies the interface ids).
+  - On a right-button mousedown the editor posts `contextWord`: the selection, or the word under the pointer widened to neighbouring capitalised words. Choosing the menu item sets a timer, and `addNameToBible` then asks for the kind.
+  - Writing's panel lists `review::nameChecks` Unknown names found in the open chapter (worked out again at most every 4 s), with "Add" and "Not a name" (`names-ok:<book>`, shared with Review).
+- **Maps.** `Entry::mapBlob` and `pins` (`{entry, x, y}` from 0 to 1) are kept in the page JSON as `map`. `drawMapSection`: while `wb_.pinning` is set, a click on the map puts the pin at the pointer (`mouseX/mouseY`). `pinMenu` opens, moves or removes a pin. A Maps row of cards sits on the Places and Realms lists.
+- **Checks.** `review::continuityChecks(lib, world, book)` (`continuity.cpp`):
+  - Detail lines with the same label and different values.
+  - Sentences naming exactly one character, compared against that character's Eyes, Hair and Age: colour words near "eyes" or "hair" (grey and gray, gold and golden counted as the same), and "N years old", "N-year-old" or "aged N".
+  - Unused entries: no appearance in any book's `appearancesIn`.
+  - The Checks page also lists Variant names from `nameChecks` for every book. Dismissals are kept in `checks-ok:<scope>` as `spell|`, `fact|<key>` and `unused|<id>`.
+- **Glossary.** `Entry::pronunciation` (page JSON `say`; panel field FAlt, "How it's said") is shown under the name. The Glossary page sorts names and other names, leaving out "the ".
+- **Magic and powers.** The new kind `magic` (colour #B3439E / #E37FD0) has its own template and relations. Lore's built-in template is now What it is, Details, History.
+- **Spoilers.** `Entry::revealed` maps keys to a book: "entry", "summary", "detail:<label>" or "section:<title>" (page JSON `revealed`). The panel's Spoilers section sets them, and badges show on the page.
+- **Sharing** (`studio/bible_export.hpp`).
+  - `View` filters a bible: every entry, or for a reader's guide (`readersGuide` and `upTo`) only entries and facts revealed by that book. A reader's guide also leaves out notes and notes per book.
+  - `exportWebsite` writes index.html, glossary.html, an `e-<id>.html` page per entry, style.css (light and dark) and images/ (the type is sniffed from the bytes). Names are linked with `findNames`, and map pins are positioned by percentage.
+  - `printableSource` builds a `typeset::Source`: a Part per kind, a chapter per entry (matter 2, so it's headed by the name with no number, built with `doc::Builder`), and a Glossary at the back. The app typesets it with the first preset (`chapterSinkLines` at most 3) and writes the PDF.
+  - `pictureSize` reads PNG, GIF, JPEG and WebP headers.

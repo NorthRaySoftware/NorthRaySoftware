@@ -46,6 +46,25 @@ struct NameIssue {
 // entries of its world or of the independent book.
 std::vector<NameIssue> nameChecks(const Library& lib, const Id& bookId);
 
+// ----------------------------------------------------------- continuity
+
+// The world bible checked against itself and the manuscripts (a world's, or an independent book's).
+struct FactIssue {
+    Id entry;
+    std::string label;       // "Eyes", "Hair", "Age", or the detail's own label
+    std::string bible;       // what the bible says
+    std::string other;       // what disagrees: another line in the bible, or the words in the text
+    bool inBible = false;    // two lines of the entry's details disagree (often after merging copies)
+    Id bookId, nodeId;       // where the text says it
+    std::string snippet;     // the sentence
+    std::string key() const; // to remember "it's fine"
+};
+struct Continuity {
+    std::vector<FactIssue> facts;
+    std::vector<Id> unused;  // entries whose names never appear in the manuscripts
+};
+Continuity continuityChecks(const Library& lib, const Id& worldId, const Id& bookId = {});
+
 int editDistance(const std::u32string& a, const std::u32string& b, int limit);
 
 // Changes every whole-word use of `from` to `to` in a book's chapters and scenes (exact case;

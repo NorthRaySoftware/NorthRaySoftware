@@ -180,7 +180,7 @@ struct Entry {
     Id id;
     Id worldId;
     Id bookId;                        // only when worldId is empty
-    std::string kind = "character";   // "character", "place", "group", "thing", "lore", "event"
+    std::string kind = "character";   // "character", "race", "creature", "place", "realm", "group", "thing", "lore", "magic", "event"
     std::string name;
     std::vector<std::string> aliases; // other names it goes by (also found in the text)
     std::string summary;              // a line or two
@@ -194,6 +194,16 @@ struct Entry {
     struct Picture { std::string blob, caption; };
     std::vector<Picture> gallery;
     std::vector<std::pair<Id, std::string>> bookNotes;     // notes for one book (book id -> text)
+    // A map (a place's or a realm's): the picture, and entries pinned on it (x and y from 0 to 1 across it).
+    struct Pin { Id entry; double x = 0, y = 0; };
+    std::string mapBlob;
+    std::vector<Pin> pins;
+    std::string pronunciation;                             // how its name is said ("ZAH-mez"), for the glossary
+    // Spoilers: facts revealed in a book, so they're kept out of what readers of earlier books see. The key
+    // is "detail:<label>", "section:<title>", "summary" or "entry" (the whole entry); the value a book.
+    std::vector<std::pair<std::string, Id>> revealed;
+    const Id& revealedIn(const std::string& key) const;   // "" = not a spoiler
+    void setRevealedIn(const std::string& key, const Id& book);
     double order = 0;
     Time created = 0, modified = 0, deleted = 0;
 

@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.34.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Right-click a name in Writing: “Add “Maren” to the bible…” (as whichever kind), or “Open “Maren” in the bible” when it's there. A name of several words (“Maren Holt”) is taken whole, or select the words you want.",
+        "New names as you write: Writing's panel lists names in the open chapter that aren't in the bible yet, with “Add to the bible…” and “Not a name”.",
+        "Maps: a place's or realm's page can have a map, any picture you've made. “+ Pin an entry…” and a click on the map puts it there; click a pin to open it, move it or take it off. Places lists your maps.",
+        "Checks (Worldbuilding's sidebar): names spelt like a bible name, facts that disagree (two lines of an entry's details, or its eyes, hair or age against what the text says about them), and entries never named in the text. Anything can be marked as fine.",
+        "Glossary (Worldbuilding's sidebar): every name and other name from A to Z, with how it's said (“How it's said” on each page) and its line or two.",
+        "Magic and powers: a kind of its own, with pages for how it works, its rules, costs and limits, who can use it and what it can't do.",
+        "Spoilers: mark any fact (a detail, a section, the summary, or the whole entry) as revealed in a later book. The page shows it, and a reader's guide leaves it out for readers of earlier books.",
+        "Share the bible: a website (a folder of linked pages, with the glossary, families, relationships, maps and galleries, ready to put online), or a printable bible as a PDF, typeset like a book. Either can be everything, or a reader's guide up to the end of a chosen book, without spoilers from later books or your notes."
+      ]
+    },
+    {
       "version": "0.33.0",
       "date": "2026-11-14",
       "notes": [

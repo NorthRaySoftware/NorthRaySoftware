@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace nrs {
 
@@ -36,6 +37,10 @@ public:
     bool created() const { return (bool)impl_; }
     void focus();
     const std::wstring& error() const { return error_; }
+    // NorthRay's own items at the top of the page's right-click menu, worked out when it opens from the
+    // text selected (if any). Each is a label and what choosing it does.
+    using ContextItems = std::function<std::vector<std::pair<std::wstring, std::function<void()>>>(const std::wstring& selection)>;
+    void setContextItems(ContextItems items);
 
     struct Impl;
 

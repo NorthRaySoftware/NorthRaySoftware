@@ -1222,4 +1222,42 @@ const styleApi = {
 initStyleUi(styleApi);
 applyView();
 setTheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+// A right-click on a word: the host is told the word (or the selected words) first, so the menu it
+// opens can offer "Add “Maren” to the bible".
+document.addEventListener("mousedown", (e) => {
+  if (e.button !== 2 || !view || !view.dom.contains(e.target)) return;
+  let text = "";
+  const sel = view.state.selection;
+  const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
+  if (!sel.empty && hit && hit.pos >= sel.from && hit.pos <= sel.to) {
+    text = view.state.doc.textBetween(sel.from, sel.to, " ", " ");
+  } else if (hit) {
+    const $p = view.state.doc.resolve(hit.pos), t = $p.parent.textContent, off = $p.parentOffset;
+    let i = off, j = off;
+    while (i > 0 && /[\p{L}'’-]/u.test(t[i - 1])) i--;
+    while (j < t.length && /[\p{L}'’-]/u.test(t[j])) j++;
+    // A name of several capitalised words ("Maren Holt"): the words either side that start with a capital too.
+    const capital = (k) => /\p{Lu}/u.test(t[k] || "");
+    if (i < j && capital(i)) {
+      for (;;) {
+        let a = i - 1;
+        if (t[a] !== " ") break;
+        let b = a;
+        while (b > 0 && /[\p{L}'’-]/u.test(t[b - 1])) b--;
+        if (b === a || !capital(b)) break;
+        i = b;
+      }
+      for (;;) {
+        if (t[j] !== " ") break;
+        let b = j + 1, c = b;
+        while (c < t.length && /[\p{L}'’-]/u.test(t[c])) c++;
+        if (c === b || !capital(b)) break;
+        j = c;
+      }
+    }
+    text = t.slice(i, j);
+  }
+  text = text.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "").replace(/['’]s$/u, "").trim();
+  send({ type: "contextWord", text: text.length <= 60 ? text : "" });
+}, true);
 send({ type: "ready" });

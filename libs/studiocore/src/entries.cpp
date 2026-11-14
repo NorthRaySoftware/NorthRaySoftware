@@ -18,7 +18,7 @@ using namespace detail;
 using nlohmann::json;
 
 const std::vector<std::string>& entryKinds() {
-    static const std::vector<std::string> k{"character", "race", "creature", "place", "realm", "group", "thing", "lore", "event"};
+    static const std::vector<std::string> k{"character", "race", "creature", "place", "realm", "group", "thing", "lore", "magic", "event"};
     return k;
 }
 const char* entryKindLabel(const std::string& k) {
@@ -29,6 +29,7 @@ const char* entryKindLabel(const std::string& k) {
     if (k == "group") return "Group";
     if (k == "thing") return "Thing";
     if (k == "lore") return "Lore";
+    if (k == "magic") return "Magic or power";
     if (k == "event") return "Event";
     return "Character";
 }
@@ -40,6 +41,7 @@ const char* entryKindPlural(const std::string& k) {
     if (k == "group") return "Groups";
     if (k == "thing") return "Things";
     if (k == "lore") return "Lore";
+    if (k == "magic") return "Magic and powers";
     if (k == "event") return "Events";
     return "Characters";
 }
@@ -96,7 +98,7 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
         {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
         {"Member of", "group race"}, {"Leader of", "group race"}, {"Rules", "place group realm"}, {"Lives in", "place realm"}, {"Born in", "place realm"},
-        {"Founded", "place group"}, {"Owns", "thing place"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore"},
+        {"Founded", "place group"}, {"Owns", "thing place"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore magic"},
         {"Rides", "creature"}, {"Tames", "creature"}, {"Hunts", "creature character"},
         {"Took part in", "event"}, {"Caused", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> realm{
@@ -137,6 +139,9 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Believed by", "character group place"}, {"Practised by", "character group"}, {"Comes from", "place group event"},
         {"Explains", ""}, {"Explained by", "lore"}, {"Part of", "lore"}, {"Includes", "lore"}, {"Origin of", "thing character"},
         {"Related to", ""}};
+    static const std::vector<RelationChoice> magic{
+        {"Practised by", "character group race"}, {"Comes from", "place realm lore thing event"}, {"Part of", "magic lore"},
+        {"Includes", "magic"}, {"Explained by", "lore"}, {"Made", "thing"}, {"Enemy of", "magic group"}, {"Related to", ""}};
     static const std::vector<RelationChoice> event{
         {"Involved", "character group thing"}, {"Took place in", "place"}, {"Caused by", "character group event thing"},
         {"Led to", "event"}, {"Followed from", "event"}, {"Part of", "event"}, {"Includes", "event"},
@@ -149,6 +154,7 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
     if (kind == "group") return group;
     if (kind == "thing") return thing;
     if (kind == "lore") return lore;
+    if (kind == "magic") return magic;
     if (kind == "event") return event;
     return character;
 }
@@ -174,6 +180,20 @@ void Entry::setSection(const std::string& title, const std::string& text) {
     if (!text.empty()) sections.emplace_back(title, text);
 }
 
+const Id& Entry::revealedIn(const std::string& key) const {
+    for (auto& r : revealed) if (r.first == key) return r.second;
+    return kNone;
+}
+
+void Entry::setRevealedIn(const std::string& key, const Id& book) {
+    for (size_t i = 0; i < revealed.size(); ++i)
+        if (revealed[i].first == key) {
+            if (book.empty()) revealed.erase(revealed.begin() + (long)i); else revealed[i].second = book;
+            return;
+        }
+    if (!book.empty()) revealed.emplace_back(key, book);
+}
+
 const std::string& Entry::bookNote(const Id& book) const {
     for (auto& n : bookNotes) if (n.first == book) return n.second;
     return kNone;
@@ -196,7 +216,8 @@ const std::vector<std::string>& defaultEntryTemplate(const std::string& kind) {
     static const std::vector<std::string> realm{"Description", "Rulers & peoples", "Lands within", "History"};
     static const std::vector<std::string> group{"Purpose & beliefs", "Leaders & members", "History", "Symbols & colours"};
     static const std::vector<std::string> thing{"Description", "Origin", "Powers & uses", "Where it is now"};
-    static const std::vector<std::string> lore{"Rules", "Costs & limits", "Who can use it", "History"};
+    static const std::vector<std::string> lore{"What it is", "Details", "History"};
+    static const std::vector<std::string> magic{"How it works", "Rules", "Costs & limits", "Who can use it", "What it can't do", "History"};
     static const std::vector<std::string> event{"What happened", "Causes", "Who was there", "What came of it"};
     static const std::vector<std::string> none;
     if (kind == "character") return character;
@@ -207,6 +228,7 @@ const std::vector<std::string>& defaultEntryTemplate(const std::string& kind) {
     if (kind == "group") return group;
     if (kind == "thing") return thing;
     if (kind == "lore") return lore;
+    if (kind == "magic") return magic;
     if (kind == "event") return event;
     return none;
 }
@@ -266,6 +288,17 @@ std::string entryPageText(const Entry& e) {
         g.push_back(o);
     }
     if (!g.empty()) j["gallery"] = g;
+    if (!e.pronunciation.empty()) j["say"] = e.pronunciation;
+    if (!e.revealed.empty()) {
+        json r = json::object();
+        for (auto& [k, b] : e.revealed) if (!b.empty()) r[k] = b;
+        if (!r.empty()) j["revealed"] = r;
+    }
+    if (!e.mapBlob.empty()) {
+        json pins = json::array();
+        for (auto& p : e.pins) if (!p.entry.empty()) pins.push_back({{"entry", p.entry}, {"x", p.x}, {"y", p.y}});
+        j["map"] = {{"blob", e.mapBlob}, {"pins", pins}};
+    }
     json n = json::object();
     for (auto& b : e.bookNotes) if (!b.second.empty()) n[b.first] = b.second;
     if (!n.empty()) j["bookNotes"] = n;
@@ -282,6 +315,18 @@ void readEntryPage(Entry& e, const std::string& text) {
         for (auto& x : *g)
             if (x.is_object() && x.value("blob", std::string()).size())
                 e.gallery.push_back({x.value("blob", std::string()), x.value("caption", std::string())});
+    e.pronunciation = j.value("say", std::string());
+    if (auto r = j.find("revealed"); r != j.end() && r->is_object())
+        for (auto it = r->begin(); it != r->end(); ++it) if (it->is_string()) e.revealed.emplace_back(it.key(), it->get<std::string>());
+    if (auto m = j.find("map"); m != j.end() && m->is_object()) {
+        e.mapBlob = m->value("blob", std::string());
+        if (auto ps = m->find("pins"); ps != m->end() && ps->is_array())
+            for (auto& p : *ps)
+                if (p.is_object() && p.value("entry", std::string()).size()) {
+                    const double x = p.value("x", 0.5), y = p.value("y", 0.5);
+                    e.pins.push_back({p.value("entry", std::string()), std::clamp(x, 0.0, 1.0), std::clamp(y, 0.0, 1.0)});
+                }
+    }
     if (auto n = j.find("bookNotes"); n != j.end() && n->is_object())
         for (auto it = n->begin(); it != n->end(); ++it) if (it->is_string()) e.bookNotes.emplace_back(it.key(), it->get<std::string>());
 }
@@ -521,6 +566,9 @@ bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
     for (auto& p : other->gallery)
         if (std::none_of(k.gallery.begin(), k.gallery.end(), [&](const Entry::Picture& q) { return q.blob == p.blob; })) k.gallery.push_back(p);
     for (auto& n : other->bookNotes) k.setBookNote(n.first, joinText(k.bookNote(n.first), n.second));
+    if (k.mapBlob.empty()) { k.mapBlob = other->mapBlob; k.pins = other->pins; }
+    if (k.pronunciation.empty()) k.pronunciation = other->pronunciation;
+    for (auto& r : other->revealed) if (k.revealedIn(r.first).empty()) k.setRevealedIn(r.first, r.second);
     k.modified = now();
     if (!saveEntry(k)) { rollback(); return false; }
     // Its links, now the kept entry's (none to itself, none twice).

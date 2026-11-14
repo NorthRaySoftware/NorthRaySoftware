@@ -22,7 +22,7 @@ add_executable(WritingStudio WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(WritingStudio PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party
-                           ${CMAKE_SOURCE_DIR}/libs/third_party/webview2)
+                           ${CMAKE_SOURCE_DIR}/libs/third_party/webview2-sdk)
 target_link_libraries(WritingStudio PRIVATE studiocore cjui ole32 shell32 comdlg32 dwmapi uuid comctl32)
 if(MSVC)
   target_compile_options(WritingStudio PRIVATE /W4 /utf-8)

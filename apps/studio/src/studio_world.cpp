@@ -4,8 +4,11 @@
 // relationships and where it appears in the manuscripts; the right-hand panel
 // edits it.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
+#include "studio/bible_export.hpp"
 #include "cjui/menu.hpp"
 
+#include <shellapi.h>
 #include <shobjidl.h>
 
 #include <algorithm>
@@ -59,7 +62,7 @@ static cjui::Color kindColor(const std::string& kind, bool dark) {
     struct K { const char* k; const char* light; const char* dark; };
     static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"}, {"race", "#6B8E23", "#A5C76A"}, {"realm", "#5B5FC7", "#9A9DF0"},
                            {"group", "#7D5BD0", "#AE93F2"},     {"thing", "#B08A1E", "#E0BE55"},    {"lore", "#1E97A6", "#55C6D4"},
-                           {"event", "#C9476A", "#F07C98"}};
+                           {"magic", "#B3439E", "#E37FD0"},     {"event", "#C9476A", "#F07C98"}};
     for (auto& x : ks) if (kind == x.k) return cjui::hexColor(dark ? x.dark : x.light);
     return cjui::hexColor(dark ? "#7AA9F0" : "#3E7BD6");
 }
@@ -300,6 +303,9 @@ void StudioApp::openEntry(const Id& id) {
     wb_.board.clear();   // out of any image board
     wb_.item.clear();
     wb_.familyRoot.clear();
+    wb_.pinning.clear();
+    wb_.checks = false;
+    wb_.glossary = false;
     if (wb_.entry != id) {
         wb_.panelScroll = 0;
         wb_.section.clear();
@@ -513,7 +519,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -590,6 +596,41 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             }
     }
     y += 20;
+    // Glossary and checks.
+    {
+        const std::string id = "side:wb:glossary";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; invalidate(); });
+        const bool sel = wb_.glossary;
+        const float hv = hoverAmount(id);
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Glossary", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (focused(id)) focusRing(rr);
+        y += 32;
+    }
+    {
+        const std::string id = "side:wb:share";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { shareBible(); });
+        const float hv = hoverAmount(id);
+        if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Share the bible\u2026", {tx0, rr.y, cw - 30, rr.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (focused(id)) focusRing(rr);
+        y += 32;
+    }
+    {
+        const std::string id = "side:wb:checks";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; invalidate(); });
+        const bool sel = wb_.checks;
+        const float hv = hoverAmount(id);
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Checks", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (focused(id)) focusRing(rr);
+        y += 44;
+    }
     // Image boards.
     gfx_.text(L"IMAGE BOARDS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     linkText("side:wb:newboard", tx0 + cw - gfx_.measureWidth(L"+ New", Font::Small), y - 2, L"+ New", [this] { newBoard(); });
@@ -648,6 +689,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
     wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
     if (!wb_.board.empty()) { drawBoard(r); return; }
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
+    if (wb_.checks) { drawChecks(r); return; }
+    if (wb_.glossary) { drawGlossary(r); return; }
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
@@ -715,6 +758,31 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     lx += lw2 + 8;
                 }
                 y += 52;
+            }
+        }
+        if ((wb_.kind == "place" || wb_.kind == "realm") && wb_.facet.empty()) {
+            // The bible's maps, each opening its place's page at the map.
+            std::vector<const Entry*> maps;
+            for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) if (!x->mapBlob.empty() && (x->kind == "place" || x->kind == "realm")) maps.push_back(x);
+            if (!maps.empty()) {
+                gfx_.text(L"MAPS", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                y += 26;
+                const float tw = 200, th = 120, gap = 12;
+                float lx = m.x;
+                for (const Entry* x : maps) {
+                    if (lx + tw > m.right() && lx > m.x) { lx = m.x; y += th + 34 + gap; }
+                    const Rect tr{lx, y, tw, th};
+                    const std::string id = "wb:mapcard:" + x->id;
+                    addHit(id, {tr.x, tr.y, tr.w, tr.h + 26}, [this, eid = x->id] { openEntry(eid); });
+                    const float hv = hoverAmount(id);
+                    softShadow(tr, 4, 0.3f + 0.6f * hv);
+                    if (!gfx_.drawImage(w(lib_->blobPath(x->mapBlob)), tr, true)) gfx_.fillRounded(tr, 4, pal_.sunken);
+                    gfx_.text(w(x->name) + L"  \u00B7  " + std::to_wstring(x->pins.size()) + (x->pins.size() == 1 ? L" pin" : L" pins"),
+                              {tr.x, tr.bottom() + 6, tw, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
+                    if (focused(id)) focusRing(tr);
+                    lx += tw + gap;
+                }
+                y += th + 34 + 20;
             }
         }
         if (wb_.kind == "creature" && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
@@ -914,6 +982,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
         ty += 20;
         ty += gfx_.text(w(e->name), {tx, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 4;
+        if (!e->pronunciation.empty()) ty += gfx_.text(L"Said \u201C" + w(e->pronunciation) + L"\u201D", {tx, ty, tw, 22}, Font::Body, pal_.inkMuted) + 6;
+        if (const studio::Book* rb = lib_->book(e->revealedIn("entry")))
+            ty += gfx_.text(L"SPOILER \u00B7 FIRST MET IN " + upper(w(rb->title)), {tx, ty, tw, 18}, Font::Label, pal_.demo, {Align::Left, false}) + 8;
         if (!e->aliases.empty()) {
             std::wstring a = L"Also ";
             for (size_t i = 0; i < e->aliases.size(); ++i) a += (i ? L", " : L"") + std::wstring(L"“") + w(e->aliases[i]) + L"”";
@@ -937,6 +1008,13 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     std::string val = line.substr(colon + 1);
                     while (!val.empty() && val.front() == ' ') val.erase(0, 1);
                     gfx_.text(w(line.substr(0, colon)), {tx, ty, lw - 10, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                    if (const studio::Book* rb = lib_->book(e->revealedIn("detail:" + line.substr(0, colon)))) {
+                        const std::wstring t = L"spoiler \u00B7 " + w(rb->title);
+                        const float bw = std::min(gfx_.measureWidth(t, Font::Small) + 14, 220.0f);
+                        const Rect badge{tx + std::min(tw, 640.0f) - bw, ty, bw, 20};
+                        gfx_.fillRounded(badge, 10, pal_.demo.withAlpha(0.12f));
+                        gfx_.text(t, badge, Font::Small, pal_.demo, {Align::Center, false, true, true});
+                    }
                     ty += std::max(20.0f, drawLinkedText(val, {tx + lw, ty, std::min(tw - lw, 480.0f), 0}, Font::Small, pal_.ink, e->id,
                                                          "wb:ld" + std::to_string(at) + ":")) + 4;
                 } else {
@@ -956,6 +1034,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 if (text.empty()) { empty.push_back(title); continue; }
                 const std::string id = "wb:sec:" + title;
                 gfx_.text(upper(w(title)), {m.x, y, cw - 60, 18}, Font::Label, wb_.section == title ? pal_.ribbon : pal_.inkFaint, {Align::Left, false});
+                if (const studio::Book* rb = lib_->book(e->revealedIn("section:" + title)))
+                    gfx_.text(L"SPOILER \u00B7 " + upper(w(rb->title)), {m.x + gfx_.measureWidth(upper(w(title)), Font::Label) + 14, y, 300, 18}, Font::Label,
+                              pal_.demo, {Align::Left, false, true});
                 linkText(id, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y - 2, L"Edit", [this, title] {
                     commitFields();
                     wb_.section = title;
@@ -1018,6 +1099,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
 
         if (e->kind == "character") y = drawFamilySection(m, y, *e);
+        if (e->kind == "place" || e->kind == "realm") y = drawMapSection(m, y, *e);
 
         // Gallery: pictures of it, kept with the entry.
         {
@@ -1408,6 +1490,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             });
         }
         y = panelField(c, y, L"Other names (separate with commas)", FTags);
+        y = panelField(c, y, L"How it's said (for the glossary: ZAH-mez)", FAlt);
         y = panelField(c, y, L"Summary", FDescription, 70);
         y = panelImage(c, y, L"Picture", e->imageBlob, [this] { chooseImage(Focus::Entry, wb_.entry, 0); }, [this] {
             if (const Entry* x = lib_->entry(wb_.entry)) { Entry u = *x; u.imageBlob.clear(); lib_->updateEntry(u); }
@@ -1535,6 +1618,54 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             y = panelField(c, y, L"In " + (b ? w(b->title) : std::wstring()) + L": what happens to it, what it knows", FBookNote, 110);
         }
         y = panelField(c, y, L"Notes", FNotes, 180);
+
+        // Spoilers: what readers only learn in a later book.
+        if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+        if (!wb_.bookOrder.empty()) {
+            panelHeading(c, y, L"SPOILERS", false);
+            y += gfx_.text(L"Mark what readers only learn in a later book. A reader's guide or shared wiki for an earlier book leaves it out.",
+                           {c.x, y, c.w, 60}, Font::Small, pal_.inkMuted) + 8;
+            std::vector<std::pair<std::string, std::wstring>> facts{{"entry", L"The whole entry"}};
+            if (!e->summary.empty()) facts.push_back({"summary", L"Summary"});
+            {
+                size_t at = 0;
+                while (at <= e->details.size()) {
+                    size_t nl = e->details.find('\n', at);
+                    if (nl == std::string::npos) nl = e->details.size();
+                    const std::string line = e->details.substr(at, nl - at);
+                    at = nl + 1;
+                    const size_t colon = line.find(':');
+                    if (colon != std::string::npos && colon > 0 && colon < 40) facts.push_back({"detail:" + line.substr(0, colon), w(line.substr(0, colon))});
+                }
+            }
+            for (auto& [t, text] : lib_->entrySections(*e)) if (!text.empty()) facts.push_back({"section:" + t, w(t)});
+            for (auto& [key, label] : facts) {
+                const studio::Book* rb = lib_->book(e->revealedIn(key));
+                gfx_.text(label, {c.x, y, c.w * 0.5f, 22}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                const std::wstring v = rb ? w(rb->title) : L"Not a spoiler";
+                const float vw = gfx_.measureWidth(v, Font::Small);
+                linkText("wb:spoil:" + key, c.right() - vw - 4, y + 3, v, [this, key = key] {
+                    const Entry* x = lib_->entry(wb_.entry);
+                    if (!x) return;
+                    std::vector<std::wstring> items{L"Not a spoiler"};
+                    int cur = 0;
+                    for (size_t i = 0; i < wb_.bookOrder.size(); ++i) {
+                        const studio::Book* bk = lib_->book(wb_.bookOrder[i]);
+                        items.push_back(L"Revealed in " + (bk ? w(bk->title) : std::wstring(L"?")));
+                        if (x->revealedIn(key) == wb_.bookOrder[i]) cur = (int)i + 1;
+                    }
+                    const int i = popupAt(hwnd(), items, cur);
+                    if (i < 0 || i == cur) return;
+                    commitFields();
+                    Entry u = *lib_->entry(wb_.entry);
+                    u.setRevealedIn(key, i == 0 ? Id{} : wb_.bookOrder[(size_t)i - 1]);
+                    lib_->updateEntry(u);
+                    invalidate();
+                }, Font::Small);
+                y += 26;
+            }
+            y += 14;
+        }
         linkText("wb:trash", c.x, y, L"Move to Trash", [this] {
             const Entry* x = lib_->entry(wb_.entry);
             if (!x) return;
@@ -1558,7 +1689,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             static const std::map<std::string, const wchar_t*> what = {
                 {"character", L"The people in the story."}, {"race", L"The peoples and species you've made: the Fluxians, say."}, {"realm", L"Worlds and planes: Heaven, Hell, the spirit world."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
                 {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
-                {"lore", L"History, magic, beliefs, languages, rules of the world."}, {"event", L"Battles, festivals, disasters, turning points."}};
+                {"lore", L"History, beliefs, languages, legends."}, {"magic", L"Magic systems and powers: how they work, their rules and costs."}, {"event", L"Battles, festivals, disasters, turning points."}};
             gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});
             y += 20;
             y += gfx_.text(what.at(k), {c.x, y, c.w, 40}, Font::Small, pal_.inkMuted) + 8;
@@ -2198,6 +2329,498 @@ void StudioApp::drawFamilyTree(const Rect& r) {
                   {Align::Right, false});
     clearHitClip();
     gfx_.popClip();
+}
+
+// ------------------------------------------------------------- maps
+
+void StudioApp::chooseMapPicture(const Id& entryId) {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC spec[] = {{L"Pictures", L"*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"}};
+    dlg->SetFileTypes(1, spec);
+    dlg->SetTitle(L"Choose a map");
+    std::wstring path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = p; CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    std::ifstream f(path.c_str(), std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (bytes.empty() || bytes.size() > 120u * 1024 * 1024) { flash(L"That map couldn't be read (or is over 120 MB).", 6); return; }
+    std::wstring name = path.substr(path.find_last_of(L"\\/") + 1);
+    if (const size_t dot = name.rfind(L'.'); dot != std::wstring::npos) name.resize(dot);
+    const Id aid = lib_->addArtwork(bytes, narrow(name), "Map");
+    const Artwork* a = aid.empty() ? nullptr : lib_->artwork(aid);
+    if (!a) { flash(w("Couldn't keep the map: " + lib_->lastError()), 6); return; }
+    commitFields();
+    if (const Entry* e = lib_->entry(entryId)) {
+        Entry u = *e;
+        u.mapBlob = a->blob;   // pins stay where they were (across the new picture)
+        lib_->updateEntry(u);
+    }
+    invalidate();
+}
+
+// A pin clicked: open its entry, move it, or take it off the map.
+void StudioApp::pinMenu(const Id& mapEntry, const Id& pinned) {
+    const Entry* p = lib_->entry(pinned);
+    if (!p) return;
+    const int i = popupAt(hwnd(), {L"Open " + w(p->name), L"Move the pin", L"Take it off the map"});
+    if (i == 0) openEntry(pinned);
+    else if (i == 1) { wb_.pinning = pinned; invalidate(); }
+    else if (i == 2) {
+        if (const Entry* e = lib_->entry(mapEntry)) {
+            Entry u = *e;
+            u.pins.erase(std::remove_if(u.pins.begin(), u.pins.end(), [&](const Entry::Pin& q) { return q.entry == pinned; }), u.pins.end());
+            lib_->updateEntry(u);
+        }
+        invalidate();
+    }
+}
+
+// The map on a place's or realm's page: the picture, its pins (click one for its menu), and pinning:
+// choose an entry, then click on the map where it is.
+float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
+    const float cw = m.w;
+    gfx_.text(L"MAP" + (e.pins.empty() ? std::wstring() : L"  ·  " + std::to_wstring(e.pins.size()) + (e.pins.size() == 1 ? L" pin" : L" pins")),
+              {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    if (e.mapBlob.empty()) {
+        const std::wstring t = L"+ Choose a map…";
+        linkText("wb:mapchoose", m.right() - gfx_.measureWidth(t, Font::Small), y - 2, t, [this, id = e.id] { chooseMapPicture(id); });
+        y += 30;
+        y += gfx_.text(L"A map of " + w(e.name) + L": a picture you've drawn or made. Pin the places, people and events on it.",
+                       {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 8;
+        if (!e.imageBlob.empty()) {
+            linkText("wb:mapmain", m.x, y, L"Use its main picture as the map", [this, id = e.id] {
+                if (const Entry* x = lib_->entry(id)) { Entry u = *x; u.mapBlob = x->imageBlob; lib_->updateEntry(u); invalidate(); }
+            });
+            y += 28;
+        }
+        return y + 18;
+    }
+    {
+        float lx = m.right();
+        auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
+            lx -= gfx_.measureWidth(t, Font::Small);
+            linkText(id, lx, y - 2, t, std::move(f));
+            lx -= 22;
+        };
+        act("wb:mapremove", L"Remove the map", [this, id = e.id] {
+            if (cjui::messageBox(hwnd(), L"Remove the map and its pins? The picture stays in Artwork.", L"Remove the map",
+                                 MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
+            if (const Entry* x = lib_->entry(id)) { Entry u = *x; u.mapBlob.clear(); u.pins.clear(); lib_->updateEntry(u); }
+            wb_.pinning.clear();
+            invalidate();
+        });
+        act("wb:mapreplace", L"Replace…", [this, id = e.id] { chooseMapPicture(id); });
+        act("wb:mappin", L"+ Pin an entry…", [this, id = e.id] {
+            const Entry* x = lib_->entry(id);
+            if (!x) return;
+            // Places inside this one first, then everything else not pinned yet.
+            std::vector<const Entry*> inside, rest;
+            std::set<Id> pinned;
+            for (auto& p : x->pins) pinned.insert(p.entry);
+            for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book)) {
+                if (o->id == id || pinned.count(o->id)) continue;
+                bool in = false;
+                for (const EntryLink& l : lib_->linksOf(o->id))
+                    if ((l.from == o->id && l.to == id && (l.label == "Located in" || l.label == "Part of")) ||
+                        (l.to == o->id && l.from == id && (l.label == "Contains" || l.label == "Includes"))) in = true;
+                (in ? inside : rest).push_back(o);
+            }
+            std::stable_sort(rest.begin(), rest.end(), [](const Entry* a, const Entry* b) { return (a->kind == "place") > (b->kind == "place"); });
+            std::vector<cjui::MenuItem> menu;
+            std::vector<const Entry*> all;
+            for (const Entry* o : inside) { menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (in " + w(x->name) + L")", (UINT)(1 + all.size()))); all.push_back(o); }
+            if (!inside.empty() && !rest.empty()) menu.push_back(cjui::MenuItem::sep());
+            for (const Entry* o : rest) {
+                if (all.size() >= 300) break;
+                menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (" + w(entryKindLabel(o->kind)) + L")", (UINT)(1 + all.size())));
+                all.push_back(o);
+            }
+            if (all.empty()) { flash(L"Everything in the bible is pinned already.", 5); return; }
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
+            if (!ch) return;
+            wb_.pinning = all[ch - 1]->id;
+            invalidate();
+        });
+    }
+    y += 30;
+    const std::wstring path = w(lib_->blobPath(e.mapBlob));
+    const auto [iw, ih] = gfx_.imageSize(path);
+    float mw = cw, mh = iw > 0 ? cw * ih / (float)iw : cw * 0.6f;
+    if (mh > 720) { mh = 720; mw = iw > 0 ? mh * iw / (float)ih : cw; }
+    const Rect mr{m.x + (cw - mw) / 2, y, mw, mh};
+    // Pinning: a note above the map, and the map takes the click.
+    if (!wb_.pinning.empty()) {
+        const Entry* pe = lib_->entry(wb_.pinning);
+        const Rect band{m.x, y, cw, 34};
+        gfx_.fillRounded(band, 6, pal_.ribbon.withAlpha(0.14f));
+        gfx_.text(L"Click on the map where " + (pe ? w(pe->name) : std::wstring(L"it")) + L" is.", {band.x + 12, band.y, band.w - 100, band.h}, Font::Body,
+                  pal_.ink, {Align::Left, false, true, true});
+        linkText("wb:pinstop", band.right() - 60, band.y + 9, L"Stop", [this] { wb_.pinning.clear(); invalidate(); });
+        y += 44;
+    }
+    const Rect map{mr.x, y, mr.w, mr.h};
+    if (!wb_.pinning.empty())
+        addHit("wb:mapclick", map, [this, id = e.id, map] {
+            const float fx = std::clamp((mouseX() - map.x) / map.w, 0.0f, 1.0f), fy = std::clamp((mouseY() - map.y) / map.h, 0.0f, 1.0f);
+            if (const Entry* x = lib_->entry(id)) {
+                Entry u = *x;
+                bool moved = false;
+                for (auto& p : u.pins) if (p.entry == wb_.pinning) { p.x = fx; p.y = fy; moved = true; }
+                if (!moved) u.pins.push_back({wb_.pinning, fx, fy});
+                lib_->updateEntry(u);
+            }
+            wb_.pinning.clear();
+            invalidate();
+        }, false);
+    softShadow(map, 4, 0.35f);
+    if (!gfx_.drawImage(path, map, false)) {
+        gfx_.fillRounded(map, 4, pal_.sunken);
+        gfx_.text(L"The map's picture is missing.", map, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+    }
+    if (!wb_.pinning.empty()) gfx_.strokeRounded(map, 4, pal_.ribbon, 2);
+    // Pins: a dot in the entry's colour, and its name on a small label beside it.
+    for (const auto& p : e.pins) {
+        const Entry* o = lib_->entry(p.entry);
+        if (!o || o->deleted) continue;
+        const float px = map.x + (float)p.x * map.w, py = map.y + (float)p.y * map.h;
+        const cjui::Color kc = kindColor(o->kind, pal_.dark);
+        const std::wstring nm = w(o->name);
+        const float lw = gfx_.measureWidth(nm, Font::Small) + 16;
+        const bool left = px + 10 + lw > map.right();
+        const Rect label{left ? px - 10 - lw : px + 10, py - 11, lw, 22};
+        const std::string id = "wb:pin:" + p.entry;
+        if (wb_.pinning.empty()) {
+            addHit(id, {px - 9, py - 9, 18, 18}, [this, mid = e.id, pid = p.entry] { pinMenu(mid, pid); });
+            addHit(id + ":l", label, [this, mid = e.id, pid = p.entry] { pinMenu(mid, pid); });
+        }
+        const float hv = std::max(hoverAmount(id), hoverAmount(id + ":l"));
+        gfx_.fillRounded(label, 11, pal_.paper.withAlpha(0.88f + 0.12f * hv));
+        gfx_.strokeRounded(label, 11, kc.withAlpha(0.6f + 0.4f * hv));
+        gfx_.text(nm, label, Font::Small, pal_.ink, {Align::Center, false, true, true});
+        gfx_.circle(px, py, 7 + 2 * hv, pal_.paper, true);
+        gfx_.circle(px, py, 5 + 2 * hv, kc, true);
+    }
+    y += map.h + 8;
+    y += gfx_.text(L"Click a pin to open it, move it or take it off.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 22;
+    return y;
+}
+
+// ------------------------------------------------------------- checks
+
+void StudioApp::checkIsFine(const std::string& key) {
+    const std::string sk = "checks-ok:" + (wb_.world.empty() ? wb_.book : wb_.world);
+    json j = json::parse(lib_->setting(sk), nullptr, false);
+    if (!j.is_array()) j = json::array();
+    j.push_back(key);
+    lib_->setSetting(sk, j.dump());
+    invalidate();
+}
+
+// The bible checked: names spelt like one of its names, facts that disagree (in the bible, or with the
+// text), and entries the manuscripts never name. Each can be marked as fine.
+void StudioApp::drawChecks(const Rect& r) {
+    const std::string scopeKey = wb_.world.empty() ? wb_.book : wb_.world;
+    const std::string key = scopeKey + "|" + std::to_string(lib_->changesMade());
+    if (key != wb_.checksKey) {
+        wb_.checksKey = key;
+        wb_.continuity = review::continuityChecks(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{});
+        wb_.spellings.clear();
+        std::set<std::string> names;
+        for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book))
+            for (auto& is : review::nameChecks(*lib_, b))
+                if (is.kind == review::NameIssue::Variant && names.insert(is.name).second) wb_.spellings.push_back({b, is});
+    }
+    std::set<std::string> ok;
+    {
+        const json j = json::parse(lib_->setting("checks-ok:" + scopeKey), nullptr, false);
+        if (j.is_array()) for (auto& x : j) if (x.is_string()) ok.insert(x.get<std::string>());
+    }
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const float pad = r.w > 900 ? 40 : 28;
+    const float cw = std::min(r.w - pad * 2, 900.0f);
+    const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
+    float y = m.y;
+    y += pageHeader(m, L"WORLDBUILDING", L"Checks",
+                    L"The bible against itself and the manuscripts. Anything here can be fine as it is: mark it, and it isn't shown again.");
+    auto heading = [&](const std::wstring& t, int n) {
+        gfx_.text(t + L"  ·  " + std::to_wstring(n), {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 28;
+    };
+    // ---- Spellings.
+    {
+        std::vector<const std::pair<Id, review::NameIssue>*> list;
+        for (auto& sp : wb_.spellings) if (!ok.count("spell|" + sp.second.name)) list.push_back(&sp);
+        heading(L"NAMES SPELT LIKE A BIBLE NAME", (int)list.size());
+        if (list.empty()) y += gfx_.text(L"None: no name in the text looks like a misspelling of one in the bible.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 18;
+        for (auto* sp : list) {
+            const auto& is = sp->second;
+            gfx_.text(w(is.name), {m.x, y, cw * 0.5f, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            const studio::Book* bk = lib_->book(sp->first);
+            gfx_.text(L"looks like " + w(is.like) + L" · " + std::to_wstring(is.count) + (is.count == 1 ? L" time" : L" times") +
+                          (bk ? L" in " + w(bk->title) : std::wstring()),
+                      {m.x, y + 22, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            float ax = m.x;
+            auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
+                linkText(id, ax, y + 46, t, std::move(f));
+                ax += gfx_.measureWidth(t, Font::Small) + 26;
+            };
+            if (!is.nodes.empty()) act("ck:sp:show:" + is.name, L"Show it", [this, b = sp->first, n = is.nodes.front(), nm = is.name] { showInWriting(b, n, {nm}); });
+            act("ck:sp:fix:" + is.name, L"Fix it in Review › Names", [this, b = sp->first] { openReview(b, 2); });
+            act("ck:sp:ok:" + is.name, L"It's fine", [this, nm = is.name] { checkIsFine("spell|" + nm); });
+            y += 74;
+            gfx_.line(m.x, y - 6.5f, m.right(), y - 6.5f, pal_.rule.withAlpha(0.5f));
+        }
+        y += 18;
+    }
+    // ---- Facts.
+    {
+        std::vector<const review::FactIssue*> list;
+        for (auto& f : wb_.continuity.facts) if (!ok.count("fact|" + f.key())) list.push_back(&f);
+        heading(L"FACTS THAT DISAGREE", (int)list.size());
+        if (list.empty())
+            y += gfx_.text(L"None found. Studio compares each entry's details with each other, and a character's eyes, hair and age with what "
+                           L"the text says about them.", {m.x, y, cw, 40}, Font::Small, pal_.inkFaint) + 18;
+        for (auto* f : list) {
+            const Entry* e = lib_->entry(f->entry);
+            if (!e) continue;
+            gfx_.text(w(e->name) + L"  ·  " + w(f->label), {m.x, y, cw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            y += 24;
+            const std::wstring said = f->inBible ? L"The bible says both “" + w(f->bible) + L"” and “" + w(f->other) + L"”."
+                                                 : L"The bible says “" + w(f->bible) + L"”; the text says “" + w(f->other) + L"”.";
+            y += gfx_.text(said, {m.x, y, cw, 40}, Font::Small, pal_.inkMuted) + 4;
+            if (!f->snippet.empty()) {
+                const studio::Book* bk = lib_->book(f->bookId);
+                const ManuscriptNode* nd = lib_->node(f->nodeId);
+                std::wstring where = bk ? w(bk->title) : L"";
+                if (nd) where += L" › " + w(nd->title.empty() ? std::string(label(nd->kind)) : nd->title);
+                y += gfx_.text(where + L":  “" + w(f->snippet) + L"”", {m.x, y, cw, 60}, Font::Small, pal_.ink) + 6;
+            }
+            float ax = m.x;
+            auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
+                linkText(id, ax, y, t, std::move(fn));
+                ax += gfx_.measureWidth(t, Font::Small) + 26;
+            };
+            const std::string k = f->key();
+            if (!f->nodeId.empty())
+                act("ck:f:show:" + k, L"Show it", [this, b = f->bookId, n = f->nodeId, words = searchNames(*e)] { showInWriting(b, n, words); });
+            act("ck:f:open:" + k, L"Open " + w(e->name), [this, id = e->id] { openEntry(id); });
+            act("ck:f:ok:" + k, L"It's fine", [this, k] { checkIsFine("fact|" + k); });
+            y += 36;
+            gfx_.line(m.x, y - 6.5f, m.right(), y - 6.5f, pal_.rule.withAlpha(0.5f));
+        }
+        y += 18;
+    }
+    // ---- Unused.
+    {
+        std::vector<const Entry*> list;
+        for (const Id& id : wb_.continuity.unused)
+            if (const Entry* e = lib_->entry(id); e && !e->deleted && !ok.count("unused|" + id)) list.push_back(e);
+        heading(L"NEVER NAMED IN THE TEXT", (int)list.size());
+        if (list.empty()) y += gfx_.text(L"Every entry's name appears somewhere in the manuscripts.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 18;
+        else y += gfx_.text(L"Their names (and other names) don't appear in any chapter yet. Click one to open it; × marks it as fine.",
+                            {m.x, y, cw, 40}, Font::Small, pal_.inkMuted) + 10;
+        float lx = m.x;
+        for (const Entry* e : list) {
+            const std::wstring nm = w(e->name);
+            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 52;
+            if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 36; }
+            const Rect chip{lx, y, lw2, 28};
+            const std::string id = "ck:un:" + e->id;
+            addHit(id, {chip.x, chip.y, chip.w - 26, chip.h}, [this, eid = e->id] { openEntry(eid); });
+            addHit(id + ":x", {chip.right() - 26, chip.y, 26, chip.h}, [this, eid = e->id] { checkIsFine("unused|" + eid); }, false);
+            const float hv = hoverAmount(id), xv = hoverAmount(id + ":x");
+            const cjui::Color kc = kindColor(e->kind, pal_.dark);
+            gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+            gfx_.strokeRounded(chip, 14, pal_.rule.mix(kc, 0.4f + 0.6f * hv));
+            gfx_.circle(chip.x + 13, chip.y + 14, 4, kc, true);
+            gfx_.text(nm, {chip.x + 22, chip.y, chip.w - 48, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+            const float cx = chip.right() - 14, cy = chip.y + 14;
+            gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, xv > 0.01f ? pal_.ink : pal_.inkFaint, 1.3f);
+            gfx_.line(cx + 4, cy - 4, cx - 4, cy + 4, xv > 0.01f ? pal_.ink : pal_.inkFaint, 1.3f);
+            if (focused(id)) focusRing(chip);
+            lx += lw2 + 8;
+        }
+        y += 50;
+    }
+    if (!ok.empty()) {
+        linkText("ck:reset", m.x, y, L"Check what was marked as fine again (" + std::to_wstring(ok.size()) + L")", [this, scopeKey] {
+            lib_->setSetting("checks-ok:" + scopeKey, "[]");
+            invalidate();
+        });
+        y += 30;
+    }
+    wb_.content = y + wb_.scroll - r.y + 40;
+    wb_.scroll = std::clamp(wb_.scroll, 0.0f, std::max(0.0f, wb_.content - r.h));
+    clearHitClip();
+    gfx_.popClip();
+}
+
+// ------------------------------------------------------------- glossary
+
+// Every name in the bible from A to Z: how it's said, what it is, and its line or two. Other names
+// point to the main one ("Captain Wren, see Ada Wren").
+void StudioApp::drawGlossary(const Rect& r) {
+    struct Row { std::string sortKey; const Entry* e; std::string alias; };
+    std::vector<Row> rows;
+    auto sortKey = [](std::string s) {
+        for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+        if (s.rfind("the ", 0) == 0) s = s.substr(4);
+        return s;
+    };
+    for (const Entry* e : lib_->entriesOf(wb_.world, wb_.book)) {
+        rows.push_back({sortKey(e->name), e, {}});
+        for (auto& a : e->aliases) if (!a.empty()) rows.push_back({sortKey(a), e, a});
+    }
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.sortKey < b.sortKey; });
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const float pad = r.w > 900 ? 40 : 28;
+    const float cw = std::min(r.w - pad * 2, 820.0f);
+    const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
+    float y = m.y;
+    int said = 0;
+    for (auto& row : rows) if (row.alias.empty() && !row.e->pronunciation.empty()) ++said;
+    y += pageHeader(m, L"WORLDBUILDING", L"Glossary",
+                    std::to_wstring(rows.size()) + L" names, " + std::to_wstring(said) +
+                        L" with how they're said. Add how a name is said on its page (“How it's said”).");
+    std::wstring letter;
+    for (const Row& row : rows) {
+        const std::wstring name = w(row.alias.empty() ? row.e->name : row.alias);
+        const std::wstring sk = w(row.sortKey);   // "the Admiral" files under A
+        std::wstring first = sk.empty() ? L"#" : std::wstring(1, (wchar_t)towupper(sk[0]));
+        if (!iswalpha(first[0])) first = L"#";
+        if (first != letter) {
+            letter = first;
+            y += 10;
+            gfx_.text(letter, {m.x, y, 60, 34}, Font::Title, pal_.ribbon, {Align::Left, false});
+            y += 38;
+            gfx_.line(m.x, y - 4.5f, m.right(), y - 4.5f, pal_.rule);
+        }
+        const std::string id = "wb:gl:" + row.e->id + ":" + row.alias;
+        float tx = m.x;
+        const float nw = gfx_.measureWidth(name, Font::BodyStrong);
+        addHit(id, {m.x, y, nw, 24}, [this, eid = row.e->id] { openEntry(eid); });
+        const float hv = hoverAmount(id);
+        gfx_.text(name, {tx, y, nw + 2, 24}, Font::BodyStrong, hv > 0.01f ? pal_.ribbon : pal_.ink, {Align::Left, false});
+        tx += nw + 12;
+        if (!row.alias.empty()) {
+            gfx_.text(L"see " + w(row.e->name), {tx, y + 2, m.right() - tx, 22}, Font::Body, pal_.inkMuted, {Align::Left, false, true});
+            y += 32;
+            continue;
+        }
+        if (!row.e->pronunciation.empty()) {
+            const std::wstring p = L"(" + w(row.e->pronunciation) + L")";
+            gfx_.text(p, {tx, y + 2, m.right() - tx, 22}, Font::Body, pal_.inkMuted, {Align::Left, false, true});
+            tx += gfx_.measureWidth(p, Font::Body) + 12;
+        }
+        gfx_.text(upper(w(entryKindLabel(row.e->kind))), {tx, y + 5, m.right() - tx, 18}, Font::Label, kindColor(row.e->kind, pal_.dark),
+                  {Align::Left, false, true});
+        y += 26;
+        if (!row.e->summary.empty()) y += drawLinkedText(row.e->summary, {m.x, y, cw, 0}, Font::Small, pal_.inkMuted, row.e->id, "wb:gls" + row.e->id + ":") + 4;
+        if (focused(id)) focusRing({m.x, y - 30, nw, 24});
+        y += 12;
+    }
+    wb_.content = y + wb_.scroll - r.y + 40;
+    wb_.scroll = std::clamp(wb_.scroll, 0.0f, std::max(0.0f, wb_.content - r.h));
+    clearHitClip();
+    gfx_.popClip();
+}
+
+// ------------------------------------------------------------- sharing
+
+// The bible as a website (a folder of pages) or a printable PDF, typeset like a book: everything, or a
+// reader's guide that keeps to what readers know by the end of a chosen book.
+void StudioApp::shareBible() {
+    commitFields();
+    const int what = popupAt(hwnd(), {L"A website (a folder of linked pages)…", L"A printable bible (PDF)…"});
+    if (what < 0) return;
+    const auto books = bible::booksInOrder(*lib_, wb_.world, wb_.book);
+    std::vector<std::wstring> scope{L"Everything (your whole bible, with your notes)"};
+    for (const Id& b : books)
+        if (const studio::Book* bk = lib_->book(b)) scope.push_back(L"A reader's guide up to the end of " + w(bk->title));
+    int which = 0;
+    if (scope.size() > 1) {
+        which = popupAt(hwnd(), scope);
+        if (which < 0) return;
+    }
+    bible::Options o{wb_.world, wb_.world.empty() ? wb_.book : Id{}, which > 0, which > 0 ? books[(size_t)which - 1] : Id{}};
+    std::wstring name;
+    if (const World* wo = lib_->world(wb_.world)) name = w(wo->name);
+    else if (const studio::Book* bk = lib_->book(wb_.book)) name = w(bk->title);
+    if (what == 0) {
+        IFileOpenDialog* dlg = nullptr;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+        DWORD opts = 0;
+        dlg->GetOptions(&opts);
+        dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        dlg->SetTitle(L"Choose a folder for the website (a new, empty one is best)");
+        std::string folder;
+        if (SUCCEEDED(dlg->Show(hwnd()))) {
+            IShellItem* item = nullptr;
+            if (SUCCEEDED(dlg->GetResult(&item))) {
+                PWSTR p = nullptr;
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { folder = narrow(p); CoTaskMemFree(p); }
+                item->Release();
+            }
+        }
+        dlg->Release();
+        if (folder.empty()) return;
+        std::string err;
+        int pages = 0;
+        SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+        if (!bible::exportWebsite(*lib_, o, folder, err, &pages)) {
+            cjui::messageBox(hwnd(), w("The website couldn't be made.\n\n" + err).c_str(), L"Share the bible", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        flash(L"Made " + std::to_wstring(pages) + L" pages. Its index.html opens it; the whole folder can go online as it is.", 8);
+        ShellExecuteW(hwnd(), L"open", w(folder + "\\index.html").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    IFileSaveDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC spec[] = {{L"PDF", L"*.pdf"}};
+    dlg->SetFileTypes(1, spec);
+    dlg->SetDefaultExtension(L"pdf");
+    dlg->SetFileName(((o.readersGuide ? name + L" reader's guide" : name + L" bible") + L".pdf").c_str());
+    std::string path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = narrow(p); CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    std::string author;
+    for (const Id& b : books) if (const studio::Book* bk = lib_->book(b)) { author = !bk->penName.empty() ? bk->penName : bk->author; if (!author.empty()) break; }
+    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    const auto src = bible::printableSource(*lib_, o, narrow(o.readersGuide ? name + L": A Reader's Guide" : L"The " + name + L" Bible"), author);
+    typeset::Design design = typeset::presets()[0].design;
+    design.chaptersOnRecto = false;   // entry after entry, not each on a right-hand page
+    design.chapterSinkLines = std::min(design.chapterSinkLines, 3);
+    const auto book = typeset::typesetBook(src, design, typesetResources());
+    std::string err;
+    if (book.pages.empty() || !typeset::writePdf(book, path, err)) {
+        cjui::messageBox(hwnd(), w("The PDF couldn't be made.\n\n" + (err.empty() ? std::string("Nothing to set.") : err)).c_str(), L"Share the bible",
+                         MB_OK | MB_ICONWARNING);
+        return;
+    }
+    flash(L"Made a " + std::to_wstring(book.pages.size()) + L"-page PDF.", 6);
+    ShellExecuteW(hwnd(), L"open", w(path).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 }  // namespace nrs

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.37.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Writing Studio 0.34.0: the world bible is finished for now: maps with pins, checks, a glossary with pronunciation, magic and powers, spoilers, and sharing as a website, a printable bible or a reader's guide; names offered and added as you write."
+      ]
+    },
+    {
       "version": "0.36.0",
       "date": "2026-11-14",
       "notes": [

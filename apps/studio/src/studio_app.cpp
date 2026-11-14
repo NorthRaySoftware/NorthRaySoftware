@@ -35,6 +35,7 @@ static const UINT_PTR kTickTimer = 2;
 static const UINT_PTR kCloseTimer = 3;   // waiting for the editor's last save
 static const UINT_PTR kTypesetTimer = 4; // a pause after a design change: set the pages again
 static const UINT_PTR kBackupTimer = 5;  // every 30 minutes: a backup if anything changed
+static const UINT_PTR kNameTimer = 6;    // "Add to the bible" chosen in the text's right-click menu
 
 
 enum Cmd {
@@ -1039,6 +1040,13 @@ void StudioApp::onTimer(UINT_PTR id) {
         return;
     }
     if (id == kTypesetTimer) { startTypeset(); return; }
+    if (id == kNameTimer) {
+        KillTimer(hwnd(), kNameTimer);
+        const std::string nm = pendingBibleName_;
+        pendingBibleName_.clear();
+        if (!nm.empty()) addNameToBible(writingBook_, nm);
+        return;
+    }
     if (id == kBackupTimer) { backupTick(); return; }
     if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
@@ -1567,6 +1575,7 @@ void StudioApp::loadFields() {
             setFieldText(FSynopsis, withCrLf(e->details));
             setFieldText(FNotes, withCrLf(e->notes));
             setFieldText(FSection, withCrLf(e->section(wb_.section)));
+            setFieldText(FAlt, e->pronunciation);
             setFieldText(FCaption, wb_.picture >= 0 && wb_.picture < (int)e->gallery.size() ? e->gallery[(size_t)wb_.picture].caption : std::string());
             setFieldText(FBookNote, withCrLf(e->bookNote(noteBookFor(*e))));
             setFieldText(FTemplate, withCrLf(entryTemplateText(lib_->entryTemplate(e->worldId, e->kind))));
@@ -1680,6 +1689,7 @@ void StudioApp::commitFields() {
             n.details = fieldText(FSynopsis);
             n.notes = fieldText(FNotes);
             if (!wb_.section.empty()) n.setSection(wb_.section, fieldText(FSection));
+            n.pronunciation = fieldText(FAlt);
             if (wb_.picture >= 0 && wb_.picture < (int)n.gallery.size()) n.gallery[(size_t)wb_.picture].caption = fieldText(FCaption);
             if (const Id nb = noteBookFor(*x); !nb.empty()) n.setBookNote(nb, fieldText(FBookNote));
             if (wb_.editTemplate) {
