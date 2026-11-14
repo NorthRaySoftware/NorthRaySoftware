@@ -17,7 +17,9 @@ enum class ThemeChoice { System, Light, Dark };
 struct Settings {
     ThemeChoice theme = ThemeChoice::System;
     std::wstring installRoot;        // where new installs go; empty = default (%LOCALAPPDATA%\NorthRay\Apps)
-    bool autoUpdate = false;         // install updates by themselves (apps that aren't running)
+    bool autoUpdate = true;          // install updates by themselves (apps that aren't running)
+    bool keepInTray = true;          // closing the window leaves the launcher in the notification area
+    bool startWithWindows = false;   // starts in the notification area when you sign in
 };
 
 // A screenshot shipped with an app's metadata (data/screenshots/<id>.json).

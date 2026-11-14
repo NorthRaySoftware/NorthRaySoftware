@@ -93,6 +93,8 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     spec.minHeight = 420;
     spec.show = show;
     spec.style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+    spec.customFrame = true;   // minimise, maximise and close sit at the end of the toolbar
+    spec.captionHeight = kToolbarH;
     if (!createWindow(spec)) return false;
 
     address_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
@@ -892,7 +894,7 @@ void FilesWindow::drawToolbar(const Rect& r) {
     x += bs + 2;
     navButton("tb:refresh", {x, by, bs, bs}, IconRefresh, true, [this] { refresh(); });
     x += bs + 10;
-    const float right = r.right() - 12;
+    const float right = r.right() - drawCaptionButtons(r, false) - 8;
     const float menuX = right - bs, iconsX = menuX - 10 - bs, detailsX = iconsX - bs - 2;
     drawAddress({x, by - 1, detailsX - 12 - x, bs + 2});
     // Views: the current one is marked.

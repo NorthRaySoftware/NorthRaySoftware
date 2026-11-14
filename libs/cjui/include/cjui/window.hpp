@@ -48,6 +48,11 @@ struct WindowSpec {
     // Post WM_QUIT when the window is destroyed. Apps whose message loop
     // belongs to someone else (CEF's) turn this off and quit it themselves.
     bool quitOnDestroy = true;
+    // No Windows title bar: the app draws minimise, maximise and close itself
+    // (drawCaptionButtons) in its own top area, and the empty part of that
+    // area (the top `captionHeight` DIPs) moves the window.
+    bool customFrame = false;
+    float captionHeight = 40;
 };
 
 class AppWindow {
@@ -120,6 +125,7 @@ protected:
     // Controls
     bool hovered(const std::string& id) const { return hover_ == id; }
     bool focused(const std::string& id) const { return focus_ == id && keyboardFocus_; }
+    bool hasKeyboardFocus() const { return keyboardFocus_ && !focus_.empty(); }
     bool pressed(const std::string& id) const { return pressed_ == id && hover_ == id; }
     void addHit(const std::string& id, const Rect& r, std::function<void()> action, bool focusable = true);
     void focusRing(const Rect& r);
@@ -141,6 +147,16 @@ protected:
 
     void clearFocus() { focus_.clear(); keyboardFocus_ = false; }
 
+    // Custom frame (WindowSpec::customFrame): minimise, maximise/restore and
+    // close at the top right of `strip`. `onNight` for a dark background.
+    // Maximise is reported to Windows as HTMAXBUTTON, so Windows 11 shows its
+    // snap layouts over it. Returns the buttons' total width.
+    float drawCaptionButtons(const Rect& strip, bool onNight);
+    static constexpr float kCaptionButtonW = 46;
+    void setCaptionHeight(float h) { captionHeight_ = h; }
+    bool windowActive() const { return windowActive_; }
+    bool maximized() const;
+
     Gfx gfx_;
     Palette pal_;
 
@@ -154,6 +170,12 @@ private:
 
     HWND hwnd_ = nullptr;
     WindowSpec spec_;
+    // Custom frame
+    LRESULT frameMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled);
+    float frameBorder() const;
+    float captionHeight_ = 40;
+    Rect maxButton_{};
+    bool maxHover_ = false, maxPressed_ = false, trackingNc_ = false, windowActive_ = true;
     std::vector<Hit> hits_, lastHits_;
     std::string hover_, pressed_, focus_;
     bool keyboardFocus_ = false;

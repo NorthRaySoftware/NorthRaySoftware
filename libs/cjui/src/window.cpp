@@ -77,6 +77,10 @@ bool AppWindow::createWindow(const WindowSpec& spec) {
     if (!gfx_.init(hwnd_)) return false;
     gfx_.setDpi(GetDpiForWindow(hwnd_));
     readAnimationSetting();
+    captionHeight_ = spec.captionHeight;
+    // Recalculate the frame now that WM_NCCALCSIZE is handled: the title bar goes.
+    if (spec.customFrame)
+        SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     return true;
 }
 
@@ -385,7 +389,150 @@ void AppWindow::activateFocused() {
         if (h.id == focus_ && h.action) { h.action(); invalidate(); return; }
 }
 
+// ------------------------------------------------------------ custom frame
+
+bool AppWindow::maximized() const { return hwnd_ && IsZoomed(hwnd_) != FALSE; }
+
+float AppWindow::frameBorder() const {
+    const UINT dpi = GetDpiForWindow(hwnd_);
+    const int px = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    return (float)px / gfx_.dpiScale();
+}
+
+LRESULT AppWindow::frameMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
+    handled = false;
+    switch (msg) {
+        case WM_NCCALCSIZE:
+            if (wp) {
+                // Keep Windows' sizing borders on the left, right and bottom; take the title bar.
+                auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+                const LONG top = p->rgrc[0].top;
+                DefWindowProcW(hwnd_, msg, wp, lp);
+                // Maximised, the window hangs over the screen edge by its border: keep that much off the top.
+                p->rgrc[0].top = maximized() ? top + (LONG)std::lround(frameBorder() * gfx_.dpiScale()) : top;
+                handled = true;
+                return 0;
+            }
+            break;
+        case WM_NCHITTEST: {
+            const LRESULT r = DefWindowProcW(hwnd_, msg, wp, lp);
+            handled = true;
+            if (r != HTCLIENT) return r;   // the side and bottom borders
+            POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            ScreenToClient(hwnd_, &pt);
+            const float s = gfx_.dpiScale();
+            const float x = pt.x / s, y = pt.y / s;
+            RECT rc;
+            GetClientRect(hwnd_, &rc);
+            const float W = rc.right / s;
+            if (!maximized() && y < frameBorder()) {
+                const float corner = frameBorder() * 2;
+                if (x < corner) return HTTOPLEFT;
+                if (x > W - corner) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            if (maxButton_.w > 0 && maxButton_.contains(x, y)) return HTMAXBUTTON;
+            if (y >= captionHeight_) return HTCLIENT;
+            if (!hitAt(x, y).empty()) return HTCLIENT;   // a button or tab up there
+            return HTCAPTION;                             // empty space: moves the window
+        }
+        case WM_NCMOUSEMOVE: {
+            const bool over = wp == HTMAXBUTTON;
+            if (over != maxHover_) { maxHover_ = over; invalidate(); }
+            if (over && !hover_.empty()) { hover_.clear(); invalidate(); }
+            if (!trackingNc_) {
+                TRACKMOUSEEVENT t{sizeof t, TME_LEAVE | TME_NONCLIENT, hwnd_, 0};
+                trackingNc_ = TrackMouseEvent(&t) != FALSE;
+            }
+            break;
+        }
+        case WM_NCMOUSELEAVE:
+            trackingNc_ = false;
+            if (maxHover_ || maxPressed_) { maxHover_ = maxPressed_ = false; invalidate(); }
+            break;
+        case WM_NCLBUTTONDOWN:
+        case WM_NCLBUTTONDBLCLK:
+            if (wp == HTMAXBUTTON) {
+                maxPressed_ = true;
+                invalidate();
+                handled = true;   // not Windows' own (it would draw an old-style button)
+                return 0;
+            }
+            break;
+        case WM_NCLBUTTONUP:
+            if (wp == HTMAXBUTTON) {
+                if (maxPressed_) ShowWindow(hwnd_, maximized() ? SW_RESTORE : SW_MAXIMIZE);
+                maxPressed_ = false;
+                invalidate();
+                handled = true;
+                return 0;
+            }
+            maxPressed_ = false;
+            break;
+        case WM_ACTIVATE:
+            windowActive_ = LOWORD(wp) != WA_INACTIVE;
+            invalidate();
+            break;
+        case WM_SIZE:
+            invalidate();   // the maximise glyph changes
+            break;
+    }
+    return 0;
+}
+
+float AppWindow::drawCaptionButtons(const Rect& strip, bool onNight) {
+    const float h = strip.h <= 64 ? strip.h : 40;
+    const float top = strip.y;
+    const Color base = onNight ? Color{0.93f, 0.95f, 1.0f, 1} : pal_.ink;
+    const Color glyph = base.withAlpha(windowActive_ ? 0.92f : 0.5f);
+    const float x0 = strip.right() - kCaptionButtonW * 3;
+    auto box = [&](int i) { return Rect{x0 + kCaptionButtonW * i, top, kCaptionButtonW, h}; };
+    const float px = 1.0f / gfx_.dpiScale();   // one physical pixel
+    auto snap = [&](float v) { return std::floor(v * gfx_.dpiScale()) / gfx_.dpiScale() + px / 2; };
+
+    // Minimise
+    const Rect mn = box(0);
+    addHit("cap:min", mn, [this] { ShowWindow(hwnd_, SW_MINIMIZE); }, false);
+    if (float hv = hoverAmount("cap:min"); hv > 0.01f) gfx_.fill(mn, base.withAlpha((pressed("cap:min") ? 0.16f : 0.09f) * hv));
+    {
+        const float cx = mn.x + mn.w / 2, cy = snap(mn.y + mn.h / 2);
+        gfx_.line(cx - 5, cy, cx + 5, cy, glyph, 1.0f);
+    }
+    // Maximise / restore: hit-tested by Windows (HTMAXBUTTON), so Windows 11 can show snap layouts.
+    maxButton_ = box(1);
+    {
+        const Rect& mx = maxButton_;
+        const float hv = anim("cap:max#hover", maxHover_ ? 1.0f : 0.0f, 18.0f);
+        if (hv > 0.01f) gfx_.fill(mx, base.withAlpha((maxPressed_ ? 0.16f : 0.09f) * hv));
+        const float cx = snap(mx.x + mx.w / 2), cy = snap(mx.y + mx.h / 2);
+        if (maximized()) {
+            gfx_.strokeRounded({cx - 5, cy - 3, 8, 8}, 1, glyph, 1.0f);
+            gfx_.line(cx - 3, cy - 5, cx + 4, cy - 5, glyph, 1.0f);
+            gfx_.line(cx + 5, cy - 4, cx + 5, cy + 3, glyph, 1.0f);
+        } else {
+            gfx_.strokeRounded({cx - 5, cy - 5, 10, 10}, 1, glyph, 1.0f);
+        }
+    }
+    // Close: Windows' red on hover.
+    const Rect cl = box(2);
+    addHit("cap:close", cl, [this] { PostMessageW(hwnd_, WM_CLOSE, 0, 0); }, false);
+    {
+        const float hv = hoverAmount("cap:close");
+        if (hv > 0.01f) gfx_.fill(cl, Color{0.769f, 0.169f, 0.110f, 1}.withAlpha(hv * (pressed("cap:close") ? 0.85f : 1.0f)));
+        const float cx = cl.x + cl.w / 2, cy = cl.y + cl.h / 2;
+        const Color g = glyph.mix(Color{1, 1, 1, 1}, hv);
+        gfx_.line(cx - 5, cy - 5, cx + 5, cy + 5, g, 1.1f);
+        gfx_.line(cx + 5, cy - 5, cx - 5, cy + 5, g, 1.1f);
+    }
+    return kCaptionButtonW * 3;
+}
+
 LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (spec_.customFrame && hwnd_) {
+        bool done = false;
+        const LRESULT r = frameMessage(msg, wp, lp, done);
+        if (done) return r;
+    }
     switch (msg) {
         case WM_PAINT: paint(); return 0;
         case WM_ERASEBKGND: return 1;

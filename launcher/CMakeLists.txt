@@ -13,7 +13,7 @@ target_include_directories(NorthRayLauncher PRIVATE
   src
   ${CMAKE_CURRENT_BINARY_DIR}/generated
   ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayLauncher PRIVATE cjcore cjui shell32 ole32 dwmapi uuid)
+target_link_libraries(NorthRayLauncher PRIVATE cjcore cjui shell32 comctl32 ole32 dwmapi uuid advapi32)
 
 if(MSVC)
   target_compile_options(NorthRayLauncher PRIVATE /W4 /utf-8)

@@ -1,11 +1,13 @@
 #include "launcher.hpp"
 
 #include "cjui/http.hpp"
+#include "cjui/menu.hpp"
 #include "cjui/northray.hpp"
 #include "cjui/packages.hpp"
 #include "resource.h"
 
 #include <dwmapi.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 
@@ -19,7 +21,11 @@ namespace nrl {
 static const float kNavW = 232, kStatusH = 28;
 static const UINT WM_APP_JOBS = WM_APP + 1;
 static const UINT WM_APP_CATALOGUE = WM_APP + 2;
+static const UINT WM_APP_TRAY = WM_APP + 3;
 static const UINT_PTR kRefreshTimer = 1;
+static const UINT_PTR kAutoUpdateTimer = 2;   // installs waiting updates once their apps are closed
+static const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static const wchar_t* kRunValue = L"NorthRay Launcher";
 
 static std::wstring w(const std::string& s) { return widen(s); }
 
@@ -61,7 +67,7 @@ void Launcher::nightButton(const std::string& id, const Rect& r, const std::wstr
 
 // ---------------------------------------------------------------- lifecycle
 
-bool Launcher::create(HINSTANCE inst, int show, const std::string& openApp) {
+bool Launcher::create(HINSTANCE inst, int show, const std::string& openApp, bool startInTray) {
     model_.hideCjPhilipApps = true;   // CJ Radio and the like are installed and opened from CJ Philip Community
     model_.load();
     markPng_ = model_.dataDir + L"\\brand\\northray-mark.png";
@@ -74,21 +80,31 @@ bool Launcher::create(HINSTANCE inst, int show, const std::string& openApp) {
     spec.height = 720;
     spec.minWidth = 860;
     spec.minHeight = 560;
+    if (startInTray && !model_.firstRun) show = SW_HIDE;   // started with Windows: just the tray icon
+    else startInTray = false;
     spec.show = show;
+    spec.customFrame = true;   // minimise, maximise and close are drawn in the window's own top area
+    spec.captionHeight = 40;
     if (!createWindow(spec)) return false;
     applyTheme();
+    taskbarCreated_ = RegisterWindowMessageW(L"TaskbarCreated");
+    if (model_.settings.keepInTray || startInTray) addTrayIcon();
+    if (model_.settings.startWithWindows) setStartWithWindows(true);   // keeps the path right if the launcher moved
     jobs_.start(hwnd(), WM_APP_JOBS, model_.stateDir + L"\\Downloads");
     if (!openApp.empty() && model_.app(openApp)) navigate(Page::App, openApp);
     else if (model_.firstRun) page_ = Page::Welcome;   // the first time: a short welcome
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     SetTimer(hwnd(), kRefreshTimer, 6 * 3600 * 1000, nullptr);
+    SetTimer(hwnd(), kAutoUpdateTimer, 20 * 60 * 1000, nullptr);
     checkCatalogue(false);
     return true;
 }
 
 void Launcher::onDestroy() {
     KillTimer(hwnd(), kRefreshTimer);
+    KillTimer(hwnd(), kAutoUpdateTimer);
+    removeTrayIcon();
     jobs_.stop();
 }
 
@@ -137,7 +153,7 @@ void Launcher::checkCatalogue(bool userAsked) {
     invalidate();
 }
 
-LRESULT Launcher::onMessage(UINT msg, WPARAM, LPARAM lp, bool& handled) {
+LRESULT Launcher::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     handled = true;
     if (msg == WM_APP_JOBS) {
         // A job moved on: refresh installs when one finishes.
@@ -146,8 +162,15 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM, LPARAM lp, bool& handled) {
             if ((s.stage == JobState::Done && !jobs_.busy(a.entry.id))) {
                 const bool was = a.inst.found;
                 model_.refreshInstalls();
-                if (model_.app(a.entry.id)->inst.found && s.total)
-                    flash(w(a.entry.name) + (s.update || was ? L" was updated." : L" is installed."), 6);
+                if (model_.app(a.entry.id)->inst.found && s.total) {
+                    const std::wstring done = w(a.entry.name) + (s.update || was ? L" was updated." : L" is installed.");
+                    flash(done, 6);
+                    if (!IsWindowVisible(hwnd()))
+                        notifyTray(done, model_.app(a.entry.id)->inst.version.empty() ? L"" : L"Version " + w(model_.app(a.entry.id)->inst.version));
+                }
+                jobs_.forget(a.entry.id);
+            } else if (s.stage == JobState::Failed && !IsWindowVisible(hwnd()) && s.update) {
+                notifyTray(w(a.entry.name) + L" couldn't be updated", s.message);
                 jobs_.forget(a.entry.id);
             }
         }
@@ -192,6 +215,29 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM, LPARAM lp, bool& handled) {
         invalidate();
         return 0;
     }
+    if (msg == WM_CLOSE) {
+        // Closing the window leaves the launcher in the tray, unless it's really quitting
+        // (its own update, or Quit) or the tray is turned off.
+        if (!quitting_ && wp != 1 && trayAdded_) {
+            hideToTray();
+            return 0;
+        }
+        quitting_ = true;
+        handled = false;
+        return 0;
+    }
+    if (msg == WM_APP_TRAY) {
+        switch (LOWORD(lp)) {
+            case WM_LBUTTONUP: case NIN_BALLOONUSERCLICK: showFromTray(); break;
+            case WM_RBUTTONUP: case WM_CONTEXTMENU: trayMenu(); break;
+            default: break;
+        }
+        return 0;
+    }
+    if (taskbarCreated_ && msg == taskbarCreated_) {
+        if (trayAdded_) { trayAdded_ = false; addTrayIcon(); }
+        return 0;
+    }
     if (msg == WM_ACTIVATEAPP && !jobs_.anyBusy()) {
         model_.refreshInstalls();  // something may have been installed or removed meanwhile
         invalidate();
@@ -202,6 +248,10 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM, LPARAM lp, bool& handled) {
 
 void Launcher::onTimer(UINT_PTR id) {
     if (id == kRefreshTimer) checkCatalogue(false);
+    if (id == kAutoUpdateTimer && model_.settings.autoUpdate && !jobs_.anyBusy()) {
+        model_.refreshInstalls();
+        autoUpdate();   // an update that waited for its app to close
+    }
     invalidate();
 }
 
@@ -272,6 +322,133 @@ void Launcher::chooseInstallRoot() {
     dlg->Release();
 }
 
+// ---------------------------------------------------------------- tray
+
+void Launcher::addTrayIcon() {
+    if (trayAdded_) return;
+    NOTIFYICONDATAW nid{sizeof nid};
+    nid.hWnd = hwnd();
+    nid.uID = 1;
+    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+    nid.uCallbackMessage = WM_APP_TRAY;
+    LoadIconMetric(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP), LIM_SMALL, &nid.hIcon);
+    lstrcpynW(nid.szTip, L"NorthRay Launcher", ARRAYSIZE(nid.szTip));
+    trayAdded_ = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
+    if (nid.hIcon) DestroyIcon(nid.hIcon);
+}
+
+void Launcher::removeTrayIcon() {
+    if (!trayAdded_) return;
+    NOTIFYICONDATAW nid{sizeof nid};
+    nid.hWnd = hwnd();
+    nid.uID = 1;
+    Shell_NotifyIconW(NIM_DELETE, &nid);
+    trayAdded_ = false;
+}
+
+void Launcher::notifyTray(const std::wstring& title, const std::wstring& text) {
+    if (!trayAdded_) return;
+    NOTIFYICONDATAW nid{sizeof nid};
+    nid.hWnd = hwnd();
+    nid.uID = 1;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
+    LoadIconMetric(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP), LIM_LARGE, &nid.hBalloonIcon);
+    lstrcpynW(nid.szInfoTitle, title.c_str(), ARRAYSIZE(nid.szInfoTitle));
+    lstrcpynW(nid.szInfo, text.empty() ? L" " : text.c_str(), ARRAYSIZE(nid.szInfo));
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+    if (nid.hBalloonIcon) DestroyIcon(nid.hBalloonIcon);
+}
+
+void Launcher::showFromTray() {
+    ShowWindow(hwnd(), IsIconic(hwnd()) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(hwnd());
+    model_.refreshInstalls();
+    invalidate();
+}
+
+void Launcher::hideToTray() {
+    ShowWindow(hwnd(), SW_HIDE);
+    // The first time ever, say where it went.
+    const std::wstring marker = model_.stateDir + L"\\tray-explained";
+    if (GetFileAttributesW(marker.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        notifyTray(L"NorthRay Launcher is still running", L"It stays here so app updates can install. Right-click this icon to quit, or turn this off in Settings.");
+        HANDLE f = CreateFileW(marker.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    }
+}
+
+void Launcher::quit() {
+    if (jobs_.anyBusy() &&
+        MessageBoxW(hwnd(), L"An install or update is still running. Quit anyway? A download is stopped; a setup that has started finishes on its own.",
+                    L"NorthRay Launcher", MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK)
+        return;
+    quitting_ = true;
+    DestroyWindow(hwnd());
+}
+
+void Launcher::trayMenu() {
+    enum : UINT { IdShow = 1, IdCheck, IdQuit, IdApp = 100 };
+    std::vector<MenuItem> items;
+    items.push_back(MenuItem::item(L"Open NorthRay Launcher", IdShow));
+    std::vector<std::string> ids;
+    bool any = false;
+    // NorthRay's apps, then the optional CJ Philip ones.
+    for (int pass = 0; pass < 2; ++pass)
+        for (auto& a : model_.apps) {
+            if (!a.inst.found || (a.entry.associatedCreator == "CJ Philip") != (pass == 1)) continue;
+            if (!any) { items.push_back(MenuItem::sep()); any = true; }
+            items.push_back(MenuItem::item(L"Open " + w(a.entry.name), IdApp + (UINT)ids.size()));
+            ids.push_back(a.entry.id);
+        }
+    items.push_back(MenuItem::sep());
+    items.push_back(MenuItem::item(checking_ ? L"Checking for updates..." : L"Check for updates", IdCheck, {}, !checking_));
+    items.push_back(MenuItem::item(L"Quit NorthRay Launcher", IdQuit));
+    POINT pt;
+    GetCursorPos(&pt);
+    SetForegroundWindow(hwnd());   // so the menu closes when you click elsewhere
+    const UINT id = showMenu(hwnd(), items, pt, pal_, MenuAnchor::TopRight);
+    PostMessageW(hwnd(), WM_NULL, 0, 0);
+    if (id == IdShow) showFromTray();
+    else if (id == IdCheck) checkCatalogue(!IsWindowVisible(hwnd()) ? false : true);
+    else if (id == IdQuit) quit();
+    else if (id >= IdApp && id - IdApp < ids.size()) open(ids[id - IdApp]);
+}
+
+void Launcher::setStartWithWindows(bool on) {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kRunKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
+        flash(L"Windows didn't allow the change to start-up apps.", 6);
+        return;
+    }
+    if (on) {
+        wchar_t exe[MAX_PATH * 2];
+        const DWORD n = GetModuleFileNameW(nullptr, exe, (DWORD)std::size(exe));
+        const std::wstring cmd = L"\"" + std::wstring(exe, n) + L"\" --tray";
+        RegSetValueExW(key, kRunValue, 0, REG_SZ, reinterpret_cast<const BYTE*>(cmd.c_str()), (DWORD)((cmd.size() + 1) * sizeof(wchar_t)));
+    } else {
+        RegDeleteValueW(key, kRunValue);
+    }
+    RegCloseKey(key);
+}
+
+// A tick box with a label; `night` for the welcome tour's dark background.
+void Launcher::checkbox(const std::string& id, const Rect& r, const std::wstring& label, bool on, std::function<void()> toggle, bool night) {
+    addHit(id, r, std::move(toggle));
+    const float hv = hoverAmount(id);
+    const Color edge = night ? kNightInk.withAlpha(0.6f + 0.4f * hv) : pal_.inkMuted.mix(pal_.ink, hv);
+    const Color tick = night ? kAuroraGreen : pal_.paper;
+    const Rect b{r.x, r.y + 3, 18, 18};
+    if (on) gfx_.fillRounded(b, 4, night ? kNightInk.withAlpha(0.12f) : pal_.ribbon);
+    gfx_.strokeRounded(b, 4, on && !night ? pal_.ribbon : edge, 1.5f);
+    if (on) {
+        gfx_.line(b.x + 4, b.y + 9, b.x + 8, b.y + 14, tick, 2);
+        gfx_.line(b.x + 8, b.y + 14, b.x + 15, b.y + 4, tick, 2);
+    }
+    gfx_.text(label, {r.x + 30, r.y + 1, r.w - 30, 22}, Font::Body, night ? kNightInk : pal_.ink, {Align::Left, false});
+    if (focused(id)) focusRing(r);
+}
+
 bool Launcher::onKeyDown(WPARAM vk, bool ctrl, bool) {
     if (ctrl && vk >= '1' && vk <= '3') {
         navigate(vk == '1' ? Page::Library : vk == '2' ? Page::Updates : Page::Settings);
@@ -287,7 +464,9 @@ bool Launcher::onKeyDown(WPARAM vk, bool ctrl, bool) {
         return true;
     }
     if (page_ == Page::Welcome) {
-        if (vk == VK_RETURN) { finishWelcome(); return true; }
+        if (vk == VK_RETURN && hasKeyboardFocus()) return false;   // Enter on a focused control presses it
+        if (vk == VK_RETURN) { if (welcomeStep_ < 2) { welcomeStep_++; invalidate(); } else finishWelcome(); return true; }
+        if (vk == VK_BACK && welcomeStep_ > 0) { welcomeStep_--; invalidate(); return true; }
         return false;
     }
     if ((vk == VK_BACK || vk == VK_ESCAPE) && page_ == Page::App) { navigate(Page::Library); return true; }
@@ -447,8 +626,9 @@ void Launcher::drawFrame(float W, float H) {
     if (page_ == Page::Welcome) { drawWelcome(W, H); return; }
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = W - kNavW > 900 ? 44 : 30;
-    const float top = beginScroll({kNavW, 0, W - kNavW, H - kStatusH});
-    Rect page{kNavW + pad, top + 34, std::min(W - kNavW - pad * 2, 960.0f), 0};
+    const float capH = 40;   // the top strip: moves the window, holds minimise, maximise and close
+    const float top = beginScroll({kNavW, capH, W - kNavW, H - kStatusH - capH});
+    Rect page{kNavW + pad, top + 4, std::min(W - kNavW - pad * 2, 960.0f), 0};
     float h = 0;
     switch (page_) {
         case Page::Library: h = pageLibrary(page); break;
@@ -458,54 +638,105 @@ void Launcher::drawFrame(float W, float H) {
         case Page::Welcome: break;
     }
     endScroll(h + 60);
+    gfx_.fill({kNavW, 0, W - kNavW, capH}, pal_.paper);
+    drawCaptionButtons({kNavW, 0, W - kNavW, capH}, false);
     drawNav({0, 0, kNavW, H - kStatusH});
     drawStatusBar({0, H - kStatusH, W, kStatusH});
     drawLightbox(W, H);
 }
 
-// The first run: what the launcher is, where apps go, and whether updates install by themselves.
+// The first run: a short tour in three steps. What the launcher is, where apps go,
+// and how updates and the tray work.
 void Launcher::drawWelcome(float W, float H) {
     nightSky(gfx_, {0, 0, W, H}, 0, 1.0f, 21);
     drawAurora({0, 0, W, 3});
+    drawCaptionButtons({0, 3, W, 37}, true);
     const float cw = std::min(W - 80, 620.0f), x = (W - cw) / 2;
-    float y = std::max(40.0f, (H - 560) / 2);
-    gfx_.drawImage(markPng_, {x, y, 64, 64}, false);
-    y += 88;
-    gfx_.text(L"WELCOME", {x, y, cw, 16}, Font::Label, kAuroraGreen, {Align::Left, false});
-    y += 22;
-    gfx_.text(L"NorthRay Launcher", {x, y, cw, 44}, Font::Title, kNightInk, {Align::Left, false});
-    y += 50;
-    y += gfx_.text(L"One place to install, update and open apps from " CJ_DEVELOPER_WSTR L". They're free, work offline, and none of "
-                   L"them needs an account.",
-                   {x, y, cw, 80}, Font::Body, kNightMuted) + 22;
-    // Where apps go.
-    gfx_.text(L"Apps are installed in", {x, y, cw, 18}, Font::Small, kNightMuted, {Align::Left, false});
-    y += 22;
-    const Rect box{x, y, cw - 130, 34};
-    gfx_.fillRounded(box, 6, kNightInk.withAlpha(0.07f));
-    gfx_.strokeRounded(box, 6, kNightInk.withAlpha(0.15f));
-    gfx_.text(model_.effectiveInstallRoot(), box.inset(12, 0), Font::Small, kNightInk, {Align::Left, false, true, true});
-    nightButton("wel:root", {box.right() + 10, y, 120, 34}, L"Change...", [this] { chooseInstallRoot(); }, false);
-    y += 52;
-    // Updates.
-    const std::string cid = "wel:auto";
-    const Rect cb{x, y, cw, 26};
-    addHit(cid, cb, [this] { model_.settings.autoUpdate = !model_.settings.autoUpdate; invalidate(); });
-    gfx_.strokeRounded({x, y + 3, 18, 18}, 4, kNightInk.withAlpha(0.6f + 0.4f * hoverAmount(cid)), 1.5f);
-    if (model_.settings.autoUpdate) {
-        gfx_.line(x + 4, y + 12, x + 8, y + 17, kAuroraGreen, 2);
-        gfx_.line(x + 8, y + 17, x + 15, y + 7, kAuroraGreen, 2);
+    float y = std::max(40.0f, (H - 520) / 2);
+    const int step = std::clamp(welcomeStep_, 0, 2);
+    // Where you are in the tour.
+    for (int i = 0; i < 3; ++i) {
+        const Rect dot{x + i * 34.0f, y, 26, 4};
+        gfx_.fillRounded(dot, 2, i <= step ? kAuroraGreen : kNightInk.withAlpha(0.18f));
     }
-    gfx_.text(L"Install updates automatically", {x + 30, y + 1, cw - 30, 22}, Font::Body, kNightInk, {Align::Left, false});
-    if (focused(cid)) focusRing(cb);
-    y += 28;
-    y += gfx_.text(L"Never while an app is open. You can change this, and the folder, in Settings.", {x + 30, y, cw - 30, 40},
-                   Font::Small, kNightMuted) + 30;
-    nightButton("wel:go", {x, y, 170, 40}, L"Get started", [this] { finishWelcome(); });
+    gfx_.text(L"Step " + std::to_wstring(step + 1) + L" of 3", {x + 110, y - 7, 200, 18}, Font::Small, kNightMuted, {Align::Left, false});
+    y += 34;
+
+    if (step == 0) {
+        gfx_.drawImage(markPng_, {x, y, 64, 64}, false);
+        y += 88;
+        gfx_.text(L"WELCOME", {x, y, cw, 16}, Font::Label, kAuroraGreen, {Align::Left, false});
+        y += 22;
+        gfx_.text(L"NorthRay Launcher", {x, y, cw, 44}, Font::Title, kNightInk, {Align::Left, false});
+        y += 52;
+        y += gfx_.text(L"One place to install, update and open apps from " CJ_DEVELOPER_WSTR L". They're free, work offline, and none of "
+                       L"them needs an account.",
+                       {x, y, cw, 80}, Font::Body, kNightMuted) + 14;
+        y += gfx_.text(L"Every download is checked against the checksum published with it before anything runs, so a damaged "
+                       L"or altered installer is never used.",
+                       {x, y, cw, 80}, Font::Body, kNightMuted) + 30;
+    } else if (step == 1) {
+        gfx_.text(L"WHERE APPS GO", {x, y, cw, 16}, Font::Label, kAuroraGreen, {Align::Left, false});
+        y += 22;
+        gfx_.text(L"Choose an install folder", {x, y, cw, 44}, Font::Title, kNightInk, {Align::Left, false});
+        y += 52;
+        y += gfx_.text(L"Each app gets its own folder inside this one. The default needs no administrator rights. You can "
+                       L"change it later in Settings; apps already installed stay where they are.",
+                       {x, y, cw, 80}, Font::Body, kNightMuted) + 20;
+        const Rect box{x, y, cw - 130, 36};
+        gfx_.fillRounded(box, 6, kNightInk.withAlpha(0.07f));
+        gfx_.strokeRounded(box, 6, kNightInk.withAlpha(0.15f));
+        gfx_.text(model_.effectiveInstallRoot(), box.inset(12, 0), Font::Small, kNightInk, {Align::Left, false, true, true});
+        nightButton("wel:root", {box.right() + 10, y + 1, 120, 34}, L"Change...", [this] { chooseInstallRoot(); invalidate(); }, false);
+        y += 50;
+        if (!model_.settings.installRoot.empty()) {
+            const std::string id = "wel:rootreset";
+            const Rect l{x, y, 200, 20};
+            addHit(id, l, [this] { model_.settings.installRoot.clear(); invalidate(); });
+            gfx_.text(L"Use the default folder", l, Font::Small, kAuroraGreen.mix(kNightInk, 0.4f * hoverAmount(id)), {Align::Left, false});
+            if (focused(id)) focusRing(l);
+            y += 26;
+        }
+        y += 20;
+    } else {
+        gfx_.text(L"UPDATES", {x, y, cw, 16}, Font::Label, kAuroraGreen, {Align::Left, false});
+        y += 22;
+        gfx_.text(L"Stay up to date by itself", {x, y, cw, 44}, Font::Title, kNightInk, {Align::Left, false});
+        y += 56;
+        auto& st = model_.settings;
+        checkbox("wel:auto", {x, y, cw, 26}, L"Install updates automatically", st.autoUpdate,
+                 [this] { model_.settings.autoUpdate = !model_.settings.autoUpdate; invalidate(); }, true);
+        y += 28;
+        y += gfx_.text(L"Never while an app is open: its update waits until you close it.", {x + 30, y, cw - 30, 40}, Font::Small,
+                       kNightMuted) + 14;
+        checkbox("wel:tray", {x, y, cw, 26}, L"Keep running in the notification area when closed", st.keepInTray,
+                 [this] { model_.settings.keepInTray = !model_.settings.keepInTray; invalidate(); }, true);
+        y += 28;
+        y += gfx_.text(L"So updates can install while the window is closed. Its icon there opens your apps quickly.",
+                       {x + 30, y, cw - 30, 40}, Font::Small, kNightMuted) + 14;
+        checkbox("wel:startup", {x, y, cw, 26}, L"Start with Windows", st.startWithWindows,
+                 [this] { model_.settings.startWithWindows = !model_.settings.startWithWindows; invalidate(); }, true);
+        y += 28;
+        y += gfx_.text(L"Starts quietly in the notification area when you sign in. Off unless you turn it on.", {x + 30, y, cw - 30, 40},
+                       Font::Small, kNightMuted) + 30;
+    }
+    const float by = std::max(y, 0.0f);
+    if (step < 2) nightButton("wel:next", {x, by, 150, 40}, L"Next", [this] { welcomeStep_++; clearFocus(); invalidate(); });
+    else nightButton("wel:go", {x, by, 170, 40}, L"Get started", [this] { finishWelcome(); });
+    if (step > 0) nightButton("wel:back", {x + (step < 2 ? 162.0f : 182.0f), by, 110, 40}, L"Back", [this] { welcomeStep_--; clearFocus(); invalidate(); }, false);
+    if (step < 2) {
+        const std::string id = "wel:skip";
+        const Rect l{x + cw - 120, by + 10, 120, 20};
+        addHit(id, l, [this] { finishWelcome(); });
+        gfx_.text(L"Skip the tour", l, Font::Small, kNightMuted.mix(kNightInk, hoverAmount(id)), {Align::Right, false});
+        if (focused(id)) focusRing(l);
+    }
 }
 
 void Launcher::finishWelcome() {
     model_.saveSettings();   // the settings file now exists: no welcome next time
+    if (model_.settings.keepInTray) addTrayIcon(); else removeTrayIcon();
+    setStartWithWindows(model_.settings.startWithWindows);
     model_.firstRun = false;
     navigate(Page::Library);
 }
@@ -614,44 +845,29 @@ float Launcher::pageLibrary(const Rect& r) {
     y += sectionLabel(r.x, y, r.w, L"Apps");
     segmented("lib:filter", {r.x, y, 330, 30}, {L"All", L"Installed", L"Not installed"}, filter_, [this](int i) { filter_ = i; });
     y += 46;
+    auto wanted = [this](const AppItem& a) { return !((filter_ == 1 && !a.inst.found) || (filter_ == 2 && a.inst.found)); };
+    // NorthRay's own apps first; CJ Philip's are an optional extra in their own section below.
     int shown = 0;
     for (auto& a : model_.apps) {
-        if ((filter_ == 1 && !a.inst.found) || (filter_ == 2 && a.inst.found)) continue;
+        if (a.entry.associatedCreator == "CJ Philip" || !wanted(a)) continue;
         ++shown;
-        const Rect row{r.x, y, r.w, 100};
-        const std::string id = "app:" + a.entry.id;
-        // The row opens the app's page; the buttons on it act directly.
-        addHit(id, {row.x, row.y, row.w - 290, row.h}, [this, i = a.entry.id] { navigate(Page::App, i); });
-        const float hv = hoverAmount(id);
-        softShadow(row, 8, 0.25f + 0.75f * hv);
-        gfx_.fillRounded(row, 10, pal_.surface);
-        gfx_.strokeRounded(row, 10, pal_.rule.mix(pal_.inkFaint, 0.6f * hv));
-        // The app's own colour, as a soft light behind its icon.
-        gfx_.pushClip(row);
-        gfx_.glow(row.x + 48, row.y + 50, 90, 70, hexColor(a.entry.accent, pal_.ribbon).withAlpha(pal_.dark ? 0.22f : 0.12f));
-        gfx_.popClip();
-        drawIcon(a, {row.x + 20, row.y + 20, 60, 60});
-        const float tx = row.x + 100, tw = row.w - 100 - 300;
-        gfx_.text(w(a.entry.name), {tx, row.y + 18, tw, 24}, Font::Heading, pal_.ink, {Align::Left, false, true});
-        if (a.entry.id == "cj-philip-community") {
-            // CJ Philip's apps are an optional extra, got through here rather than the website.
-            const float nw = std::min(tw - 80, gfx_.measureWidth(w(a.entry.name), Font::Heading));
-            const Rect tag{tx + nw + 10, row.y + 21, 68, 19};
-            gfx_.strokeRounded(tag, 4, pal_.rule.mix(pal_.inkFaint, 0.4f));
-            gfx_.text(L"OPTIONAL", tag, Font::Label, pal_.inkMuted, {Align::Center, false, false, true});
-        }
-        gfx_.text(w(a.entry.tagline), {tx, row.y + 44, tw, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-        const JobState s = jobs_.state(a.entry.id);
-        gfx_.text(statusLine(a), {tx, row.y + 66, tw + 120, 18}, Font::Small,
-                  s.stage == JobState::Failed ? pal_.live : a.updateAvailable() ? pal_.ribbon : pal_.inkFaint,
-                  {Align::Left, false, true});
-        actionArea(a, {row.right() - 290, row.y + 33, 272, 34}, "lib:", true);
-        if (focused(id)) focusRing(row);
-        y += row.h + 12;
+        y += appCard(a, {r.x, y, r.w, 0}) + 14;
     }
     if (!shown)
-        y += gfx_.text(filter_ == 1 ? L"Nothing is installed yet." : L"Everything here is installed.", {r.x, y, r.w, 24},
+        y += gfx_.text(filter_ == 1 ? L"No NorthRay apps are installed yet." : L"Every NorthRay app is installed.", {r.x, y, r.w, 24},
                        Font::Body, pal_.inkMuted) + 12;
+    bool optionalHeader = false;
+    for (auto& a : model_.apps) {
+        if (a.entry.associatedCreator != "CJ Philip" || !wanted(a)) continue;
+        if (!optionalHeader) {
+            optionalHeader = true;
+            y += 20;
+            y += sectionLabel(r.x, y, r.w, L"Optional");
+            y += gfx_.text(L"Apps from CJ Philip, made in association with NorthRay. Nothing else needs them; install them only if you want them.",
+                           {r.x, y, std::min(r.w, 680.0f), 44}, Font::Small, pal_.inkMuted) + 14;
+        }
+        y += appCard(a, {r.x, y, r.w, 0}) + 14;
+    }
     if (!model_.catalogueConfigured()) {
         y += 12;
         const std::wstring t = L"Downloads become available here once the NorthRay Software website is online. Until then, "
@@ -662,6 +878,36 @@ float Launcher::pageLibrary(const Rect& r) {
         y += th + 36;
     }
     return y - r.y;
+}
+
+// One app in the library: a big card with its artwork, name, what it is, its version and status, and its buttons.
+float Launcher::appCard(const AppItem& a, const Rect& at) {
+    const bool narrow = at.w < 700;
+    const float h = narrow ? 176 : 136;
+    const Rect row{at.x, at.y, at.w, h};
+    const std::string id = "app:" + a.entry.id;
+    const float actW = narrow ? 0 : 300;
+    // The card opens the app's page; the buttons on it act directly.
+    addHit(id, {row.x, row.y, row.w - actW, narrow ? h - 56 : h}, [this, i = a.entry.id] { navigate(Page::App, i); });
+    const float hv = hoverAmount(id);
+    softShadow(row, 10, 0.3f + 0.7f * hv);
+    gfx_.fillRounded(row, 12, pal_.surface);
+    gfx_.strokeRounded(row, 12, pal_.rule.mix(pal_.inkFaint, 0.6f * hv));
+    // The app's own colour, as a soft light behind its icon.
+    gfx_.pushClip(row);
+    gfx_.glow(row.x + 70, row.y + 68, 130, 100, hexColor(a.entry.accent, pal_.ribbon).withAlpha(pal_.dark ? 0.26f : 0.15f));
+    gfx_.popClip();
+    drawIcon(a, {row.x + 26, row.y + 26, 84, 84});
+    const float tx = row.x + 134, tw = row.w - 134 - actW - 20;
+    gfx_.text(w(a.entry.name), {tx, row.y + 22, tw, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
+    gfx_.text(w(a.entry.tagline), {tx, row.y + 52, tw, 42}, Font::Body, pal_.inkMuted);
+    const JobState s = jobs_.state(a.entry.id);
+    gfx_.text(statusLine(a), {tx, row.y + 100, tw + (narrow ? 0 : 120), 20}, Font::Small,
+              s.stage == JobState::Failed ? pal_.live : a.updateAvailable() ? pal_.ribbon : pal_.inkFaint, {Align::Left, false, true});
+    if (narrow) actionArea(a, {tx, row.bottom() - 50, row.right() - tx - 20, 36}, "lib:", false);
+    else actionArea(a, {row.right() - actW - 4, row.y + h / 2 - 18, actW - 20, 36}, "lib:", false);
+    if (focused(id)) focusRing(row);
+    return h;
 }
 
 float Launcher::pageApp(const Rect& r) {
@@ -774,7 +1020,7 @@ float Launcher::pageApp(const Rect& r) {
 
 float Launcher::pageUpdates(const Rect& r) {
     float y = r.y + drawHeader(r, L"Updates", model_.catalogueConfigured()
-                                                  ? L"Updates are checked when the launcher starts and every few hours."
+                                                  ? L"Updates are checked when the launcher starts and every few hours, also while it waits in the notification area."
                                                   : L"There's no online catalogue yet, so updates can't be checked. Installed apps keep working.");
     if (model_.catalogueConfigured()) {
         button("upd:check", {r.x, y, 170, 32}, checking_ ? L"Checking..." : L"Check now", [this] { checkCatalogue(true); });
@@ -845,19 +1091,32 @@ float Launcher::pageSettings(const Rect& r) {
     y += gfx_.text(L"Each app gets its own folder inside it. Apps that are already installed stay where they are; their updates go to the same place.",
                    {r.x, y, w2, 60}, Font::Small, pal_.inkMuted) + 18;
 
-    const std::string cid = "set:auto";
-    const Rect box{r.x, y, w2, 26};
-    addHit(cid, box, [this] { model_.settings.autoUpdate = !model_.settings.autoUpdate; model_.saveSettings(); });
-    gfx_.strokeRounded({r.x, y + 3, 18, 18}, 3, pal_.inkMuted.mix(pal_.ink, hoverAmount(cid)), 1.5f);
-    if (model_.settings.autoUpdate) {
-        gfx_.line(r.x + 4, y + 12, r.x + 8, y + 17, pal_.ink, 2);
-        gfx_.line(r.x + 8, y + 17, r.x + 15, y + 7, pal_.ink, 2);
-    }
-    gfx_.text(L"Install updates automatically", {r.x + 28, y + 2, w2 - 28, 20}, Font::Body, pal_.ink, {Align::Left, false});
-    if (focused(cid)) focusRing(box);
+    y += sectionLabel(r.x, y, w2, L"Updates");
+    checkbox("set:auto", {r.x, y, w2, 26}, L"Install updates automatically", model_.settings.autoUpdate,
+             [this] { model_.settings.autoUpdate = !model_.settings.autoUpdate; model_.saveSettings(); if (model_.settings.autoUpdate) autoUpdate(); }, false);
     y += 28;
-    y += gfx_.text(L"Off by default. When it's on, updates install after each check, but never while an app is open.",
-                   {r.x + 28, y, w2 - 28, 60}, Font::Small, pal_.inkMuted) + 24;
+    y += gfx_.text(L"Updates install after each check, every few hours. Never while an app is open: its update waits until you close it.",
+                   {r.x + 30, y, w2 - 30, 60}, Font::Small, pal_.inkMuted) + 24;
+
+    y += sectionLabel(r.x, y, w2, L"Running in the background");
+    checkbox("set:tray", {r.x, y, w2, 26}, L"Keep running in the notification area when closed", model_.settings.keepInTray, [this] {
+        model_.settings.keepInTray = !model_.settings.keepInTray;
+        model_.saveSettings();
+        if (model_.settings.keepInTray) addTrayIcon(); else removeTrayIcon();
+    }, false);
+    y += 28;
+    y += gfx_.text(L"Closing the window leaves NorthRay Launcher's icon in the notification area, so updates still install. "
+                   L"Its menu opens your apps and quits the launcher.",
+                   {r.x + 30, y, w2 - 30, 60}, Font::Small, pal_.inkMuted) + 14;
+    checkbox("set:startup", {r.x, y, w2, 26}, L"Start with Windows", model_.settings.startWithWindows, [this] {
+        model_.settings.startWithWindows = !model_.settings.startWithWindows;
+        model_.saveSettings();
+        setStartWithWindows(model_.settings.startWithWindows);
+        if (model_.settings.startWithWindows) addTrayIcon();
+    }, false);
+    y += 28;
+    y += gfx_.text(L"Starts quietly in the notification area when you sign in to Windows, with no window.", {r.x + 30, y, w2 - 30, 60},
+                   Font::Small, pal_.inkMuted) + 24;
 
     y += sectionLabel(r.x, y, w2, L"Appearance");
     const int t = (int)model_.settings.theme;

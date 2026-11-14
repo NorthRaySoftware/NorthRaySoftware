@@ -20,7 +20,7 @@ enum class Page { Welcome, Library, App, Updates, Settings };
 
 class Launcher : public AppWindow {
 public:
-    bool create(HINSTANCE inst, int show, const std::string& openApp);
+    bool create(HINSTANCE inst, int show, const std::string& openApp, bool startInTray);
 
 protected:
     void drawFrame(float W, float H) override;
@@ -41,6 +41,17 @@ private:
     void chooseInstallRoot();
     void autoUpdate();
 
+    // The notification area (tray): the launcher keeps running there so updates still install.
+    void addTrayIcon();
+    void removeTrayIcon();
+    void trayMenu();
+    void showFromTray();
+    void hideToTray();
+    void quit();
+    void notifyTray(const std::wstring& title, const std::wstring& text);
+    void setStartWithWindows(bool on);
+    void checkbox(const std::string& id, const Rect& r, const std::wstring& label, bool on, std::function<void()> toggle, bool night);
+
     void drawNav(const Rect& r);
     void drawStatusBar(const Rect& r);
     void drawAurora(const Rect& r);
@@ -55,6 +66,7 @@ private:
     void drawWelcome(float W, float H);
     void finishWelcome();
     float pageLibrary(const Rect& r);
+    float appCard(const AppItem& a, const Rect& r);
     float pageApp(const Rect& r);
     float pageUpdates(const Rect& r);
     float pageSettings(const Rect& r);
@@ -67,6 +79,11 @@ private:
     bool checking_ = false;
     std::wstring markPng_;     // NorthRay mark for the sidebar
     int lightbox_ = -1;        // the screenshot shown large, or -1
+    int welcomeStep_ = 0;      // the first-run tour: 0 welcome, 1 install folder, 2 updates and tray
+    bool trayAdded_ = false;
+    bool quitting_ = false;
+    bool toldAboutTray_ = false;
+    UINT taskbarCreated_ = 0;  // Explorer restarted: the tray icon has to be added again
 };
 
 }  // namespace nrl

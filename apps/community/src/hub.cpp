@@ -70,6 +70,8 @@ bool CommunityApp::create(HINSTANCE inst, int show) {
     spec.minWidth = 560;
     spec.minHeight = 420;
     spec.show = show;
+    spec.customFrame = true;   // minimise, maximise and close sit in the header band
+    spec.captionHeight = kHeaderH;
     if (!createWindow(spec)) return false;
     applyTheme();
     ShowWindow(hwnd(), show);
@@ -439,6 +441,7 @@ void CommunityApp::drawFrame(float W, float H) {
     const Rect head{0, 0, W, kHeaderH};
     gfx_.fill(head, pal_.dark ? hexColor("#1E1418") : hexColor("#2A1A20"));
     gfx_.fill({0, kHeaderH - 3, W, 3}, pal_.ribbon);
+    drawCaptionButtons({0, 0, W, 40}, true);
     const float pad = std::max(28.0f, (W - 720) / 2);
     gfx_.bookmark({pad, 0, 12, 34}, pal_.ribbon.mix(hexColor("#FFFFFF"), 0.2f));
     gfx_.text(L"CJ Philip", {pad + 26, 30, 400, 34}, Font::SerifTitle, hexColor("#F4EDE6"), {Align::Left, false});
@@ -447,7 +450,7 @@ void CommunityApp::drawFrame(float W, float H) {
     {
         static const wchar_t* names[] = {L"Theme: as Windows", L"Theme: light", L"Theme: dark"};
         const float tw = gfx_.measureWidth(names[theme_], Font::Small) + 24;
-        const Rect tb{W - pad - tw, 36, tw, 28};
+        const Rect tb{W - pad - tw, 56, tw, 28};
         const std::string id = "theme";
         addHit(id, tb, [this] { theme_ = (theme_ + 1) % 3; saveSettings(); applyTheme(); });
         const float hv = hoverAmount(id);

@@ -140,9 +140,11 @@ bool StudioApp::create(HINSTANCE inst, int show) {
     spec.iconId = IDI_APP;
     spec.width = 1280;
     spec.height = 800;
-    spec.minWidth = 980;
+    spec.minWidth = 1160;
     spec.minHeight = 600;
     spec.show = show;
+    spec.customFrame = true;   // minimise, maximise and close are in the row of tabs
+    spec.captionHeight = kTopH;
     if (!createWindow(spec)) return false;
     // Text fields are child windows: keep the page's drawing off them.
     SetWindowLongPtrW(hwnd(), GWL_STYLE, GetWindowLongPtrW(hwnd(), GWL_STYLE) | WS_CLIPCHILDREN);

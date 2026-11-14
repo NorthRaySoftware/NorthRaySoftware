@@ -25,6 +25,7 @@ namespace cjr {
 using nlohmann::json;
 
 static const float kRailWidth = 200;
+static const float kCaptionH = 40;   // the top strip: moves the window, holds minimise, maximise and close
 static const float kTransportHeight = 68;
 static const UINT WM_APP_STATION = WM_APP + 1;
 static const UINT WM_APP_PLAYER = WM_APP + 2;
@@ -80,6 +81,8 @@ bool RadioApp::create(HINSTANCE inst, int show) {
     spec.minWidth = 780;
     spec.minHeight = 540;
     spec.show = show;
+    spec.customFrame = true;   // minimise, maximise and close are drawn in the window's own top area
+    spec.captionHeight = kCaptionH;
     if (!createWindow(spec)) return false;
     applyTheme();
     player_.setNotify(hwnd(), WM_APP_PLAYER);
@@ -626,8 +629,8 @@ bool RadioApp::onKeyDown(WPARAM vk, bool ctrl, bool) {
 
 void RadioApp::drawFrame(float W, float H) {
     const float pad = W - kRailWidth > 860 ? 40 : 28;
-    const float top = beginScroll({kRailWidth, 0, W - kRailWidth, H - kTransportHeight});
-    Rect page{kRailWidth + pad, top + 28, std::min(W - kRailWidth - pad * 2, 920.0f), 0};
+    const float top = beginScroll({kRailWidth, kCaptionH, W - kRailWidth, H - kTransportHeight - kCaptionH});
+    Rect page{kRailWidth + pad, top + 24, std::min(W - kRailWidth - pad * 2, 920.0f), 0};
     float h = 0;
     playerSlotValid_ = false;
     switch (page_) {
@@ -637,6 +640,8 @@ void RadioApp::drawFrame(float W, float H) {
         case Page::Presenter: h = pagePresenter(page); break;
     }
     endScroll(h + 56);
+    gfx_.fill({kRailWidth, 0, W - kRailWidth, kCaptionH}, pal_.paper);
+    drawCaptionButtons({kRailWidth, 0, W - kRailWidth, kCaptionH}, false);
     drawRail({0, 0, kRailWidth, H - kTransportHeight});
     drawTransport({0, H - kTransportHeight, W, kTransportHeight});
     placeTwitch(W, H);
@@ -650,7 +655,7 @@ void RadioApp::placeTwitch(float W, float H) {
     const float s = gfx_.dpiScale();
     auto px = [s](float v) { return (LONG)std::lround(v * s); };
     const RECT bounds{px(playerSlot_.x), px(playerSlot_.y), px(playerSlot_.right()), px(playerSlot_.bottom())};
-    const RECT visible{px(kRailWidth), 0, px(W), px(H - kTransportHeight)};
+    const RECT visible{px(kRailWidth), px(kCaptionH), px(W), px(H - kTransportHeight)};
     twitch_.place(bounds, visible);
 }
 

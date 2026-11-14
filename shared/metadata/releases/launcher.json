@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.19.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Minimise, maximise and close are now part of the app's own top area, like NorthRay Browser, instead of a separate Windows title bar. Drag the empty part of the top to move the window; double-click it to maximise. On Windows 11, pointing at maximise shows the snap layouts.",
+        "Updates now install automatically, on by default: after each check, every few hours, and never while an app is open (its update waits until you close it). You can turn this off in Settings.",
+        "NorthRay Launcher can keep running in the notification area when you close its window, so updates still install. Its icon there opens your apps and quits the launcher.",
+        "New setting: Start with Windows (off by default). It starts quietly in the notification area, with no window.",
+        "A short three-step welcome tour the first time you open it: what it is, where apps go, and updates.",
+        "Bigger app cards in the Library. CJ Philip's apps now have their own Optional section at the bottom.",
+        "The setup closes a running launcher by itself, and uninstalling removes it from Windows start-up."
+      ]
+    },
+    {
       "version": "0.18.2",
       "date": "2026-11-14",
       "notes": [

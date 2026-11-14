@@ -206,6 +206,9 @@ void StudioApp::drawFrame(float W, float H) {
 void StudioApp::drawTopBar(const Rect& r) {
     gfx_.fill(r, pal_.surface);
     gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
+    // Minimise, maximise and close end the row (the window has no separate title bar).
+    const float capW = drawCaptionButtons({r.x, r.y, r.w, r.h - 1}, false);
+    const float tabPad = r.w < 1300 ? 16 : 24;   // a narrower window: tighter tabs, so Settings still fits
     // Product wordmark with the suite's ribbon, in the Studio's ink blue.
     gfx_.bookmark({18, 0, 11, 30}, pal_.ribbon);
     gfx_.text(L"Writing Studio", {38, 0, kSideW - 40, r.h}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
@@ -215,7 +218,7 @@ void StudioApp::drawTopBar(const Rect& r) {
                                {L"Typesetting", 5}, {L"Preview", 6}, {L"Publishing", 7}};
     float x = kSideW + 16;
     for (const Tab& t : tabs) {
-        const float tw = gfx_.measureWidth(t.name, Font::BodyStrong) + 24;
+        const float tw = gfx_.measureWidth(t.name, Font::BodyStrong) + tabPad;
         const Rect tr{x, 6, tw, r.h - 12};
         const bool planning = wcscmp(t.name, L"Planning") == 0;   // Milestone 8 has two tabs
         const bool built = t.milestone <= 2 || (t.milestone >= 5 && t.milestone <= 9);
@@ -319,8 +322,8 @@ void StudioApp::drawTopBar(const Rect& r) {
     // Settings sits at the right-hand end of the same row of tabs.
     {
         const std::wstring lbl = L"Settings";
-        const float tw = gfx_.measureWidth(lbl, Font::BodyStrong) + 24;
-        const Rect tr{r.right() - tw - 16, 6, tw, r.h - 12};
+        const float tw = gfx_.measureWidth(lbl, Font::BodyStrong) + tabPad;
+        const Rect tr{r.right() - capW - tw - 8, 6, tw, r.h - 12};
         const std::string id = "tab:settings";
         const bool active = ws_ == Workspace::Library && view_ == View::Settings;
         addHit(id, tr, [this] { openSettings(); }, false);

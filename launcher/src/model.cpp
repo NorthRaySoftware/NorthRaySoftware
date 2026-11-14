@@ -255,7 +255,11 @@ void Model::loadSettings() {
     const std::string t = cj::valueOr(j, "theme", "system");
     settings.theme = t == "light" ? ThemeChoice::Light : t == "dark" ? ThemeChoice::Dark : ThemeChoice::System;
     settings.installRoot = widen(cj::valueOr(j, "installRoot", ""));
-    settings.autoUpdate = cj::valueOr(j, "autoUpdate", false);
+    // Settings from before version 2 had automatic updates off by default; they're on now.
+    const int version = cj::valueOr(j, "settingsVersion", 1);
+    settings.autoUpdate = version >= 2 ? cj::valueOr(j, "autoUpdate", true) : true;
+    settings.keepInTray = cj::valueOr(j, "keepInTray", true);
+    settings.startWithWindows = cj::valueOr(j, "startWithWindows", false);
 }
 
 void Model::saveSettings() {
@@ -263,6 +267,9 @@ void Model::saveSettings() {
     j["theme"] = settings.theme == ThemeChoice::Light ? "light" : settings.theme == ThemeChoice::Dark ? "dark" : "system";
     j["installRoot"] = narrow(settings.installRoot);
     j["autoUpdate"] = settings.autoUpdate;
+    j["keepInTray"] = settings.keepInTray;
+    j["startWithWindows"] = settings.startWithWindows;
+    j["settingsVersion"] = 2;
     writeFileAtomic(stateDir + L"\\settings.json", j.dump(2));
 }
 

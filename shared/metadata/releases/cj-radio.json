@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.19.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Minimise, maximise and close are now part of the app's own top area, like NorthRay Browser, instead of a separate Windows title bar. Drag the empty part of the top to move the window; double-click it to maximise. On Windows 11, pointing at maximise shows the snap layouts."
+      ]
+    },
+    {
       "version": "0.18.2",
       "date": "2026-11-14",
       "notes": [

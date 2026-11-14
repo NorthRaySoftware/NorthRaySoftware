@@ -186,7 +186,7 @@ bool Jobs::install(const JobRequest& r, const std::wstring& path, std::wstring& 
     CloseHandle(pi.hThread);
     if (r.appId == "launcher") {
         CloseHandle(pi.hProcess);
-        if (notify_) PostMessageW(notify_, WM_CLOSE, 0, 0);  // let the setup replace the launcher
+        if (notify_) PostMessageW(notify_, WM_CLOSE, 1, 0);  // really quit (not just to the tray): the setup replaces the launcher
         return true;
     }
     const DWORD wait = WaitForSingleObject(pi.hProcess, 10 * 60 * 1000);

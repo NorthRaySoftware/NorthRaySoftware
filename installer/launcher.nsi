@@ -56,17 +56,27 @@ Function DesktopShortcut
   CreateShortcut "$DESKTOP\NorthRay Launcher.lnk" "$INSTDIR\${APP_EXE}"
 FunctionEnd
 
-Function .onInit
+; The launcher may be running, often hidden in the notification area: ask it to quit
+; (WM_CLOSE with wParam 1 means quit, not hide) and wait a moment.
+!macro QuitLauncher
   FindWindow $0 "NorthRayLauncher"
   ${If} $0 <> 0
-    ; Updating from inside the launcher: give it a moment to close itself.
+    SendMessage $0 0x0010 1 0 /TIMEOUT=5000
     Sleep 2000
     FindWindow $0 "NorthRayLauncher"
   ${EndIf}
   ${If} $0 <> 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION "NorthRay Launcher is open. Close it, then try again."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "NorthRay Launcher is still running (it may be in the notification area, near the clock). Quit it from its icon there, then try again."
     Abort
   ${EndIf}
+!macroend
+
+Function .onInit
+  !insertmacro QuitLauncher
+FunctionEnd
+
+Function un.onInit
+  !insertmacro QuitLauncher
 FunctionEnd
 
 Section "Install"
@@ -105,5 +115,6 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\NorthRay Launcher.lnk"
   Delete "$DESKTOP\NorthRay Launcher.lnk"
   DeleteRegKey HKCU "${UNINST_KEY}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NorthRay Launcher"
   RMDir /r "$INSTDIR"
 SectionEnd
