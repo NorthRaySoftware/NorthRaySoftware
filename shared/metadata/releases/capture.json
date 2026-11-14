@@ -1,0 +1,15 @@
+{
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-14",
+      "notes": [
+        "First version, in early development: the foundation. It doesn't capture, record or stream yet.",
+        "The workspace: a preview area and Scenes, Sources, Audio mixer and Controls panels. Drag the dividers to resize, drag a panel's header (or right-click it) to move or hide it, and save, load or reset layouts from Layout in the top bar.",
+        "Scenes: add, rename, duplicate, reorder and delete, switch with Ctrl+1 to Ctrl+9 or the arrow keys; saved automatically.",
+        "Settings: theme, low-resource mode, preview and output frame rates, canvas size, the encoders found on your PC, the logs folder and Copy diagnostics.",
+        "Coming next: capturing displays, windows and cameras, with a live preview and moving and resizing sources on it."
+      ]
+    }
+  ]
+}

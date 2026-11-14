@@ -46,3 +46,14 @@ else()
   target_compile_options(NorthRayCapture PRIVATE -Wall -Wextra -Wno-missing-field-initializers -Wno-cast-function-type)
   target_link_options(NorthRayCapture PRIVATE -static -municode)
 endif()
+
+add_custom_command(TARGET NorthRayCapture POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/licenses $<TARGET_FILE_DIR:NorthRayCapture>/licenses)
+
+# Package it (verified on install, like the other apps).
+add_custom_command(TARGET NorthRayCapture POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -DID=capture -DVERSION=${NCAP_VERSION} -DEXE=$<TARGET_FILE:NorthRayCapture>
+          -DOUT=${CMAKE_BINARY_DIR}/launcher/packages/capture
+          "-DEXTRA_DIRS=${CMAKE_CURRENT_SOURCE_DIR}/licenses"
+          -P ${CMAKE_SOURCE_DIR}/cmake/make-package.cmake
+  COMMENT "Packaging NorthRay Capture")

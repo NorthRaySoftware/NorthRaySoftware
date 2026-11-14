@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "capture",
+  "name": "NorthRay Capture",
+  "tagline": "Livestreaming and recording for Windows, in the NorthRay look. In early development: it doesn't capture, record or stream yet.",
+  "description": "NorthRay Capture is a livestreaming and recording app for Windows, being built in stages towards a real alternative to OBS Studio: per-application audio (stream a game and your microphone while music and voice chat stay private), streaming to several platforms at once from one encode, and staying light on older PCs. This first version is the foundation only. It has the workspace (a preview area and panels you can resize, rearrange, hide and save as layouts), scenes you can add, rename, duplicate, reorder and delete, the settings, the hardware encoders your PC offers, and live CPU and memory use. It does not capture the screen, windows, cameras or sound, and it can't record or stream yet: each of those is labelled in the app with the stage it arrives in, starting with video capture next.",
+  "features": [
+    "The workspace: a preview area and Scenes, Sources, Audio mixer and Controls panels; drag the dividers, move or hide panels, and save layouts by name",
+    "Scenes: add, rename (F2 or double-click), duplicate, reorder and delete; switch with Ctrl+1 to Ctrl+9; saved automatically",
+    "Settings: light or dark theme, low-resource mode, preview and output frame rates, canvas size (1080p, 720p, 1440p or vertical 9:16)",
+    "Shows the video and audio encoders Windows offers on your PC, including NVIDIA, AMD and Intel hardware encoders",
+    "Live CPU and memory use in the status bar",
+    "Logs that never contain stream keys or passwords, and a Copy diagnostics button",
+    "Not yet: capturing screens, windows, cameras or sound, recording and streaming (each arrives in a later version)"
+  ],
+  "category": "Streaming and recording",
+  "status": "in-development",
+  "version": "0.1.0",
+  "accent": "#D84A5A",
+  "artwork": {
+    "fallbackStyle": "sketchbook",
+    "banner": "",
+    "icon": "icons/capture.png",
+    "screenshots": []
+  },
+  "credits": {
+    "developer": "",
+    "publisher": "",
+    "associatedCreator": "",
+    "comment": "Empty developer and publisher mean the central identity in brand/identity.json."
+  },
+  "launch": {
+    "executable": "NorthRayCapture.exe",
+    "canOpenInsideLauncher": false,
+    "keepsRunningWithoutLauncher": true
+  },
+  "website": {
+    "slug": "capture"
+  },
+  "installer": {
+    "file": "NorthRayCapture-Setup",
+    "name": "NorthRay Capture"
+  }
+}
