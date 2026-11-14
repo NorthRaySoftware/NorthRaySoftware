@@ -63,6 +63,7 @@ struct SceneItem {
 struct Scene {
     Id id;
     std::string name;
+    std::string folder;             // "" = not in a folder; the Scenes list groups by it
     std::vector<SceneItem> items;   // bottom first; the last is drawn on top
 };
 
@@ -111,6 +112,17 @@ public:
     bool setItemLocked(const Id& scene, const Id& item, bool locked);
     // Towards the top of the scene (+1, drawn later) or the bottom (-1); +100 / -100 to the very top / bottom.
     bool moveItem(const Id& scene, const Id& item, int delta);
+
+    // Folders: a name ("" takes it out of its folder). Scenes in a folder are kept together in the
+    // list, in the folder's place.
+    bool setSceneFolder(const Id& scene, const std::string& folder);
+
+    // A scene as a file of its own: the scene, the scenes shown inside it, and the sources they show
+    // (with their settings: files' paths, which display... never stream keys, which aren't in here).
+    std::string exportScene(const Id& scene) const;
+    // Adds an exported scene (and the scenes inside it) with new ids and names that don't clash;
+    // placements are scaled if it was made for another canvas size. The new scene, or "" with `error`.
+    Id importScene(const std::string& text, std::string& error, bool* scaled = nullptr);
 
     std::string toJson() const;
     // False (and the collection unchanged) if it isn't one; a newer version's file is read as far

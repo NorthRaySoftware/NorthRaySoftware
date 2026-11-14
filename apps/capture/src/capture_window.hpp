@@ -79,6 +79,8 @@ private:
     void newScene();
     void renameScene(const Id& id);
     void deleteScene(const Id& id);
+    void exportScene(const Id& id);
+    void importScene();
     void sceneMenu(const Id& id, POINT screen);
     void addSourceMenu(POINT screen);
 

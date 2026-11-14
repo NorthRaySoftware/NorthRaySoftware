@@ -11,10 +11,13 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iterator>
+#include <filesystem>
 #include <sstream>
 
 namespace ncap {
@@ -40,7 +43,8 @@ constexpr UINT_PTR kMeterTimer = 3;   // capture_audio.cpp starts it
 constexpr UINT WM_APP_ENCODERS = WM_APP + 60;
 
 enum : UINT {
-    CmdRename = 100, CmdDuplicate, CmdUp, CmdDown, CmdDelete, CmdNewScene,
+    CmdRename = 100, CmdDuplicate, CmdUp, CmdDown, CmdDelete, CmdNewScene, CmdExportScene, CmdImportScene, CmdNewFolder, CmdNoFolder,
+    CmdFolder0 = 9000,
     CmdPanel0 = 200,   // + panel: show or hide
     CmdPreview = 220, CmdResetLayout, CmdSaveLayout, CmdLayout0 = 300, CmdDeleteLayout0 = 400,
     CmdHide = 500, CmdLeft, CmdRight,
@@ -225,12 +229,27 @@ void CaptureWindow::deleteScene(const Id& id) {
 void CaptureWindow::sceneMenu(const Id& id, POINT screen) {
     const auto& all = scenes_.scenes();
     const bool first = !all.empty() && all.front().id == id, last = !all.empty() && all.back().id == id;
+    const Scene* sc = scenes_.scene(id);
+    // Folders: the ones there are, a new one, or out of its folder.
+    std::vector<std::string> folders;
+    for (auto& s : all)
+        if (!s.folder.empty() && std::find(folders.begin(), folders.end(), s.folder) == folders.end()) folders.push_back(s.folder);
+    std::vector<MenuItem> folderItems;
+    for (size_t i = 0; i < folders.size() && i < 200; ++i)
+        folderItems.push_back(MenuItem::item(widen(folders[i]), CmdFolder0 + (UINT)i, {}, true, sc && sc->folder == folders[i]));
+    if (!folderItems.empty()) folderItems.push_back(MenuItem::sep());
+    folderItems.push_back(MenuItem::item(L"A new folder…", CmdNewFolder));
+    if (sc && !sc->folder.empty()) folderItems.push_back(MenuItem::item(L"Out of its folder", CmdNoFolder));
     const std::vector<MenuItem> items = {
         MenuItem::item(L"Rename", CmdRename, L"F2"),
         MenuItem::item(L"Duplicate", CmdDuplicate),
+        MenuItem::sub(L"Folder", folderItems),
         MenuItem::sep(),
         MenuItem::item(L"Move up", CmdUp, {}, !first),
         MenuItem::item(L"Move down", CmdDown, {}, !last),
+        MenuItem::sep(),
+        MenuItem::item(L"Export to a file…", CmdExportScene),
+        MenuItem::item(L"Import a scene…", CmdImportScene),
         MenuItem::sep(),
         MenuItem::item(L"Delete", CmdDelete, L"Delete", all.size() > 1),
         MenuItem::sep(),
@@ -243,6 +262,82 @@ void CaptureWindow::sceneMenu(const Id& id, POINT screen) {
     else if (cmd == CmdDown) { scenes_.moveScene(id, 1); scenesChanged(); }
     else if (cmd == CmdDelete) deleteScene(id);
     else if (cmd == CmdNewScene) newScene();
+    else if (cmd == CmdExportScene) exportScene(id);
+    else if (cmd == CmdImportScene) importScene();
+    else if (cmd == CmdNoFolder) { scenes_.setSceneFolder(id, ""); scenesChanged(); }
+    else if (cmd >= CmdFolder0 && cmd < CmdFolder0 + folders.size()) { scenes_.setSceneFolder(id, folders[cmd - CmdFolder0]); scenesChanged(); }
+    else if (cmd == CmdNewFolder)
+        askText(L"Name the folder", L"", [this, id](const std::wstring& name) {
+            if (name.find_first_not_of(L' ') == std::wstring::npos) return;
+            scenes_.setSceneFolder(id, narrow(name));
+            scenesChanged();
+        });
+}
+
+namespace {
+bool sceneFileDialog(HWND owner, bool save, const std::wstring& suggested, std::wstring& path) {
+    IFileDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                save ? __uuidof(IFileSaveDialog) : __uuidof(IFileOpenDialog), reinterpret_cast<void**>(&dlg))))
+        return false;
+    const COMDLG_FILTERSPEC types[] = {{L"NorthRay Capture scenes", L"*.nrscene"}, {L"All files", L"*.*"}};
+    dlg->SetFileTypes(2, types);
+    dlg->SetDefaultExtension(L"nrscene");
+    dlg->SetTitle(save ? L"Export the scene" : L"Import a scene");
+    if (save) dlg->SetFileName(suggested.c_str());
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST));
+    bool ok = false;
+    if (SUCCEEDED(dlg->Show(owner))) {
+        IShellItem* item = nullptr;
+        PWSTR p = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+            path = p;
+            ok = true;
+            CoTaskMemFree(p);
+        }
+        if (item) item->Release();
+    }
+    dlg->Release();
+    return ok;
+}
+}  // namespace
+
+void CaptureWindow::exportScene(const Id& id) {
+    const Scene* sc = scenes_.scene(id);
+    if (!sc) return;
+    std::wstring path;
+    if (!sceneFileDialog(hwnd(), true, widen(sc->name) + L".nrscene", path)) return;
+    const std::string text = scenes_.exportScene(id);
+    std::ofstream f(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
+    f << text;
+    if (!f.good()) {
+        flash(L"The scene couldn't be written there.", 6);
+        return;
+    }
+    log::info("Scene exported: " + sc->name);
+    flash(L"Exported “" + widen(sc->name) + L"”. Images and other files it shows are referred to where they are, not copied.", 8);
+}
+
+void CaptureWindow::importScene() {
+    std::wstring path;
+    if (!sceneFileDialog(hwnd(), false, L"", path)) return;
+    std::ifstream f(std::filesystem::path(path), std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (text.size() > 16 * 1024 * 1024) text.clear();   // no scene file is this big
+    std::string error;
+    bool scaled = false;
+    const Id id = scenes_.importScene(text, error, &scaled);
+    if (id.empty()) {
+        flash(widen(error.empty() ? std::string("That file couldn't be imported.") : error), 6);
+        return;
+    }
+    scenes_.setCurrent(id);
+    syncSources();
+    log::info("Scene imported: " + scenes_.scene(id)->name);
+    flash(L"Imported “" + widen(scenes_.scene(id)->name) + L"”" + (scaled ? L", resized for this canvas." : L"."), 6);
+    scenesChanged();
 }
 
 // ---------------------------------------------------------------- layout commands
@@ -901,9 +996,21 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
 void CaptureWindow::drawScenes(const Rect& b) {
     float y = b.y + 6;
     const auto& all = scenes_.scenes();
+    std::string folder;
     for (size_t i = 0; i < all.size(); ++i) {
         const Scene& s = all[i];
-        const Rect row{b.x + 6, y, b.w - 12, 32};
+        if (s.folder != folder) {   // a folder's heading before its first scene
+            folder = s.folder;
+            if (!folder.empty()) {
+                if (y + 24 > b.bottom()) break;
+                std::wstring head = widen(folder);
+                for (auto& c : head) c = (wchar_t)towupper(c);
+                gfx_.text(head, {b.x + 14, y + 4, b.w - 28, 18}, Font::Label, pal_.inkFaint, {Align::Left, false, true, true});
+                y += 24;
+            }
+        }
+        const float indent = s.folder.empty() ? 0 : 10;
+        const Rect row{b.x + 6 + indent, y, b.w - 12 - indent, 32};
         if (row.y > b.bottom()) break;
         sceneRows_.push_back({s.id, row});
         const std::string id = "scene:" + s.id;

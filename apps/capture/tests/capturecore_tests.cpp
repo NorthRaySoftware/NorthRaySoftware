@@ -703,6 +703,57 @@ static void testSourceUtil() {
     CHECK(kindFromKey("slideshow") == SourceKind::Slideshow && std::string(kindKey(SourceKind::Slideshow)) == "slideshow");
 }
 
+static void testSceneFiles() {
+    std::printf("scene folders and files\n");
+    SceneCollection c;
+    const Id a = c.current(), b = c.addScene("Starting soon"), d = c.addScene("Gameplay"), e = c.addScene("Ending");
+    CHECK(c.setSceneFolder(b, " Breaks ") && c.scene(b)->folder == "Breaks");
+    CHECK(c.setSceneFolder(e, "Breaks"));
+    // Folders keep their scenes together: Ending moved up next to Starting soon.
+    std::vector<Id> order;
+    for (auto& s : c.scenes()) order.push_back(s.id);
+    CHECK(order.size() == 4 && order[2] == b && order[3] == e);
+    CHECK(c.setSceneFolder(b, "") && c.scene(b)->folder.empty() && c.scenes().back().id == b);
+    SceneCollection r;
+    CHECK(r.fromJson(c.toJson()) && r.scene(e)->folder == "Breaks");
+    // Export: the scene, a scene inside it, their sources; nothing else.
+    const Id cam = c.addSource(SourceKind::Camera, "Face cam", R"({"device":"x"})");
+    const Id img = c.addSource(SourceKind::Image, "Logo", R"({"file":"C:\\logo.png"})");
+    const Id other = c.addSource(SourceKind::Display, "Display 1");
+    Transform t;
+    t.x = 960;
+    t.y = 540;
+    t.width = 480;
+    t.height = 270;
+    c.addItem(d, cam, t);
+    c.addItem(e, img);
+    c.addItem(d, c.sceneSource(e));
+    c.addItem(a, other);
+    const std::string file = c.exportScene(d);
+    CHECK(file.find("Face cam") != std::string::npos && file.find("Logo") != std::string::npos && file.find("Display 1") == std::string::npos);
+    CHECK(c.exportScene("nope").empty());
+    // Import into another collection at 1280x720: new ids, names kept (or made unique), nesting rewired, scaled.
+    SceneCollection other2;
+    other2.canvasWidth = 1280;
+    other2.canvasHeight = 720;
+    other2.addScene("Gameplay");
+    std::string err;
+    bool scaled = false;
+    const Id got = other2.importScene(file, err, &scaled);
+    CHECK(!got.empty() && err.empty() && scaled);
+    const Scene* g = other2.scene(got);
+    CHECK(g && g->name == "Gameplay 2" && g->items.size() == 2);
+    CHECK(std::fabs(g->items[0].transform.x - 640) < 0.01f && std::fabs(g->items[0].transform.width - 320) < 0.01f);
+    const Source* nested = other2.source(g->items[1].source);
+    CHECK(nested && nested->kind == SourceKind::Scene && other2.scene(SceneCollection::nestedScene(*nested)) &&
+          other2.scene(SceneCollection::nestedScene(*nested))->name == "Ending");
+    // Importing twice: everything new again, nothing shared with the first copy.
+    const Id got2 = other2.importScene(file, err);
+    CHECK(!got2.empty() && got2 != got && other2.scene(got2)->items[0].source != g->items[0].source);
+    CHECK(other2.importScene("{\"format\":\"something\"}", err).empty() && !err.empty());
+    CHECK(other2.importScene("not json", err).empty());
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -716,6 +767,7 @@ int main() {
     testTransitions();
     testNesting();
     testSourceUtil();
+    testSceneFiles();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

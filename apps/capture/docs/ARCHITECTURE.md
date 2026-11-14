@@ -598,3 +598,30 @@ then apply, plus wiring the Account row back into Settings › Streaming.
 - The region picker covers one still of the desktop: what moves underneath while picking isn't shown.
 - Wine draws the preview over its own file dialog and the picker; on Windows they sit above it as usual. Not checkable here.
 
+## 18. Milestone 8, part 3: scene folders, export and import (status: built, 14 Nov 2026; released as 0.8.2)
+
+**Built**
+- Scene folders: each scene has an optional folder name (saved with it). Putting a scene in a folder moves it next to
+  that folder's other scenes; the Scenes list shows each folder as a heading with its scenes indented under it.
+  The scene's menu: Folder › (the folders there are, A new folder..., Out of its folder).
+- Export: a .nrscene file (JSON, "format": "northray-capture-scene") with the scene, every scene shown inside it
+  (however deep) and the sources they show, with their settings and placements. Stream keys are never in it (they're
+  in Credential Manager, not in sources); files such as images are referred to by their paths, not copied (the
+  message after exporting says so).
+- Import: the file is read with the same checks as a saved collection, then added with new ids for everything and
+  names made unique ("Gameplay 2"); scenes inside it are rewired to their new copies; placements are scaled when the
+  file was made for another canvas size; importing twice gives two independent copies. Files over 16 MB are refused.
+- Scene menu: Export to a file..., Import a scene... (Windows' own file dialogs).
+
+**Tested**
+- capturecore: 289 checks, including folders (grouping, out of a folder, saved), export (only what the scene needs),
+  import (new ids, unique names, nested scenes rewired, scaling from 1920x1080 to 1280x720, twice, refusing other files).
+- The app in Wine: a folder made from the menu and a second scene put in it (heading and indent shown); "Gameplay"
+  (colour, text, GIF, slideshow, two items sharing a screen region, rotated and half see-through) exported to a file
+  (five sources) and imported back as "Gameplay 2", looking the same.
+
+**Not built / limits**
+- Grouping sources inside a scene: a scene shown inside another does the same job for now (move, resize or hide
+  the whole set at once); multiple selection and groups as such are still to come.
+- Folders can't be collapsed; an exported scene's images aren't packed into the file.
+

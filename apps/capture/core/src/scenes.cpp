@@ -3,6 +3,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <map>
 #include <cctype>
 
 namespace ncap {
@@ -353,6 +355,105 @@ bool SceneCollection::moveItem(const Id& sceneId, const Id& itemId, int delta) {
     return true;
 }
 
+bool SceneCollection::setSceneFolder(const Id& id, const std::string& wanted) {
+    const std::string folder = trim(wanted).substr(0, 120);
+    auto it = std::find_if(scenes_.begin(), scenes_.end(), [&](const Scene& x) { return x.id == id; });
+    if (it == scenes_.end()) return false;
+    if (it->folder == folder) return true;
+    Scene moved = *it;
+    moved.folder = folder;
+    scenes_.erase(it);
+    // Next to the folder's other scenes (after its last one); a new folder or none: at the end.
+    auto last = scenes_.end();
+    if (!folder.empty())
+        for (auto k = scenes_.begin(); k != scenes_.end(); ++k)
+            if (k->folder == folder) last = k + 1;
+    scenes_.insert(last, moved);
+    ++changes_;
+    return true;
+}
+
+std::string SceneCollection::exportScene(const Id& id) const {
+    using nlohmann::json;
+    if (!scene(id)) return {};
+    // The scene and everything inside it, however deep.
+    std::vector<Id> scenesNeeded{id}, sourcesNeeded;
+    for (std::size_t k = 0; k < scenesNeeded.size(); ++k)
+        for (auto& i : scene(scenesNeeded[k])->items) {
+            if (std::find(sourcesNeeded.begin(), sourcesNeeded.end(), i.source) == sourcesNeeded.end()) sourcesNeeded.push_back(i.source);
+            if (const Source* src = source(i.source)) {
+                const Id n = nestedScene(*src);
+                if (!n.empty() && scene(n) && std::find(scenesNeeded.begin(), scenesNeeded.end(), n) == scenesNeeded.end()) scenesNeeded.push_back(n);
+            }
+        }
+    json all = json::parse(toJson());
+    json out = {{"format", "northray-capture-scene"}, {"version", 1}, {"scene", id}, {"canvas", all["canvas"]}};
+    json srcs = json::array(), scs = json::array();
+    for (auto& s : all["sources"])
+        if (std::find(sourcesNeeded.begin(), sourcesNeeded.end(), s["id"].get<std::string>()) != sourcesNeeded.end()) srcs.push_back(s);
+    for (auto& s : all["scenes"])
+        if (std::find(scenesNeeded.begin(), scenesNeeded.end(), s["id"].get<std::string>()) != scenesNeeded.end()) {
+            s.erase("folder");
+            scs.push_back(s);
+        }
+    out["sources"] = srcs;
+    out["scenes"] = scs;
+    return out.dump(1);
+}
+
+Id SceneCollection::importScene(const std::string& text, std::string& error, bool* scaled) {
+    using nlohmann::json;
+    if (scaled) *scaled = false;
+    const json j = json::parse(text, nullptr, false);
+    if (!j.is_object() || j.value("format", std::string()) != "northray-capture-scene") {
+        error = "That isn't a scene exported from NorthRay Capture.";
+        return {};
+    }
+    // Read it as a collection of its own (the same checks as a saved file), then copy it in.
+    SceneCollection in;
+    json asCollection = {{"version", 1}, {"canvas", j.contains("canvas") ? j["canvas"] : json::object()},
+                         {"sources", j.contains("sources") ? j["sources"] : json::array()},
+                         {"scenes", j.contains("scenes") ? j["scenes"] : json::array()}};
+    const std::string top = j.value("scene", std::string());
+    if (!in.fromJson(asCollection.dump()) || !in.scene(top)) {
+        error = "The scene file is damaged or incomplete.";
+        return {};
+    }
+    const float sx = (float)canvasWidth / (float)in.canvasWidth, sy = (float)canvasHeight / (float)in.canvasHeight;
+    const bool scale = std::fabs(sx - 1) > 0.001f || std::fabs(sy - 1) > 0.001f;
+    if (scaled) *scaled = scale;
+    std::map<Id, Id> sceneIds, sourceIds;
+    for (auto& sc : in.scenes_) sceneIds[sc.id] = addScene(sc.name);   // unique names
+    for (auto& src : in.sources_) {
+        std::string settings = src.settings;
+        if (src.kind == SourceKind::Scene) {
+            const Id n = nestedScene(src);
+            settings = json{{"scene", sceneIds.count(n) ? sceneIds[n] : Id()}}.dump();
+        }
+        sourceIds[src.id] = addSource(src.kind, src.name, settings);
+    }
+    for (auto& sc : in.scenes_) {
+        Scene* mine = sceneMut(sceneIds[sc.id]);
+        for (auto& item : sc.items) {
+            SceneItem copy = item;
+            copy.id = newId('i');
+            copy.source = sourceIds[item.source];
+            if (scale) {
+                copy.transform.x *= sx;
+                copy.transform.y *= sy;
+                copy.transform.width *= sx;
+                copy.transform.height *= sy;
+            }
+            mine->items.push_back(copy);
+        }
+    }
+    // Scene sources showing a scene that wasn't in the file show nothing: remove them.
+    for (auto& [old, made] : sourceIds)
+        if (const Source* s = source(made); s && s->kind == SourceKind::Scene && nestedScene(*s).empty()) removeSource(made);
+    ++changes_;
+    return sceneIds[top];
+}
+
 std::string SceneCollection::toJson() const {
     using nlohmann::json;
     json j;
@@ -374,7 +475,9 @@ std::string SceneCollection::toJson() const {
                              {"transform", {{"x", t.x}, {"y", t.y}, {"width", t.width}, {"height", t.height}, {"rotation", t.rotation},
                                             {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}, {"flipH", t.flipH}, {"flipV", t.flipV}}}});
         }
-        scs.push_back({{"id", s.id}, {"name", s.name}, {"items", items}});
+        json sc = {{"id", s.id}, {"name", s.name}, {"items", items}};
+        if (!s.folder.empty()) sc["folder"] = s.folder;
+        scs.push_back(sc);
     }
     return j.dump(1);
 }
@@ -408,6 +511,7 @@ bool SceneCollection::fromJson(const std::string& text) {
         Scene sc;
         sc.id = s["id"].get<std::string>();
         sc.name = s.value("name", std::string("Scene"));
+        if (s.contains("folder") && s["folder"].is_string()) sc.folder = trim(s["folder"].get<std::string>()).substr(0, 120);
         if (s.contains("items") && s["items"].is_array())
             for (auto& i : s["items"]) {
                 if (!i.is_object() || !i.contains("source") || !i["source"].is_string() || !c.source(i["source"].get<std::string>())) continue;

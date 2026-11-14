@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.53.2",
+      "date": "2026-11-14",
+      "notes": [
+        "NorthRay Capture 0.8.2: scene folders, and exporting and importing scenes."
+      ]
+    },
+    {
       "version": "0.53.1",
       "date": "2026-11-14",
       "notes": [

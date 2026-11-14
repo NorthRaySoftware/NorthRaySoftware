@@ -16,7 +16,7 @@
     "Save a 10-second test clip of any sound source's own sound, to hear exactly what it captures",
     "A live preview: drag to move, drag the handles to resize (Shift for any shape), Alt+drag to crop, with snapping to the canvas edges and centre (hold Ctrl to stop it)",
     "Fit, stretch, centre, rotate, mirror, reset; hide, lock and reorder sources; the arrow keys nudge",
-    "Scenes: add, rename, duplicate, reorder and delete, switch with Ctrl+1 to Ctrl+9; a source can be shared by several scenes and is captured once",
+    "Scenes: add, rename, duplicate, reorder and delete, switch with Ctrl+1 to Ctrl+9; a source can be shared by several scenes and is captured once; put scenes in folders; export a scene to a file and import it, here or on another PC",
     "Transitions between scenes: cut, fade, slide, swipe and luma wipe (six patterns, soft or hard edge), with their duration and easing",
     "Studio Mode: prepare the next scene in the Preview while the Program stays live, then put it live with a transition (Ctrl+Enter)",
     "Scenes inside scenes: show one scene inside another, placed like any source (never a scene inside itself)",
@@ -33,7 +33,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

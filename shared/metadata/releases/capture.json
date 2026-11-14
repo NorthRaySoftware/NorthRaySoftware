@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.8.2",
+      "date": "2026-11-14",
+      "notes": [
+        "Scene folders: right-click a scene › Folder to put it in a folder. The Scenes list shows each folder as a heading with its scenes under it.",
+        "Export a scene to a file, and import one (right-click a scene). The file holds the scene, any scenes shown inside it, and their sources and placements; it never holds stream keys. Images and other files are referred to where they are, not copied in.",
+        "An imported scene gets names that don't clash with yours, and its placements are resized if it was made for a different canvas size."
+      ]
+    },
+    {
       "version": "0.8.1",
       "date": "2026-11-14",
       "notes": [
