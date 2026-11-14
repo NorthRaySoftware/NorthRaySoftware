@@ -34,7 +34,7 @@ import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { analyse } from "./hints.js";
 import * as spell from "./spell.js";
-import { initStyleUi, renderList, renderRules, imported as styleImported } from "./style_ui.js";
+import { initStyleUi, renderList, renderRules, imported as styleImported, otherWords } from "./style_ui.js";
 import { initNameCard, setEntries, showNameCard } from "./namecard.js";
 
 // ------------------------------------------------------------------ schema
@@ -357,7 +357,7 @@ const keys = {
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
   "Enter": splitListItem(S.list_item), "Tab": sinkListItem(S.list_item), "Shift-Tab": liftListItem(S.list_item),
   "Mod-[": lift,
-  "Mod-Shift-f": toggleFocus, "Mod-Shift-t": toggleTypewriter,
+  "Mod-Shift-f": toggleFocus, "Mod-Shift-t": toggleTypewriter, "Mod-Shift-o": () => { otherWords(); return true; },
 };
 
 const rules = inputRules({
@@ -467,6 +467,7 @@ function hintDecorations(doc) {
   const res = analyse(textBlocks(doc), {
     mode: hintMode(), categories: viewSettings.hintCats || {}, rules: style.rules.filter((r) => !pausedRules.has(r.id)),
     ignore: style.ignore, ignoreOnce: ignoreOnceSet, names: nameWords, lang: document.documentElement.lang,
+    isWord: spell.ready() ? spell.isWord : null,
   });
   for (const id of res.slow) if (!pausedRules.has(id)) {
     pausedRules.add(id);
@@ -872,6 +873,7 @@ function buildToolbar() {
   bind("quote", wrapIn(S.blockquote));
   bind("ul", wrapInList(S.bullet_list));
   bind("ol", wrapInList(S.ordered_list));
+  document.getElementById("thes").addEventListener("mousedown", (e) => { e.preventDefault(); otherWords(); });
   bind("undo", undo);
   bind("redo", redo);
   bind("comment", addComment);
@@ -991,8 +993,42 @@ initStyleUi({
       to = from + h.text.length;
       if (doc.textBetween(from, to) !== h.text) return;
     }
-    view.dispatch(view.state.tr.insertText(text, from, to));
+    view.dispatch(text ? view.state.tr.insertText(text, from, to) : view.state.tr.delete(from, to));
     view.focus();
+  },
+  // A hint's fix: replaces the text it was worked out on, if that's still there.
+  applyFix: (h, f) => api.replaceWord({ from: f.from, to: f.to, text: f.orig }, f.text),
+  synonyms: (text) => spell.synonyms(text),
+  notice: (t) => notice(t),
+  loadThesaurus: (cb) => spell.loadThesaurus(cb),
+  // Selects a range and scrolls it into view (an echo's earlier use).
+  reveal: (r) => {
+    if (!view || !r) return;
+    const max = view.state.doc.content.size;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, Math.min(r.from, max), Math.min(r.to, max))).scrollIntoView());
+    view.focus();
+  },
+  // The selected words (up to six), where they are on screen, and a way to replace them.
+  selection: () => {
+    if (!view) return null;
+    const { from, to, empty } = view.state.selection;
+    let a = from, z = to;
+    if (empty) {   // the word at the cursor
+      const $p = view.state.doc.resolve(from), t = $p.parent.textContent, off = $p.parentOffset;
+      let i = off, j = off;
+      while (i > 0 && /[\p{L}'’-]/u.test(t[i - 1])) i--;
+      while (j < t.length && /[\p{L}'’-]/u.test(t[j])) j++;
+      if (i === j) return null;
+      a = from - (off - i); z = from + (j - off);
+    }
+    // Leave out spaces and punctuation at either end ("loud." -> "loud").
+    let raw = view.state.doc.textBetween(a, z, " ", " ");
+    while (raw && !/[\p{L}\p{N}]/u.test(raw[0])) { raw = raw.slice(1); a++; }
+    while (raw && !/[\p{L}\p{N}]/u.test(raw[raw.length - 1])) { raw = raw.slice(0, -1); z--; }
+    const text = raw;
+    if (!text || text.split(/\s+/).length > 6) return null;
+    const c = view.coordsAtPos(a), e = view.coordsAtPos(z);
+    return { from: a, to: z, text, rect: { left: c.left, top: c.top, bottom: Math.max(c.bottom, e.bottom), right: e.right } };
   },
   addWord: (word) => {
     style.words = [...new Set([...style.words, word])].sort((a, b) => a.localeCompare(b));

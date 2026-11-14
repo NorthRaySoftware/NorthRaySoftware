@@ -28,7 +28,7 @@ const el = (tag, attrs = {}, ...kids) => {
 
 // ------------------------------------------------------------------ card
 
-let cardTimer = null, cardFor = null, hideTimer = null;
+let cardTimer = null, cardFor = null, hideTimer = null, pinned = false;   // pinned: the Other words card stays until a click elsewhere
 
 function showCard(target) {
   const hint = api.hintAt(+target.dataset.hint);
@@ -53,8 +53,31 @@ function showCard(target) {
     return;
   }
   card.append(el("div", { class: "hc-name", text: hint.name || "Your rule" }), el("div", { class: "hc-msg", text: hint.msg || "" }));
+  // Fixes: one click each.
+  if (hint.fixes && hint.fixes.length) {
+    const fx = el("div", { class: "hc-sugg" });
+    for (const f of hint.fixes)
+      fx.append(el("button", { class: "hc-word", text: f.label, title: f.text ? `Replace "${f.orig}" with "${f.text}"` : `Take out "${f.orig.trim()}"`,
+        onclick: () => { api.applyFix(hint, f); hideCard(true); } }));
+    card.append(fx);
+  }
+  // Echoes (and the writer's own flagged words): other words and phrases to use instead.
+  if (hint.cat === "echo" || (hint.rule && !hint.fixes)) {
+    const syn = el("div", { class: "hc-sugg" });
+    const fill = () => {
+      const list = api.synonyms(hint.text);
+      syn.replaceChildren(...(list.length ? [el("span", { class: "hc-label", text: "Instead:" }), ...list.map((w) =>
+        el("button", { class: "hc-word", text: w, onclick: () => { api.replaceWord(hint, w); hideCard(true); } }))]
+        : [el("span", { class: "hc-why", text: "No other words found for this one." })]));
+      if (!card.hidden) placeCard(card, target);
+    };
+    syn.append(el("span", { class: "hc-why", text: "Finding other words…" }));
+    card.append(syn);
+    api.loadThesaurus(fill);
+  }
   if (hint.why) card.append(el("div", { class: "hc-why", text: hint.why }));
   const row = el("div", { class: "hc-actions" });
+  if (hint.earlier) row.append(el("button", { text: "Show the earlier one", onclick: () => { hideCard(true); api.reveal(hint.earlier); } }));
   row.append(el("button", { text: "Ignore once", onclick: () => { api.ignoreOnce(hint); hideCard(true); } }));
   const word = hint.text.length > 28 ? hint.text.slice(0, 26) + "…" : hint.text;
   row.append(el("button", { text: `Ignore "${word}" in ${scope.label}`, title: `Not marked again anywhere in ${scope.name}`,
@@ -63,6 +86,27 @@ function showCard(target) {
   else row.append(el("button", { text: "Edit the rule", onclick: () => { hideCard(true); openRules(hint.rule); } }));
   card.append(row);
   placeCard(card, target);
+}
+
+// Ctrl+Shift+O or the ≈ button: other words and phrases for the selection (or the word at the cursor).
+export function otherWords() {
+  const sel = api.selection();
+  const card = $("hintcard");
+  if (!sel) { api.notice && api.notice("Select a word or a short phrase (up to six words) to see other ways to say it."); return; }
+  card.replaceChildren(el("div", { class: "hc-name", text: "Other words" }), el("div", { class: "hc-msg", text: `For "${sel.text}"` }));
+  const box = el("div", { class: "hc-sugg" }, el("span", { class: "hc-why", text: "Finding other words…" }));
+  card.append(box);
+  const at = { getBoundingClientRect: () => sel.rect };
+  cardFor = at;
+  placeCard(card, at);
+  pinned = true;
+  api.loadThesaurus(() => {
+    const list = api.synonyms(sel.text);
+    box.replaceChildren(...(list.length ? list.map((w) => el("button", { class: "hc-word", text: w,
+      onclick: () => { api.replaceWord({ from: sel.from, to: sel.to, text: sel.text }, w); hideCard(true); } }))
+      : [el("span", { class: "hc-why", text: "No other words found. Try a single word, or the phrase's main word." })]));
+    placeCard(card, at);
+  });
 }
 
 function placeCard(card, target) {
@@ -78,7 +122,7 @@ function placeCard(card, target) {
 function hideCard(now) {
   clearTimeout(cardTimer);
   clearTimeout(hideTimer);
-  const go = () => { $("hintcard").hidden = true; cardFor = null; };
+  const go = () => { $("hintcard").hidden = true; cardFor = null; pinned = false; };
   if (now) go(); else hideTimer = setTimeout(go, 250);
 }
 
@@ -86,7 +130,7 @@ function wireCard() {
   document.addEventListener("mouseover", (e) => {
     const t = e.target.closest && e.target.closest(".hint[data-hint]");
     const inCard = e.target.closest && e.target.closest("#hintcard");
-    if (inCard) { clearTimeout(hideTimer); return; }
+    if (inCard || pinned) { clearTimeout(hideTimer); return; }
     if (t) {
       clearTimeout(hideTimer);
       if (t === cardFor) return;
@@ -96,6 +140,7 @@ function wireCard() {
     else clearTimeout(cardTimer);
   });
   document.addEventListener("keydown", () => hideCard(true), true);
+  document.addEventListener("mousedown", (e) => { if (pinned && !(e.target.closest && e.target.closest("#hintcard, #thes"))) hideCard(true); }, true);
   $("scroller").addEventListener("scroll", () => hideCard(true));
 }
 

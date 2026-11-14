@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.24.0",
+      "date": "2026-11-14",
+      "notes": [
+        "The stars in the night sky twinkle softly (still when Windows' animations are turned off)."
+      ]
+    },
+    {
       "version": "0.23.2",
       "date": "2026-11-14",
       "notes": [

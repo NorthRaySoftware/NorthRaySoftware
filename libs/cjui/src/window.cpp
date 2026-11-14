@@ -15,6 +15,12 @@ namespace cjui {
 
 static const UINT_PTR kFlashTimer = 0xC001;
 static const UINT_PTR kAnimTimer = 0xC002;
+static const UINT_PTR kAmbientTimer = 0xC003;
+
+static double g_ambientTime = -1;
+static bool g_ambientWanted = false;
+double ambientTime() { return g_ambientTime; }
+void wantAmbientFrame() { g_ambientWanted = true; }
 
 Palette makePalette(bool dark) {
     Palette p;
@@ -355,14 +361,19 @@ void AppWindow::paint() {
         animating_ = false;
         hits_.clear();
         sliders_.clear();
+        g_ambientTime = animationsOn_ ? std::fmod(double(c.QuadPart) / double(f.QuadPart), 86400.0) : -1;
+        g_ambientWanted = false;
         gfx_.clear(pal_.paper);
         drawFrame((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         gfx_.end();
+        ambient_ = g_ambientWanted && animationsOn_;
+        g_ambientWanted = false;
         lastHits_ = hits_;
         lastSliders_ = sliders_;
     }
     EndPaint(hwnd_, &ps);
     if (animating_) SetTimer(hwnd_, kAnimTimer, 15, nullptr);
+    if (ambient_ && IsWindowVisible(hwnd_) && !IsIconic(hwnd_)) SetTimer(hwnd_, kAmbientTimer, 83, nullptr);
 }
 
 void AppWindow::updateHover() {
@@ -589,6 +600,11 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (wp == kAnimTimer) {
                 KillTimer(hwnd, kAnimTimer);
                 invalidate();  // the next paint re-arms the timer if still moving
+                return 0;
+            }
+            if (wp == kAmbientTimer) {
+                KillTimer(hwnd, kAmbientTimer);
+                if (IsWindowVisible(hwnd) && !IsIconic(hwnd)) invalidate();  // re-armed by the paint if still wanted
                 return 0;
             }
             if (wp == kFlashTimer) {

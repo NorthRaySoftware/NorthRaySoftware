@@ -289,6 +289,118 @@ function compile(rule) {
 // opts: {mode: "off"|"quiet"|"full", lang ("en-GB"), categories: {id: bool}, rules: [...], ignore: {key: [lower-cased text]},
 //        ignoreOnce: Set, names: Set(lower-cased words), echoWindow, longSentence}
 // Returns {hints: [{from, to, key, cat, rule, name, msg, why}], counts: {key: n}, slow: [rule ids]}
+// Plainer ways to say a cliché: starting points, not rewrites ($1 = the matched possessive).
+const CLICHE_PLAIN = [
+  [/heart (?:pounded|hammered|raced)/, ["$1 pulse jumped", "$1 heart raced"]],
+  [/let out a breath/, ["breathed out", "exhaled"]],
+  [/blood ran cold/, ["$1 skin prickled", "dread settled on them"]],
+  [/time stood still/, ["everything paused", "nobody moved"]],
+  [/shiver (?:ran|went) down/, ["a chill crept over them", "they shivered"]],
+  [/all hell broke loose/, ["chaos erupted", "everything went wrong at once"]],
+  [/at the end of the day/, ["in the end", "ultimately"]],
+  [/dead as a doornail/, ["dead", "long dead"]],
+  [/cold as ice/, ["icy", "freezing"]],
+  [/in the nick of time/, ["just in time", "barely in time"]],
+  [/calm before the storm/, ["a tense quiet", "a lull"]],
+  [/only time will tell/, ["we'll see", "nobody knows yet"]],
+  [/every fib(?:re|er) of/, ["all of $1 strength", "completely"]],
+  [/in the blink of an eye/, ["instantly", "in a moment"]],
+  [/like the plague/, ["at all costs", "carefully"]],
+  [/as luck would have it/, ["luckily", "by chance"]],
+  [/(?:deafening|eerie) silence|silence was deafening/, ["a heavy silence", "a total silence"]],
+  [/out of the blue/, ["unexpectedly", "suddenly"]],
+  [/head over heels/, ["deeply in love", "completely"]],
+  [/the last straw/, ["the final insult", "too much"]],
+  [/against all odds/, ["somehow", "improbably"]],
+  [/few and far between/, ["rare", "scarce"]],
+  [/scared to death/, ["terrified", "petrified"]],
+  [/frozen in fear/, ["paralysed", "unable to move"]],
+  [/white as a sheet|pale as a ghost/, ["pale", "ashen"]],
+  [/quiet as a mouse/, ["silent", "barely making a sound"]],
+  [/light as a feather/, ["weightless", "almost weightless"]],
+  [/crack of dawn/, ["dawn", "first light"]],
+  [/little did (?:he|she|they|i) know/, ["they had no idea", "nobody knew yet"]],
+  [/for all intents and purposes/, ["in effect", "practically"]],
+  [/a matter of life and death/, ["urgent", "deadly serious"]],
+  [/when all was said and done/, ["in the end", "afterwards"]],
+  [/jaw dropped/, ["$1 mouth fell open", "they stared"]],
+  [/eyes widened/, ["$1 eyes went wide", "they stared"]],
+  [/rooted to the spot|stopped dead in/, ["froze", "stopped short"]],
+  [/heart of gold/, ["kind", "generous"]],
+  [/tip of the iceberg/, ["only the start", "a small part of it"]],
+  [/lump in/, ["$1 throat tightened", "$1 voice caught"]],
+  [/butterflies in/, ["$1 stomach fluttered", "nerves"]],
+  [/the world (?:seemed to )?stop/, ["everything went still", "nothing else mattered"]],
+  [/moth to a flame/, ["helplessly drawn", "irresistibly"]],
+  [/as old as time/, ["ancient", "age-old"]],
+  [/a twist of fate/, ["by chance", "an accident"]],
+  [/in the dead of night/, ["late at night", "in the small hours"]],
+  [/cut to the chase/, ["get to the point", "skip ahead"]],
+  [/bite the bullet/, ["face it", "get it over with"]],
+  [/blood-curdling scream/, ["a terrible scream", "a shriek"]],
+  [/hit the ground running/, ["started at once", "got straight to work"]],
+];
+function plainFor(text) {
+  const low = text.toLocaleLowerCase();
+  for (const [re, alts] of CLICHE_PLAIN) if (re.test(low)) return alts;
+  return [];
+}
+
+// "began to run" -> "ran", "starts to walk" -> "walks", "start to laugh" -> "laugh"; null when unsure.
+const IRREGULAR_PAST = { run: "ran", go: "went", come: "came", see: "saw", take: "took", give: "gave", get: "got", make: "made",
+  think: "thought", feel: "felt", fall: "fell", rise: "rose", speak: "spoke", say: "said", tell: "told", know: "knew",
+  grow: "grew", throw: "threw", fly: "flew", drink: "drank", sing: "sang", sink: "sank", swim: "swam", begin: "began",
+  eat: "ate", write: "wrote", drive: "drove", ride: "rode", shake: "shook", break: "broke", wake: "woke", freeze: "froze",
+  bleed: "bled", feed: "fed", lead: "led", leave: "left", weep: "wept", sleep: "slept", creep: "crept", keep: "kept",
+  sweep: "swept", sit: "sat", stand: "stood", understand: "understood", hold: "held", find: "found", bring: "brought",
+  buy: "bought", fight: "fought", seek: "sought", teach: "taught", catch: "caught", dig: "dug", swing: "swung", hang: "hung",
+  shine: "shone", lose: "lost", hear: "heard", tear: "tore", wear: "wore", bear: "bore", shoot: "shot", light: "lit",
+  slide: "slid", hide: "hid", bite: "bit", strike: "struck", spin: "spun", stick: "stuck", sting: "stung", draw: "drew",
+  blow: "blew", forget: "forgot", choose: "chose", steal: "stole", lie: "lay", lay: "laid", cry: "cried", shut: "shut",
+  put: "put", cut: "cut", let: "let", hit: "hit", hurt: "hurt", spread: "spread", burst: "burst", cast: "cast", quit: "quit",
+  do: "did", have: "had", be: "was", flee: "fled", sell: "sold", send: "sent", spend: "spent", build: "built", bend: "bent",
+  mean: "meant", meet: "met", pay: "paid", lend: "lent", win: "won", stink: "stank", ring: "rang", shrink: "shrank" };
+function pastOf(v, isWord) {
+  if (IRREGULAR_PAST[v]) return IRREGULAR_PAST[v];
+  let p = /e$/.test(v) ? v + "d" : /[^aeiou]y$/.test(v) ? v.slice(0, -1) + "ied" : v + "ed";
+  if (/^[^aeiou]*[aeiou][bdgmnprt]$/.test(v)) { const d = v + v.slice(-1) + "ed"; if (!isWord || isWord(d)) p = d; }   // stop -> stopped
+  return !isWord || isWord(p) ? p : null;
+}
+function thirdOf(v) {
+  if (v === "have") return "has"; if (v === "be") return "is"; if (v === "do") return "does"; if (v === "go") return "goes";
+  return /(?:s|sh|ch|x|z|o)$/.test(v) ? v + "es" : /[^aeiou]y$/.test(v) ? v.slice(0, -1) + "ies" : v + "s";
+}
+export function beganFix(phrase, isWord) {
+  const m = /^(\p{L}+) to (\p{L}+)$/u.exec(phrase);
+  if (!m) return null;
+  const aux = m[1].toLocaleLowerCase(), v = m[2].toLocaleLowerCase();
+  if (/^(?:began|begun|started)$/.test(aux)) return pastOf(v, isWord);
+  if (/^(?:begins|starts)$/.test(aux)) return thirdOf(v);
+  if (/^(?:begin|start)$/.test(aux)) return v;
+  return null;
+}
+
+// The replacement in the capitalisation of what it replaces ("Very" -> "Quite", "GREY" -> "GRAY").
+export function matchCase(orig, repl) {
+  if (orig.length > 1 && orig === orig.toLocaleUpperCase() && orig !== orig.toLocaleLowerCase()) return repl.toLocaleUpperCase();
+  if (orig[0] && orig[0] !== orig[0].toLocaleLowerCase() && repl[0] === repl[0].toLocaleLowerCase()) return repl[0].toLocaleUpperCase() + repl.slice(1);
+  return repl;
+}
+
+// A fix taking a word out with one of the spaces beside it; at the start of a sentence the next word gets the capital.
+export function removal(b, from, to) {
+  const t = b.text, w = t.slice(from, to);
+  const startsSentence = /^\s*$/.test(t.slice(0, from)) || /[.!?…]['"’”]?\s+$/u.test(t.slice(0, from)) || /[“"‘]\s*$/u.test(t.slice(0, from));
+  if (startsSentence && w[0] !== w[0].toLocaleLowerCase()) {
+    const m = /^[,;]?\s+(\p{L})/u.exec(t.slice(to));
+    if (m) return { label: `Remove "${w}"`, from, to: to + m[0].length, text: m[1].toLocaleUpperCase() };
+  }
+  let a = from, z = to;
+  if (t[z] === ",") z++;
+  if (t[a - 1] === " ") a--; else if (t[z] === " ") z++;
+  return { label: `Remove "${w}"`, from: a, to: z, text: "" };
+}
+
 export function analyse(blocks, opts) {
   const hints = [], counts = {}, slow = [];
   const mode = opts.mode || "off";
@@ -305,7 +417,11 @@ export function analyse(blocks, opts) {
   const echoWindow = opts.echoWindow || 50;
   const longAt = opts.longSentence || 40;
 
+  // Fixes offered on a hint's card: [{label, from, to, text}] in the block's offsets, made absolute here
+  // (with the text they replace, so a fix is only applied if that text is still there).
+  const fixesIn = (b, list) => (list || []).filter(Boolean).map((f) => ({ label: f.label, text: f.text, from: b.pos + f.from, to: b.pos + f.to, orig: b.text.slice(f.from, f.to) }));
   const add = (b, from, to, key, extra) => {
+    if (extra && extra.fixes) extra = { ...extra, fixes: fixesIn(b, extra.fixes) };
     const text = b.text.slice(from, to);
     const low = text.toLocaleLowerCase().replace(/\s+/g, " ");
     if ((ignore[key] || []).includes(low)) return;
@@ -313,7 +429,8 @@ export function analyse(blocks, opts) {
     hints.push({ from: b.pos + from, to: b.pos + to, key, text, context: b.text.slice(Math.max(0, from - 24), to + 24), ...extra });
     counts[key] = (counts[key] || 0) + 1;
   };
-  const cat = (b, from, to, id, msg) => add(b, from, to, "cat:" + id, { cat: id, name: CATEGORY[id].name, msg, why: CATEGORY[id].why });
+  const cat = (b, from, to, id, msg, fixes) => add(b, from, to, "cat:" + id, { cat: id, name: CATEGORY[id].name, msg, why: CATEGORY[id].why, fixes });
+  const swap = (b, from, to, text, label) => ({ label: label || `Change to "${text}"`, from, to, text: matchCase(b.text.slice(from, to), text) });
 
   // Each block's dialogue, once.
   for (const b of blocks) b.dialogue = dialogueRanges(b.text);
@@ -326,15 +443,22 @@ export function analyse(blocks, opts) {
       for (const m of t.matchAll(RX.doubled)) {
         const w = m[1].toLocaleLowerCase();
         if (/^\d+$/.test(w) || w === "had" || w === "that") continue;
-        cat(b, m.index, m.index + m[0].length, "doubled", `"${m[1]}" twice in a row.`);
+        cat(b, m.index, m.index + m[0].length, "doubled", `"${m[1]}" twice in a row.`,
+          [{ label: "Remove the repeat", from: m.index, to: m.index + m[0].length, text: m[1] }]);
       }
     if (enabled("redundancy"))
       for (const [re, s] of RX.redundancy)
         for (const m of t.matchAll(re)) if (narration(b, m.index, m.index + m[0].length))
-          cat(b, m.index, m.index + m[0].length, "redundancy", s ? `Maybe just "${s}".` : "Part of this may go without saying.");
+          cat(b, m.index, m.index + m[0].length, "redundancy", s ? `Maybe just "${s}".` : "Part of this may go without saying.",
+            s ? [swap(b, m.index, m.index + m[0].length, s, `Change to "${s}"`)] : []);
     if (enabled("cliche"))
       for (const m of t.matchAll(RX.cliche)) if (narration(b, m.index, m.index + m[0].length))
-        cat(b, m.index, m.index + m[0].length, "cliche", "A familiar phrase. Could it be said in your own way?");
+      {
+        const poss = ((/\b(his|her|their|my|your|its|our)\b/i.exec(m[0]) || ["", "their"])[1]).toLocaleLowerCase();
+        const alts = plainFor(m[0]).map((p) => p.replace(/\$1/g, poss));
+        cat(b, m.index, m.index + m[0].length, "cliche", "A familiar phrase. Could it be said in your own way?",
+          alts.map((p) => swap(b, m.index, m.index + m[0].length, p, `"${p}"`)));
+      }
     // Dialogue tags: speech verbs in narration next to some dialogue.
     if (b.dialogue.length && (enabled("tagAdverb") || enabled("bookism"))) {
       const nearDialogue = (from, to) => b.dialogue.some(([a, z]) => (from >= z && from - z <= 40) || (to <= a && a - to <= 40));
@@ -345,26 +469,37 @@ export function analyse(blocks, opts) {
             if (NOT_ADVERBS.has(adv) || !narration(b, m.index, m.index + m[0].length) || !nearDialogue(m.index, m.index + m[0].length)) continue;
             const at = m.index + m[0].toLocaleLowerCase().lastIndexOf(adv);
             const from = re === RX.adverbThenSpeech ? m.index : at;
-            cat(b, from, from + adv.length, "tagAdverb", `"${m[1]}" on a dialogue tag.`);
+            cat(b, from, from + adv.length, "tagAdverb", `"${m[1]}" on a dialogue tag.`, [removal(b, from, from + adv.length)]);
           }
       if (enabled("bookism"))
         for (const m of t.matchAll(RX.bookism))
           if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length))
-            cat(b, m.index, m.index + m[0].length, "bookism", `"${m[0]}" as a dialogue tag. Would "said" do?`);
+          {
+            const q = b.dialogue.find(([a, z]) => z <= m.index && m.index - z <= 40) || b.dialogue.find(([a]) => a >= m.index);
+            const asked = q && /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1]));
+            const fx = [swap(b, m.index, m.index + m[0].length, "said")];
+            if (asked) fx.unshift(swap(b, m.index, m.index + m[0].length, "asked"));
+            cat(b, m.index, m.index + m[0].length, "bookism", `"${m[0]}" as a dialogue tag. Would "${asked ? "asked" : "said"}" do?`, fx);
+          }
     }
     if (enabled("filler")) {
       const found = [...t.matchAll(RX.filler)].filter((m) => narration(b, m.index, m.index + m[0].length));
-      if (found.length >= 2) for (const m of found) cat(b, m.index, m.index + m[0].length, "filler", `"${m[0]}" (${found.length} filler words in this paragraph).`);
+      if (found.length >= 2) for (const m of found) cat(b, m.index, m.index + m[0].length, "filler", `"${m[0]}" (${found.length} filler words in this paragraph).`,
+        [removal(b, m.index, m.index + m[0].length)]);
     }
     if (enabled("hedge"))
       for (const m of t.matchAll(RX.hedge)) if (narration(b, m.index, m.index + m[0].length))
-        cat(b, m.index, m.index + m[0].length, "hedge", `"${m[0]}" softens this.`);
+        cat(b, m.index, m.index + m[0].length, "hedge", `"${m[0]}" softens this.`, [removal(b, m.index, m.index + m[0].length)]);
     if (enabled("filter"))
       for (const m of t.matchAll(RX.filter)) if (narration(b, m.index, m.index + m[0].length))
         cat(b, m.index, m.index + m[0].length, "filter", `"${m[0]}" puts the reader behind the character.`);
     if (enabled("began"))
       for (const m of t.matchAll(RX.began)) if (narration(b, m.index, m.index + m[0].length))
-        cat(b, m.index, m.index + m[0].length, "began", "Could the action simply happen?");
+      {
+        const fx = beganFix(m[0], opts.isWord);
+        cat(b, m.index, m.index + m[0].length, "began", "Could the action simply happen?",
+          fx ? [swap(b, m.index, m.index + m[0].length, fx, `Change to "${fx}"`)] : []);
+      }
     if (enabled("passive"))
       for (const m of t.matchAll(RX.passive)) {
         if (ADJECTIVAL.has(m[1].toLocaleLowerCase()) || !narration(b, m.index, m.index + m[0].length)) continue;
@@ -404,6 +539,7 @@ export function analyse(blocks, opts) {
   // Echoes: the same distinctive word again within `echoWindow` words of narration.
   if (enabled("echo")) {
     const seen = new Map();   // stem -> word index
+    const where = new Map();  // stem -> the earlier use's document range
     let index = 0;
     for (const b of blocks)
       for (const m of b.text.matchAll(WORD)) {
@@ -414,8 +550,12 @@ export function analyse(blocks, opts) {
         const stem = low.length > 5 ? low.replace(/(?:ing|ed|es|s|ly)$/, "") : low;
         const before = seen.get(stem);
         if (before !== undefined && index - before <= echoWindow)
+        {
           cat(b, m.index, m.index + raw.length, "echo", `"${raw}" was also used ${index - before} words earlier.`);
+          hints[hints.length - 1] && hints[hints.length - 1].key === "cat:echo" && (hints[hints.length - 1].earlier = where.get(stem));
+        }
         seen.set(stem, index);
+        where.set(stem, { from: b.pos + m.index, to: b.pos + m.index + raw.length });
       }
   }
 
@@ -425,7 +565,8 @@ export function analyse(blocks, opts) {
     for (const [gb, us] of SPELLINGS) {
       const re = new RegExp(W(`(${escapeRx(gb)}|${escapeRx(us)})(?:e|es|ed|ing|ation|ations|er|ers|s|ist|ists|ism)?`), "giu");
       for (const b of blocks) for (const m of b.text.matchAll(re))
-        all.push({ b, from: m.index, to: m.index + m[0].length, group: gb, form: m[1].toLocaleLowerCase() === gb.toLocaleLowerCase() ? "gb" : "us", text: m[0] });
+        all.push({ b, from: m.index, to: m.index + m[0].length, group: gb, form: m[1].toLocaleLowerCase() === gb.toLocaleLowerCase() ? "gb" : "us", text: m[0],
+          root: m[1].length, gb, us });
     }
     for (const b of blocks) {
       for (const m of b.text.matchAll(/(?<=\S)—(?=\S)/gu)) all.push({ b, from: m.index, to: m.index + 1, group: "dash", form: "closed em dash", text: "—" });
@@ -444,7 +585,16 @@ export function analyse(blocks, opts) {
       for (const x of xs) if (x.form !== main) {
         const what = group === "dash" ? `A ${x.form}; this chapter mostly uses ${main}es.`
           : `"${x.text}": this chapter mostly uses the ${main === "gb" ? "British" : "American"} spelling.`;
-        cat(x.b, x.from, x.to, "spelling", what);
+        let fix = null;
+        if (group === "dash") {
+          const look = { "closed em dash": "—", "spaced en dash": " – ", "spaced em dash": " — " };
+          const spaced = x.form !== "closed em dash";
+          fix = { label: `Use a ${main}`, from: spaced ? x.from - 1 : x.from, to: spaced ? x.to + 1 : x.to, text: look[main] };
+        } else {
+          const other = main === "gb" ? x.gb : x.us;
+          fix = swap(x.b, x.from, x.to, other + x.text.slice(x.root));
+        }
+        cat(x.b, x.from, x.to, "spelling", what, [fix]);
       }
     }
   }
@@ -476,7 +626,8 @@ export function analyse(blocks, opts) {
         if (!placeOk(b, m.index, m.index + m[0].length)) continue;
         const base = [...c.to.keys()].find((k) => m[0].toLocaleLowerCase().startsWith(k)) || m[0].toLocaleLowerCase();
         const to = c.to.get(base);
-        add(b, m.index, m.index + m[0].length, key, extra(message(m[0], to ? `"${m[0]}": you prefer "${to}".` : `"${m[0]}": you'd rather not use this.`)));
+        add(b, m.index, m.index + m[0].length, key, { ...extra(message(m[0], to ? `"${m[0]}": you prefer "${to}".` : `"${m[0]}": you'd rather not use this.`)),
+          fixes: to ? [swap(b, m.index, m.index + m[0].length, to)] : [removal(b, m.index, m.index + m[0].length)] });
       }
     } else if (rule.type === "flag") {
       for (const b of blocks) for (const m of b.text.matchAll(c.re))
@@ -514,7 +665,8 @@ export function analyse(blocks, opts) {
       // The first spelling listed is the one to keep, if it's used; otherwise the most used.
       let keep = found[0].length ? 0 : found.reduce((best, f, i) => (f.length > found[best].length ? i : best), 0);
       found.forEach((f, i) => { if (i !== keep) for (const { b, m } of f)
-        add(b, m.index, m.index + m[0].length, key, extra(message(m[0], `"${m[0]}": elsewhere it's "${c.terms[keep]}".`))); });
+        add(b, m.index, m.index + m[0].length, key, { ...extra(message(m[0], `"${m[0]}": elsewhere it's "${c.terms[keep]}".`)),
+          fixes: [swap(b, m.index, m.index + m[0].length, c.terms[keep])] }); });
     }
     const spent = (typeof performance !== "undefined" ? performance : Date).now() - started;
     if (spent > 150) slow.push(rule.id);

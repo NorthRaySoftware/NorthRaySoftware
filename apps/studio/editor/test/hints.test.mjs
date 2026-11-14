@@ -144,3 +144,51 @@ test("a long chapter stays quick", () => {
   const ms = Date.now() - t0;
   assert.ok(ms < 1500, ms + " ms");
 });
+
+// ------------------------------------------------------------------ fixes
+const apply = (text, f) => text.slice(0, f.from) + f.text + text.slice(f.to);
+const one = (text, cat, opts = {}) => analyse([{ text, pos: 0 }], { mode: "full", categories: { [cat]: true }, ...opts }).hints.find((h) => h.cat === cat);
+
+test("fixes: doubled, filler, redundancy, tags, cliché, began, spelling", () => {
+  let t = "She saw the the door.";
+  assert.equal(apply(t, one(t, "doubled").fixes[0]), "She saw the door.");
+  t = "It was really very cold.";
+  assert.equal(apply(t, one(t, "filler").fixes[0]), "It was very cold.");
+  t = "Really, very cold it was.";
+  assert.equal(apply(t, one(t, "filler").fixes[0]), "Very cold it was.");
+  t = "The end result was clear.";
+  const r = one(t, "redundancy");
+  assert.equal(apply(t, r.fixes[0]), "The result was clear.");
+  t = "“Where?” she hissed.";
+  const bk = one(t, "bookism");
+  assert.equal(bk.fixes[0].text, "asked");
+  t = "“Go,” she said quietly.";
+  assert.equal(apply(t, one(t, "tagAdverb").fixes[0]), "“Go,” she said.");
+  t = "He arrived in the nick of time.";
+  assert.equal(apply(t, one(t, "cliche").fixes[0]), "He arrived just in time.");
+  t = "Her heart pounded in her chest.";
+  assert.equal(one(t, "cliche").fixes[0].text, "Her pulse jumped");
+  t = "She began to run.";
+  assert.equal(apply(t, one(t, "began").fixes[0]), "She ran.");
+  t = "He starts to walk.";
+  assert.equal(apply(t, one(t, "began").fixes[0]), "He walks.");
+  t = "The grey cat, the grey dog, the gray bird.";
+  const sp = one(t, "spelling");
+  assert.equal(apply(t, sp.fixes[0]), "The grey cat, the grey dog, the grey bird.");
+});
+
+test("echoes point back to the earlier use", () => {
+  const t = "The skeletons were loud. Far too loud for him.";
+  const h = one(t, "echo");
+  assert.equal(t.slice(h.earlier.from, h.earlier.to), "loud");
+});
+
+test("writers' replace and consistent rules offer their word", () => {
+  const t = "The orbs glowed. Kathryn and Katherine.";
+  const res = analyse([{ text: t, pos: 0 }], { mode: "full", categories: {}, rules: [
+    { id: "r1", type: "replace", pairs: [{ from: "orbs", to: "eyes" }] },
+    { id: "r2", type: "consistent", terms: ["Kathryn", "Katherine"] }] });
+  const rep = res.hints.find((h) => h.rule === "r1"), con = res.hints.find((h) => h.rule === "r2");
+  assert.equal(apply(t, rep.fixes[0]), "The eyes glowed. Kathryn and Katherine.");
+  assert.equal(con.fixes[0].text, "Kathryn");
+});

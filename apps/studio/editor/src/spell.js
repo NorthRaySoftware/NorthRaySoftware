@@ -130,3 +130,95 @@ export function suggestions(word, n = 5) {
   return list.slice(0, n).map((s) => (cap && s === s.toLocaleLowerCase() ? s[0].toLocaleUpperCase() + s.slice(1) : s))
     .map((s) => (word.includes("’") ? s.replace(/'/g, "’") : s));
 }
+
+// Is this a word (the dictionary, the bible's names, the world's own words)?
+export function isWord(word) { return !!checker && known(word); }
+
+// ---------------------------------------------------------------- thesaurus
+// WordNet 3.1 (Princeton's licence, see licenses/), boiled down by tools/build-thesaurus.mjs to
+// {"word or phrase": "synonym|synonym|..."}: single words first, then phrases. Fetched on first use.
+let thesaurus = null, thesaurusLoading = null;
+export function loadThesaurus(onReady) {
+  if (thesaurus) return onReady && onReady();
+  if (!thesaurusLoading) thesaurusLoading = fetch("dict/thesaurus.json").then((r) => r.json()).then((d) => { thesaurus = d; }).catch(() => { thesaurus = {}; });
+  thesaurusLoading.then(() => onReady && onReady());
+}
+export function thesaurusReady() { return !!thesaurus; }
+
+// Endings a word can carry, how to take them off, and which kinds of word (n, v, a, r) they can go back on.
+const FORMS = [
+  { base: (w) => w, kinds: "nvar", put: null },
+  { base: (w) => (/ies$/.test(w) ? w.slice(0, -3) + "y" : /(?:s|sh|ch|x|z)es$/.test(w) ? w.slice(0, -2) : /[^s]s$/.test(w) ? w.slice(0, -1) : null),
+    kinds: "nv", put: (w) => (/(?:s|sh|ch|x|z|o)$/.test(w) ? w + "es" : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + "ies" : w + "s") },
+  { base: (w) => (/ied$/.test(w) ? w.slice(0, -3) + "y" : /ed$/.test(w) ? w.slice(0, -2) : null), kinds: "v", put: past },
+  { base: (w) => (/ed$/.test(w) ? w.slice(0, -1) : null), kinds: "v", put: past },
+  { base: (w) => (/([^aeiou])\1ed$/.test(w) ? w.slice(0, -3) : null), kinds: "v", put: past },
+  { base: (w) => (/ing$/.test(w) ? w.slice(0, -3) : null), kinds: "v", put: ing },
+  { base: (w) => (/ing$/.test(w) ? w.slice(0, -3) + "e" : null), kinds: "v", put: ing },
+  { base: (w) => (/([^aeiou])\1ing$/.test(w) ? w.slice(0, -4) : null), kinds: "v", put: ing },
+  { base: (w) => (/ily$/.test(w) ? w.slice(0, -3) + "y" : /ly$/.test(w) ? w.slice(0, -2) : null), kinds: "a",
+    put: (w) => (/[^aeiou]y$/.test(w) ? w.slice(0, -1) + "ily" : /le$/.test(w) ? w.slice(0, -1) + "y" : /ic$/.test(w) ? w + "ally" : w + "ly") },
+];
+const IRREG = { go: ["went", "going"], run: ["ran", "running"], die: ["died", "dying"], see: ["saw", "seeing"], come: ["came", "coming"],
+  make: ["made", "making"], take: ["took", "taking"], get: ["got", "getting"], give: ["gave", "giving"], fall: ["fell", "falling"],
+  leave: ["left", "leaving"], buy: ["bought", "buying"], drop: ["dropped", "dropping"], pop: ["popped", "popping"], shut: ["shut", "shutting"],
+  stop: ["stopped", "stopping"], step: ["stepped", "stepping"], hit: ["hit", "hitting"], sit: ["sat", "sitting"], stand: ["stood", "standing"],
+  think: ["thought", "thinking"], tell: ["told", "telling"], say: ["said", "saying"], speak: ["spoke", "speaking"], find: ["found", "finding"],
+  hold: ["held", "holding"], bring: ["brought", "bringing"], keep: ["kept", "keeping"], feel: ["felt", "feeling"], lie: ["lay", "lying"] };
+function past(w) {
+  if (IRREG[w]) return IRREG[w][0];
+  if (/e$/.test(w)) return w + "d";
+  if (/[^aeiou]y$/.test(w)) return w.slice(0, -1) + "ied";
+  const d = w + w.slice(-1) + "ed";
+  return /^[^aeiou]*[aeiou][bdgmnprt]$/.test(w) && isWord(d) ? d : w + "ed";
+}
+function ing(w) {
+  if (IRREG[w]) return IRREG[w][1];
+  if (/ie$/.test(w)) return w.slice(0, -2) + "ying";
+  if (/[^e]e$/.test(w)) return w.slice(0, -1) + "ing";
+  const d = w + w.slice(-1) + "ing";
+  return /^[^aeiou]*[aeiou][bdgmnprt]$/.test(w) && isWord(d) ? d : w + "ing";
+}
+// Puts the ending back: a verb phrase on its first word ("kick the bucket" -> "kicked the bucket"); nouns and
+// adjectives only when they're one word.
+function inflect(phrase, kind, put) {
+  const parts = phrase.split(" ");
+  if (parts.length > 1 && kind !== "v") return null;
+  const w = put(parts[0]);
+  if (!w || !isWord(w)) return null;
+  parts[0] = w;
+  return parts.join(" ");
+}
+
+// Other words and phrases for a word or phrase, in its form and capitalisation.
+export function synonyms(text, n = 12) {
+  if (!thesaurus) return [];
+  const orig = text.trim().replace(/’/g, "'").replace(/\s+/g, " ");
+  const low = orig.toLocaleLowerCase().replace(/'s$/, "");
+  const out = [];
+  const parts = low.split(" ");
+  for (const f of FORMS) {
+    // A phrase's ending is on its first word if it's a verb ("passed away"), otherwise its last.
+    for (const at of parts.length > 1 ? [0, parts.length - 1] : [0]) {
+      const b = f.base(parts[at]);
+      if (!b) continue;
+      const key = [...parts.slice(0, at), b, ...parts.slice(at + 1)].join(" ");
+      const entry = thesaurus[key];
+      if (!entry) continue;
+      for (const seg of entry.split(";")) {
+        const kind = seg[0];
+        if (!f.kinds.includes(kind)) continue;
+        if (f.put && parts.length > 1 && (kind !== "v" || at !== 0)) continue;
+        for (const s of seg.slice(2).split("|")) {
+          const v = f.put ? inflect(s, kind, f.put) : s;
+          if (v && v !== low && !out.includes(v)) out.push(v);
+        }
+      }
+    }
+  }
+  // Words before phrases, keeping each one's order.
+  const sorted = [...out.filter((x) => !x.includes(" ")).slice(0, Math.max(6, n - 4)), ...out.filter((x) => x.includes(" "))].slice(0, n);
+  const upper = orig.length > 1 && orig === orig.toLocaleUpperCase() && orig !== orig.toLocaleLowerCase();
+  const cap = !upper && orig[0] !== orig[0].toLocaleLowerCase();
+  return sorted.map((s) => (upper ? s.toLocaleUpperCase() : cap ? s[0].toLocaleUpperCase() + s.slice(1) : s));
+}

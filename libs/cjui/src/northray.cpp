@@ -1,6 +1,7 @@
 #include "cjui/northray.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace cjui::northray {
 
@@ -33,10 +34,22 @@ void nightSky(Gfx& g, const Rect& r, float radius, float intensity, unsigned see
     unsigned x = seed * 2654435761u + 1;
     auto rnd = [&] { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return (x % 10000) / 10000.0f; };
     const int n = (int)(r.w * r.h / 2600);
+    // Each star twinkles softly at its own pace (3-10 s a breath), brighter and
+    // dimmer around where it sits; still when Windows' animations are off.
+    const double t = ambientTime();
     for (int i = 0; i < n; ++i) {
         const float sx = r.x + rnd() * r.w, sy = r.y + rnd() * r.h, s = 0.5f + rnd() * 0.9f;
-        g.circle(sx, sy, s, kNightInk.withAlpha(0.18f + 0.5f * rnd()), true);
+        float a = 0.18f + 0.5f * rnd();
+        if (t >= 0) {
+            unsigned h = (seed + 1) * 0x9E3779B9u ^ (unsigned)i * 0x85EBCA6Bu;
+            h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12;
+            const float phase = (h & 0xFFFF) / 65535.0f * 6.2832f, speed = 0.63f + ((h >> 16) & 0xFFFF) / 65535.0f * 1.46f;
+            const float k = 0.5f + 0.5f * (float)std::sin(t * speed + phase);
+            a = std::min(0.95f, a * (0.6f + 0.55f * k * k));
+        }
+        g.circle(sx, sy, s, kNightInk.withAlpha(a), true);
     }
+    if (t >= 0 && n > 0) wantAmbientFrame();
     g.popClip();
     if (radius > 0 && around.a > 0) roundCorners(g, r, radius, around);
 }

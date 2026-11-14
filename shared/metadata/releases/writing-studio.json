@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.24.0",
+      "date": "2026-11-14",
+      "notes": [
+        "Style hints offer fixes you can click: remove a doubled word, a filler word or a dialogue-tag adverb; change a fancy tag to \"said\" or \"asked\"; plainer phrasings for clichés (\"in the nick of time\" → \"just in time\"); \"began to run\" → \"ran\"; the spelling or dash the chapter mostly uses; and your own rules' replacements.",
+        "Echoes suggest other words and phrases to use instead, and can show you the earlier use.",
+        "A thesaurus: select a word or a phrase (or put the cursor in a word) and press ≈ on the toolbar or Ctrl+Shift+O for other ways to say it, in the same form (\"passed away\" → \"died\", \"kicked the bucket\"). Built from WordNet, works offline."
+      ]
+    },
+    {
       "version": "0.23.2",
       "date": "2026-11-14",
       "notes": [

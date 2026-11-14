@@ -16,6 +16,13 @@
 
 namespace cjui {
 
+// Slow ambient motion (twinkling stars): drawing code reads the frame's clock
+// and asks for another frame. `ambientTime()` is seconds, or < 0 when the
+// window shows no motion (Windows' animations are off); `wantAmbientFrame()`
+// keeps the window redrawing gently (about 12 times a second) while visible.
+double ambientTime();
+void wantAmbientFrame();
+
 struct Palette {
     Color paper, surface, sunken, ink, inkMuted, inkFaint, rule, ribbon, focus, live, demo;
     Color console, consoleInk, consoleMuted, consoleRule;  // CJ Radio's dark console, same in both themes
@@ -207,6 +214,7 @@ private:
     long long lastFrameCounter_ = 0;
     bool animating_ = false;
     bool animationsOn_ = true;
+    bool ambient_ = false;
     float scrollTarget_ = 0;
     double lastScrollTime_ = -10;
     void readAnimationSetting();
