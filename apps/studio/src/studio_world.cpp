@@ -325,6 +325,45 @@ void StudioApp::newEntry(const std::string& kindIn) {
     if (fields_[FName]) { SetFocus(fields_[FName]); SendMessageW(fields_[FName], EM_SETSEL, 0, -1); }
 }
 
+// "+ Add members…": tick characters (and creatures) in and out of a group or race; the list stays open
+// for the next one until Esc or a click elsewhere.
+void StudioApp::addMembers() {
+    const Entry* g = lib_->entry(wb_.entry);
+    if (!g) return;
+    const Id gid = g->id;
+    for (;;) {
+        std::vector<const Entry*> people;
+        for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book))
+            if (x->id != gid && (x->kind == "character" || x->kind == "creature")) people.push_back(x);
+        if (people.empty()) { flash(L"Add some characters to the bible first.", 5); return; }
+        std::stable_partition(people.begin(), people.end(), [](const Entry* x) { return x->kind == "character"; });
+        auto memberLink = [&](const Entry* x, EntryLink* out) {
+            for (const EntryLink& l : lib_->linksOf(gid))
+                if ((l.to == gid && l.from == x->id && l.label == "Member of") || (l.from == gid && l.to == x->id && l.label == "Has member")) {
+                    if (out) *out = l;
+                    return true;
+                }
+            return false;
+        };
+        HMENU m = CreatePopupMenu();
+        bool creatures = false;
+        for (size_t i = 0; i < people.size(); ++i) {
+            if (people[i]->kind == "creature" && !creatures && i > 0) { AppendMenuW(m, MF_SEPARATOR, 0, nullptr); creatures = true; }
+            AppendMenuW(m, MF_STRING | (memberLink(people[i], nullptr) ? MF_CHECKED : 0), 1 + (UINT)i, w(people[i]->name).c_str());
+        }
+        POINT pt;
+        GetCursorPos(&pt);
+        const int i = (int)cjui::trackMenu(m, pt, hwnd()) - 1;
+        DestroyMenu(m);
+        if (i < 0) break;
+        EntryLink l;
+        if (memberLink(people[(size_t)i], &l)) lib_->removeLink(l.from, l.to, l.label);
+        else lib_->addLink(people[(size_t)i]->id, gid, "Member of");
+        invalidate();
+        UpdateWindow(hwnd());
+    }
+}
+
 void StudioApp::addRelationship() {
     const Entry* e = lib_->entry(wb_.entry);
     if (!e) return;
@@ -626,6 +665,16 @@ void StudioApp::drawWorldPage(const Rect& r) {
         std::wstring sub = std::to_wstring(list.size()) + (list.size() == 1 ? L" entry" : L" entries");
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
         y += pageHeader(m, L"WORLDBUILDING", title, sub);
+        if (wb_.kind == "character" && !list.empty()) {
+            // How Characters are split within each book.
+            gfx_.text(L"Group by", {m.x, y - 4, 70, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+            const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
+            segmented("wb:groupby", {m.x + 72, y - 4, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
+                wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
+                invalidate();
+            });
+            y += 40;
+        }
         if (list.empty()) {
             const std::wstring hint = wb_.kind.empty()
                 ? L"Keep track of who and what is in your books: characters, places, groups, things, lore and events. Each entry has "
@@ -690,7 +739,36 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
             // Characters: by gender or sex within the book (the listed order, then anything else, then not set).
             std::vector<std::pair<std::wstring, std::vector<Item>>> subs;
-            if (wb_.kind == "character" && wb_.facet.rfind("gender=", 0) != 0) {
+            std::string subKind;   // how the sub-headings look: "gender", "race", "creature"
+            if (wb_.kind == "creature" && wb_.facet.rfind("under=", 0) != 0) {
+                // Creatures by their top-level kind (Dragon: the dragon, its types and the dragons themselves).
+                subKind = "creature";
+                std::vector<std::wstring> order;
+                std::map<std::wstring, std::vector<Item>> by;
+                for (auto& it : items) {
+                    const Id r = rootOf(it.e->id);
+                    bool family = r != it.e->id;
+                    if (!family) for (auto& o : items) if (o.e != it.e && rootOf(o.e->id) == it.e->id) family = true;
+                    const Entry* re = lib_->entry(r);
+                    const std::wstring label = family && re ? w(re->name) : L"Other creatures";
+                    if (!by.count(label)) order.push_back(label);
+                    by[label].push_back(it);
+                }
+                std::stable_partition(order.begin(), order.end(), [](const std::wstring& l) { return l != L"Other creatures"; });
+                for (auto& l : order) subs.push_back({l, by[l]});
+                if (subs.size() == 1 && subs[0].first == L"Other creatures") subs[0].first.clear();
+            } else if (wb_.kind == "character" && wb_.groupBy == "race" && wb_.facet.rfind("race=", 0) != 0) {
+                subKind = "race";
+                const Facet* rf = findFacet("race");
+                std::map<std::wstring, std::vector<Item>> by;
+                for (auto& it : items) by[w(facetOf(*it.e, *rf))].push_back(it);
+                std::vector<Item> unset;
+                if (auto f = by.find(L""); f != by.end()) { unset = f->second; by.erase(f); }
+                for (auto& [k, v] : by) subs.push_back({k, v});
+                if (!unset.empty()) subs.push_back({L"Not set", unset});
+                if (subs.size() == 1 && subs[0].first == L"Not set") subs[0].first.clear();
+            } else if (wb_.kind == "character" && wb_.groupBy == "gender" && wb_.facet.rfind("gender=", 0) != 0) {
+                subKind = "gender";
                 const Facet* gf = findFacet("gender");
                 std::map<std::wstring, std::vector<Item>> by;
                 for (auto& it : items) by[w(facetOf(*it.e, *gf))].push_back(it);
@@ -703,9 +781,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
             } else subs.push_back({L"", items});
             for (auto& [subLabel, subItems] : subs) {
             if (!subLabel.empty()) {
-                const std::wstring sign = genderSign(subLabel);
+                const std::wstring sign = subKind == "gender" ? genderSign(subLabel) : std::wstring();
+                const cjui::Color sc = subKind == "gender" ? genderColor(subLabel, pal_)
+                                     : subLabel == L"Not set" || subLabel == L"Other creatures" ? pal_.inkMuted
+                                                                                               : kindColor(subKind, pal_.dark);
                 gfx_.text((sign.empty() ? L"" : sign + L"  ") + subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {m.x, y, cw, 20},
-                          Font::SmallStrong, genderColor(subLabel, pal_), {Align::Left, false, true});
+                          Font::SmallStrong, sc, {Align::Left, false, true});
                 y += 26;
             }
             for (size_t i = 0; i < subItems.size(); ++i) {
@@ -819,11 +900,67 @@ void StudioApp::drawWorldPage(const Rect& r) {
         y = std::max(y, ty) + 26;
 
         // Relationships.
+        // Members: a group's or a race's people (and creatures), as small cards, with a way to add them.
+        auto isMembership = [&](const EntryLink& l) {
+            return (l.to == e->id && l.label == "Member of") || (l.from == e->id && l.label == "Has member");
+        };
+        if (e->kind == "group" || e->kind == "race") {
+            std::vector<std::pair<const Entry*, EntryLink>> members;
+            for (const EntryLink& l : lib_->linksOf(e->id))
+                if (isMembership(l))
+                    if (const Entry* o = lib_->entry(l.from == e->id ? l.to : l.from); o && !o->deleted) members.push_back({o, l});
+            std::sort(members.begin(), members.end(), [](auto& a, auto& b) { return a.first->name < b.first->name; });
+            gfx_.text(L"MEMBERS" + (members.empty() ? std::wstring() : L"  \u00B7  " + std::to_wstring(members.size())), {m.x, y, cw, 18},
+                      Font::Label, pal_.inkFaint, {Align::Left, false});
+            linkText("wb:addmembers", m.right() - gfx_.measureWidth(L"+ Add members\u2026", Font::Small), y - 2, L"+ Add members\u2026",
+                     [this] { addMembers(); });
+            y += 30;
+            if (members.empty())
+                y += gfx_.text(L"No members yet. Add the characters who belong to it.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 14;
+            const float gap = 10, mw = 210, mh = 48;
+            const int cols = std::max(1, (int)((cw + gap) / (mw + gap)));
+            const float cwid = (cw - gap * (cols - 1)) / cols;
+            for (size_t i = 0; i < members.size(); ++i) {
+                const Entry* o = members[i].first;
+                const int col = (int)i % cols;
+                const Rect mr{m.x + col * (cwid + gap), y, cwid, mh};
+                const std::string id = "wb:member:" + o->id;
+                addHit(id, mr, [this, oid = o->id] { openEntry(oid); });
+                const float hv = hoverAmount(id);
+                const cjui::Color kc = kindColor(o->kind, pal_.dark);
+                gfx_.fillRounded(mr, 6, pal_.surface);
+                gfx_.strokeRounded(mr, 6, pal_.rule.mix(kc, 0.4f * hv), 1);
+                const Rect pic{mr.x + 8, mr.y + 8, 32, 32};
+                if (o->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(o->imageBlob)), pic, true)) {
+                    gfx_.fillRounded(pic, 16, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+                    gfx_.text(initials(o->name), pic, Font::SmallStrong, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                }
+                gfx_.text(w(o->name), {pic.right() + 10, mr.y + 6, mr.w - 70, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
+                std::wstring sub = w(entryKindLabel(o->kind));
+                if (const std::string g = facetOf(*o, *findFacet("gender")); !g.empty() && o->kind == "character") sub += L" \u00B7 " + w(g);
+                gfx_.text(sub, {pic.right() + 10, mr.y + 25, mr.w - 70, 16}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                if (hv > 0.01f) {
+                    const Rect xb{mr.right() - 26, mr.y + 14, 20, 20};
+                    addHit("wb:unmember:" + o->id, xb, [this, l = members[i].second] { lib_->removeLink(l.from, l.to, l.label); invalidate(); }, false);
+                    const float xh = hoverAmount("wb:unmember:" + o->id);
+                    if (xh > 0.01f) gfx_.fillRounded(xb, 5, pal_.ink.withAlpha(0.08f * xh));
+                    const float cx = xb.x + 10, cyy = xb.y + 10;
+                    gfx_.line(cx - 4, cyy - 4, cx + 4, cyy + 4, pal_.inkMuted, 1.3f);
+                    gfx_.line(cx + 4, cyy - 4, cx - 4, cyy + 4, pal_.inkMuted, 1.3f);
+                }
+                if (focused(id)) focusRing(mr);
+                if (col == cols - 1 || i + 1 == members.size()) y += mh + gap;
+            }
+            y += 22;
+        }
+
         gfx_.text(L"RELATIONSHIPS", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         linkText("wb:addrel", m.right() - gfx_.measureWidth(L"+ Add a relationship", Font::Small), y - 2, L"+ Add a relationship",
                  [this] { addRelationship(); });
         y += 28;
-        const auto links = lib_->linksOf(e->id);
+        std::vector<EntryLink> links;
+        for (const EntryLink& l : lib_->linksOf(e->id))
+            if (!((e->kind == "group" || e->kind == "race") && isMembership(l))) links.push_back(l);   // listed under Members
         if (links.empty()) {
             y += gfx_.text(L"None yet: link this entry to the people, places and things around it.", {m.x, y, cw, 20}, Font::Small,
                            pal_.inkFaint) + 12;

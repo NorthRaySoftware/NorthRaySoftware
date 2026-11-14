@@ -84,6 +84,12 @@ function attachedTo(b, from, to) {
   return null;
 }
 
+// Whether the speech ends with a comma before the tag (“Fine,” she smiled) or the tag comes first (She smiled, “Fine.”).
+function commaJoined(b, q, at) {
+  if (q[1] <= at) return /,['"’”»]*\s*$/u.test(b.text.slice(q[0], q[1]));
+  return true;
+}
+
 // Tags that are actions, not ways of speaking: always worth a look ("she smiled" can't carry words).
 const ACTION_TAGS = new Map([["smiled", "smile"], ["grinned", "grin"], ["smirked", "smirk"], ["beamed", "beam"], ["laughed", "laugh"],
   ["chuckled", "chuckle"], ["giggled", "giggle"], ["sighed", "sigh"], ["sniffed", "sniff"], ["huffed", "huff"], ["scoffed", "scoff"]]);
@@ -600,7 +606,7 @@ export function analyse(blocks, opts) {
         for (const m of t.matchAll(RX.bookism)) {
           if (!narration(b, m.index, m.index + m[0].length)) continue;
           const q = attachedTo(b, m.index, m.index + m[0].length);
-          if (q) tagUses.push({ b, m, asked: /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1])) });
+          if (q) tagUses.push({ b, m, asked: /\?['"’”]?\s*$/u.test(t.slice(q[0], q[1])), comma: commaJoined(b, q, m.index) });
         }
         for (const m of t.matchAll(RX.plainTag))
           if (narration(b, m.index, m.index + m[0].length) && nearDialogue(m.index, m.index + m[0].length)) plainTags++;
@@ -673,11 +679,12 @@ export function analyse(blocks, opts) {
   if (tagUses.length) {
     const many = tagUses.length >= 6 && tagUses.length > plainTags * 2;
     const seenTag = new Map();
-    for (const { b, m, asked } of tagUses) {
+    for (const { b, m, asked, comma } of tagUses) {
       const word = m[0].toLocaleLowerCase();
       const n = (seenTag.get(word) || 0) + 1;
       seenTag.set(word, n);
-      const action = ACTION_TAGS.has(word);
+      // An action as a tag only when a comma joins it to the speech (“Fine,” she smiled): after ? or ! it reads as a beat.
+      const action = ACTION_TAGS.has(word) && comma;
       if (!action && !many && n < 3) continue;
       const fx = [swap(b, m.index, m.index + m[0].length, "said")];
       if (asked) fx.unshift(swap(b, m.index, m.index + m[0].length, "asked"));

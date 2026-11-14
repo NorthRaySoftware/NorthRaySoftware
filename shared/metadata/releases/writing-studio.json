@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.27.2",
+      "date": "2026-11-14",
+      "notes": [
+        "Fancy dialogue tags are marked far less: an action as a tag only when a comma joins it to the speech (“Fine,” she smiled), never after a question, an exclamation or a full stop (“What’s the matter, Blue?” I sighed / “We need this.” I laughed).",
+        "Groups and races have Members: the people (and creatures) in them as cards, \"+ Add members…\" to tick them in and out, and a cross to take one out.",
+        "Characters can be grouped by gender or sex, by race, or not at all (Group by, at the top of Characters). Creatures are split by their top-level kind (Dragon: the dragon, its types and the dragons themselves)."
+      ]
+    },
+    {
       "version": "0.27.1",
       "date": "2026-11-14",
       "notes": [

@@ -172,9 +172,9 @@ test("fixes: doubled, filler, redundancy, tags, cliché, began, spelling", () =>
   t = "The end result was clear.";
   const r = one(t, "redundancy");
   assert.equal(apply(t, r.fixes[0]), "The result was clear.");
-  t = "“Where?” she smiled.";
+  t = "“Fine,” she smiled.";
   const bk = one(t, "bookism");
-  assert.equal(bk.fixes[0].text, "asked");
+  assert.equal(apply(t, bk.fixes[0]), "“Fine,” she said.");
   t = "“Go,” she said quietly.";
   assert.equal(apply(t, one(t, "tagAdverb").fixes[0]), "“Go,” she said.");
   t = "He arrived in the nick of time.";
@@ -233,4 +233,8 @@ test("hedges: 'seemed to know' becomes 'knew'", () => {
   const t = "He seemed to know the way.";
   const h = one(t, "hedge");
   assert.equal(apply(t, h.fixes[0]), "He knew the way.");
+});
+
+test("an action after a question is a beat, not a tag to mark", () => {
+  assert.deepEqual(of(run(["“What’s the matter, Blue?” I sighed. “We need this.” I laughed, warmly."]), "bookism"), []);
 });

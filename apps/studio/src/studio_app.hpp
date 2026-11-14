@@ -267,6 +267,7 @@ private:
     void openEntry(const Id& entryId);   // "" = back to the cards
     void newEntry(const std::string& kind);   // "" = ask which kind
     void addRelationship();
+    void addMembers();
     void drawWorldSidebar(const Rect& r);
     void drawWorldPage(const Rect& r);
     void drawWorldPanel(const Rect& r);
@@ -494,6 +495,7 @@ private:
         Id world, book;            // whose entries: a world's, or an independent book's
         std::string kind;          // the kind shown ("" = everything)
         std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
+        std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
         Id entry;                  // the entry open ("" = the cards)
         std::vector<studio::Mention> mentions;
         Id mentionsFor;
