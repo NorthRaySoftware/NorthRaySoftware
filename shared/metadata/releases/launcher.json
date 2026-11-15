@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.70.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.10: a soundboard with 12 starter sounds."
+      ]
+    },
+    {
       "version": "0.69.0",
       "date": "2026-11-15",
       "notes": [

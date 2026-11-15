@@ -34,6 +34,7 @@ enum class SourceKind {
     DesktopAudio,     // everything an output device plays (loopback), optionally minus some apps
     ApplicationAudio, // one application's sound (process loopback)
     Design,           // an overlay design (core/design), made in the designer
+    Soundboard,       // buttons that play short sounds (core/soundboard); sound only
 };
 const char* kindKey(SourceKind k);                       // "display", "app-audio"...
 std::optional<SourceKind> kindFromKey(const std::string& key);

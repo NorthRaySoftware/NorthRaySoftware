@@ -206,6 +206,11 @@ void CaptureWindow::syncAudio() {
         if (!s || !hasSound(s->kind)) it = audio_.erase(it);   // stops its thread
         else ++it;
     }
+    for (auto it = boards_.begin(); it != boards_.end();) {
+        const Source* s = scenes_.source(it->first);
+        if (!s || s->kind != SourceKind::Soundboard) it = boards_.erase(it);
+        else ++it;
+    }
     std::vector<audio::MixSource> mix;
     // Auto-duck: {"duck": {"under": <source id>, "amount": -12}} in a source's settings.
     auto duckOf = [this](const Source& s, audio::MixSource& m) {
@@ -223,6 +228,17 @@ void CaptureWindow::syncAudio() {
             std::shared_ptr<audio::Ring> feed = it != live_.end() && it->second.capture ? it->second.capture->sound() : nullptr;
             audio::MixSource m{s.id, nullptr, audioGain(s), audioMuted(s), audioBuses(s)};
             m.feed = feed;
+            m.filters = filtersFor(s);
+            duckOf(s, m);
+            mix.push_back(m);
+            continue;
+        }
+        if (s.kind == SourceKind::Soundboard) {   // its buttons' sounds, played by its player
+            auto& p = boards_[s.id];
+            if (!p) p = std::make_unique<audio::SoundboardPlayer>();
+            p->setSounds(soundboardSounds(s));
+            audio::MixSource m{s.id, nullptr, audioGain(s), audioMuted(s), audioBuses(s)};
+            m.feed = p->ring();
             m.filters = filtersFor(s);
             duckOf(s, m);
             mix.push_back(m);

@@ -1087,3 +1087,22 @@ CJ: "automatic MP4 after recording (keep the MKV)" and "markers as chapters".
   typed 20 Mbps giving 6000 kbps stream, 30 fps, 9000 kbps recording on a 2-thread PC with no hardware encoder,
   applied to the settings file, the canvas left alone. The test itself against Twitch needs Windows with an encoder
   and internet.
+
+## 34. The soundboard (status: built, 15 Nov 2026; released as 0.10.10)
+
+- core/soundboard (tested): the starter pack synthesised in code (tones with harmonics and decays, filtered
+  deterministic noise): chime, ding-dong, fanfare, level up, drum roll, ba-dum-tss, whoosh, applause, wrong answer,
+  sparkle, heartbeat, page turn; each normalised to 0.85 peak, trailing silence trimmed, 5 ms fades, the same every
+  time. They're NorthRay's own, free to use on stream. `Voices` mixes up to 32 sounds at once with per-sound gain
+  ("restart": pressing a playing sound starts it again rather than doubling it).
+- SourceKind::Soundboard ("soundboard", sound only): its settings hold the buttons ({"sounds": [{"name",
+  "starter"|"file"}]}, up to 48). audio/soundboard_player: decodes files once (Media Foundation source reader to 48
+  kHz stereo float, up to 30 s each; failures kept per button in words), and a thread keeps ~20 ms of mixed voices
+  (or silence) in the ring the mixer reads, so the soundboard is an ordinary mixer channel.
+- The Soundboard panel (Layout menu; hidden at first): "Add the soundboard" (with the starter pack, at 70% volume),
+  buttons in as many columns as fit (a note when some don't fit), "+ Sound...", Stop all (with how many are playing);
+  right-click a button: rename, another file, move earlier/later, remove. A red dot marks a button whose file can't
+  play.
+- Tested: the core tests (levels, no clicks, determinism, voices); in Wine, a Stream-mix clip with the fanfare and
+  applause pressed shows each one's energy at the right times on top of the music and the test tone.
+- Not yet: hotkeys for the buttons (with the hotkeys work), per-button volume.

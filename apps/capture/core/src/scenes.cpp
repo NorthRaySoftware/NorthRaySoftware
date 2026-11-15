@@ -19,6 +19,7 @@ const KindName kKinds[] = {
     {SourceKind::Slideshow, "slideshow"}, {SourceKind::Scene, "scene"},     {SourceKind::InputAudio, "input-audio"}, {SourceKind::DesktopAudio, "desktop-audio"},
     {SourceKind::ApplicationAudio, "app-audio"},
     {SourceKind::Design, "design"},
+    {SourceKind::Soundboard, "soundboard"},
 };
 
 std::string lower(std::string s) {
@@ -47,7 +48,9 @@ std::optional<SourceKind> kindFromKey(const std::string& key) {
 
 bool hasSound(SourceKind k) { return isAudioOnly(k) || k == SourceKind::Media; }
 
-bool isAudioOnly(SourceKind k) { return k == SourceKind::InputAudio || k == SourceKind::DesktopAudio || k == SourceKind::ApplicationAudio; }
+bool isAudioOnly(SourceKind k) {
+    return k == SourceKind::InputAudio || k == SourceKind::DesktopAudio || k == SourceKind::ApplicationAudio || k == SourceKind::Soundboard;
+}
 
 SceneCollection::SceneCollection() {
     current_ = addScene("Scene");

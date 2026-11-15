@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.10",
+      "date": "2026-11-15",
+      "notes": [
+        "A soundboard: buttons that play short sounds into your stream (the Soundboard panel, from the Layout menu). Sounds overlap, pressing one again restarts it, and Stop all stops them.",
+        "It starts with 12 sounds made by NorthRay (chime, ding-dong, fanfare, level up, drum roll, ba-dum-tss, whoosh, applause, wrong answer, sparkle, heartbeat, page turn), free to use on stream. Add your own files (MP3, WAV, M4A, FLAC, OGG); right-click a button to rename, replace, move or remove it.",
+        "The soundboard is a channel in the mixer: its volume, mute, filters, auto-duck and where it's sent work like any other sound."
+      ]
+    },
+    {
       "version": "0.10.9",
       "date": "2026-11-15",
       "notes": [

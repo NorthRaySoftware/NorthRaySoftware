@@ -12,6 +12,7 @@
 #include "ncap/mp4.hpp"
 #include "ncap/profiles.hpp"
 #include "ncap/wizard.hpp"
+#include "ncap/soundboard.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -1193,6 +1194,48 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testSoundboard() {
+    std::printf("soundboard\n");
+    namespace sb = ncap::soundboard;
+    CHECK(sb::starterPack().size() == 12);
+    for (auto& st : sb::starterPack()) {
+        const std::vector<float> s = sb::synth(st.id);
+        float peak = 0;
+        bool finite = true;
+        for (float v : s) {
+            peak = std::max(peak, std::fabs(v));
+            finite = finite && std::isfinite(v);
+        }
+        const double secs = (double)s.size() / 2 / sb::kRate;
+        CHECK(finite && s.size() % 2 == 0 && secs > 0.3 && secs < 3.5);
+        CHECK(peak > 0.5f && peak < 0.9f);
+        CHECK(std::fabs(s[0]) < 1e-3f && std::fabs(s[s.size() - 1]) < 1e-2f);   // no click at either end
+        CHECK(sb::synth(st.id) == s);                                            // the same every time
+    }
+    CHECK(sb::synth("nope").empty());
+    // Voices: several at once, restarting the same one, finishing, stopping.
+    auto a = std::make_shared<const std::vector<float>>(std::vector<float>(2 * 100, 0.25f));
+    auto b = std::make_shared<const std::vector<float>>(std::vector<float>(2 * 50, 0.5f));
+    sb::Voices v;
+    v.play(a);
+    v.play(b, 0.5f);
+    std::vector<float> out(2 * 40, 0.0f);
+    v.mix(out.data(), 40);
+    CHECK(v.playing() == 2 && std::fabs(out[0] - 0.5f) < 1e-6f);   // 0.25 + 0.5 x 0.5
+    std::fill(out.begin(), out.end(), 0.0f);
+    v.mix(out.data(), 40);   // b ends after 10 more frames
+    CHECK(v.playing() == 1 && std::fabs(out[2 * 9] - 0.5f) < 1e-6f && std::fabs(out[2 * 10] - 0.25f) < 1e-6f);
+    v.play(a);   // restart, not a second copy
+    CHECK(v.playing() == 1);
+    v.play(a, 1.0f, false);
+    CHECK(v.playing() == 2);
+    v.stopAll();
+    CHECK(v.playing() == 0);
+    std::fill(out.begin(), out.end(), 0.0f);
+    v.mix(out.data(), 40);
+    CHECK(out[0] == 0.0f);
+}
+
 static void testWizard() {
     std::printf("setup wizard\n");
     namespace wz = ncap::wizard;
@@ -1848,6 +1891,7 @@ int main() {
     testMp4();
     testProfileNames();
     testWizard();
+    testSoundboard();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

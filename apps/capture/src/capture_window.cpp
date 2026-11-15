@@ -652,6 +652,11 @@ bool CaptureWindow::onRightClick(float x, float y) {
             audioItemMenu(id, pt);
             return true;
         }
+    for (auto& [i, r] : soundRows_)
+        if (r.contains(x, y) && layout_.shows(Layout::Soundboard)) {
+            soundboardMenu(soundBoard_, i);
+            return true;
+        }
     if (previewLive_ && previewInner_.contains(x, y)) {
         focus_ = Focus::Preview;
         if (const Scene* sc = scenes_.scene(scenes_.current())) {
@@ -1011,6 +1016,7 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
         case Layout::Mixer: drawMixer(body); break;
         case Layout::Controls: drawControls(body); break;
         case Layout::Chat: drawChatPanel(body); break;
+        case Layout::Soundboard: drawSoundboardPanel(body); break;
         default: break;
     }
     clearHitClip();

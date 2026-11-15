@@ -22,6 +22,7 @@
 #include "output/streamer.hpp"
 #include "output/twitch_chat.hpp"
 #include "output/mp4_copy.hpp"
+#include "audio/soundboard_player.hpp"
 #include "ncap/wizard.hpp"
 
 #include "cjui/menu.hpp"
@@ -280,6 +281,15 @@ private:
     wizard::TestResult wizTest_;
     std::wstring wizTestError_;
     unsigned long long wizTestStart_ = 0;
+    // The soundboard (capture_soundboard.cpp).
+    std::map<Id, std::unique_ptr<audio::SoundboardPlayer>> boards_;
+    Id soundBoard_;                                            // the board the panel shows
+    std::vector<std::pair<std::size_t, cjui::Rect>> soundRows_;   // its buttons (right-click)
+    std::vector<audio::SoundboardSound> soundboardSounds(const Source& s) const;
+    void setSoundboardSounds(const Id& source, const std::vector<audio::SoundboardSound>& sounds);
+    void addSoundboard();
+    void drawSoundboardPanel(const cjui::Rect& body);
+    void soundboardMenu(const Id& source, std::size_t i);
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only
