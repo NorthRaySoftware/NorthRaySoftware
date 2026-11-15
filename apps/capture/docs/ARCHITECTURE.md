@@ -768,3 +768,52 @@ glow round the ring, and margin() and Save as PNG include the ring's thickness. 
 thick ring: the whole picture shows inside, the ring outside the selection box. 406 core checks (the plugins
 groundwork, pushed earlier as work in progress, is in this release's tree but not switched on anywhere yet).
 
+## 23. Milestone 9, part 3: optional audio plugins (status: built, 15 Nov 2026; released as 0.9.4)
+
+**Built**
+- A documented C interface, `sdk/northray_audio_plugin.h` (version 1): a 64-bit DLL exports `nr_audio_plugin()`
+  returning its name, author, version, up to 16 parameters (key, label, range, default, unit) and create, destroy,
+  set_param, process (interleaved float stereo at 48 kHz, in place, on the audio thread) and optional latency.
+  The header states the rules (no blocking, allocation, files, network, windows or lingering threads in process).
+  `sdk/examples/tremolo.c` is a working example; `sdk/README.md` says how to build and install one.
+- `core/plugins` (portable, tested): the user's choices in plugins.json, each tied to the SHA-256 of the file they
+  switched on; reconcile() switches off a plugin whose file has changed or gone; plain-DLL-name checks (no folders,
+  no device names); validation of a plugin's own description (interface version, functions present, names, ranges,
+  unique keys, at most 16); a list of plugins running, kept in a file while any run and removed on a clean exit, so
+  after a crash those plugins start switched off ("in case it was the cause").
+- `src/audio/plugin_host`: scans %LOCALAPPDATA%\NorthRay\Capture\plugins (64 files, 64 MB each at most), hashes each
+  file and checks its Authenticode signature with WinVerifyTrust (no online revocation checks: no network; the
+  words say so) and the signer's name. Switching one on re-reads the file and refuses if its hash isn't the one the
+  user was shown; it's then copied to plugin-cache\<sha256>.dll, that copy is held open read-only (nobody may write
+  or delete it) while its hash is checked again and LoadLibraryEx loads it (DLL search limited to its own folder
+  and System32), so the bytes that run are the bytes that were checked. Its description is validated before use.
+  Modules stay loaded until Capture closes (instances may be running); switching one off makes the chains again
+  without it. Files are checked at start, on Look again and when switching on.
+- The filter chain: dsp::Type::Plugin with the file name and the plugin's own values, run through a factory the host
+  provides; one that isn't running passes sound through and says why on its card. A chain's latency is now worked
+  out once when it's made (including plugins' reported latency).
+- Settings › Plugins: each file with its name (once loaded), status, signature, size and full SHA-256; a switch that
+  asks first (the signature, the SHA-256 and a plain warning, with Cancel the default); Open the folder; Look
+  again. Filters › Add a filter › Plugins lists the ones switched on; their values get sliders and typed entry.
+
+**Tested**
+- capturecore: 406 checks (registry, reconcile, crash list, name checks, description validation, a plugin filter in
+  a chain via a stand-in factory and passing through when not running).
+- The app in Wine with the example tremolo.dll (built with MinGW): listed off, with the SHA-256 matching sha256sum
+  (0600d483...61a7) and "Not signed"; the confirmation shown; switched on ("Running: by NorthRay (example), version
+  1.0"); added to a media file's filters (Rate 5 Hz, Depth 50%); its test clip's level rising and falling at exactly
+  5.00 Hz with the quiet parts at 0.50 of the loud ones, where without it the level was steady (0.96). A file of
+  junk named broken.dll: refused ("isn't a 64-bit Windows DLL", error 193) and left off. One byte added to
+  tremolo.dll, then Look again: switched off ("its file has changed"). Capture killed while tremolo ran: on the
+  next start it was off with the crash reason. Closed normally: the running list removed and tremolo stays on.
+
+**Not built / limits**
+- A plugin runs inside Capture: a crash in it closes Capture (it's then switched off), and it has the user's
+  permissions. Running plugins in a separate process would remove that; not built.
+- No plugin windows (version 1 has sliders only), no MIDI, no sample rates or channel counts other than 48 kHz stereo.
+- VST 3 (researched only): Steinberg's VST 3 SDK is MIT-licensed since version 3.8 (October 2025), with no fees or
+  agreements; the VST name and logo are optional and, if used, follow Steinberg's guidelines. Hosting VST 3 would mean
+  building the SDK's hosting classes (module loading, IComponent/IAudioProcessor, parameter changes, editor views
+  in a child window) on the same trust rules as above, and plugin editors would be the first windows a third party
+  draws in Capture. VST 2 isn't available to new hosts. Not started; a later milestone if wanted.
+

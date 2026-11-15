@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.9.4",
+      "date": "2026-11-15",
+      "notes": [
+        "Audio plugins: put a plugin's DLL in the plugins folder (Settings › Plugins › Open the folder), check its signature and SHA-256, switch it on, then add it from a source's Filters page.",
+        "Nothing runs until you switch it on. A plugin whose file changes or goes missing is switched off again, and so is one that was running if Capture closed unexpectedly.",
+        "For plugin makers: the C interface and an example tremolo plugin are in the source (apps/capture/sdk)."
+      ]
+    },
+    {
       "version": "0.9.3",
       "date": "2026-11-15",
       "notes": [

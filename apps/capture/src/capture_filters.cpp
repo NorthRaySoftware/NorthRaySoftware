@@ -4,6 +4,7 @@
 #include "capture_window.hpp"
 
 #include "log.hpp"
+#include "audio/plugin_host.hpp"
 
 #include "ncap/dsp.hpp"
 
@@ -48,7 +49,7 @@ std::wstring valueText(const dsp::Param& p, float v) {
     const std::string unit = p.unit;
     if (unit == ":1") swprintf(b, 48, L"%.1f:1", v);
     else if (unit == "Hz") swprintf(b, 48, v >= 1000 ? L"%.1f kHz" : L"%.0f Hz", v >= 1000 ? v / 1000 : v);
-    else if (unit == "%") {
+    else if (unit == "%" && std::string(p.key) == "balance") {
         if (std::fabs(v) < 0.5f) swprintf(b, 48, L"centre");
         else swprintf(b, 48, L"%.0f%% %ls", std::fabs(v), v < 0 ? L"left" : L"right");
     } else if (unit == "dB" && std::string(p.key) == "strength") swprintf(b, 48, L"%.0f dB less", v);
@@ -102,16 +103,29 @@ void CaptureWindow::drawFilters(const Rect& area) {
     button("flt:add", {x, y, 170, 32}, L"Add a filter", [this, chain, save]() mutable {
         std::vector<MenuItem> items;
         for (int t = 0; t < dsp::kTypes; ++t) items.push_back(MenuItem::item(widen(dsp::label((dsp::Type)t)), 100 + (UINT)t));
+        // Plugins the user has switched on.
+        std::vector<std::string> plugs;
+        for (auto& e : PluginHost::get().entries())
+            if (e.enabled && e.loaded && plugs.size() < 50) plugs.push_back(e.file);
+        std::vector<MenuItem> pm;
+        for (std::size_t i = 0; i < plugs.size(); ++i) {
+            const PluginEntry* e = PluginHost::get().entry(plugs[i]);
+            pm.push_back(MenuItem::item(widen(e->info.name), 200 + (UINT)i, widen(e->info.author)));
+        }
+        if (pm.empty()) pm.push_back(MenuItem::item(L"None switched on (Settings \u203a Plugins)", 1, {}, false));
+        items.push_back(MenuItem::sep());
+        items.push_back(MenuItem::sub(L"Plugins", pm));
         POINT pt;
         GetCursorPos(&pt);
         const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
-        if (cmd < 100 || cmd >= 100 + dsp::kTypes) return;
+        const bool plugin = cmd >= 200 && cmd < 200 + plugs.size();
+        if (!plugin && (cmd < 100 || cmd >= 100 + dsp::kTypes)) return;
         if (chain.size() >= 16) {
             flash(L"Sixteen filters is the most one source can have.", 5);
             return;
         }
         // A limiter belongs last; anything else goes before a limiter that's there.
-        const dsp::Type t = (dsp::Type)(cmd - 100);
+        const dsp::Type t = plugin ? dsp::Type::Plugin : (dsp::Type)(cmd - 100);
         auto at = chain.end();
         if (t != dsp::Type::Limiter)
             for (auto it = chain.begin(); it != chain.end(); ++it)
@@ -119,7 +133,13 @@ void CaptureWindow::drawFilters(const Rect& area) {
                     at = it;
                     break;
                 }
-        chain.insert(at, dsp::Filter::make(t));
+        dsp::Filter nf = dsp::Filter::make(t);
+        if (plugin) {
+            nf.plugin = plugs[cmd - 200];
+            if (const auto* ps = PluginHost::get().paramsOf(nf.plugin))
+                for (auto& p : *ps) nf.values[p.key] = p.def;
+        }
+        chain.insert(at, nf);
         save(chain);
     });
     button("flt:preset", {x + 180, y, 220, 32}, L"Start from a preset", [this, chain, save]() mutable {
@@ -161,13 +181,28 @@ void CaptureWindow::drawFilters(const Rect& area) {
     for (std::size_t i = 0; i < chain.size(); ++i) {
         const dsp::Filter f = chain[i];
         const std::string fid = "flt:" + std::to_string(i) + ":";
-        const auto& ps = dsp::params(f.type);
+        static const std::vector<dsp::Param> kNone;
+        const PluginEntry* pe = f.type == dsp::Type::Plugin ? PluginHost::get().entry(f.plugin) : nullptr;
+        const std::vector<dsp::Param>* pp = f.type == dsp::Type::Plugin ? PluginHost::get().paramsOf(f.plugin) : nullptr;
+        const auto& ps = f.type == dsp::Type::Plugin ? (pp ? *pp : kNone) : dsp::params(f.type);
+        std::wstring what = f.type == dsp::Type::Plugin ? std::wstring() : std::wstring(kWhat[(int)f.type]);
+        std::wstring title = widen(dsp::label(f.type));
+        if (f.type == dsp::Type::Plugin) {
+            title = L"Plugin: " + (pe && !pe->info.name.empty() ? widen(pe->info.name) : widen(f.plugin));
+            if (pp)
+                what = L"By " + widen(pe->info.author) + L", version " + widen(pe->info.version) + L" (" + widen(f.plugin) + L").";
+            else
+                what = L"Not running, so sound passes through unchanged: " +
+                       (!pe ? std::wstring(L"its file isn't in the plugins folder.")
+                        : !pe->enabled ? (pe->offReason.empty() ? std::wstring(L"it's switched off in Settings \u203a Plugins.") : widen(pe->offReason))
+                                       : widen(pe->problem));
+        }
         const float cardH = 66 + (float)ps.size() * 40;
         const Rect card{x, y, colW, cardH};
         gfx_.fillRounded(card, 10, pal_.surface);
         gfx_.strokeRounded(card, 10, f.enabled ? pal_.rule : pal_.rule.withAlpha(0.5f), 1);
         // Its name, switch, place and Remove.
-        gfx_.text(std::to_wstring(i + 1) + L".  " + widen(dsp::label(f.type)), {x + 16, y + 10, colW - 330, 24}, Font::BodyStrong,
+        gfx_.text(std::to_wstring(i + 1) + L".  " + title, {x + 16, y + 10, colW - 330, 24}, Font::BodyStrong,
                   f.enabled ? pal_.ink : pal_.inkFaint, {Align::Left, false, true, true});
         toggle(fid + "on", x + colW - 300, y + 10, f.enabled, [chain, i, save]() mutable {
             chain[i].enabled = !chain[i].enabled;
@@ -187,10 +222,11 @@ void CaptureWindow::drawFilters(const Rect& area) {
             chain.erase(chain.begin() + (long)i);
             save(chain);
         });
-        gfx_.text(kWhat[(int)f.type], {x + 16, y + 36, colW - 32, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        gfx_.text(what, {x + 16, y + 36, colW - 32, 20}, Font::Small, f.type == dsp::Type::Plugin && !pp ? cjui::hexColor("#E0566A") : pal_.inkMuted,
+                  {Align::Left, false, true, true});
         float py = y + 64;
         for (const dsp::Param& p : ps) {
-            const float v = f.get(p.key);
+            const float v = std::clamp(f.values.count(p.key) ? f.values.at(p.key) : p.def, p.min, p.max);
             gfx_.text(widen(p.label), {x + 16, py, 160, 28}, Font::Body, pal_.ink, {Align::Left, false, true, true});
             const float frac = (v - p.min) / (p.max - p.min);
             slider(fid + p.key, {x + 180, py + 6, colW - 340, 16}, frac, [chain, i, key = std::string(p.key), p, save](float t) mutable {
@@ -224,7 +260,8 @@ void CaptureWindow::drawFilters(const Rect& area) {
         y += cardH + 12;
     }
     if (!chain.empty()) {
-        const int lat = dsp::Processor(chain).latencyFrames();
+        const auto running = filtersFor(*src);   // the chain running now (made once, not per frame)
+        const int lat = running ? running->latencyFrames() : 0;
         if (lat > 0)
             y += gfx_.text(L"Together these hold this source back by " + std::to_wstring((lat * 1000 + 24000) / 48000) +
                                L" ms. Sources without them aren't delayed, so a microphone could be a little behind a game.",

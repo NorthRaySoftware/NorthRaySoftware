@@ -147,6 +147,9 @@ private:
     void applyMonitor();
     void monitorMenu(POINT screen);
     void secondOutputMenu(POINT screen);
+    // Settings › Plugins (capture_plugins.cpp).
+    float drawPluginSettings(float x, float y, float colW);
+    void pluginsChanged();
     // The Camera Border maker (capture_border.cpp), drawn in the dock under the live preview.
     void openBorder(const Id& item);
     void setItemBorder(const Id& item, const border::Style& b);

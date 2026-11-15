@@ -64,7 +64,7 @@ public:
     // Interleaved stereo at 48 kHz, in place.
     void process(float* frames, std::size_t count);
     bool empty() const { return stages_.empty(); }
-    int latencyFrames() const;   // what the chain adds (noise suppression, the limiter's look-ahead, a delay)
+    int latencyFrames() const { return latency_; }   // what the chain adds (noise suppression, look-ahead, a delay, plugins); fixed when made
     // Gain reduction of the last block, in dB (0 none), for showing what a compressor or gate is doing.
     float reductionDb() const { return reduction_; }
     // Plugins in the chain that aren't running (switched off, missing or refused), by file name.
@@ -73,6 +73,7 @@ public:
 private:
     std::vector<std::unique_ptr<Stage>> stages_;
     float reduction_ = 0;
+    int latency_ = 0;
     std::vector<std::string> notRunning_;
 };
 

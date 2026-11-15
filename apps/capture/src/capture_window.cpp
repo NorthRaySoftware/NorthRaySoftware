@@ -1,4 +1,5 @@
 #include "capture_window.hpp"
+#include "audio/plugin_host.hpp"
 
 #include "log.hpp"
 #include "resource.h"
@@ -113,7 +114,12 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     applyTheme();
     loadScenes();
     startEngine();
+    PluginHost::get().init(stateFolder_);   // before the audio: chains with plugins need them loaded
     startAudio();
+    for (auto& m : PluginHost::get().takeMessages()) {
+        log::warn("Plugin: " + m);
+        flash(L"Plugin switched off: " + widen(m), 10);
+    }
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
@@ -130,6 +136,8 @@ void CaptureWindow::onDestroy() {
     engine_.stop();
     live_.clear();   // stops the captures
     mixer_.stop();
+    processors_.clear();   // plugin instances end here
+    PluginHost::get().cleanExit();
     audio_.clear();
     saveScenes();
     saveLayout();
@@ -1388,6 +1396,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
 
     section(L"STREAMING");
     y += drawStreamingSettings(x, y, colW) + 8;
+
+    section(L"PLUGINS");
+    y += drawPluginSettings(x, y, colW) + 8;
 
     section(L"RECORDING");
     y += drawRecordingSettings(x, y, colW) + 8;

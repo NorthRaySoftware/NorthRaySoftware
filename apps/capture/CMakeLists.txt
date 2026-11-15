@@ -47,7 +47,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/capture_studio.cpp
   src/capture_made.cpp
-  src/capture_filters.cpp src/capture_border.cpp
+  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
   src/output/credentials.cpp
   src/output/destination.cpp
@@ -71,7 +71,7 @@ add_executable(NorthRayCapture WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayCapture PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32 d2d1 dwrite windowscodecs propsys)
+target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32 d2d1 dwrite windowscodecs propsys wintrust)
 if(MSVC)
   target_compile_options(NorthRayCapture PRIVATE /W4 /utf-8)
 else()

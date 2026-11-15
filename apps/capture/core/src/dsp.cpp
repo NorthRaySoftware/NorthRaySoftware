@@ -511,6 +511,7 @@ Processor::Processor(const Chain& chain) {
             }
         }
     }
+    for (auto& st : stages_) latency_ += st->latency();
 }
 
 Processor::~Processor() = default;
@@ -524,10 +525,5 @@ void Processor::process(float* frames, std::size_t count) {
     reduction_ = red;
 }
 
-int Processor::latencyFrames() const {
-    int l = 0;
-    for (auto& s : stages_) l += s->latency();
-    return l;
-}
 
 }  // namespace ncap::dsp
