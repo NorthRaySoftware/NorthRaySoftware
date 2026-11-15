@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <cstdio>
 
 namespace ncap::dsp {
@@ -12,8 +13,10 @@ namespace ncap::dsp {
 namespace {
 constexpr float kRate = 48000.0f;
 constexpr float kPi = 3.14159265358979f;
-const char* kKeys[] = {"gain", "noise-gate", "noise-suppression", "expander", "compressor", "limiter", "equaliser", "balance", "delay", "plugin"};
-const char* kLabels[] = {"Gain", "Noise gate", "Noise suppression", "Expander", "Compressor", "Limiter", "Equaliser", "Balance", "Delay", "Plugin"};
+const char* kKeys[] = {"gain", "noise-gate", "noise-suppression", "expander", "compressor", "limiter", "equaliser", "balance", "delay",
+                       "reverb", "pitch-shift", "radio", "plugin"};
+const char* kLabels[] = {"Gain", "Noise gate", "Noise suppression", "Expander", "Compressor", "Limiter", "Equaliser", "Balance", "Delay",
+                         "Reverb", "Pitch shift", "Radio voice", "Plugin"};
 
 // Time constant for an attack or release of `ms`.
 float coeff(float ms) { return ms <= 0 ? 0.0f : std::exp(-1.0f / (ms * 0.001f * kRate)); }
@@ -48,6 +51,9 @@ const std::vector<Param>& params(Type t) {
          {"high", "High (8 kHz)", -15, 15, 0, "dB"}},
         {{"balance", "Balance", -100, 100, 0, "%"}},
         {{"delay", "Delay", 0, 2000, 0, "ms"}},
+        {{"size", "Room size", 0, 100, 50, "%"}, {"damping", "Damping", 0, 100, 40, "%"}, {"mix", "Mix", 0, 100, 25, "%"}},
+        {{"semitones", "Pitch", -12, 12, -4, "st"}, {"mix", "Mix", 0, 100, 100, "%"}},
+        {{"drive", "Drive", 0, 100, 40, "%"}, {"static", "Static", 0, 100, 0, "%"}, {"mix", "Mix", 0, 100, 100, "%"}},
         {},
     };
     return p[(int)t];
@@ -123,6 +129,9 @@ std::string describe(const Filter& f) {
             break;
         }
         case Type::Delay: std::snprintf(b, sizeof b, "%.0f ms", f.get("delay")); break;
+        case Type::Reverb: std::snprintf(b, sizeof b, "room %.0f%%, mix %.0f%%", f.get("size"), f.get("mix")); break;
+        case Type::PitchShift: std::snprintf(b, sizeof b, "%+.0f semitones", f.get("semitones")); break;
+        case Type::Radio: std::snprintf(b, sizeof b, "drive %.0f%%%s", f.get("drive"), f.get("static") > 0 ? ", static" : ""); break;
         case Type::Plugin: std::snprintf(b, sizeof b, "%s", f.plugin.c_str()); break;
     }
     return std::string(label(f.type)) + ": " + b;
@@ -309,6 +318,14 @@ struct Biquad {
         set(A * ((A + 1) + (A - 1) * cw + sa), -2 * A * ((A - 1) + (A + 1) * cw), A * ((A + 1) + (A - 1) * cw - sa), (A + 1) - (A - 1) * cw + sa,
             2 * ((A - 1) - (A + 1) * cw), (A + 1) - (A - 1) * cw - sa);
     }
+    void lowPass(float f, float q) {
+        const float w = 2 * kPi * f / kRate, cw = std::cos(w), alpha = std::sin(w) / (2 * q);
+        set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+    }
+    void highPass(float f, float q) {
+        const float w = 2 * kPi * f / kRate, cw = std::cos(w), alpha = std::sin(w) / (2 * q);
+        set((1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+    }
     void peak(float f, float db, float q) {
         const float A = std::pow(10.0f, db / 40), w = 2 * kPi * f / kRate, cw = std::cos(w), alpha = std::sin(w) / (2 * q);
         set(1 + alpha * A, -2 * cw, 1 - alpha * A, 1 + alpha / A, -2 * cw, 1 - alpha / A);
@@ -372,6 +389,136 @@ private:
     std::size_t frames_;
     std::vector<float> line_;
     std::size_t pos_ = 0;
+};
+
+// Reverb: a Schroeder-Moorer room (Freeverb's layout): eight damped feedback combs in parallel and four
+// all-passes in series per side, the right side's delays a little longer so it's wide.
+class ReverbStage : public Stage {
+public:
+    explicit ReverbStage(const Filter& f) {
+        const float size = f.get("size") / 100.0f;
+        feedback_ = 0.7f + 0.28f * size;
+        damp_ = 0.05f + 0.6f * f.get("damping") / 100.0f;
+        wet_ = f.get("mix") / 100.0f;
+        static const int combs[8] = {1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}, alls[4] = {556, 441, 341, 225};
+        const float scale = kRate / 44100.0f;
+        for (int ch = 0; ch < 2; ++ch) {
+            for (int i = 0; i < 8; ++i) comb_[ch][i].line.assign((std::size_t)((combs[i] + ch * 23) * scale), 0.0f);
+            for (int i = 0; i < 4; ++i) all_[ch][i].line.assign((std::size_t)((alls[i] + ch * 23) * scale), 0.0f);
+        }
+    }
+    void process(float* x, std::size_t n) override {
+        if (wet_ <= 0) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const float in = (x[i * 2] + x[i * 2 + 1]) * 0.015f;   // Freeverb's input gain
+            for (int ch = 0; ch < 2; ++ch) {
+                float out = 0;
+                for (auto& c : comb_[ch]) {
+                    const float y = c.line[c.pos];
+                    c.store = y * (1 - damp_) + c.store * damp_;
+                    c.line[c.pos] = in + c.store * feedback_;
+                    c.pos = (c.pos + 1) % c.line.size();
+                    out += y;
+                }
+                for (auto& a : all_[ch]) {
+                    const float b = a.line[a.pos];
+                    a.line[a.pos] = out + b * 0.5f;
+                    out = b - out;
+                    a.pos = (a.pos + 1) % a.line.size();
+                }
+                float& s = x[i * 2 + (std::size_t)ch];
+                s = s * (1 - wet_ * 0.5f) + out * wet_ * 3.0f;
+            }
+        }
+    }
+
+private:
+    struct Line {
+        std::vector<float> line;
+        std::size_t pos = 0;
+        float store = 0;
+    };
+    Line comb_[2][8], all_[2][4];
+    float feedback_ = 0.84f, damp_ = 0.2f, wet_ = 0.25f;
+};
+
+// Pitch shift: two read heads moving through a 50 ms delay line at the new speed, each faded in and out
+// (a raised-cosine window) half a cycle apart, so their sum is steady. Simple and with no lag beyond the
+// window; a little "chorus" on big shifts.
+class PitchStage : public Stage {
+public:
+    explicit PitchStage(const Filter& f)
+        : ratio_(std::pow(2.0f, f.get("semitones") / 12.0f)), wet_(f.get("mix") / 100.0f), window_((std::size_t)(0.05f * kRate)), line_(2 * kSize, 0.0f) {}
+    void process(float* x, std::size_t n) override {
+        if (std::fabs(ratio_ - 1) < 1e-4f || wet_ <= 0) return;
+        const float W = (float)window_;
+        for (std::size_t i = 0; i < n; ++i) {
+            line_[(w_ % kSize) * 2] = x[i * 2];
+            line_[(w_ % kSize) * 2 + 1] = x[i * 2 + 1];
+            // The heads' distance behind the writer grows (lower) or shrinks (higher) by (1 - ratio) a sample.
+            phase_ += (1 - ratio_) / W;
+            phase_ -= std::floor(phase_);
+            for (int ch = 0; ch < 2; ++ch) {
+                float out = 0;
+                for (int h = 0; h < 2; ++h) {
+                    float p = phase_ + 0.5f * h;
+                    p -= std::floor(p);
+                    const float d = 2 + p * (W - 4);   // samples behind the writer
+                    const float g = 0.5f - 0.5f * std::cos(2 * kPi * p);
+                    const float pos = (float)w_ - d;
+                    const long ip = (long)std::floor(pos);
+                    const float fr = pos - (float)ip;
+                    const float a = line_[((std::size_t)(ip + (long)kSize * 4) % kSize) * 2 + (std::size_t)ch];
+                    const float b = line_[((std::size_t)(ip + 1 + (long)kSize * 4) % kSize) * 2 + (std::size_t)ch];
+                    out += g * (a + (b - a) * fr);
+                }
+                float& s = x[i * 2 + (std::size_t)ch];
+                s = s * (1 - wet_) + out * wet_;
+            }
+            ++w_;
+        }
+    }
+    int latency() const override { return (int)(window_ / 2); }
+
+private:
+    static constexpr std::size_t kSize = 4096;
+    float ratio_, wet_;
+    std::size_t window_;
+    std::vector<float> line_;
+    std::size_t w_ = 0;
+    float phase_ = 0;
+};
+
+// Radio voice: a telephone's band (300-3,400 Hz, two filters each side), a soft-clipping drive, and
+// optional static.
+class RadioStage : public Stage {
+public:
+    explicit RadioStage(const Filter& f) : drive_(1 + f.get("drive") / 100.0f * 9), static_(f.get("static") / 100.0f * 0.05f), wet_(f.get("mix") / 100.0f) {
+        for (auto& b : hp_) b.highPass(300, 0.7071f);
+        for (auto& b : lp_) b.lowPass(3400, 0.7071f);
+    }
+    void process(float* x, std::size_t n) override {
+        for (std::size_t i = 0; i < n; ++i) {
+            const float mono = (x[i * 2] + x[i * 2 + 1]) * 0.5f;
+            float v = mono;
+            for (auto& b : hp_) v = b.run(v, 0);
+            for (auto& b : lp_) v = b.run(v, 0);
+            v = std::tanh(v * drive_) / std::tanh(drive_) * 0.8f;
+            if (static_ > 0) {
+                seed_ = seed_ * 1664525u + 1013904223u;
+                v += ((float)(seed_ >> 8) / 16777216.0f * 2 - 1) * static_;
+            }
+            for (int ch = 0; ch < 2; ++ch) {
+                float& s = x[i * 2 + (std::size_t)ch];
+                s = s * (1 - wet_) + v * wet_;
+            }
+        }
+    }
+
+private:
+    Biquad hp_[2], lp_[2];
+    float drive_, static_, wet_;
+    std::uint32_t seed_ = 1;
 };
 
 // Noise suppression: short-time spectra (512-point, half overlapping, Hann windows), a noise level
@@ -503,6 +650,9 @@ Processor::Processor(const Chain& chain) {
             case Type::Equaliser: stages_.push_back(std::make_unique<EqStage>(f)); break;
             case Type::Balance: stages_.push_back(std::make_unique<BalanceStage>(f)); break;
             case Type::Delay: stages_.push_back(std::make_unique<DelayStage>(f)); break;
+            case Type::Reverb: stages_.push_back(std::make_unique<ReverbStage>(f)); break;
+            case Type::PitchShift: stages_.push_back(std::make_unique<PitchStage>(f)); break;
+            case Type::Radio: stages_.push_back(std::make_unique<RadioStage>(f)); break;
             case Type::Plugin: {
                 std::unique_ptr<External> e = gFactory ? gFactory(f.plugin, f.values) : nullptr;
                 if (e) stages_.push_back(std::make_unique<ExternalStage>(std::move(e)));

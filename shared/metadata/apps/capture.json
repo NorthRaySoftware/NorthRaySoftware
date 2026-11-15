@@ -24,6 +24,7 @@
     "Profiles and scene collections, switched from the top of the window; recordings named after the profile",
     "A setup wizard with a Twitch bandwidth test, suggesting settings for your PC and connection",
     "A soundboard with 12 starter sounds made by NorthRay (free to use) and your own files",
+    "Voice effects: reverb, pitch shift and a radio voice, as filters on any sound",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -48,7 +49,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

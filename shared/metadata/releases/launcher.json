@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.71.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.11: voice effects (reverb, pitch shift, radio voice)."
+      ]
+    },
+    {
       "version": "0.70.0",
       "date": "2026-11-15",
       "notes": [

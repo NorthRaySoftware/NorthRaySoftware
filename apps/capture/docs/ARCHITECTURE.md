@@ -1106,3 +1106,20 @@ CJ: "automatic MP4 after recording (keep the MKV)" and "markers as chapters".
 - Tested: the core tests (levels, no clicks, determinism, voices); in Wine, a Stream-mix clip with the fanfare and
   applause pressed shows each one's energy at the right times on top of the music and the test tone.
 - Not yet: hotkeys for the buttons (with the hotkeys work), per-button volume.
+
+## 35. Voice effects (status: built, 15 Nov 2026; released as 0.10.11)
+
+Three more built-in filters (core/dsp; kTypes is now 12, Plugin after them; saved by key, so older chains read
+the same):
+- Reverb: a Schroeder-Moorer room in Freeverb's layout (eight damped combs in parallel and four all-passes in series
+  per side, the right side's lines 23 samples longer for width), scaled to 48 kHz. Room size (feedback 0.70-0.98),
+  damping, mix.
+- Pitch shift: two read heads moving through a delay line at the new speed, half a cycle apart with raised-cosine
+  fades (a 50 ms window), -12 to +12 semitones and a mix; 0 semitones passes the sound untouched. Reports 25 ms of
+  latency (half the window) so the filters page says so.
+- Radio voice: mono, two high-passes at 300 Hz and two low-passes at 3,400 Hz (a telephone's band), a tanh drive
+  normalised to keep the level, optional static (deterministic noise), mix.
+- Tested: 440 Hz pitched to 880 / 220 / 659 Hz (+12 / -12 / +7) within 12 Hz; the reverb's tail after a click dies
+  to under 5% and stays finite under four seconds of loud input; the radio cuts 100 Hz and 9 kHz by more than 15 dB
+  against 1 kHz; static adds noise to silence; JSON round trip and descriptions. In Wine: the three in Add a filter,
+  a pitch shift's card with its sliders and the chain's delay.

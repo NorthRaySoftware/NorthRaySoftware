@@ -1194,6 +1194,95 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testVoiceEffects() {
+    std::printf("voice effects\n");
+    using namespace ncap::dsp;
+    const float rate = 48000;
+    auto sine = [&](float hz, std::size_t frames, float amp = 0.5f) {
+        std::vector<float> v(frames * 2);
+        for (std::size_t i = 0; i < frames; ++i) v[i * 2] = v[i * 2 + 1] = amp * std::sin(2 * 3.14159265f * hz * (float)i / rate);
+        return v;
+    };
+    // The strongest frequency in the second half (by a plain DFT over a range, every 2 Hz).
+    auto peakHz = [&](const std::vector<float>& v, float from, float to) {
+        const std::size_t n = v.size() / 2, start = n / 2, len = 8192;
+        float best = 0, bestHz = 0;
+        for (float hz = from; hz <= to; hz += 2) {
+            double re = 0, im = 0;
+            for (std::size_t i = 0; i < len; ++i) {
+                const double w = 0.5 - 0.5 * std::cos(2 * 3.14159265 * (double)i / len);
+                re += v[(start + i) * 2] * w * std::cos(2 * 3.14159265 * hz * (double)i / rate);
+                im += v[(start + i) * 2] * w * std::sin(2 * 3.14159265 * hz * (double)i / rate);
+            }
+            const float m = (float)(re * re + im * im);
+            if (m > best) best = m, bestHz = hz;
+        }
+        return bestHz;
+    };
+    auto rms = [](const std::vector<float>& v, std::size_t from) {
+        double e = 0;
+        for (std::size_t i = from * 2; i < v.size(); ++i) e += (double)v[i] * v[i];
+        return std::sqrt(e / (double)(v.size() - from * 2));
+    };
+    CHECK(kTypes == 12 && std::string(key(Type::Reverb)) == "reverb" && std::string(label(Type::Radio)) == "Radio voice");
+    Type t;
+    CHECK(parse("pitch-shift", t) && t == Type::PitchShift && parse("plugin", t) && t == Type::Plugin);
+    // Saved and read back.
+    Chain c = {Filter::make(Type::Reverb), Filter::make(Type::PitchShift), Filter::make(Type::Radio)};
+    c[1].values["semitones"] = 7;
+    const Chain back = fromJson(toJson(c));
+    CHECK(back.size() == 3 && back[1].get("semitones") == 7 && back[2].type == Type::Radio && describe(back[1]) == "Pitch shift: +7 semitones");
+    // Pitch: an octave up and down, and a fifth.
+    for (auto [st, want] : {std::pair<float, float>{12, 880}, {-12, 220}, {7, 659}}) {
+        Filter f = Filter::make(Type::PitchShift);
+        f.values["semitones"] = st;
+        Processor p({f});
+        std::vector<float> v = sine(440, 48000);
+        p.process(v.data(), 48000);
+        const float got = peakHz(v, 150, 1000);
+        CHECK(std::fabs(got - want) < 12);
+    }
+    {   // 0 semitones: untouched
+        Filter f = Filter::make(Type::PitchShift);
+        f.values["semitones"] = 0;
+        Processor p({f});
+        std::vector<float> v = sine(440, 4800), w = v;
+        p.process(v.data(), 4800);
+        CHECK(v == w);
+    }
+    {   // Reverb: a click leaves a tail that dies away, and it stays finite on long loud input.
+        Filter f = Filter::make(Type::Reverb);
+        f.values["mix"] = 100;
+        Processor p({f});
+        std::vector<float> v(48000 * 2 * 3, 0.0f);
+        v[0] = v[1] = 1.0f;
+        p.process(v.data(), 48000 * 3);
+        double early = 0, late = 0;
+        for (std::size_t i = 4800 * 2; i < 24000 * 2; ++i) early += (double)v[i] * v[i];
+        for (std::size_t i = 120000 * 2; i < 144000 * 2; ++i) late += (double)v[i] * v[i];
+        CHECK(early > 1e-4 && late < early * 0.05);
+        std::vector<float> loud = sine(200, 48000 * 4, 0.9f);
+        p.process(loud.data(), 48000 * 4);
+        bool finite = true;
+        for (float x : loud) finite = finite && std::isfinite(x) && std::fabs(x) < 4;
+        CHECK(finite);
+    }
+    {   // Radio: 100 Hz and 9 kHz cut hard, 1 kHz kept; static adds noise to silence.
+        auto through = [&](float hz, float stat) {
+            Filter f = Filter::make(Type::Radio);
+            f.values["drive"] = 0;
+            f.values["static"] = stat;
+            Processor p({f});
+            std::vector<float> v = hz > 0 ? sine(hz, 24000, 0.1f) : std::vector<float>(48000, 0.0f);
+            p.process(v.data(), v.size() / 2);
+            return rms(v, 4800);
+        };
+        const double mid = through(1000, 0);
+        CHECK(20 * std::log10(through(100, 0) / mid) < -15 && 20 * std::log10(through(9000, 0) / mid) < -15);
+        CHECK(through(0, 0) < 1e-6 && through(0, 50) > 1e-3);
+    }
+}
+
 static void testSoundboard() {
     std::printf("soundboard\n");
     namespace sb = ncap::soundboard;
@@ -1858,7 +1947,7 @@ static void testDsp() {
         c[1].values["ratio"] = 8;
         const d::Chain r = d::fromJson(d::toJson(c));
         CHECK(r.size() == 3 && r[0].type == d::Type::NoiseGate && !r[1].enabled && r[1].get("ratio") == 8 && r[2].type == d::Type::Limiter);
-        const d::Chain bad = d::fromJson(R"([{"type":"reverb"},{"type":"gain","values":{"gain":99}},5])");
+        const d::Chain bad = d::fromJson(R"([{"type":"echo-chamber"},{"type":"gain","values":{"gain":99}},5])");
         CHECK(bad.size() == 1 && bad[0].get("gain") == 30);
         CHECK(d::describe(c[1]) == "Compressor: above -18 dB, 8.0:1");
         CHECK(d::Processor(c).latencyFrames() == 72);   // the disabled compressor isn't run
@@ -1892,6 +1981,7 @@ int main() {
     testProfileNames();
     testWizard();
     testSoundboard();
+    testVoiceEffects();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

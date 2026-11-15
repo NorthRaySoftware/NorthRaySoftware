@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.11",
+      "date": "2026-11-15",
+      "notes": [
+        "Voice effects as filters on any sound: Reverb (a room around you, from a booth to a hall), Pitch shift (a deeper or higher voice, up to an octave either way) and Radio voice (a walkie-talkie or old radio, with crackle if you like).",
+        "Like every filter they can be switched on and off, adjusted, reordered, and mixed with the dry sound."
+      ]
+    },
+    {
       "version": "0.10.10",
       "date": "2026-11-15",
       "notes": [

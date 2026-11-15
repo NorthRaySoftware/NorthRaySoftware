@@ -37,6 +37,9 @@ const wchar_t* kWhat[] = {
     L"Bass, middle and treble.",
     L"Moves the sound to the left or right.",
     L"Holds the sound back, to line it up with a camera or capture card that's behind.",
+    L"A voice effect: the sound of a room around you, from a small booth to a hall.",
+    L"A voice effect: a deeper or higher voice, in semitones (12 is an octave). Adds 25 ms of delay.",
+    L"A voice effect: a walkie-talkie or old radio, with crackle if you like.",
 };
 
 dsp::Chain chainOf(const Source& s) {

@@ -16,11 +16,12 @@
 namespace ncap::dsp {
 
 // The built-in filters, then Plugin: an audio-effect plugin the user has switched on (plugins.hpp).
-enum class Type { Gain, NoiseGate, NoiseSuppression, Expander, Compressor, Limiter, Equaliser, Balance, Delay, Plugin };
+// Reverb, PitchShift and Radio are the voice effects.
+enum class Type { Gain, NoiseGate, NoiseSuppression, Expander, Compressor, Limiter, Equaliser, Balance, Delay, Reverb, PitchShift, Radio, Plugin };
 const char* key(Type t);                       // "gain", "noise-gate"... "plugin"
 const char* label(Type t);                     // "Noise gate"
 bool parse(const std::string& key, Type& out);
-constexpr int kTypes = 9;                      // the built-in ones (Plugin is after them)
+constexpr int kTypes = 12;                     // the built-in ones (Plugin is after them)
 
 // One adjustable value of a filter: its key, its words, its range and default, and its unit.
 struct Param {
