@@ -660,3 +660,39 @@ then apply, plus wiring the Account row back into Settings › Streaming.
 - Web pages as sources: WebView2 can't run here to test, so it isn't built yet.
 - Media: no seeking bar or hardware decoding yet; the colour conversion fallback runs on the CPU.
 
+## 20. Milestone 9, part 1: audio filters (status: built, 15 Nov 2026; released as 0.9.0)
+
+**Built**
+- `core/dsp`: a chain of up to 16 filters per sound source (JSON in its settings), run by a Processor on the
+  mixer thread on the source's 48 kHz stereo sound, before its volume, routing, meters and test clips. Changing the
+  chain makes a new Processor (the mixer swaps it in on its next block).
+  - Gain (-30 to +30 dB).
+  - Noise gate: opens above / closes below (hysteresis), attack, hold, release; a fast level follower.
+  - Noise suppression: 512-point Hann windows at half overlap (exact reconstruction), each frequency's power
+    smoothed, a noise level following its minimum (rising ~4 dB/s), counted three times over; a Wiener-like gain
+    floored at the chosen reduction (3-40 dB), opening quickly and closing gently. 512 frames (10.7 ms) of delay.
+    Steady unchanging sounds (a hum, a held note) are treated as noise after a few seconds, as with any
+    suppressor of this kind.
+  - Expander and compressor: a level follower (0.5 ms up, 30 ms down), a gain computer in dB (ratio, threshold),
+    attack and release on the gain, make-up gain for the compressor.
+  - Limiter: 1.5 ms look-ahead, instant gain reduction across the window, release; output clamped to the
+    ceiling as a last guarantee.
+  - Equaliser: RBJ low shelf (100 Hz), peaking middle (200 Hz-6 kHz, Q 1), high shelf (8 kHz), +/-15 dB.
+  - Balance (constant power) and delay (up to 2 s, for lining a source up with a late camera).
+- The filters page (a source's mixer menu › Filters...): each filter as a card with its switch, its values on
+  sliders (click a value to type it), up, down and Remove; Add a filter (a limiter goes last, others before it);
+  presets (a microphone: suppression, gate, compressor, limiter; game or music: a gentle compressor and limiter;
+  a safety limiter); the delay the chain adds, in ms. Media files' channels have filters too.
+
+**Tested**
+- capturecore: 330 checks, on real signals: gain exactly +6 dB; a gate closed on -50 dB and open on loud sound; a
+  compressor 12 dB over its threshold at 4:1 coming out ~9 dB down (and nothing below it changed); an expander; a
+  limiter never over its ceiling with a sudden full-scale burst; EQ +6 dB at 50 Hz and nothing at 5 kHz, -12 dB at
+  its middle; balance; a delay exactly 480 frames; noise suppression lowering steady noise by more than 10 dB while
+  keeping speech-like tone bursts within 1.5 dB; the chain's JSON.
+- The app in Wine: the filters page with one filter and with the microphone preset; a media file's test clip before
+  and after a -12 dB gain filter measured -21.0 and -33.0 dBFS: exactly 12 dB apart.
+
+**Not built / limits**
+- A gain-reduction meter on the mixer channel; VST plugins (part 3 looks at plugins).
+

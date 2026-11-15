@@ -6,6 +6,7 @@
 #include "ncap/oauth.hpp"
 #include "ncap/transition.hpp"
 #include "ncap/sourceutil.hpp"
+#include "ncap/dsp.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -816,6 +817,177 @@ static void testGroups() {
     CHECK(!c.ungroup(sc, g2, err) && !err.empty() && c.isGroupItem(sc, g2));
 }
 
+namespace dsptest {
+std::vector<float> sine(float hz, float amp, std::size_t frames, float phase = 0) {
+    std::vector<float> v(frames * 2);
+    for (std::size_t i = 0; i < frames; ++i) v[i * 2] = v[i * 2 + 1] = amp * std::sin(phase + 2 * 3.14159265f * hz * (float)i / 48000.0f);
+    return v;
+}
+std::vector<float> noise(float amp, std::size_t frames, unsigned seed = 1) {
+    std::vector<float> v(frames * 2);
+    for (auto& x : v) {
+        seed = seed * 1664525u + 1013904223u;
+        x = amp * ((float)(seed >> 8) / 8388608.0f - 1.0f);
+    }
+    return v;
+}
+float rms(const std::vector<float>& v, std::size_t from, std::size_t to, int ch = 0) {
+    double s = 0;
+    for (std::size_t i = from; i < to; ++i) s += (double)v[i * 2 + (std::size_t)ch] * v[i * 2 + (std::size_t)ch];
+    return (float)std::sqrt(s / (double)std::max<std::size_t>(1, to - from));
+}
+void run(ncap::dsp::Processor& p, std::vector<float>& v) {
+    for (std::size_t at = 0; at < v.size() / 2; at += 480) p.process(v.data() + at * 2, std::min<std::size_t>(480, v.size() / 2 - at));
+}
+}  // namespace dsptest
+
+static void testDsp() {
+    std::printf("audio filters\n");
+    namespace d = ncap::dsp;
+    using namespace dsptest;
+    auto db = [](float a, float b) { return d::linearToDb(a / b); };
+    // Gain.
+    {
+        d::Filter f = d::Filter::make(d::Type::Gain);
+        f.values["gain"] = 6;
+        d::Processor p({f});
+        auto v = sine(1000, 0.1f, 4800);
+        run(p, v);
+        CHECK(std::fabs(db(rms(v, 0, 4800), 0.1f / std::sqrt(2.0f)) - 6) < 0.05f);
+    }
+    // Noise gate: closes on quiet sound, opens on loud.
+    {
+        d::Processor p({d::Filter::make(d::Type::NoiseGate)});
+        auto quiet = sine(500, 0.003f, 48000);   // about -50 dB
+        run(p, quiet);
+        CHECK(rms(quiet, 24000, 48000) < 0.0002f);
+        auto loud = sine(500, 0.3f, 48000);
+        run(p, loud);
+        CHECK(std::fabs(db(rms(loud, 4800, 48000), 0.3f / std::sqrt(2.0f))) < 0.5f);
+    }
+    // Compressor: 12 dB over the threshold at 4:1 comes out about 9 dB lower.
+    {
+        d::Filter f = d::Filter::make(d::Type::Compressor);
+        f.values["threshold"] = -24;
+        f.values["ratio"] = 4;
+        d::Processor p({f});
+        auto v = sine(1000, d::dbToLinear(-12), 48000);
+        run(p, v);
+        const float outPeakDb = d::linearToDb(rms(v, 24000, 48000) * std::sqrt(2.0f));
+        CHECK(outPeakDb < -19.5f && outPeakDb > -22.5f);
+        CHECK(p.reductionDb() < -7);
+        auto under = sine(1000, d::dbToLinear(-30), 48000);
+        d::Processor p2({f});
+        run(p2, under);
+        CHECK(std::fabs(d::linearToDb(rms(under, 24000, 48000) * std::sqrt(2.0f)) + 30) < 0.3f);
+    }
+    // Expander: quieter below the threshold, untouched above.
+    {
+        d::Filter f = d::Filter::make(d::Type::Expander);
+        f.values["threshold"] = -40;
+        f.values["ratio"] = 2;
+        d::Processor p({f});
+        auto v = sine(800, d::dbToLinear(-50), 48000);
+        run(p, v);
+        const float out = d::linearToDb(rms(v, 24000, 48000) * std::sqrt(2.0f));
+        CHECK(out < -56 && out > -64);
+    }
+    // Limiter: nothing ever over the ceiling, even a sudden full-scale burst.
+    {
+        d::Filter f = d::Filter::make(d::Type::Limiter);
+        f.values["ceiling"] = -6;
+        d::Processor p({f});
+        auto v = sine(200, 0.05f, 9600);
+        auto burst = sine(3000, 1.0f, 9600);
+        v.insert(v.end(), burst.begin(), burst.end());
+        run(p, v);
+        float peak = 0;
+        for (float x : v) peak = std::max(peak, std::fabs(x));
+        CHECK(peak <= d::dbToLinear(-6) + 1e-5f);
+        CHECK(p.latencyFrames() == 72);
+    }
+    // Equaliser: +6 dB low shelf lifts 50 Hz by about 6 dB, leaves 5 kHz alone.
+    {
+        d::Filter f = d::Filter::make(d::Type::Equaliser);
+        f.values["low"] = 6;
+        d::Processor p({f});
+        auto lo = sine(50, 0.1f, 96000);
+        run(p, lo);
+        CHECK(std::fabs(db(rms(lo, 48000, 96000), 0.1f / std::sqrt(2.0f)) - 6) < 0.6f);
+        d::Processor p2({f});
+        auto hi = sine(5000, 0.1f, 48000);
+        run(p2, hi);
+        CHECK(std::fabs(db(rms(hi, 24000, 48000), 0.1f / std::sqrt(2.0f))) < 0.3f);
+        d::Filter m = d::Filter::make(d::Type::Equaliser);
+        m.values["mid"] = -12;
+        m.values["midFreq"] = 1000;
+        d::Processor p3({m});
+        auto mid = sine(1000, 0.1f, 48000);
+        run(p3, mid);
+        CHECK(std::fabs(db(rms(mid, 24000, 48000), 0.1f / std::sqrt(2.0f)) + 12) < 0.6f);
+    }
+    // Balance: full left silences the right; centre changes nothing.
+    {
+        d::Filter f = d::Filter::make(d::Type::Balance);
+        f.values["balance"] = -100;
+        d::Processor p({f});
+        auto v = sine(440, 0.5f, 4800);
+        run(p, v);
+        CHECK(rms(v, 0, 4800, 1) < 1e-4f && rms(v, 0, 4800, 0) > 0.3f);
+        d::Processor p2({d::Filter::make(d::Type::Balance)});
+        auto c = sine(440, 0.5f, 4800);
+        run(p2, c);
+        CHECK(std::fabs(rms(c, 0, 4800, 1) - rms(c, 0, 4800, 0)) < 1e-5f);
+    }
+    // Delay: an impulse comes out exactly the delay later.
+    {
+        d::Filter f = d::Filter::make(d::Type::Delay);
+        f.values["delay"] = 10;   // 480 frames
+        d::Processor p({f});
+        std::vector<float> v(4800 * 2, 0.0f);
+        v[0] = v[1] = 1;
+        run(p, v);
+        CHECK(v[480 * 2] == 1 && v[480 * 2 + 1] == 1 && v[0] == 0 && p.latencyFrames() == 480);
+    }
+    // Noise suppression: steady noise made much quieter; a tone in it kept (and nothing changed when there's no noise).
+    {
+        d::Processor p({d::Filter::make(d::Type::NoiseSuppression)});
+        auto n = noise(0.05f, 48000 * 3);
+        const float before = rms(n, 48000 * 2, 48000 * 3);
+        run(p, n);
+        const float after = rms(n, 48000 * 2, 48000 * 3);
+        CHECK(db(after, before) < -10);
+        d::Processor p2({d::Filter::make(d::Type::NoiseSuppression)});
+        // Speech-like: a tone in bursts (0.25 s on, 0.25 s off) over steady noise. The bursts keep their level.
+        auto mix = noise(0.02f, 48000 * 3, 7);
+        auto tone = sine(1000, 0.3f, 48000 * 3);
+        for (std::size_t i = 0; i < mix.size() / 2; ++i)
+            if ((i / 12000) % 2 == 0) {
+                mix[i * 2] += tone[i * 2];
+                mix[i * 2 + 1] += tone[i * 2 + 1];
+            }
+        run(p2, mix);
+        // The last burst (2.5 s to 2.75 s, shifted by the 512-frame latency), away from its edges.
+        const std::size_t from = 120000 + 512 + 2400, to = 132000 + 512 - 2400;
+        CHECK(std::fabs(db(rms(mix, from, to), 0.3f / std::sqrt(2.0f))) < 1.5f);
+        // And between bursts, the noise is pushed down.
+        CHECK(rms(mix, 132000 + 512 + 4800, 144000) < 0.02f / std::sqrt(3.0f) * 0.4f);
+        CHECK(p2.latencyFrames() == 512);
+    }
+    // The chain as JSON: order, switches and values kept; junk dropped; values clamped.
+    {
+        d::Chain c = {d::Filter::make(d::Type::NoiseGate), d::Filter::make(d::Type::Compressor), d::Filter::make(d::Type::Limiter)};
+        c[1].enabled = false;
+        c[1].values["ratio"] = 8;
+        const d::Chain r = d::fromJson(d::toJson(c));
+        CHECK(r.size() == 3 && r[0].type == d::Type::NoiseGate && !r[1].enabled && r[1].get("ratio") == 8 && r[2].type == d::Type::Limiter);
+        const d::Chain bad = d::fromJson(R"([{"type":"reverb"},{"type":"gain","values":{"gain":99}},5])");
+        CHECK(bad.size() == 1 && bad[0].get("gain") == 30);
+        CHECK(d::describe(c[1]) == "Compressor: above -18 dB, 8.0:1");
+        CHECK(d::Processor(c).latencyFrames() == 72);   // the disabled compressor isn't run
+    }
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -831,6 +1003,7 @@ int main() {
     testSourceUtil();
     testSceneFiles();
     testGroups();
+    testDsp();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

@@ -414,6 +414,7 @@ void CaptureWindow::panelMenu(int panel, POINT screen) {
 
 void CaptureWindow::openSettings(bool on) {
     settingsOpen_ = on;
+    filtersFor_.clear();   // Settings itself (openFilters sets it again)
     resetScroll();
     invalidate();
 }
@@ -774,7 +775,8 @@ void CaptureWindow::drawFrame(float W, float H) {
                    previewFps > 0;
     if (settingsOpen_) {
         gfx_.pushClip(body);
-        drawSettings(body);
+        if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
+        else drawSettings(body);
         gfx_.popClip();
     } else {
         const float pad = 8;

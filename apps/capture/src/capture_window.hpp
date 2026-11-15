@@ -146,7 +146,11 @@ private:
     void saveMixClip(int bus);
     void applyMonitor();
     void monitorMenu(POINT screen);
-    float drawRoutes(float x, float y, float w);   // the settings page's routing view; returns its height
+    float drawRoutes(float x, float y, float w);
+    // Audio filters (capture_filters.cpp): a page per sound source, like Settings.
+    void openFilters(const Id& source);
+    void drawFilters(const cjui::Rect& area);
+    std::shared_ptr<dsp::Processor> filtersFor(const Source& s);   // the settings page's routing view; returns its height
 
     // Recording (capture_record.cpp)
     void startRecording();
@@ -251,6 +255,8 @@ private:
     // Recording
     output::Recorder recorder_;
     output::Streamer streamer_;
+    Id filtersFor_;                          // the source whose filters page is open
+    std::map<Id, std::pair<std::string, std::shared_ptr<dsp::Processor>>> processors_;   // by source: its chain and the running filters
     Id programScene_;                       // studio mode: what's live (otherwise the current scene)
     std::shared_ptr<video::VideoSource> stinger_;   // a stinger transition's video, waiting at its start
     std::string stingerFile_, shaderCode_, shaderFile_;

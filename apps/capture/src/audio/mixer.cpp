@@ -257,6 +257,7 @@ void Mixer::block() {
             const size_t got = ring.read(buf_.data(), kBlock);
             if (got < (size_t)kBlock) std::fill(buf_.begin() + (long)(got * kChannels), buf_.end(), 0.0f);
         }
+        if (s.filters && !s.filters->empty()) s.filters->process(buf_.data(), kBlock);
         {
             std::lock_guard<std::mutex> l(m_);
             clipWrite(s.id, buf_.data());

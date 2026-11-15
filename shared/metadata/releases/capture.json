@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.9.0",
+      "date": "2026-11-15",
+      "notes": [
+        "Audio filters: right-click a sound source in the Audio mixer › Filters. Gain, noise gate, noise suppression, expander, compressor, limiter, equaliser, balance and delay, in the order you choose, each with its own switch and values.",
+        "Presets to start from: a microphone (clean and even), a game or music (kept in check), or a safety limiter.",
+        "Filters change the source's own sound before its volume and routing; its test clip records the result."
+      ]
+    },
+    {
       "version": "0.8.3",
       "date": "2026-11-15",
       "notes": [

@@ -14,6 +14,7 @@
 
 #include "audio/capture.hpp"
 
+#include "ncap/dsp.hpp"
 #include "ncap/routing.hpp"
 
 #include <array>
@@ -38,6 +39,7 @@ struct MixSource {
     bool muted = false;
     std::uint32_t buses = routing::Stream | routing::Track1;
     std::shared_ptr<Ring> feed;   // no capture: sound handed over by another part (a media file)
+    std::shared_ptr<dsp::Processor> filters;   // its filters (run on the mixer thread only)
     bool syncTone = false;   // no capture: a 1 kHz beep for 50 ms at each whole second of the clock,
                              // in step with the sync test pattern's flash (checking sync in a recording)
 };
