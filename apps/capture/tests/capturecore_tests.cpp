@@ -783,9 +783,11 @@ static void testSceneFiles() {
     const Source* nested = other2.source(g->items[1].source);
     CHECK(nested && nested->kind == SourceKind::Scene && other2.scene(SceneCollection::nestedScene(*nested)) &&
           other2.scene(SceneCollection::nestedScene(*nested))->name == "Ending");
-    // Importing twice: everything new again, nothing shared with the first copy.
+    // Importing twice: everything new again, nothing shared with the first copy. (The first copy's
+    // source is noted first: importing adds scenes, which can move the ones already there.)
+    const Id firstSource = g->items[0].source;
     const Id got2 = other2.importScene(file, err);
-    CHECK(!got2.empty() && got2 != got && other2.scene(got2)->items[0].source != g->items[0].source);
+    CHECK(!got2.empty() && got2 != got && other2.scene(got2)->items[0].source != firstSource);
     CHECK(other2.importScene("{\"format\":\"something\"}", err).empty() && !err.empty());
     CHECK(other2.importScene("not json", err).empty());
 }
@@ -1159,6 +1161,67 @@ static void testDesign() {
 }
 
 
+static void testBrandKit() {
+    std::printf("brand kit\n");
+    namespace dz = ncap::design;
+    const dz::Brand def = dz::defaultBrand();
+    CHECK(def.colours.size() == dz::brandKeys().size() && dz::brandColour(def, "primary") && !dz::brandColour(def, "nope"));
+    // Round trip, and bad parts take the defaults.
+    dz::Brand b = def;
+    b.colours[0].colour = {255, 0, 0, 255};
+    b.headingFont = "Georgia";
+    b.fontFiles = {"C:\\Fonts\\Mine.ttf"};
+    b.logo = "C:\\logo.png";
+    CHECK(dz::brandFromJson(dz::toJson(b)) == b);
+    const dz::Brand bad = dz::brandFromJson(R"({"colours":{"primary":"#00FF0080","text":"pink"},"headingFont":"brand:body","fontFiles":[1,""]})");
+    CHECK(bad.colours[0].colour == ncap::sourceutil::Rgba(0, 255, 0, 255));   // made solid
+    CHECK(bad.colours[2].colour == def.colours[2].colour && bad.headingFont == "Segoe UI" && bad.fontFiles.empty());
+    CHECK(dz::brandFromJson("not json") == def);
+
+    // Linking: matching colours (any see-through) and Segoe UI text.
+    dz::Document d;
+    dz::Element r;
+    r.kind = dz::Kind::Rect;
+    r.fill = dz::Fill::linear({{0, {0x3F, 0xCF, 0x8E, 0x55}}, {1, {1, 2, 3, 255}}}, 0);
+    r.stroke = {0x7A, 0x5C, 0xFF, 255};
+    r.shadow.colour = {0, 0, 0, 140};
+    const std::string rid = dz::add(d, r);
+    dz::Element t;
+    t.kind = dz::Kind::Text;
+    t.bold = true;
+    t.fill = dz::Fill::solid({0xF4, 0xF7, 0xFB, 255});
+    const std::string tid = dz::add(d, t);
+    dz::Element p;
+    p.kind = dz::Kind::Image;
+    p.file = dz::kBrandLogo;
+    const std::string pid = dz::add(d, p);
+    CHECK(dz::usesBrand(d));   // the logo
+    dz::linkToBrand(d, def);
+    CHECK(d.find(rid)->fill.stops[0].brand == "primary" && d.find(rid)->fill.stops[1].brand.empty());
+    CHECK(d.find(rid)->strokeBrand == "secondary" && d.find(rid)->shadow.brand.empty());
+    CHECK(d.find(tid)->fill.brand == "text" && d.find(tid)->font == dz::kBrandHeading);
+    // Saved and read back with the links.
+    const dz::Document back = dz::fromJson(dz::toJson(d));
+    CHECK(back.find(rid)->fill.stops[0].brand == "primary" && back.find(rid)->strokeBrand == "secondary" && back.find(tid)->fill.brand == "text");
+
+    // Applying another kit: the colour changes, the see-through stays.
+    const dz::Document a = dz::applyBrand(d, b);
+    CHECK(a.find(rid)->fill.stops[0].colour == ncap::sourceutil::Rgba(255, 0, 0, 0x55));
+    CHECK(a.find(rid)->fill.stops[1].colour == ncap::sourceutil::Rgba(1, 2, 3, 255));
+    CHECK(a.find(tid)->font == "Georgia" && a.find(pid)->file == "C:\\logo.png");
+    CHECK(a.find(rid)->stroke == def.colours[1].colour);
+    // Unlinking keeps what's shown.
+    const dz::Document u = dz::unlinkBrand(d, b);
+    CHECK(!dz::usesBrand(u) && u.find(rid)->fill.stops[0].colour == ncap::sourceutil::Rgba(255, 0, 0, 0x55) && u.find(tid)->font == "Georgia");
+
+    // Every template follows the kit, and the watermark uses the logo.
+    for (auto& tp : dz::templates()) CHECK(dz::usesBrand(tp.doc));
+    bool logo = false;
+    for (auto& tp : dz::templates())
+        for (auto& e : tp.doc.elements) logo = logo || e.file == dz::kBrandLogo;
+    CHECK(logo);
+}
+
 static void testDesignLive() {
     std::printf("design timers, QR codes, icons\n");
     using namespace ncap::design;
@@ -1419,6 +1482,7 @@ int main() {
     testBorder();
     testDesign();
     testDesignLive();
+    testBrandKit();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

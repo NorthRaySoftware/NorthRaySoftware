@@ -2,7 +2,7 @@
 
 #include <windows.h>
 #include <d2d1.h>
-#include <dwrite.h>
+#include <dwrite_3.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 
@@ -34,6 +34,7 @@ struct Ctx {
     ComPtr<ID2D1Factory> d2;
     ComPtr<IDWriteFactory> dw;
     ComPtr<IWICImagingFactory> wic;
+    ComPtr<IDWriteFontCollection> fonts;   // the system's and the brand kit's font files (null: the system's)
 };
 
 bool makeCtx(Ctx& c) {
@@ -109,7 +110,14 @@ ComPtr<ID2D1Bitmap> loadPicture(Ctx& c, ID2D1RenderTarget* rt, const std::string
 ComPtr<IDWriteTextLayout> layoutFor(Ctx& c, const Element& e, const std::wstring& text) {
     ComPtr<IDWriteTextFormat> fmt;
     ComPtr<IDWriteTextLayout> lay;
-    if (FAILED(c.dw->CreateTextFormat(widen(e.font).c_str(), nullptr, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+    // The kit's collection only when it has the font: otherwise Windows' own, so missing fonts fall back.
+    IDWriteFontCollection* coll = nullptr;
+    if (c.fonts) {
+        UINT32 idx = 0;
+        BOOL exists = FALSE;
+        if (SUCCEEDED(c.fonts->FindFamilyName(widen(e.font).c_str(), &idx, &exists)) && exists) coll = c.fonts.Get();
+    }
+    if (FAILED(c.dw->CreateTextFormat(widen(e.font).c_str(), coll, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                                       e.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, e.size, L"en-gb", &fmt)) &&
         FAILED(c.dw->CreateTextFormat(L"Segoe UI", nullptr, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                                       e.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, e.size, L"en-gb", &fmt)))
@@ -213,7 +221,8 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
             break;
         }
         case Kind::Image: {
-            ComPtr<ID2D1Bitmap> bmp = loadPicture(c, rt, e.file);
+            ComPtr<ID2D1Bitmap> bmp = e.file.empty() ? nullptr : loadPicture(c, rt, e.file);
+            if (!bmp && e.file.empty() && !showMissing) break;   // e.g. no brand logo yet: nothing on stream
             if (!bmp) {
                 if (!shadowPass) {   // a placeholder so it can be seen and picked
                     ComPtr<ID2D1SolidColorBrush> ph;
@@ -272,8 +281,123 @@ std::atomic<std::int64_t> gLiveMs{-1};
 std::atomic<ULONGLONG> gLiveAt{0};
 Placeholders gValues;
 unsigned gValuesVersion = 1;
+Brand gBrand = defaultBrand();
+
+// The brand kit's font files with the system's fonts, made once per list of files (DirectWrite's font
+// sets: Windows 10 1703 and later).
+std::mutex gFontsM;
+std::vector<std::string> gFontsFor;
+ComPtr<IDWriteFontCollection> gFonts;
+std::wstring gFontsError;
+
+ComPtr<IDWriteFontCollection> fontsFor(IDWriteFactory* dw, const std::vector<std::string>& files) {
+    std::lock_guard<std::mutex> l(gFontsM);
+    if (files == gFontsFor && (gFonts || !gFontsError.empty() || files.empty())) return gFonts;
+    gFontsFor = files;
+    gFonts.Reset();
+    gFontsError.clear();
+    if (files.empty()) return gFonts;
+    ComPtr<IDWriteFactory5> f5;
+    ComPtr<IDWriteFontSetBuilder1> builder;
+    ComPtr<IDWriteFontSet> system;
+    if (FAILED(dw->QueryInterface(IID_PPV_ARGS(&f5))) || FAILED(f5->CreateFontSetBuilder(&builder)) || FAILED(f5->GetSystemFontSet(&system))) {
+        gFontsError = L"This version of Windows can't use font files directly: install the fonts in Windows instead.";
+        return gFonts;
+    }
+    builder->AddFontSet(system.Get());
+    std::wstring bad;
+    for (auto& f : files) {
+        ComPtr<IDWriteFontFile> ff;
+        if (FAILED(f5->CreateFontFileReference(widen(f).c_str(), nullptr, &ff)) || FAILED(builder->AddFontFile(ff.Get())))
+            bad += (bad.empty() ? L"" : L", ") + widen(f.substr(f.find_last_of("\\/") + 1));
+    }
+    ComPtr<IDWriteFontSet> set;
+    ComPtr<IDWriteFontCollection1> coll;
+    if (FAILED(builder->CreateFontSet(&set)) || FAILED(f5->CreateFontCollectionFromFontSet(set.Get(), &coll))) {
+        gFontsError = L"The font files couldn't be read.";
+        return gFonts;
+    }
+    gFonts = coll;
+    if (!bad.empty()) gFontsError = L"Couldn't read: " + bad;
+    return gFonts;
+}
 
 }  // namespace
+
+void setDesignBrand(const Brand& b) {
+    std::lock_guard<std::mutex> l(gValuesM);
+    if (b == gBrand) return;
+    gBrand = b;
+    ++gValuesVersion;
+}
+
+Brand designBrand() {
+    std::lock_guard<std::mutex> l(gValuesM);
+    return gBrand;
+}
+
+std::vector<std::wstring> brandFontFamilies(std::wstring& error) {
+    std::vector<std::wstring> out;
+    ComPtr<IDWriteFactory> dw;
+    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw.GetAddressOf())))) return out;
+    const Brand b = designBrand();
+    ComPtr<IDWriteFontCollection> all = fontsFor(dw.Get(), b.fontFiles);
+    {
+        std::lock_guard<std::mutex> l(gFontsM);
+        error = gFontsError;
+    }
+    if (!all) dw->GetSystemFontCollection(&all);
+    if (!all) return out;
+    const UINT32 n = all->GetFontFamilyCount();
+    for (UINT32 i = 0; i < n; ++i) {
+        ComPtr<IDWriteFontFamily> fam;
+        ComPtr<IDWriteLocalizedStrings> names;
+        if (FAILED(all->GetFontFamily(i, &fam)) || FAILED(fam->GetFamilyNames(&names))) continue;
+        UINT32 idx = 0;
+        BOOL ok = FALSE;
+        names->FindLocaleName(L"en-us", &idx, &ok);
+        if (!ok) idx = 0;
+        UINT32 len = 0;
+        if (FAILED(names->GetStringLength(idx, &len))) continue;
+        std::wstring nm(len + 1, L'\0');
+        if (FAILED(names->GetString(idx, nm.data(), len + 1))) continue;
+        nm.resize(len);
+        out.push_back(nm);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<std::wstring> fontFileFamilies(const std::wstring& file) {
+    std::vector<std::wstring> out;
+    ComPtr<IDWriteFactory> dw;
+    ComPtr<IDWriteFactory5> f5;
+    ComPtr<IDWriteFontSetBuilder1> builder;
+    ComPtr<IDWriteFontFile> ff;
+    ComPtr<IDWriteFontSet> set;
+    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw.GetAddressOf()))) ||
+        FAILED(dw->QueryInterface(IID_PPV_ARGS(&f5))) || FAILED(f5->CreateFontSetBuilder(&builder)) ||
+        FAILED(f5->CreateFontFileReference(file.c_str(), nullptr, &ff)) || FAILED(builder->AddFontFile(ff.Get())) ||
+        FAILED(builder->CreateFontSet(&set)))
+        return out;
+    for (UINT32 i = 0; i < set->GetFontCount(); ++i) {
+        BOOL exists = FALSE;
+        ComPtr<IDWriteLocalizedStrings> names;
+        if (FAILED(set->GetPropertyValues(i, DWRITE_FONT_PROPERTY_ID_WIN32_FAMILY_NAME, &exists, &names)) || !exists || !names) continue;
+        UINT32 idx = 0;
+        BOOL ok = FALSE;
+        names->FindLocaleName(L"en-us", &idx, &ok);
+        if (!ok) idx = 0;
+        UINT32 len = 0;
+        if (FAILED(names->GetStringLength(idx, &len))) continue;
+        std::wstring nm(len + 1, L'\0');
+        if (FAILED(names->GetString(idx, nm.data(), len + 1))) continue;
+        nm.resize(len);
+        if (std::find(out.begin(), out.end(), nm) == out.end()) out.push_back(nm);
+    }
+    return out;
+}
 
 void setDesignValues(const Placeholders& v) {
     std::lock_guard<std::mutex> l(gValuesM);
@@ -307,13 +431,16 @@ Clock clockNow(std::int64_t elapsedMs) {
     return c;
 }
 
-bool renderDesign(const Document& d, float tMs, float scale, const Placeholders& values, DesignPicture& out, std::wstring& error, bool showMissing,
+bool renderDesign(const Document& linked, float tMs, float scale, const Placeholders& values, DesignPicture& out, std::wstring& error, bool showMissing,
                   const Clock& clock) {
     Ctx c;
     if (!makeCtx(c)) {
         error = L"Direct2D isn't available";
         return false;
     }
+    const Brand brand = designBrand();
+    const Document d = applyBrand(linked, brand);
+    c.fonts = fontsFor(c.dw.Get(), brand.fontFiles);
     scale = std::clamp(scale, 0.02f, 4.0f);
     const int W = std::clamp((int)std::lround(d.width * scale), 1, 8192), H = std::clamp((int)std::lround(d.height * scale), 1, 8192);
     const D2D1_RENDER_TARGET_PROPERTIES props =

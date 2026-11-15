@@ -55,7 +55,15 @@ std::vector<Gradient> gradients() {
         su::parseColour(h, r);
         return r;
     };
+    const dz::Brand b = video::designBrand();
+    auto bc = [&](const char* k) {
+        const dz::BrandColour* x = dz::brandColour(b, k);
+        return x ? x->colour : su::Rgba{};
+    };
     return {
+        {L"Your brand (main to second)", {{0, bc("primary"), "primary"}, {1, bc("secondary"), "secondary"}}, 0},
+        {L"Your brand (panels to background)", {{0, bc("panel"), "panel"}, {1, bc("night"), "night"}}, 90},
+        {L"Your brand (main fading out)", {{0, bc("primary"), "primary"}, {1, {bc("primary").r, bc("primary").g, bc("primary").b, 0}, "primary"}}, 0},
         {L"Aurora (green to violet)", {{0, c("#3FCF8E")}, {1, c("#7A5CFF")}}, 0},
         {L"Northern night", {{0, c("#060B17")}, {0.55f, c("#0B1A2E")}, {1, c("#0E2A33")}}, 90},
         {L"Neon (cyan to pink)", {{0, c("#00E5FF")}, {1, c("#FF3DD6")}}, 0},
@@ -101,10 +109,34 @@ std::string stopsText(const dz::Fill& f) {
     return s;
 }
 
+// A solid fill linked to a brand colour (new elements start on the brand).
+dz::Fill brandFill(const char* key) {
+    const dz::BrandColour* x = dz::brandColour(video::designBrand(), key);
+    dz::Fill f = dz::Fill::solid(x ? x->colour : su::Rgba{});
+    f.brand = x ? key : "";
+    return f;
+}
+
+// A colour's name for the properties: a brand colour by its name ("Brand: Main colour"), else #RRGGBB.
+std::wstring colourName(const su::Rgba& c, const std::string& brand) {
+    if (!brand.empty())
+        if (const dz::BrandColour* x = dz::brandColour(video::designBrand(), brand)) return L"Brand: " + widen(x->name);
+    return widen(su::colourText(c));
+}
+
 std::wstring fillText(const dz::Fill& f) {
     if (f.type == dz::Fill::None) return L"None";
-    if (f.type == dz::Fill::Solid) return widen(su::colourText(f.colour));
-    return L"Gradient · " + std::to_wstring(f.stops.size()) + L" colours";
+    if (f.type == dz::Fill::Solid) return colourName(f.colour, f.brand);
+    bool linked = false;
+    for (auto& st : f.stops) linked = linked || !st.brand.empty();
+    return L"Gradient · " + std::to_wstring(f.stops.size()) + L" colours" + (linked ? L" (brand)" : L"");
+}
+
+std::wstring fontName(const std::string& f) {
+    const dz::Brand b = video::designBrand();
+    if (f == dz::kBrandHeading) return L"Brand heading (" + widen(b.headingFont) + L")";
+    if (f == dz::kBrandBody) return L"Brand body (" + widen(b.bodyFont) + L")";
+    return widen(f);
 }
 
 const wchar_t* kAnimNames[] = {L"None", L"Fade in", L"Slide in from the left", L"Slide in from the right", L"Slide up from the bottom",
@@ -382,6 +414,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
         topButton("dz:done", L"Done", 100, [this] { openSettings(false); }, true);
         topButton("dz:png", L"Save as PNG", 130, [this] { exportDesign(); });
         topButton("dz:profile", L"Your details…", 140, [this] { editProfile(); });
+        topButton("dz:brand", L"Brand kit…", 120, [this] { editBrand(); });
         topButton("dz:page", L"Page…", 90, [this] {
             std::vector<MenuItem> items = {
                 MenuItem::item(L"Size…", 1, std::to_wstring(designDoc_.width) + L" × " + std::to_wstring(designDoc_.height)),
@@ -394,6 +427,15 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             std::vector<MenuItem> gm;
             for (std::size_t i = 0; i < gs.size(); ++i) gm.push_back(MenuItem::item(gs[i].name, 20 + (UINT)i));
             items.push_back(MenuItem::sub(L"Background gradient", gm));
+            const dz::Brand brand = video::designBrand();
+            std::vector<MenuItem> bm;
+            for (std::size_t i = 0; i < brand.colours.size(); ++i)
+                bm.push_back(MenuItem::item(widen(brand.colours[i].name), 40 + (UINT)i, widen(su::colourText(brand.colours[i].colour)), true,
+                                            designDoc_.background.type == dz::Fill::Solid && designDoc_.background.brand == brand.colours[i].key));
+            items.push_back(MenuItem::sub(L"Background: a brand colour", bm));
+            items.push_back(MenuItem::sep());
+            items.push_back(MenuItem::item(L"Follow the brand kit", 30, L"links matching colours and fonts"));
+            items.push_back(MenuItem::item(L"Stop following the brand kit", 31, L"keeps how it looks now", dz::usesBrand(designDoc_)));
             POINT pt;
             GetCursorPos(&pt);
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
@@ -424,6 +466,18 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                     designDoc_.background = dz::Fill::solid(c);
                     designChanged();
                 });
+            } else if (cmd >= 40 && cmd < 40 + brand.colours.size()) {
+                designDoc_.background = dz::Fill::solid(brand.colours[cmd - 40].colour);
+                designDoc_.background.brand = brand.colours[cmd - 40].key;
+                designChanged();
+            } else if (cmd == 30) {
+                dz::linkToBrand(designDoc_, brand);
+                designChanged();
+                flash(dz::usesBrand(designDoc_) ? L"This design now follows your brand kit where its colours and fonts match."
+                                                : L"Nothing here matches the brand kit's colours or Segoe UI text.", 6);
+            } else if (cmd == 31) {
+                designDoc_ = dz::unlinkBrand(designDoc_, brand);
+                designChanged();
             } else if (cmd >= 20 && cmd < 20 + gs.size()) {
                 designDoc_.background = dz::Fill::linear(gs[cmd - 20].stops, gs[cmd - 20].angle);
                 designChanged();
@@ -454,12 +508,13 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 e.text = "Your text";
                 e.size = std::max(12.0f, std::min(72.0f, designDoc_.height / 8.0f));
                 e.align = "centre";
-                e.fill = dz::Fill::solid({244, 247, 251, 255});
+                e.fill = brandFill("text");
+                e.font = dz::kBrandBody;
             } else if (k == dz::Kind::Rect) {
                 e.fill = dz::Fill::linear(gradients()[0].stops, 0);
                 e.radius = 20;
             } else if (k == dz::Kind::Ellipse) {
-                e.fill = dz::Fill::solid(fromHex("#7A5CFF"));
+                e.fill = brandFill("secondary");
             }
             designSel_ = dz::add(designDoc_, e);
             designChanged();
@@ -494,7 +549,8 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.size = 96;
             e.bold = true;
             e.align = "centre";
-            e.fill = dz::Fill::solid({244, 247, 251, 255});
+            e.fill = brandFill("text");
+            e.font = dz::kBrandHeading;
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -664,7 +720,8 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                            fillText(designDoc_.background) + L". Change both under Page…",
                        {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 12;
         y += gfx_.text(L"Click an element on the page or in Layers to change it. Text can show your details: {name}, {twitch}, {youtube}, "
-                       L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…).",
+                       L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…). Colours and fonts marked Brand "
+                       L"follow your Brand kit…: change it once and every design using it changes.",
                        {r.x, y, r.w, 120}, Font::Small, pal_.inkMuted) + 12;
         return;
     }
@@ -694,9 +751,16 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         gfx_.text(b, {r.right() - 66, y, 66, 26}, Font::Body, pal_.ink, {Align::Right, false, true});
         y += 32;
     };
-    auto colourMenu = [this](const su::Rgba& now, std::function<void(su::Rgba)> apply, bool allowNone) {
+    // Colours: the brand kit's first (linked: they follow the kit), then a few named ones, or any.
+    // `apply` gets the colour and the brand key it's linked to ("" if none).
+    auto colourMenu = [this](const su::Rgba& now, const std::string& nowBrand, std::function<void(su::Rgba, std::string)> apply, bool allowNone) {
         std::vector<MenuItem> items;
         if (allowNone) items.push_back(MenuItem::item(L"None", 99, {}, true, now.a == 0));
+        const dz::Brand brand = video::designBrand();
+        for (std::size_t i = 0; i < brand.colours.size(); ++i)
+            items.push_back(MenuItem::item(L"Brand: " + widen(brand.colours[i].name), 200 + (UINT)i, widen(su::colourText(brand.colours[i].colour)),
+                                           true, nowBrand == brand.colours[i].key));
+        items.push_back(MenuItem::sep());
         for (int i = 0; i < (int)(sizeof kColours / sizeof kColours[0]); ++i)
             items.push_back(MenuItem::item(kColours[i].name, 100 + (UINT)i, {}, true, su::colourText(now) == kColours[i].hex));
         items.push_back(MenuItem::sep());
@@ -704,8 +768,12 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         POINT pt;
         GetCursorPos(&pt);
         const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
-        if (cmd == 99) apply({0, 0, 0, 0});
-        else if (cmd >= 100 && cmd < 100 + sizeof kColours / sizeof kColours[0]) apply(fromHex(kColours[cmd - 100].hex));
+        if (cmd == 99) apply({0, 0, 0, 0}, "");
+        else if (cmd >= 200 && cmd < 200 + brand.colours.size()) {
+            su::Rgba c = brand.colours[cmd - 200].colour;
+            c.a = now.a ? now.a : 255;   // keep how see-through it was
+            apply(c, brand.colours[cmd - 200].key);
+        } else if (cmd >= 100 && cmd < 100 + sizeof kColours / sizeof kColours[0]) apply(fromHex(kColours[cmd - 100].hex), "");
         else if (cmd == 98)
             askText(L"A colour (#RRGGBB, or #RRGGBBAA to see through it)", widen(su::colourText(now)), [this, apply](const std::wstring& v) {
                 su::Rgba c;
@@ -713,7 +781,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                     flash(L"Type a colour like #3FCF8E.", 5);
                     return;
                 }
-                apply(c);
+                apply(c, "");
             });
     };
 
@@ -780,8 +848,13 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
             if (cmd == 1) edit([](dz::Element& z) { z.fill = dz::Fill::none(); });
             else if (cmd == 2)
-                colourMenu(x->fill.type == dz::Fill::Solid ? x->fill.colour : su::Rgba{255, 255, 255, 255},
-                           [edit](su::Rgba c) { edit([c](dz::Element& z) { z.fill = dz::Fill::solid(c); }); }, false);
+                colourMenu(x->fill.type == dz::Fill::Solid ? x->fill.colour : su::Rgba{255, 255, 255, 255}, x->fill.type == dz::Fill::Solid ? x->fill.brand : "",
+                           [edit](su::Rgba c, std::string b) {
+                               edit([c, b](dz::Element& z) {
+                                   z.fill = dz::Fill::solid(c);
+                                   z.fill.brand = b;
+                               });
+                           }, false);
             else if (cmd >= 10 && cmd < 10 + gs.size()) {
                 const Gradient g = gs[cmd - 10];
                 edit([g](dz::Element& z) { z.fill = dz::Fill::linear(g.stops, g.angle); });
@@ -814,12 +887,13 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     // Outline.
     {
         label(L"Outline");
-        button("dz:p:stroke", {r.x + 112, y - 2, 110, 30}, e->stroke.a ? widen(su::colourText(e->stroke)) : L"None", [this, eid, edit, colourMenu] {
+        button("dz:p:stroke", {r.x + 112, y - 2, r.w - 112, 30}, e->stroke.a ? colourName(e->stroke, e->strokeBrand) : L"None", [this, eid, edit, colourMenu] {
             const dz::Element* x = designDoc_.find(eid);
             if (!x) return;
-            colourMenu(x->stroke, [edit](su::Rgba c) {
-                edit([c](dz::Element& z) {
+            colourMenu(x->stroke, x->strokeBrand, [edit](su::Rgba c, std::string b) {
+                edit([c, b](dz::Element& z) {
                     z.stroke = c;
+                    z.strokeBrand = c.a ? b : "";
                     if (c.a && z.strokeWidth <= 0) z.strokeWidth = 4;
                 });
             }, true);
@@ -834,10 +908,15 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         label(L"Shadow");
         toggle("dz:p:shadow", r.x + 112, y + 2, e->shadow.on, [edit] { edit([](dz::Element& z) { z.shadow.on = !z.shadow.on; }); });
         if (e->shadow.on)
-            button("dz:p:shcol", {r.x + 170, y - 2, r.w - 170, 30}, widen(su::colourText(e->shadow.colour)), [this, eid, edit, colourMenu] {
+            button("dz:p:shcol", {r.x + 170, y - 2, r.w - 170, 30}, colourName(e->shadow.colour, e->shadow.brand), [this, eid, edit, colourMenu] {
                 const dz::Element* x = designDoc_.find(eid);
                 if (!x) return;
-                colourMenu(x->shadow.colour, [edit](su::Rgba c) { edit([c](dz::Element& z) { z.shadow.colour = c; }); }, false);
+                colourMenu(x->shadow.colour, x->shadow.brand, [edit](su::Rgba c, std::string b) {
+                    edit([c, b](dz::Element& z) {
+                        z.shadow.colour = c;
+                        z.shadow.brand = b;
+                    });
+                }, false);
             });
         y += 36;
         if (e->shadow.on) {
@@ -955,9 +1034,8 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             button("dz:p:font", {r.x + 112 + bw + 8, y - 2, bw, 30}, L"Font", [this, eid] {
                 const dz::Element* x = designDoc_.find(eid);
                 if (!x) return;
-                askText(L"The font's name, as Windows lists it", widen(x->font), [this, eid](const std::wstring& v) {
-                    if (v.empty()) return;
-                    if (dz::Element* z = designDoc_.find(eid)) z->font = narrow(v).substr(0, 64);
+                pickFont(x->font, true, [this, eid](const std::string& f) {
+                    if (dz::Element* z = designDoc_.find(eid)) z->font = f.substr(0, 64);
                     designChanged();
                 });
             });
@@ -1017,9 +1095,8 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             button("dz:p:font", {r.x + 112 + (bw + 8) * 2, y - 2, bw, 30}, L"Font", [this, eid] {
                 const dz::Element* x = designDoc_.find(eid);
                 if (!x) return;
-                askText(L"The font's name, as Windows lists it", widen(x->font), [this, eid](const std::wstring& v) {
-                    if (v.empty()) return;
-                    if (dz::Element* z = designDoc_.find(eid)) z->font = narrow(v).substr(0, 64);
+                pickFont(x->font, true, [this, eid](const std::string& f) {
+                    if (dz::Element* z = designDoc_.find(eid)) z->font = f.substr(0, 64);
                     designChanged();
                 });
             });
@@ -1033,7 +1110,17 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         y += 36;
     }
     if (e->kind == dz::Kind::Image) {
-        button("dz:p:file", {r.x, y, r.w - 120, 30}, L"Another picture…", [this, edit] {
+        button("dz:p:file", {r.x, y, r.w - 120, 30}, e->file == dz::kBrandLogo ? L"Brand logo" : L"Another picture…", [this, edit, eid] {
+            const dz::Element* x = designDoc_.find(eid);
+            if (!x) return;
+            const bool hasLogo = !video::designBrand().logo.empty();
+            std::vector<MenuItem> items = {MenuItem::item(L"A picture file…", 1),
+                                           MenuItem::item(L"Your brand logo", 2, hasLogo ? L"" : L"set it under Brand kit…", true, x->file == dz::kBrandLogo)};
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (cmd == 2) edit([](dz::Element& z) { z.file = dz::kBrandLogo; });
+            if (cmd != 1) return;
             std::wstring path;
             if (!pickImageFile(path)) return;
             const std::string f = narrow(path);

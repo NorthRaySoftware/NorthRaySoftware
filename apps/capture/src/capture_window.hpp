@@ -161,6 +161,10 @@ private:
     bool designerMouseUp();
     bool designerKey(WPARAM vk, bool ctrl, bool shift);
     void loadProfile();
+    void loadBrand();
+    void saveBrand(const design::Brand& b);
+    void editBrand();
+    void pickFont(const std::string& now, bool offerBrand, std::function<void(const std::string&)> done);
     void editProfile();
     bool pickImageFile(std::wstring& path);
     // Settings › Plugins (capture_plugins.cpp).

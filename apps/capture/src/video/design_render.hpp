@@ -36,6 +36,15 @@ bool savePng(const std::wstring& path, const DesignPicture& p);
 
 // The values every design's placeholders are filled from (set by the window from Settings; any thread).
 void setDesignValues(const Placeholders& values);
-Placeholders designValues(unsigned* version = nullptr);
+Placeholders designValues(unsigned* version = nullptr);   // the version also changes with the brand kit
+
+// The brand kit every design is drawn with (set by the window; any thread).
+void setDesignBrand(const design::Brand& b);
+design::Brand designBrand();
+// The font families designs can use (Windows' and the kit's font files), sorted; `error` says if some
+// font files couldn't be used.
+std::vector<std::wstring> brandFontFamilies(std::wstring& error);
+// The family names in one font file (empty if it isn't a font Windows can read).
+std::vector<std::wstring> fontFileFamilies(const std::wstring& file);
 
 }  // namespace ncap::video

@@ -31,10 +31,17 @@ Rgba colourFrom(const json& j, Rgba def) {
 
 json fillJson(const Fill& f) {
     json j = {{"type", f.type == Fill::None ? "none" : f.type == Fill::Solid ? "solid" : f.type == Fill::Linear ? "linear" : "radial"}};
-    if (f.type == Fill::Solid) j["colour"] = colourJson(f.colour);
+    if (f.type == Fill::Solid) {
+        j["colour"] = colourJson(f.colour);
+        if (!f.brand.empty()) j["brand"] = f.brand;
+    }
     if (f.type == Fill::Linear || f.type == Fill::Radial) {
         json s = json::array();
-        for (auto& st : f.stops) s.push_back({{"at", st.at}, {"colour", colourJson(st.colour)}});
+        for (auto& st : f.stops) {
+            json o = {{"at", st.at}, {"colour", colourJson(st.colour)}};
+            if (!st.brand.empty()) o["brand"] = st.brand;
+            s.push_back(o);
+        }
         j["stops"] = s;
         j["angle"] = f.angle;
     }
@@ -45,7 +52,14 @@ Fill fillFrom(const json& j, const Fill& def) {
     if (!j.is_object()) return def;
     const std::string t = j.value("type", std::string());
     if (t == "none") return Fill::none();
-    if (t == "solid") return Fill::solid(colourFrom(j.contains("colour") ? j["colour"] : json(), def.colour));
+    auto brandOf = [](const json& o) {
+        return o.contains("brand") && o["brand"].is_string() ? o["brand"].get<std::string>().substr(0, 16) : std::string();
+    };
+    if (t == "solid") {
+        Fill f = Fill::solid(colourFrom(j.contains("colour") ? j["colour"] : json(), def.colour));
+        f.brand = brandOf(j);
+        return f;
+    }
     if (t == "linear" || t == "radial") {
         std::vector<Stop> stops;
         if (j.contains("stops") && j["stops"].is_array())
@@ -54,6 +68,7 @@ Fill fillFrom(const json& j, const Fill& def) {
                 Stop st;
                 st.at = s.contains("at") && s["at"].is_number() ? clampf(s["at"].get<float>(), 0, 1) : 0;
                 st.colour = colourFrom(s.contains("colour") ? s["colour"] : json(), {255, 255, 255, 255});
+                st.brand = brandOf(s);
                 stops.push_back(st);
             }
         if (stops.size() < 2) return def;
@@ -172,6 +187,8 @@ std::string toJson(const Document& d) {
                   {"shadow", {{"on", e.shadow.on}, {"dx", e.shadow.dx}, {"dy", e.shadow.dy}, {"blur", e.shadow.blur}, {"colour", colourJson(e.shadow.colour)}}},
                   {"anim", key(e.anim)},
                   {"animMs", e.animMs}};
+        if (!e.strokeBrand.empty()) j["strokeBrand"] = e.strokeBrand;
+        if (!e.shadow.brand.empty()) j["shadow"]["brand"] = e.shadow.brand;
         if (e.kind == Kind::Timer) {
             j["timer"] = {{"mode", e.timerMode}, {"seconds", e.timerSeconds}, {"until", e.timerUntil}, {"end", e.timerEnd},
                           {"date", e.timerDate}, {"pulse", e.timerPulse}, {"scene", e.timerScene}};
@@ -233,6 +250,7 @@ Document fromJson(const std::string& text) {
             e.fill = fillFrom(o.contains("fill") ? o["fill"] : json(), e.kind == Kind::Image ? Fill::none() : Fill::solid({255, 255, 255, 255}));
             e.stroke = colourFrom(o.contains("stroke") ? o["stroke"] : json(), {0, 0, 0, 0});
             e.strokeWidth = num(o, "strokeWidth", 0, 0, 200);
+            e.strokeBrand = str(o, "strokeBrand", "", 16);
             e.radius = num(o, "radius", 0, 0, 10000);
             if (o.contains("shadow") && o["shadow"].is_object()) {
                 const json& s = o["shadow"];
@@ -241,6 +259,7 @@ Document fromJson(const std::string& text) {
                 e.shadow.dy = num(s, "dy", 6, -200, 200);
                 e.shadow.blur = num(s, "blur", 12, 0, 100);
                 e.shadow.colour = colourFrom(s.contains("colour") ? s["colour"] : json(), {0, 0, 0, 140});
+                e.shadow.brand = str(s, "brand", "", 16);
             }
             parse(str(o, "anim", "none", 16), e.anim);
             e.animMs = (int)num(o, "animMs", 500, 0, 5000);
@@ -734,6 +753,29 @@ const std::vector<Template>& templates() {
             d.name = "Offline banner";
             v.push_back({"offline-banner", "Offline banner (1920 × 1080)", "Panels", d});
         }
+        {
+            Document d;
+            d.name = "Logo watermark";
+            d.width = 400;
+            d.height = 400;
+            Element e;
+            e.kind = Kind::Image;
+            e.name = "Logo";
+            e.x = 0, e.y = 0, e.w = 400, e.h = 400;
+            e.file = kBrandLogo;
+            e.cover = false;
+            e.fill = Fill::none();
+            e.opacity = 0.6f;
+            add(d, e);
+            v.push_back({"logo-watermark", "Logo watermark (your brand logo)", "On stream", d});
+        }
+        // Keep each group together (the watermark was added last).
+        std::stable_sort(v.begin(), v.end(), [](const Template& x, const Template& y) {
+            auto rank = [](const char* g) { return std::string(g) == "Holding screens" ? 0 : std::string(g) == "On stream" ? 1 : 2; };
+            return rank(x.group) < rank(y.group);
+        });
+        const Brand b = defaultBrand();
+        for (auto& x : v) linkToBrand(x.doc, b);
         return v;
     }();
     return t;
@@ -752,6 +794,124 @@ std::vector<std::vector<bool>> qrModules(const std::string& text) {
         m.clear();
     }
     return m;
+}
+
+
+// ------------------------------------------------------------------ brand kit
+
+const std::vector<std::string>& brandKeys() {
+    static const std::vector<std::string> k = {"primary", "secondary", "text", "soft", "panel", "night"};
+    return k;
+}
+
+Brand defaultBrand() {
+    Brand b;
+    b.colours = {{"primary", "Main colour", hex("#3FCF8E")}, {"secondary", "Second colour", hex("#7A5CFF")},
+                 {"text", "Text", hex("#F4F7FB")},          {"soft", "Soft text", hex("#9FB3C8")},
+                 {"panel", "Panels", hex("#0B1A2E")},       {"night", "Background", hex("#060B17")}};
+    return b;
+}
+
+std::string toJson(const Brand& b) {
+    json c = json::object();
+    for (auto& x : b.colours) c[x.key] = colourText(x.colour);
+    json f = json::array();
+    for (auto& x : b.fontFiles) f.push_back(x);
+    return json{{"format", "northray-brand"}, {"version", 1}, {"colours", c}, {"headingFont", b.headingFont},
+                {"bodyFont", b.bodyFont}, {"fontFiles", f}, {"logo", b.logo}}
+        .dump(2);
+}
+
+Brand brandFromJson(const std::string& text) {
+    Brand b = defaultBrand();
+    const json j = json::parse(text, nullptr, false);
+    if (!j.is_object()) return b;
+    if (j.contains("colours") && j["colours"].is_object())
+        for (auto& x : b.colours) {
+            Rgba c;
+            if (j["colours"].contains(x.key) && j["colours"][x.key].is_string() && parseColour(j["colours"][x.key].get<std::string>(), c)) {
+                c.a = 255;   // brand colours are solid; designs choose how see-through
+                x.colour = c;
+            }
+        }
+    auto font = [&](const char* k, std::string& out) {
+        if (j.contains(k) && j[k].is_string()) {
+            const std::string v = j[k].get<std::string>().substr(0, 64);
+            if (!v.empty() && v.rfind("brand:", 0) != 0) out = v;
+        }
+    };
+    font("headingFont", b.headingFont);
+    font("bodyFont", b.bodyFont);
+    if (j.contains("fontFiles") && j["fontFiles"].is_array())
+        for (auto& x : j["fontFiles"])
+            if (x.is_string() && b.fontFiles.size() < 16 && !x.get<std::string>().empty() && x.get<std::string>().size() <= 1024)
+                b.fontFiles.push_back(x.get<std::string>());
+    if (j.contains("logo") && j["logo"].is_string() && j["logo"].get<std::string>().size() <= 1024) b.logo = j["logo"].get<std::string>();
+    return b;
+}
+
+const BrandColour* brandColour(const Brand& b, const std::string& key) {
+    for (auto& x : b.colours)
+        if (x.key == key) return &x;
+    return nullptr;
+}
+
+namespace {
+// Every linkable colour in a design: (the colour, its link).
+template <class D, class F>
+void eachColour(D& d, F f) {
+    auto fill = [&](auto& fl) {
+        if (fl.type == Fill::Solid) f(fl.colour, fl.brand);
+        if (fl.type == Fill::Linear || fl.type == Fill::Radial)
+            for (auto& st : fl.stops) f(st.colour, st.brand);
+    };
+    fill(d.background);
+    for (auto& e : d.elements) {
+        fill(e.fill);
+        f(e.stroke, e.strokeBrand);
+        f(e.shadow.colour, e.shadow.brand);
+    }
+}
+}  // namespace
+
+Document applyBrand(const Document& d, const Brand& b) {
+    Document out = d;
+    eachColour(out, [&](Rgba& c, std::string& link) {
+        if (link.empty()) return;
+        if (const BrandColour* x = brandColour(b, link)) c = {x->colour.r, x->colour.g, x->colour.b, c.a};
+    });
+    for (auto& e : out.elements) {
+        if (e.font == kBrandHeading) e.font = b.headingFont;
+        else if (e.font == kBrandBody) e.font = b.bodyFont;
+        if (e.file == kBrandLogo) e.file = b.logo;
+    }
+    return out;
+}
+
+void linkToBrand(Document& d, const Brand& b) {
+    eachColour(d, [&](Rgba& c, std::string& link) {
+        if (!link.empty() || c.a == 0) return;
+        for (auto& x : b.colours)
+            if (x.colour.r == c.r && x.colour.g == c.g && x.colour.b == c.b) {
+                link = x.key;
+                return;
+            }
+    });
+    for (auto& e : d.elements)
+        if ((e.kind == Kind::Text || e.kind == Kind::Timer) && e.font == "Segoe UI") e.font = e.bold ? kBrandHeading : kBrandBody;
+}
+
+bool usesBrand(const Document& d) {
+    bool any = false;
+    eachColour(d, [&](const Rgba&, const std::string& link) { any = any || !link.empty(); });
+    for (auto& e : d.elements) any = any || e.font == kBrandHeading || e.font == kBrandBody || e.file == kBrandLogo;
+    return any;
+}
+
+Document unlinkBrand(const Document& d, const Brand& b) {
+    Document out = applyBrand(d, b);
+    eachColour(out, [](Rgba&, std::string& link) { link.clear(); });
+    return out;
 }
 
 }  // namespace ncap::design

@@ -16,6 +16,7 @@
     "A camera border maker: rounded corners or a circle, a plain or gradient ring and a glow or shadow on any source, edited live, and saved as a PNG overlay if you want",
     "An overlay designer: text, shapes and pictures with gradients, outlines, shadows and entrance animations, snapping guides and layers, ready-made Starting Soon, Be Right Back, Ending, lower third, facecam frame and panel templates in the NorthRay look, and PNG export",
     "Timers in designs (countdowns to a time or for a length, stopwatch, time live, clock) that can switch scenes at zero, QR codes from your links, and built-in icons",
+    "A brand kit: your colours, heading and body fonts (including font files that aren't installed) and logo; designs and templates that use it change when it does",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -40,7 +41,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

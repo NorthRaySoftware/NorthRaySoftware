@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.2",
+      "date": "2026-11-15",
+      "notes": [
+        "A brand kit for your overlays: six colours, a heading and a body font, font files from your library (used without installing them) and your logo, under Brand kit… in the designer.",
+        "Every template follows the brand kit, so changing your main colour or heading font restyles them all at once; a new Logo watermark template shows your logo.",
+        "Brand colours come first in every colour menu, with brand gradients; any design can follow the kit or stop following it (keeping how it looks)."
+      ]
+    },
+    {
       "version": "0.10.1",
       "date": "2026-11-15",
       "notes": [

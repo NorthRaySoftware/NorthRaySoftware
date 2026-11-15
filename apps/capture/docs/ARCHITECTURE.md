@@ -910,3 +910,37 @@ ahead of the brief's milestone order.
   social-platform logos: they need the platforms' own brand files and rules. A timer that pulses redraws its whole
   design about 30 times a second for ten seconds (fine on a PC, slow under Wine).
 
+
+## 26. Milestone 10, part 3: the brand kit (status: built, 15 Nov 2026; released as 0.10.2)
+
+CJ asked for a brand kit (colours, fonts including font files from the library, a logo/watermark) before the rest of
+Milestone 10's extras, so templates and every design can follow one look.
+
+**Built**
+- core/design: `Brand` (six colours with keys primary, secondary, text, soft, panel, night; a heading and a body font;
+  up to sixteen font files; a logo), saved as JSON (bad or missing parts take the NorthRay defaults; brand colours are
+  always solid). Designs link to it: a solid fill, a gradient stop, an outline or a shadow can name a brand colour
+  (`brand` / `strokeBrand` in the design's JSON), a text's font can be `brand:heading` or `brand:body`, a picture's
+  file `brand:logo`. `applyBrand` gives the design with the kit's values (a linked colour takes the kit's red, green
+  and blue and keeps its own see-through amount, so soft glows stay soft); `linkToBrand` links what matches the kit
+  (colours with the same red, green and blue; Segoe UI text, bold to the heading font); `unlinkBrand` freezes how it
+  looks now; `usesBrand`.
+- Every template is linked to the default kit, so a new kit restyles them; a new "Logo watermark" template shows the
+  kit's logo (60% opacity). New text, timers, rectangles, ellipses and icons start on brand colours and fonts.
+- The kit is kept in %LOCALAPPDATA%\NorthRay\brand.json. Font files and the logo are copied into
+  %LOCALAPPDATA%\NorthRay\Brand (Fonts, Logo) so the kit keeps working when the originals move.
+- Drawing (video/design_render): every design is drawn through `applyBrand` with the window's kit; a change of kit
+  redraws every Design source (it counts as a change of details). Font files are used without installing them:
+  DirectWrite font sets (IDWriteFactory5, Windows 10 1703 and later) join the system's fonts and the kit's files into
+  one collection, made once per list of files. Where that isn't available the kit says so and the system's fonts are
+  used. A picture with no file (no logo yet) draws nothing on stream and a placeholder in the designer.
+- Designer: Brand kit... (colours by #RRGGBB, back to the NorthRay colours, heading and body fonts, add or remove font
+  files with the families each holds, the logo). Every colour menu lists the brand colours first; the fill menu has
+  brand gradients (main to second, panels to background, main fading out); the font menu offers the brand heading and
+  body fonts, the kit's font families, common Windows fonts or any installed font by name (checked against what
+  Windows and the kit have); pictures can be "Your brand logo". Page... has a brand-colour background, "Follow the
+  brand kit" and "Stop following the brand kit". Linked colours and fonts are named as "Brand: ..." in the properties.
+
+**Not built / limits**
+- Stingers (transition videos) in the kit: they come with the transitions work. Official social-platform logos: they
+  need each platform's brand files and rules. Text sources (not designs) don't follow the kit yet.

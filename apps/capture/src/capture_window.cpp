@@ -114,7 +114,8 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     applyTheme();
     loadScenes();
     startEngine();
-    loadProfile();                           // {name}, {twitch}... for overlay designs
+    loadProfile();
+    loadBrand();                           // {name}, {twitch}... for overlay designs
     PluginHost::get().init(stateFolder_);   // before the audio: chains with plugins need them loaded
     startAudio();
     for (auto& m : PluginHost::get().takeMessages()) {

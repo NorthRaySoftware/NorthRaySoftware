@@ -19,6 +19,7 @@ using sourceutil::Rgba;
 struct Stop {
     float at = 0;   // 0..1 along the gradient
     Rgba colour;
+    std::string brand;   // linked to a brand colour (its key), or 
     bool operator==(const Stop&) const = default;
 };
 
@@ -27,6 +28,7 @@ struct Fill {
     Rgba colour{255, 255, 255, 255};   // Solid
     std::vector<Stop> stops;           // Linear and Radial: two or more, in order (Radial: centre to edge)
     float angle = 0;                   // Linear: degrees clockwise from left-to-right
+    std::string brand;                 // Solid: linked to a brand colour (its key), or ""
     bool operator==(const Fill&) const = default;
     static Fill solid(Rgba c);
     static Fill linear(std::vector<Stop> s, float angle);
@@ -40,6 +42,7 @@ struct Shadow {
     bool on = false;
     float dx = 0, dy = 6, blur = 12;   // pixels
     Rgba colour{0, 0, 0, 140};
+    std::string brand;   // linked to a brand colour, or ""
     bool operator==(const Shadow&) const = default;
 };
 
@@ -63,6 +66,7 @@ struct Element {
     bool visible = true, locked = false;
     Fill fill;                               // shapes: the inside; text: the letters
     Rgba stroke{0, 0, 0, 0};                 // outline (alpha 0: none)
+    std::string strokeBrand;                 // the outline linked to a brand colour, or ""
     float strokeWidth = 0;
     float radius = 0;                        // rectangles' corners; pictures' corners
     Shadow shadow;
@@ -100,6 +104,40 @@ struct Document {
     Element* find(const std::string& id);
     int indexOf(const std::string& id) const;   // -1 if absent
 };
+
+// The brand kit: colours, fonts and a logo kept in one place (shared by the NorthRay apps in
+// %LOCALAPPDATA%\NorthRay\brand.json). Designs link to it: a fill, gradient stop, outline or shadow can
+// name a brand colour (by key), a text's font can be "brand:heading" or "brand:body", and a picture's
+// file "brand:logo". Changing the kit changes every linked design. Linked colours keep their own
+// see-through amount and take the brand colour's red, green and blue.
+struct BrandColour {
+    std::string key, name;
+    Rgba colour;
+    bool operator==(const BrandColour&) const = default;
+};
+struct Brand {
+    std::vector<BrandColour> colours;          // always brandKeys(), in order
+    std::string headingFont = "Segoe UI", bodyFont = "Segoe UI";
+    std::vector<std::string> fontFiles;        // font files (.ttf, .otf) the designs can use, up to 16
+    std::string logo;                          // a picture
+    bool operator==(const Brand&) const = default;
+};
+const std::vector<std::string>& brandKeys();   // primary, secondary, text, soft, panel, night
+Brand defaultBrand();                           // the NorthRay aurora colours and Segoe UI
+std::string toJson(const Brand& b);
+Brand brandFromJson(const std::string& json);   // missing or bad parts take the defaults
+const BrandColour* brandColour(const Brand& b, const std::string& key);
+constexpr const char* kBrandHeading = "brand:heading";
+constexpr const char* kBrandBody = "brand:body";
+constexpr const char* kBrandLogo = "brand:logo";
+// A copy of the design with every link replaced by the kit's value (unknown keys are left as stored).
+Document applyBrand(const Document& d, const Brand& b);
+// Links what matches the kit: colours with a brand colour's red, green and blue, and Segoe UI text
+// (bold to the heading font, the rest to the body font). The templates are linked this way.
+void linkToBrand(Document& d, const Brand& b);
+bool usesBrand(const Document& d);
+// Removes every link, keeping what's shown now (for a design that should stop following the kit).
+Document unlinkBrand(const Document& d, const Brand& b);
 
 std::string toJson(const Document& d);
 Document fromJson(const std::string& json);   // bad parts dropped, values clamped (up to 200 elements)

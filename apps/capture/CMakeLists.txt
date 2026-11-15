@@ -47,7 +47,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/capture_studio.cpp
   src/capture_made.cpp
-  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/audio/plugin_host.cpp
+  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
   src/output/credentials.cpp
   src/output/destination.cpp
