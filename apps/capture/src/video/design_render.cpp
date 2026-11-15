@@ -176,6 +176,59 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
             if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F(e.x, e.y), lay.Get(), fill.Get());
             break;
         }
+        case Kind::Chat: {
+            // The newest messages at the bottom, older ones above until the box is full; each on its own
+            // rounded card (optional), the name in the viewer's colour.
+            std::vector<chat::Message> all = designChat();
+            const std::int64_t now = (std::int64_t)GetTickCount64();
+            if (all.empty() && showMissing) all = chat::samples(now);   // the designer: something to see
+            const auto msgs = chat::recent(all, (std::size_t)std::max(1, e.chatCount), e.chatFade, now);
+            const float pad = e.chatBubbles ? e.size * 0.45f : 0, padY = e.chatBubbles ? e.size * 0.3f : 0, gap = e.size * 0.3f;
+            const float radius = e.size * 0.55f;
+            ComPtr<ID2D1SolidColorBrush> card;
+            if (e.chatBubbles && e.chatBubble.a) rt->CreateSolidColorBrush(shadowPass ? D2D1::ColorF(0, 0, 0, alpha) : col(e.chatBubble, alpha), &card);
+            const Brand brand = designBrand();
+            const BrandColour* main = brandColour(brand, "primary");
+            rt->PushAxisAlignedClip(box, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            float bottom = e.y + e.h;
+            for (auto it = msgs.rbegin(); it != msgs.rend(); ++it) {
+                const std::wstring name = widen(it->name), body = widen(it->text);
+                const std::wstring t = name + (it->action ? L" " : L": ") + body;
+                Element lay = e;
+                lay.w = std::max(10.f, e.w - 2 * pad);
+                lay.h = 100000;
+                ComPtr<IDWriteTextLayout> L = layoutFor(c, lay, t);
+                if (!L) break;
+                // The name: bold, in the viewer's colour (made lighter if it would be hard to read).
+                Rgba nc = e.chatNameColours ? (it->colour.a ? it->colour : chat::defaultColour(it->login)) : (main ? main->colour : Rgba{63, 207, 142, 255});
+                const float lum = (0.2126f * nc.r + 0.7152f * nc.g + 0.0722f * nc.b) / 255.f;
+                if (lum < 0.45f) nc = {(std::uint8_t)(nc.r + (255 - nc.r) * 0.45f), (std::uint8_t)(nc.g + (255 - nc.g) * 0.45f), (std::uint8_t)(nc.b + (255 - nc.b) * 0.45f), 255};
+                ComPtr<ID2D1SolidColorBrush> nb;
+                rt->CreateSolidColorBrush(shadowPass ? D2D1::ColorF(0, 0, 0, alpha) : col(nc, alpha), &nb);
+                const DWRITE_TEXT_RANGE nameRange{0, (UINT32)(it->action ? t.size() : name.size())};
+                L->SetDrawingEffect(nb.Get(), nameRange);
+                L->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_RANGE{0, (UINT32)name.size()});
+                if (it->action) L->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, DWRITE_TEXT_RANGE{0, (UINT32)t.size()});
+                DWRITE_TEXT_METRICS m{};
+                L->GetMetrics(&m);
+                const float h = m.height + 2 * padY;
+                const float top = bottom - h;
+                if (top < e.y && it != msgs.rbegin()) break;   // no room for this one (the newest always shows)
+                if (card) {
+                    float left = e.x, right = e.x + std::min(e.w, m.widthIncludingTrailingWhitespace + 2 * pad + 1);
+                    if (e.align == "right") left = e.x + e.w - (right - e.x), right = e.x + e.w;
+                    else if (e.align == "centre") {
+                        const float wd = right - e.x;
+                        left = e.x + (e.w - wd) / 2, right = left + wd;
+                    }
+                    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, top, right, bottom), radius, radius), card.Get());
+                }
+                if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F(e.x + pad, top + padY), L.Get(), fill.Get());
+                bottom = top - gap;
+            }
+            rt->PopAxisAlignedClip();
+            break;
+        }
         case Kind::Qr: {
             // Dark squares on a light square with a quiet border (fill: the light; outline colour: the dark).
             const auto m = qrModules(fillPlaceholders(e.qr, values, false));
@@ -282,6 +335,7 @@ std::atomic<ULONGLONG> gLiveAt{0};
 Placeholders gValues;
 unsigned gValuesVersion = 1;
 Brand gBrand = defaultBrand();
+std::vector<chat::Message> gChat;
 
 // The brand kit's font files with the system's fonts, made once per list of files (DirectWrite's font
 // sets: Windows 10 1703 and later).
@@ -329,6 +383,17 @@ void setDesignBrand(const Brand& b) {
     if (b == gBrand) return;
     gBrand = b;
     ++gValuesVersion;
+}
+
+void setDesignChat(std::vector<chat::Message> m) {
+    std::lock_guard<std::mutex> l(gValuesM);
+    gChat = std::move(m);
+    ++gValuesVersion;
+}
+
+std::vector<chat::Message> designChat() {
+    std::lock_guard<std::mutex> l(gValuesM);
+    return gChat;
 }
 
 Brand designBrand() {

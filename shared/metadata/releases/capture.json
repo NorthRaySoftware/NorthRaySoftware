@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.3",
+      "date": "2026-11-15",
+      "notes": [
+        "Live Twitch chat in overlay designs: add a Chat element (or the Chat box template) and it shows your channel's chat as it happens, on cards in your brand colours with each viewer's name colour.",
+        "Read-only and without signing in: Capture reads chat the way Twitch lets anyone watch it, and never posts. Deleted messages, timeouts and bans disappear from the overlay too.",
+        "Choose how many messages show, whether they fade after a while, the cards' colour and the name colours. Emotes show as their names for now."
+      ]
+    },
+    {
       "version": "0.10.2",
       "date": "2026-11-15",
       "notes": [

@@ -699,6 +699,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         recordTick();
         streamTick();
         timerTick();
+        chatTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {

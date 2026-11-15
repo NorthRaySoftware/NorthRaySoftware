@@ -20,6 +20,7 @@
 #include "video/engine.hpp"
 #include "output/recorder.hpp"
 #include "output/streamer.hpp"
+#include "output/twitch_chat.hpp"
 
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
@@ -253,6 +254,9 @@ private:
     Id enteredScene_;
     std::map<Id, ULONGLONG> designEntered_;   // when each design's scene last went live
     std::set<std::string> timersFired_;       // countdowns that already switched scene (source, element, start)
+    void chatTick();                          // joins Twitch chat while a design shows it
+    std::wstring chatStatusText() const;
+    output::TwitchChat chat_;
     void timerTick();                         // countdowns reaching zero switch scenes                         // the program scene whose designs last played their entrances
     Id designFor_;                            // the design source the designer has open
     design::Document designDoc_;

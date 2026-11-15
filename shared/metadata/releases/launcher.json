@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.63.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.3: live Twitch chat in overlay designs (read-only, no sign-in)."
+      ]
+    },
+    {
       "version": "0.62.0",
       "date": "2026-11-15",
       "notes": [

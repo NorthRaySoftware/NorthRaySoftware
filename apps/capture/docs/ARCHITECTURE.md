@@ -944,3 +944,34 @@ Milestone 10's extras, so templates and every design can follow one look.
 **Not built / limits**
 - Stingers (transition videos) in the kit: they come with the transitions work. Official social-platform logos: they
   need each platform's brand files and rules. Text sources (not designs) don't follow the kit yet.
+
+## 27. Milestone 10, part 4: live Twitch chat in designs (status: built, 15 Nov 2026; released as 0.10.3)
+
+CJ asked for a Twitch chat overlay that's read-only and needs no sign-in.
+
+**Built**
+- core/chat: IRC lines with IRCv3 tags (unescaped), turned into events: chat messages (display name, colour, badges,
+  /me actions, ids), PING, RECONNECT, joins, notices, CLEARCHAT (a timeout or ban: that user's messages go; with no
+  user: everything), CLEARMSG (one deleted message). `Log` keeps the last 100 and applies deletions; `recent` picks
+  the newest few and drops faded ones; `channelFrom` reads a Twitch name from a name, @name or twitch.tv link;
+  `loginLines` is the anonymous login ("justinfan" plus a number, Twitch's documented read-only login); sample
+  messages (all named "Sample...") for the designer.
+- output/twitch_chat: a WinHTTP WebSocket to wss://irc-ws.chat.twitch.tv on its own thread. It sends only the
+  login, the JOIN and PONGs. It reconnects after 2 s, doubling to a minute, and when Twitch asks it to (RECONNECT).
+  Stopping closes the socket to end a waiting read. Messages go to the renderer (video::setDesignChat), which
+  redraws every design. NORTHRAY_CHAT_TEST_URL points it at a local test server (used for NorthRay's own tests;
+  this build machine can't reach Twitch).
+- It runs only when needed: each second the window checks for a design with a chat element (in the collection, or
+  open in the designer) and a Twitch name under Your details; otherwise it disconnects.
+- Design element `chat`: the newest messages at the bottom and older ones above until the box is full (the newest
+  always shows), each on a rounded card (optional; the colour is linked to the brand's panel colour), the name in bold
+  in the viewer's colour (Twitch's default colours for names with none; dark colours lightened so they read on dark
+  cards) or the brand's main colour, /me messages in italics. The element's font, size, fill and alignment style the
+  text. Messages can fade after a number of seconds. A "Chat box" template (600 x 700).
+- Designer: Chat add button, the connection's state in words, messages, fade, cards and their colour, name colours.
+
+**Not built / limits**
+- Emotes show as their names (drawing them needs Twitch's emote images: a later step); badges aren't drawn.
+- Only Twitch. YouTube and Kick chat need their own connections (YouTube's needs an API key or sign-in).
+- A chat dock panel (reading chat inside Capture) comes next.
+- Tested against a local stand-in server speaking Twitch's chat protocol, not against Twitch itself.

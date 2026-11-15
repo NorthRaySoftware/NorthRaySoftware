@@ -18,7 +18,7 @@ using sourceutil::parseColour;
 
 namespace {
 constexpr float kPi = 3.14159265358979f;
-const char* kKinds[] = {"text", "rect", "ellipse", "image", "timer", "qr", "icon"};
+const char* kKinds[] = {"text", "rect", "ellipse", "image", "timer", "qr", "icon", "chat"};
 const char* kAnims[] = {"none", "fade", "slide-left", "slide-right", "slide-up", "slide-down", "pop", "wipe"};
 float clampf(float v, float a, float b) { return std::isfinite(v) ? std::clamp(v, a, b) : a; }
 std::uint8_t mix8(std::uint8_t a, std::uint8_t b, float t) { return (std::uint8_t)std::lround(a + (b - a) * t); }
@@ -133,7 +133,7 @@ Rgba colourAt(const Fill& f, float t) {
 
 const char* key(Kind k) { return kKinds[(int)k]; }
 bool parse(const std::string& s, Kind& out) {
-    for (int i = 0; i < 7; ++i)
+    for (int i = 0; i < 8; ++i)
         if (s == kKinds[i]) {
             out = (Kind)i;
             return true;
@@ -195,7 +195,11 @@ std::string toJson(const Document& d) {
         }
         if (e.kind == Kind::Qr) j["qr"] = e.qr;
         if (e.kind == Kind::Icon) j["icon"] = e.icon;
-        if (e.kind == Kind::Text || e.kind == Kind::Timer) {
+        if (e.kind == Kind::Chat) {
+            j["chat"] = {{"count", e.chatCount}, {"fade", e.chatFade}, {"bubbles", e.chatBubbles}, {"bubble", colourJson(e.chatBubble)},
+                         {"bubbleBrand", e.chatBubbleBrand}, {"nameColours", e.chatNameColours}};
+        }
+        if (e.kind == Kind::Text || e.kind == Kind::Timer || e.kind == Kind::Chat) {
             j["text"] = e.text;
             j["font"] = e.font;
             j["size"] = e.size;
@@ -285,6 +289,15 @@ Document fromJson(const std::string& text) {
                 e.timerPulse = flag(t, "pulse", true);
                 e.timerScene = str(t, "scene", "", 64);
             }
+            if (o.contains("chat") && o["chat"].is_object()) {
+                const json& c = o["chat"];
+                e.chatCount = (int)num(c, "count", 8, 1, 30);
+                e.chatFade = (int)num(c, "fade", 0, 0, 3600);
+                e.chatBubbles = flag(c, "bubbles", true);
+                e.chatBubble = colourFrom(c.contains("bubble") ? c["bubble"] : json(), {11, 26, 46, 210});
+                e.chatBubbleBrand = str(c, "bubbleBrand", "panel", 16);
+                e.chatNameColours = flag(c, "nameColours", true);
+            }
             e.cover = flag(o, "cover", true);
             d.elements.push_back(e);
         }
@@ -297,7 +310,7 @@ std::string add(Document& d, Element e) {
     e.id = "e" + std::to_string(d.nextId++);
     while (d.find(e.id)) e.id = "e" + std::to_string(d.nextId++);
     if (e.name.empty()) {
-        static const char* names[] = {"Text", "Rectangle", "Ellipse", "Picture", "Timer", "QR code", "Icon"};
+        static const char* names[] = {"Text", "Rectangle", "Ellipse", "Picture", "Timer", "QR code", "Icon", "Chat"};
         e.name = names[(int)e.kind];
     }
     d.elements.push_back(e);
@@ -538,7 +551,13 @@ TimerShown timerText(const Element& e, const Clock& c) {
 
 bool usesTime(const Document& d) {
     for (auto& e : d.elements)
-        if (e.visible && e.kind == Kind::Timer) return true;
+        if (e.visible && (e.kind == Kind::Timer || (e.kind == Kind::Chat && e.chatFade > 0))) return true;
+    return false;
+}
+
+bool usesChat(const Document& d) {
+    for (auto& e : d.elements)
+        if (e.visible && e.kind == Kind::Chat) return true;
     return false;
 }
 
@@ -769,6 +788,21 @@ const std::vector<Template>& templates() {
             add(d, e);
             v.push_back({"logo-watermark", "Logo watermark (your brand logo)", "On stream", d});
         }
+        {
+            Document d;
+            d.name = "Chat box";
+            d.width = 600;
+            d.height = 700;
+            Element e;
+            e.kind = Kind::Chat;
+            e.name = "Chat";
+            e.x = 0, e.y = 0, e.w = 600, e.h = 700;
+            e.fill = Fill::solid(hex("#F4F7FB"));
+            e.size = 28;
+            e.chatCount = 8;
+            add(d, e);
+            v.push_back({"chat-box", "Chat box (your Twitch chat, live)", "On stream", d});
+        }
         // Keep each group together (the watermark was added last).
         std::stable_sort(v.begin(), v.end(), [](const Template& x, const Template& y) {
             auto rank = [](const char* g) { return std::string(g) == "Holding screens" ? 0 : std::string(g) == "On stream" ? 1 : 2; };
@@ -870,6 +904,7 @@ void eachColour(D& d, F f) {
         fill(e.fill);
         f(e.stroke, e.strokeBrand);
         f(e.shadow.colour, e.shadow.brand);
+        if (e.kind == Kind::Chat) f(e.chatBubble, e.chatBubbleBrand);
     }
 }
 }  // namespace
@@ -898,7 +933,7 @@ void linkToBrand(Document& d, const Brand& b) {
             }
     });
     for (auto& e : d.elements)
-        if ((e.kind == Kind::Text || e.kind == Kind::Timer) && e.font == "Segoe UI") e.font = e.bold ? kBrandHeading : kBrandBody;
+        if ((e.kind == Kind::Text || e.kind == Kind::Timer || e.kind == Kind::Chat) && e.font == "Segoe UI") e.font = e.bold ? kBrandHeading : kBrandBody;
 }
 
 bool usesBrand(const Document& d) {

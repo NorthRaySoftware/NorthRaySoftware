@@ -48,7 +48,7 @@ struct Shadow {
 
 // Timer, Qr and Icon draw like text or shapes: a timer is text that counts, a QR code is squares from a
 // link, an icon is one of the built-in drawings (icons()).
-enum class Kind { Text, Rect, Ellipse, Image, Timer, Qr, Icon };
+enum class Kind { Text, Rect, Ellipse, Image, Timer, Qr, Icon, Chat };
 const char* key(Kind k);
 bool parse(const std::string& s, Kind& out);
 
@@ -88,6 +88,13 @@ struct Element {
     std::string timerScene;                  // at zero, switch to this scene (its id), if set
     // QR code: its text or link. Icon: its name.
     std::string qr, icon;
+    // Chat (live Twitch chat; the text look is the element's font, size and fill).
+    int chatCount = 8;                       // messages shown at most
+    int chatFade = 0;                        // seconds a message stays (0: until pushed out)
+    bool chatBubbles = true;                 // each message on a rounded card
+    Rgba chatBubble{11, 26, 46, 210};        // the cards' colour
+    std::string chatBubbleBrand = "panel";   // the cards linked to a brand colour, or ""
+    bool chatNameColours = true;             // names in each viewer's own colour (else the main colour)
     // Entrance (when its scene is shown).
     Anim anim = Anim::None;
     int animMs = 500;
@@ -187,7 +194,8 @@ struct TimerShown {
 };
 TimerShown timerText(const Element& e, const Clock& c);
 std::string durationText(std::int64_t ms);   // "4:59", "1:02:03" (rounded up for countdowns by the caller)
-bool usesTime(const Document& d);            // anything that changes every second (timers)
+bool usesTime(const Document& d);
+bool usesChat(const Document& d);   // has a visible chat element            // anything that changes every second (timers)
 
 // QR codes (via Project Nayuki's library): the modules, row by row, true = dark; empty if too long.
 std::vector<std::vector<bool>> qrModules(const std::string& text);

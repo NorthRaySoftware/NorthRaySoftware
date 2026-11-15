@@ -6,7 +6,7 @@ string(STRIP "${NCAP_VERSION}" NCAP_VERSION)
 string(REPLACE "." "," NCAP_VERSION_COMMAS "${NCAP_VERSION}.0")
 
 # The portable core: scenes, routing and leak checks, log redaction, layouts. Tested everywhere.
-add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/transition.cpp core/src/sourceutil.cpp core/src/border.cpp core/src/design.cpp ${CMAKE_SOURCE_DIR}/libs/third_party/qrcodegen/qrcodegen.cpp core/src/dsp.cpp core/src/plugins.cpp core/src/routing.cpp core/src/diag.cpp)
+add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/transition.cpp core/src/sourceutil.cpp core/src/border.cpp core/src/design.cpp core/src/chat.cpp ${CMAKE_SOURCE_DIR}/libs/third_party/qrcodegen/qrcodegen.cpp core/src/dsp.cpp core/src/plugins.cpp core/src/routing.cpp core/src/diag.cpp)
 target_include_directories(capturecore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
   target_compile_options(capturecore PRIVATE /W4 /utf-8)
@@ -49,6 +49,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_made.cpp
   src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
+  src/output/twitch_chat.cpp
   src/output/credentials.cpp
   src/output/destination.cpp
   src/output/streamer.cpp
@@ -71,7 +72,7 @@ add_executable(NorthRayCapture WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc
 )
 target_include_directories(NorthRayCapture PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated ${CMAKE_SOURCE_DIR}/libs/third_party)
-target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32 d2d1 dwrite windowscodecs propsys wintrust)
+target_link_libraries(NorthRayCapture PRIVATE capturecore cjui cjcore ole32 shell32 comctl32 uuid mfplat mfuuid psapi advapi32 dxgi d3d11 dwmapi mf mfreadwrite winmm mmdevapi version mfreadwrite ws2_32 secur32 crypt32 d2d1 dwrite windowscodecs propsys wintrust winhttp)
 if(MSVC)
   target_compile_options(NorthRayCapture PRIVATE /W4 /utf-8)
 else()

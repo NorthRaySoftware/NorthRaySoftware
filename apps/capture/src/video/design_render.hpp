@@ -3,6 +3,7 @@
 // export all get exactly the same picture.
 #pragma once
 
+#include "ncap/chat.hpp"
 #include "ncap/design.hpp"
 
 #include <cstdint>
@@ -40,6 +41,9 @@ Placeholders designValues(unsigned* version = nullptr);   // the version also ch
 
 // The brand kit every design is drawn with (set by the window; any thread).
 void setDesignBrand(const design::Brand& b);
+// The live chat messages chat elements show (set by the chat connection; any thread).
+void setDesignChat(std::vector<chat::Message> messages);
+std::vector<chat::Message> designChat();
 design::Brand designBrand();
 // The font families designs can use (Windows' and the kit's font files), sorted; `error` says if some
 // font files couldn't be used.

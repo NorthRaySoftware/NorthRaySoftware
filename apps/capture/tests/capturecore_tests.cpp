@@ -8,6 +8,7 @@
 #include "ncap/sourceutil.hpp"
 #include "ncap/dsp.hpp"
 #include "ncap/border.hpp"
+#include "ncap/chat.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -1161,6 +1162,94 @@ static void testDesign() {
 }
 
 
+static void testChat() {
+    std::printf("twitch chat\n");
+    namespace ch = ncap::chat;
+    ch::IrcLine l;
+    // A real-shaped PRIVMSG with tags (escaped values), badges, colour and a /me action.
+    CHECK(ch::parseLine("@badge-info=;badges=moderator/1,subscriber/12;color=#1E90FF;display-name=Cj\\sTest;id=abc-1;user-id=42 "
+                        ":cjtest!cjtest@cjtest.tmi.twitch.tv PRIVMSG #cjphilip :\x01" "ACTION waves hello\x01\r\n", l));
+    CHECK(l.command == "PRIVMSG" && l.params.size() == 2 && l.params[0] == "#cjphilip" && l.tags["display-name"] == "Cj Test");
+    ch::Event e = ch::interpret(l, 1000);
+    CHECK(e.type == ch::Event::Chat && e.message.login == "cjtest" && e.message.name == "Cj Test" && e.message.id == "abc-1");
+    CHECK(e.message.userId == "42" && e.message.action && e.message.text == "waves hello");
+    CHECK(e.message.colour == ncap::sourceutil::Rgba(0x1E, 0x90, 0xFF, 255));
+    CHECK(e.message.badges.size() == 2 && e.message.badges[0] == "moderator" && e.message.badges[1] == "subscriber");
+    CHECK(ch::unescapeTag("a\\:b\\\\c\\sd\\") == "a;b\\c d");
+    // No colour, no display name; control characters cleaned.
+    CHECK(ch::parseLine(":bob!bob@bob PRIVMSG #c :hi\tthere", l));
+    e = ch::interpret(l, 2000);
+    CHECK(e.type == ch::Event::Chat && e.message.name == "bob" && e.message.colour.a == 0 && e.message.text == "hi there");
+    // Ping, reconnect, notice, broken lines.
+    CHECK(ch::parseLine("PING :tmi.twitch.tv", l) && ch::interpret(l, 0).type == ch::Event::Ping && ch::interpret(l, 0).arg == "tmi.twitch.tv");
+    CHECK(ch::parseLine(":tmi.twitch.tv RECONNECT", l) && ch::interpret(l, 0).type == ch::Event::Reconnect);
+    CHECK(!ch::parseLine("", l) && !ch::parseLine("@a=b ", l));
+    CHECK(ch::parseLine(":tmi.twitch.tv 001 justinfan123 :Welcome", l) && ch::interpret(l, 0).type == ch::Event::None);
+
+    // The log: deletions, timeouts and bans, clears, and keeping only the newest.
+    ch::Log log(3);
+    auto msg = [&](const char* id, const char* uid, const char* text, std::int64_t at) {
+        ch::Event x;
+        x.type = ch::Event::Chat;
+        x.message.id = id;
+        x.message.userId = uid;
+        x.message.login = std::string("u") + uid;
+        x.message.text = text;
+        x.message.atMs = at;
+        return x;
+    };
+    CHECK(log.apply(msg("1", "7", "one", 0)) && log.apply(msg("2", "8", "two", 1000)) && log.apply(msg("3", "7", "three", 2000)));
+    const unsigned v = log.version();
+    CHECK(ch::parseLine("@login=u8;target-msg-id=2 :tmi.twitch.tv CLEARMSG #c :two", l) && log.apply(ch::interpret(l, 0)));
+    CHECK(log.messages().size() == 2 && log.version() > v);
+    CHECK(ch::parseLine("@target-msg-id=nope :tmi.twitch.tv CLEARMSG #c :x", l) && !log.apply(ch::interpret(l, 0)));
+    CHECK(ch::parseLine("@ban-duration=600;target-user-id=7 :tmi.twitch.tv CLEARCHAT #c :u7", l) && log.apply(ch::interpret(l, 0)));
+    CHECK(log.messages().empty());
+    for (int i = 0; i < 5; ++i) log.apply(msg(std::to_string(i).c_str(), "9", "m", i * 1000));
+    CHECK(log.messages().size() == 3 && log.messages().front().id == "2" && log.messages().back().id == "4");
+    CHECK(ch::parseLine(":tmi.twitch.tv CLEARCHAT #c", l) && ch::interpret(l, 0).type == ch::Event::ClearAll && log.apply(ch::interpret(l, 0)));
+    CHECK(log.messages().empty());
+
+    // What's shown: the newest few, and fading.
+    std::vector<ch::Message> all;
+    for (int i = 0; i < 6; ++i) all.push_back(msg(std::to_string(i).c_str(), "1", "m", i * 10000).message);
+    auto shown = ch::recent(all, 4, 0, 60000);
+    CHECK(shown.size() == 4 && shown.front().id == "2" && shown.back().id == "5");
+    shown = ch::recent(all, 4, 25, 60000);   // only the last 25 s: at 40 s and 50 s
+    CHECK(shown.size() == 2 && shown.front().id == "4");
+    CHECK(ch::recent(all, 4, 5, 60000).empty());
+
+    // Channel names from what people type.
+    CHECK(ch::channelFrom("CJPhilip") == "cjphilip" && ch::channelFrom("@cjphilip") == "cjphilip");
+    CHECK(ch::channelFrom(" https://www.twitch.tv/CJPhilip/ ") == "cjphilip" && ch::channelFrom("twitch.tv/cj_philip?x=1") == "cj_philip");
+    CHECK(ch::channelFrom("").empty() && ch::channelFrom("not a name").empty() && ch::channelFrom("youtube.com/@cj").empty());
+    const auto lines = ch::loginLines("cjphilip", 123);
+    CHECK(lines.size() == 4 && lines[1] == "PASS SCHMOOPIIE" && lines[2] == "NICK justinfan10123" && lines[3] == "JOIN #cjphilip");
+    CHECK(ch::defaultColour("abc") == ch::defaultColour("abc") && ch::defaultColour("abc").a == 255);
+    for (auto& m : ch::samples(0)) CHECK(m.name.rfind("Sample", 0) == 0);
+
+    // The chat element in designs: saved, read back, follows the brand, counts as live.
+    namespace dz = ncap::design;
+    dz::Document d;
+    dz::Element c;
+    c.kind = dz::Kind::Chat;
+    c.chatCount = 12;
+    c.chatFade = 30;
+    c.chatBubbles = false;
+    c.chatNameColours = false;
+    const std::string id = dz::add(d, c);
+    CHECK(dz::usesChat(d) && dz::usesTime(d));
+    const dz::Document back = dz::fromJson(dz::toJson(d));
+    const dz::Element* b = back.find(id);
+    CHECK(b && b->kind == dz::Kind::Chat && b->chatCount == 12 && b->chatFade == 30 && !b->chatBubbles && !b->chatNameColours && b->chatBubbleBrand == "panel");
+    dz::Brand k = dz::defaultBrand();
+    k.colours[4].colour = {1, 2, 3, 255};
+    CHECK(dz::applyBrand(back, k).find(id)->chatBubble == ncap::sourceutil::Rgba(1, 2, 3, 210));
+    bool tpl = false;
+    for (auto& tp : dz::templates()) tpl = tpl || dz::usesChat(tp.doc);
+    CHECK(tpl);
+}
+
 static void testBrandKit() {
     std::printf("brand kit\n");
     namespace dz = ncap::design;
@@ -1483,6 +1572,7 @@ int main() {
     testDesign();
     testDesignLive();
     testBrandKit();
+    testChat();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

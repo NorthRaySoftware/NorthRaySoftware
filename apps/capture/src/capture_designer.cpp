@@ -567,7 +567,20 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             designChanged();
         });
         y += 38;
-        button("dz:add:icon", {left.x, y, left.w, 30}, L"Icon\u2026", [this] {
+        button("dz:add:chat", {left.x + bw + 8, y, bw, 30}, L"Chat", [this] {
+            dz::Element e;
+            e.kind = dz::Kind::Chat;
+            e.name = "Chat";
+            e.w = std::min(600.f, (float)designDoc_.width), e.h = std::min(700.f, (float)designDoc_.height);
+            e.x = std::round((designDoc_.width - e.w) / 2);
+            e.y = std::round((designDoc_.height - e.h) / 2);
+            e.size = 28;
+            e.fill = brandFill("text");
+            e.font = dz::kBrandBody;
+            designSel_ = dz::add(designDoc_, e);
+            designChanged();
+        });
+        button("dz:add:icon", {left.x, y, bw, 30}, L"Icon\u2026", [this] {
             std::vector<MenuItem> items;
             const auto& ics = dz::icons();
             for (std::size_t i = 0; i < ics.size(); ++i) items.push_back(MenuItem::item(widen(ics[i].name), 100 + (UINT)i));
@@ -610,6 +623,9 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                     gfx_.line(ic.x + 8, ic.y + 7, ic.x + 12, ic.y + 7, pal_.inkMuted, 1.5f);
                 } else if (e.kind == dz::Kind::Qr) {
                     for (int q = 0; q < 4; ++q) gfx_.fill({ic.x + (q % 2) * 9.0f, ic.y + (q / 2) * 8.0f, 6, 6}, pal_.inkMuted);
+                } else if (e.kind == dz::Kind::Chat) {
+                    gfx_.strokeRounded({ic.x, ic.y, 16, 11}, 3, pal_.inkMuted, 1.5f);
+                    gfx_.line(ic.x + 4, ic.y + 11, ic.x + 3, ic.y + 15, pal_.inkMuted, 1.5f);
                 } else if (e.kind == dz::Kind::Icon)
                     gfx_.text(L"*", {row.x + 6, row.y, 20, 30}, Font::BodyStrong, pal_.inkMuted, {Align::Center, false, false, true});
                 else if (e.kind == dz::Kind::Ellipse) gfx_.circle(ic.x + 8, ic.y + 7, 7, pal_.inkMuted, false, 1.5f);
@@ -666,6 +682,15 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             if (el.kind == dz::Kind::Timer) timers += dz::timerText(el, clock).text + "|";
         std::string prof;
         for (auto& [k, v] : profile_) prof += v + "|";
+        // Chat and the brand kit: their version; fading chat: each second too.
+        unsigned live = 0;
+        video::designValues(&live);
+        prof += std::to_string(live) + "|";
+        for (auto& el : designDoc_.elements)
+            if (el.kind == dz::Kind::Chat && el.chatFade > 0) {
+                prof += std::to_string(GetTickCount64() / 1000);
+                break;
+            }
         const std::string key = dz::toJson(designDoc_) + "@" + std::to_string((int)c.w) + "x" + std::to_string((int)c.h) + "#" + prof + timers;
         if (key != designRendered_) {
             video::DesignPicture p;
@@ -1070,8 +1095,37 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         });
         y += 38;
     }
+    // Chat.
+    if (e->kind == dz::Kind::Chat) {
+        y += gfx_.text(chatStatusText(), {r.x, y, r.w, 80}, Font::Small, pal_.inkMuted, {Align::Left, true}) + 10;
+        sliderRow("chn", L"Messages", (float)e->chatCount, 1, 30, L"", [](dz::Element& x, float v) { x.chatCount = (int)std::lround(v); });
+        sliderRow("chf", L"Fade after", (float)e->chatFade, 0, 300, L" s", [](dz::Element& x, float v) { x.chatFade = (int)std::lround(v); });
+        if (e->chatFade == 0) y += gfx_.text(L"Fade after 0 s: messages stay until newer ones push them out.", {r.x, y - 4, r.w, 18}, Font::Small, pal_.inkFaint) + 6;
+        label(L"Cards");
+        toggle("dz:p:chb", r.x + 112, y + 2, e->chatBubbles, [edit] { edit([](dz::Element& z) { z.chatBubbles = !z.chatBubbles; }); });
+        if (e->chatBubbles)
+            button("dz:p:chbc", {r.x + 170, y - 2, r.w - 170, 30}, colourName(e->chatBubble, e->chatBubbleBrand), [this, eid, edit, colourMenu] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                colourMenu(x->chatBubble, x->chatBubbleBrand, [edit](su::Rgba c, std::string b) {
+                    edit([c, b](dz::Element& z) {
+                        z.chatBubble = c;
+                        z.chatBubbleBrand = b;
+                    });
+                }, false);
+            });
+        y += 36;
+        label(L"Names");
+        segmented("dz:p:chnc", {r.x + 112, y - 2, r.w - 112, 30}, {L"Viewers' colours", L"Brand colour"}, e->chatNameColours ? 0 : 1,
+                  [edit](int i) { edit([i](dz::Element& z) { z.chatNameColours = i == 0; }); });
+        y += 36;
+        y += gfx_.text(L"Read-only: Capture reads your chat without signing in and never posts. Deleted messages, timeouts and bans "
+                       L"disappear here too. Emotes show as their names.",
+                       {r.x, y, r.w, 60}, Font::Small, pal_.inkFaint, {Align::Left, true}) + 8;
+    }
     // Text.
-    if (e->kind == dz::Kind::Text) {
+    if (e->kind == dz::Kind::Text || e->kind == dz::Kind::Chat) {
+        if (e->kind == dz::Kind::Text) {
         button("dz:p:text", {r.x, y, r.w, 30}, L"Edit the text…", [this, eid] {
             const dz::Element* x = designDoc_.find(eid);
             if (!x) return;
@@ -1085,6 +1139,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             });
         });
         y += 38;
+        }
         sliderRow("size", L"Size", e->size, 8, 300, L" px", [](dz::Element& x, float v) { x.size = v; });
         label(L"Style");
         {
@@ -1167,6 +1222,41 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
 }
 
 // ---------------------------------------------------------------- timers reaching zero
+
+// Chat runs only while it's needed: a design in the collection has a chat element, and Your details
+// has a Twitch name. Then Capture joins that channel's chat anonymously (read-only).
+void CaptureWindow::chatTick() {
+    bool needed = false;
+    for (auto& s : scenes_.sources())
+        if (s.kind == SourceKind::Design && s.settings.find("\"chat\"") != std::string::npos && dz::usesChat(dz::fromJson(s.settings))) {
+            needed = true;
+            break;
+        }
+    if (!designFor_.empty() && dz::usesChat(designDoc_)) needed = true;
+    std::string twitch;
+    for (auto& [k, v] : profile_)
+        if (k == "twitch") twitch = v;
+    chat_.watch(needed ? chat::channelFrom(twitch) : std::string());
+}
+
+// What the chat is doing, for the designer.
+std::wstring CaptureWindow::chatStatusText() const {
+    std::string twitch;
+    for (auto& [k, v] : profile_)
+        if (k == "twitch") twitch = v;
+    if (chat::channelFrom(twitch).empty())
+        return twitch.empty() ? L"Add your Twitch name under Your details\u2026 and this shows your chat, live (read-only, no sign-in). Sample messages till then."
+                              : L"\u201C" + widen(twitch) + L"\u201D isn't a Twitch name or link: fix it under Your details\u2026";
+    const auto st = chat_.status();
+    switch (st.state) {
+    case output::TwitchChat::State::Connected:
+        return L"Showing #" + widen(st.channel) + L"'s chat, live (" + std::to_wstring(st.messages) + L" messages so far).";
+    case output::TwitchChat::State::Connecting: return L"Connecting to #" + widen(st.channel) + L"'s chat\u2026";
+    case output::TwitchChat::State::Waiting:
+        return L"Chat: " + widen(st.error) + L". Trying again in " + std::to_wstring(st.retryInS) + L" s.";
+    default: return L"Chat connects within a second or two.";
+    }
+}
 
 void CaptureWindow::timerTick() {
     const Scene* sc = scenes_.scene(programScene());
