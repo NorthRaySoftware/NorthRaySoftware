@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.8.3",
+      "date": "2026-11-15",
+      "notes": [
+        "Video and sound files as a source (+ in Sources): one file or several played in turn, looping or shuffled if you like, with Pause, Play, From the start and Next in its menu. Its sound has its own channel in the Audio mixer.",
+        "Stinger transitions: a video plays over the switch and the scene changes at the moment you choose (Transition › Stinger).",
+        "Custom shader transitions: write your own in HLSL (Transition › Custom shader › Make an example file to start from). If it doesn't compile, the menu says why and a fade is used.",
+        "Groups: right-click a source › Group with to move, resize and hide several sources as one; Ungroup puts them back.",
+        "Not yet: web pages as sources."
+      ]
+    },
+    {
       "version": "0.8.2",
       "date": "2026-11-14",
       "notes": [

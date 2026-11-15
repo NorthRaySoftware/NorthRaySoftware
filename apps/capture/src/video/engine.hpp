@@ -47,6 +47,8 @@ struct Snapshot {
     Id programScene;
     Items items;                            // bottom first
     transition::Settings transition;
+    std::shared_ptr<VideoSource> stinger;   // the stinger's video (a media source, waiting at its start)
+    std::string shaderCode;                 // a custom shader transition's HLSL (the person's part)
     // Studio mode: the preview (left) shows `previewItems`, the scene being prepared; the program is
     // on the right. Otherwise the one view shows the program, and that's what's edited.
     bool studio = false;
@@ -78,6 +80,7 @@ struct EngineStats {
     std::wstring adapter;
     std::wstring error;      // the engine stopped (e.g. the graphics driver reset)
     bool transitioning = false;
+    std::string shaderError;  // the custom transition shader didn't compile (a fade is used instead)
     Id program;              // the scene the program shows (after any transition)
 };
 
@@ -140,6 +143,9 @@ private:
     LONGLONG transStart_ = 0;
     transition::Settings trans_;
     ComPtr<ID3D11ShaderResourceView> mask_;
+    ComPtr<ID3D11PixelShader> custom_;
+    std::string customCode_;
+    int durationMs_ = 300;   // this transition's length (a stinger: its video's)
     transition::Pattern maskPattern_ = transition::Pattern::Horizontal;
     int maskW_ = 0, maskH_ = 0;
     ComPtr<IDXGISwapChain1> swap_;

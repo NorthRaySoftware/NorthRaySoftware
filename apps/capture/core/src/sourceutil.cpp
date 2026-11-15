@@ -142,6 +142,24 @@ bool isImageFile(const std::string& name) {
     return e == "png" || e == "jpg" || e == "jpeg" || e == "bmp" || e == "gif" || e == "tif" || e == "tiff" || e == "webp" || e == "heic";
 }
 
+bool isMediaFile(const std::string& name) {
+    const std::size_t dot = name.rfind('.');
+    if (dot == std::string::npos) return false;
+    std::string e = name.substr(dot + 1);
+    for (auto& c : e) c = (char)std::tolower((unsigned char)c);
+    for (const char* k : {"mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mp3", "m4a", "aac", "wav", "wma", "flac"})
+        if (e == k) return true;
+    return false;
+}
+
+std::string clockText(double seconds) {
+    const long s = seconds > 0 ? (long)seconds : 0;
+    char b[32];
+    if (s >= 3600) std::snprintf(b, sizeof b, "%ld:%02ld:%02ld", s / 3600, s / 60 % 60, s % 60);
+    else std::snprintf(b, sizeof b, "%ld:%02ld", s / 60, s % 60);
+    return b;
+}
+
 int gifDelayMs(int hundredths) { return hundredths <= 1 ? 100 : hundredths * 10; }
 
 }  // namespace ncap::sourceutil

@@ -241,12 +241,21 @@ void Engine::frame() {
             transitioning_ = true;
             transStart_ = now();
             trans_ = s.transition;
+            durationMs_ = trans_.durationMs;
+            if (trans_.kind == transition::Kind::Stinger) {
+                if (s.stinger) {
+                    s.stinger->command("start");
+                    const double len = s.stinger->length();
+                    if (len > 0.1) durationMs_ = (int)(len * 1000);
+                }
+                durationMs_ = std::max(durationMs_, trans_.cutMs + 50);
+            }
         } else {
             transitioning_ = false;
         }
         lastProgram_ = s.programScene;
     }
-    if (transitioning_ && (double)(now() - transStart_) * 1000.0 / (double)frequency() >= trans_.durationMs) {
+    if (transitioning_ && (double)(now() - transStart_) * 1000.0 / (double)frequency() >= durationMs_) {
         transitioning_ = false;
         fromItems_.clear();
     }
@@ -262,6 +271,16 @@ void Engine::frame() {
     updateSources(s.items, done, 0);
     if (transitioning_) updateSources(fromItems_, done, 0);
     if (s.studio && previewShown_) updateSources(s.previewItems, done, 0);
+    if (s.stinger) s.stinger->update(gpu_);   // kept ready, so it starts on cue
+    // A custom transition shader: compiled when its code changes.
+    if (s.shaderCode != customCode_) {
+        customCode_ = s.shaderCode;
+        custom_.Reset();
+        std::string err;
+        if (!customCode_.empty()) custom_ = gpu_.compilePixelShader(transition::shaderSource(customCode_), err);
+        std::lock_guard<std::mutex> l(m_);
+        stats_.shaderError = err;
+    }
 
     compose(s);
     {
@@ -342,7 +361,8 @@ void Engine::compose(const Snapshot& s) {
         composeItems(s.items, to_, s.canvasW, s.canvasH, 0);
         if (!canvas_.ensure(gpu_.device(), s.canvasW, s.canvasH) || !from_.srv || !to_.srv) return;
         const float W = (float)s.canvasW, H = (float)s.canvasH;
-        const float t = (float)((double)(now() - transStart_) * 1000.0 / (double)frequency() / std::max(1, trans_.durationMs));
+        const double elapsedMs = (double)(now() - transStart_) * 1000.0 / (double)frequency();
+        const float t = (float)(elapsedMs / std::max(1, durationMs_));
         const float p = transition::ease(trans_.easing, t);
         gpu_.clear(canvas_.rtv.Get(), 0, 0, 0, 1);
         gpu_.begin(canvas_.rtv.Get(), canvas_.w, canvas_.h);
@@ -384,6 +404,20 @@ void Engine::compose(const Snapshot& s) {
             gpu_.drawLumaWipe(to_.srv.Get(), mask_.Get(), full, p, trans_.softness, trans_.invert);
             break;
         }
+        case transition::Kind::Stinger: {
+            // The old scene until the cut point, the new one after; the stinger's video over both.
+            gpu_.drawTexture(elapsedMs < trans_.cutMs ? from_.srv.Get() : to_.srv.Get(), full, uv, 1, true);
+            if (s.stinger)
+                if (ID3D11ShaderResourceView* v = s.stinger->view()) gpu_.drawTexture(v, full, uv, 1, !s.stinger->hasAlpha());
+            break;
+        }
+        case transition::Kind::Shader:
+            if (custom_) gpu_.drawWith(custom_.Get(), from_.srv.Get(), to_.srv.Get(), full, p, W, H);
+            else {   // it didn't compile: a fade instead
+                gpu_.drawTexture(from_.srv.Get(), full, uv, 1, true);
+                gpu_.drawTexture(to_.srv.Get(), full, uv, p, true);
+            }
+            break;
         case transition::Kind::Cut: gpu_.drawTexture(to_.srv.Get(), full, uv, 1, true); break;
         }
     }

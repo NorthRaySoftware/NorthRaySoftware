@@ -9,7 +9,9 @@
 
 namespace ncap::transition {
 
-enum class Kind { Cut, Fade, Slide, Swipe, LumaWipe };
+// Stinger: a video played over the switch, which happens at its cut point. Shader: a pixel shader
+// written by the person (HLSL), given both scenes and the progress.
+enum class Kind { Cut, Fade, Slide, Swipe, LumaWipe, Stinger, Shader };
 enum class Easing { Linear, EaseInOut, EaseOut };
 enum class Direction { Left, Right, Up, Down };   // where the new scene moves towards
 enum class Pattern { Horizontal, Vertical, Diagonal, Circle, Clock, Blinds };
@@ -22,7 +24,17 @@ struct Settings {
     Pattern pattern = Pattern::Horizontal;
     float softness = 0.12f;   // luma wipe: the width of the soft edge (0 hard .. 0.5)
     bool invert = false;      // luma wipe: run the pattern the other way
+    std::string stingerFile;  // stinger: the video
+    int cutMs = 500;          // stinger: when the scene switches, from its start
+    std::string shaderFile;   // shader: the .hlsl file
 };
+
+// The file a custom shader transition is written in, around the person's own function.
+// `float4 transition(float2 uv, float progress)` may call sampleFrom(uv) and sampleTo(uv);
+// `resolution` is the canvas size in pixels.
+std::string shaderSource(const std::string& personsCode);
+// A starting point for writing one.
+std::string exampleShader();
 
 const char* key(Kind k);
 const char* key(Easing e);

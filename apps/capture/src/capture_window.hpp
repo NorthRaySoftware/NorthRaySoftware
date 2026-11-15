@@ -104,6 +104,7 @@ private:
     void addColour();
     void addSlideshow();
     void addRegion();
+    void addMedia();
     void madeMenuItems(const Source& src, std::vector<cjui::MenuItem>& menu);
     bool madeCommand(UINT cmd, const Id& source);
     void itemExtraItems(const SceneItem& item, std::vector<cjui::MenuItem>& menu);
@@ -174,6 +175,7 @@ private:
     void transitionMenu(POINT screen);
     float drawStudioControls(float x, float y, float w, float bottom);
     std::wstring transitionLabel() const;
+    void applyTransitionFiles(bool reload = false);   // the stinger's video and the shader's code, from their files
     video::Items buildItems(const Id& scene, int depth) const;
     video::Fit editFit() const;                 // where the edited canvas sits in the preview area
 
@@ -250,6 +252,8 @@ private:
     output::Recorder recorder_;
     output::Streamer streamer_;
     Id programScene_;                       // studio mode: what's live (otherwise the current scene)
+    std::shared_ptr<video::VideoSource> stinger_;   // a stinger transition's video, waiting at its start
+    std::string stingerFile_, shaderCode_, shaderFile_;
     bool mfForStream_ = false;
     std::vector<std::wstring> startErrors_;  // collected while starting several destinations              // MFStartup done for streaming
     std::map<std::string, int> destStates_;  // last seen state per destination, to report changes

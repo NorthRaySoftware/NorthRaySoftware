@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.53.3",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.8.3: video and sound files, stinger and custom shader transitions, and groups."
+      ]
+    },
+    {
       "version": "0.53.2",
       "date": "2026-11-14",
       "notes": [

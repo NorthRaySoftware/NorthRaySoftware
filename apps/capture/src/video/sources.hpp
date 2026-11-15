@@ -17,6 +17,7 @@
 
 #include "video/gpu.hpp"
 
+#include "ncap/audio.hpp"
 #include "ncap/scenes.hpp"
 
 #include <atomic>
@@ -36,6 +37,11 @@ public:
     ID3D11Texture2D* texture() const { return hasPicture_ ? out_.tex.Get() : nullptr; }        // video thread
     // Pictures with see-through parts (images, text): drawn with their alpha. Captures are opaque.
     virtual bool hasAlpha() const { return false; }
+    // Media files: their sound, for the mixer (48 kHz stereo float), and playback commands
+    // ("pause", "play", "restart", "next"). Other sources have neither.
+    virtual std::shared_ptr<audio::Ring> sound() { return nullptr; }
+    virtual void command(const std::string&) {}
+    virtual double length() const { return 0; }   // media: the current file's length in seconds (0 unknown)
 
     // Any thread.
     int width() const { return w_.load(); }

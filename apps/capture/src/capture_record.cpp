@@ -49,7 +49,7 @@ void CaptureWindow::startRecording() {
         rs.tracks.push_back(t);
         std::vector<std::string> on;
         for (auto& s : scenes_.sources())
-            if (isAudioOnly(s.kind) && (audioBuses(s) & routing::track(t)) && !audioMuted(s)) on.push_back(s.name);
+            if (hasSound(s.kind) && (audioBuses(s) & routing::track(t)) && !audioMuted(s)) on.push_back(s.name);
         std::string name = "Track " + std::to_string(t);
         if (!on.empty()) {
             name += ": ";

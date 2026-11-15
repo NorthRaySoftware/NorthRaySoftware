@@ -625,3 +625,38 @@ then apply, plus wiring the Account row back into Settings › Streaming.
   the whole set at once); multiple selection and groups as such are still to come.
 - Folders can't be collapsed; an exported scene's images aren't packed into the file.
 
+## 19. Milestone 8, part 4: media files, stingers, shader transitions, groups (status: built, 15 Nov 2026; released as 0.8.3)
+
+**Built**
+- Media source (`src/video/media_source.cpp`): a file or a list of files (played in turn, shuffled if asked, looping
+  if asked). Each file is opened twice through the source reader, for pictures and for sound, each on its own thread
+  and timed against one clock (late pictures dropped; sound handed to the mixer ~40 ms ahead, dropped if 200 ms late).
+  Pictures: RGB32 if the reader converts, else NV12, I420 or YUY2 converted here (BT.709 for 720p and up, BT.601
+  below). Sound: 48 kHz stereo float if the reader converts, else float at the file's rate and channels, converted
+  here (first two channels; linear interpolation). The sound is a mixer channel like any other (volume, mute,
+  routing, meters; the routing check treats it as an input). Menu: Pause, Play, From the start, Next file, Loop,
+  Shuffle, Choose the files again.
+- Stinger transition: a video (a media source kept open and paused at its first picture, so it starts on cue)
+  played over the switch; the program shows the old scene until the cut point, then the new one, with the video over
+  both; its length is the video's. Afterwards it rewinds and waits again. Its sound goes to the Stream and Track 1.
+  Videos with transparency aren't supported (Media Foundation gives no alpha), so stingers cover the whole picture.
+- Custom shader transition: the person's HLSL `float4 transition(float2 uv, float progress)` with sampleFrom(uv),
+  sampleTo(uv) and resolution, wrapped and compiled (ps_4_0) on the video thread when the file is read; a compile
+  error is shown in the menu and a fade used instead. "Make an example file to start from" writes a commented
+  circle-wipe example; "Read the file again" after editing. The shader runs on the graphics card only.
+- Groups: Group with › another source makes a scene of their own (in the "Groups" folder) shown by one item, so they
+  move, resize and hide as one; Add to this group › moves another source in, keeping where it shows; Ungroup puts
+  them back where they show (sources shown at their own size get that size written down first). A rotated, mirrored or
+  cropped group can't be undone exactly, so Ungroup says so instead.
+
+**Tested**
+- capturecore: 307 checks (media file kinds, clock text, group, add to group and ungroup with a moved and halved
+  group, refusing a rotated one, stinger and shader settings).
+- The app in Wine: an MP4 (H.264 + AAC) playing with its sound on a mixer channel (Wine's decoders only gave I420 and
+  the file's own sample rate, so both fallbacks ran); the example shader compiled and revealed the new scene in a
+  growing circle; a stinger playing from its first frame on cue, twice; grouping two sources and ungrouping them.
+
+**Not built / limits**
+- Web pages as sources: WebView2 can't run here to test, so it isn't built yet.
+- Media: no seeking bar or hardware decoding yet; the colour conversion fallback runs on the CPU.
+

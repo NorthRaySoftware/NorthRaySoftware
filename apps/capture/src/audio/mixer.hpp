@@ -37,6 +37,7 @@ struct MixSource {
     float gain = 1;
     bool muted = false;
     std::uint32_t buses = routing::Stream | routing::Track1;
+    std::shared_ptr<Ring> feed;   // no capture: sound handed over by another part (a media file)
     bool syncTone = false;   // no capture: a 1 kHz beep for 50 ms at each whole second of the clock,
                              // in step with the sync test pattern's flash (checking sync in a recording)
 };

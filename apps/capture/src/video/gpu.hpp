@@ -52,6 +52,10 @@ public:
     // over the corners) is below the progress, with a soft edge.
     void drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* mask, const Pt corners[4], float progress, float softness, bool invert);
     ComPtr<ID3D11ShaderResourceView> makeMask(const std::uint8_t* pixels, int w, int h);
+    // A pixel shader from HLSL source ("ps"), or null with the compiler's message.
+    ComPtr<ID3D11PixelShader> compilePixelShader(const std::string& source, std::string& error);
+    // Draws with `ps` given two textures (t0, t1), the progress (flags.w) and a size (colour.xy).
+    void drawWith(ID3D11PixelShader* ps, ID3D11ShaderResourceView* a, ID3D11ShaderResourceView* b, const Pt corners[4], float progress, float w, float h);
     void fillRect(float x, float y, float w, float h, float r, float g, float b, float a);
     void line(Pt a, Pt b, float thickness, float r, float g, float b2, float alpha);
 

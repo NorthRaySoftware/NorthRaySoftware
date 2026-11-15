@@ -249,8 +249,8 @@ void Mixer::block() {
                 buf_[(size_t)i * 2] = buf_[(size_t)i * 2 + 1] = v;
             }
         } else {
-            if (!s.capture) continue;
-            Ring& ring = s.capture->ring();
+            if (!s.capture && !s.feed) continue;
+            Ring& ring = s.capture ? s.capture->ring() : *s.feed;
             // Keep each source's delay small: if it has run more than 100 ms ahead, drop to 20 ms.
             const size_t have = ring.available();
             if (have > (size_t)kBlock * 10) ring.skip(have - (size_t)kBlock * 2);

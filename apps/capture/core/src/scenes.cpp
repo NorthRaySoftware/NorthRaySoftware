@@ -44,6 +44,8 @@ std::optional<SourceKind> kindFromKey(const std::string& key) {
     return std::nullopt;
 }
 
+bool hasSound(SourceKind k) { return isAudioOnly(k) || k == SourceKind::Media; }
+
 bool isAudioOnly(SourceKind k) { return k == SourceKind::InputAudio || k == SourceKind::DesktopAudio || k == SourceKind::ApplicationAudio; }
 
 SceneCollection::SceneCollection() {
@@ -245,6 +247,121 @@ Id SceneCollection::duplicateItem(const Id& sceneId, const Id& itemId) {
     sc->items.insert(it + 1, copy);
     ++changes_;
     return copy.id;
+}
+
+bool SceneCollection::isGroupItem(const Id& sceneId, const Id& itemId) const {
+    const SceneItem* it = item(sceneId, itemId);
+    const Source* src = it ? source(it->source) : nullptr;
+    const Scene* inner = src ? scene(nestedScene(*src)) : nullptr;
+    return inner && inner->folder == "Groups";
+}
+
+Id SceneCollection::groupItems(const Id& sceneId, const std::vector<Id>& ids, std::string& error) {
+    Scene* sc = sceneMut(sceneId);
+    if (!sc || ids.size() < 2) {
+        error = "Choose at least two sources to group.";
+        return {};
+    }
+    std::vector<SceneItem> moving;
+    std::size_t at = sc->items.size();
+    for (std::size_t k = 0; k < sc->items.size(); ++k)
+        if (std::find(ids.begin(), ids.end(), sc->items[k].id) != ids.end()) {
+            moving.push_back(sc->items[k]);
+            at = std::min(at, k);
+        }
+    if (moving.size() != ids.size()) {
+        error = "Those sources aren't all in this scene.";
+        return {};
+    }
+    int n = 1;
+    for (auto& s2 : scenes_)
+        if (s2.folder == "Groups") ++n;
+    const Id inner = addScene("Group " + std::to_string(n));
+    sceneMut(inner)->folder = "Groups";
+    sc = sceneMut(sceneId);   // addScene may have moved the scenes
+    for (auto& m : moving) {   // their order kept, bottom first
+        m.locked = false;
+        sceneMut(inner)->items.push_back(m);
+    }
+    sc->items.erase(std::remove_if(sc->items.begin(), sc->items.end(),
+                                   [&](const SceneItem& i) { return std::find(ids.begin(), ids.end(), i.id) != ids.end(); }),
+                    sc->items.end());
+    SceneItem g;
+    g.id = newId('i');
+    g.source = sceneSource(inner);
+    sc = sceneMut(sceneId);
+    sc->items.insert(sc->items.begin() + (long)std::min(at, sc->items.size()), g);
+    ++changes_;
+    return g.id;
+}
+
+bool SceneCollection::addToGroup(const Id& sceneId, const Id& groupItem, const Id& itemId, std::string& error) {
+    if (!isGroupItem(sceneId, groupItem)) {
+        error = "That isn't a group.";
+        return false;
+    }
+    Scene* sc = sceneMut(sceneId);
+    auto it = std::find_if(sc->items.begin(), sc->items.end(), [&](const SceneItem& i) { return i.id == itemId; });
+    if (it == sc->items.end() || itemId == groupItem) {
+        error = "That source isn't in this scene.";
+        return false;
+    }
+    const SceneItem* g = item(sceneId, groupItem);
+    const Transform gt = g->transform;
+    if (gt.rotation != 0 || gt.flipH || gt.flipV || gt.cropLeft > 0 || gt.cropTop > 0 || gt.cropRight > 0 || gt.cropBottom > 0) {
+        error = "The group is rotated, mirrored or cropped, so a source can't be put into it where it shows. Reset the group first.";
+        return false;
+    }
+    // Where it shows now, in the group's own canvas.
+    const float sx = gt.width > 0 ? gt.width / (float)canvasWidth : 1, sy = gt.height > 0 ? gt.height / (float)canvasHeight : 1;
+    SceneItem moved = *it;
+    moved.transform.x = (moved.transform.x - gt.x) / sx;
+    moved.transform.y = (moved.transform.y - gt.y) / sy;
+    if (moved.transform.width > 0) moved.transform.width /= sx;
+    if (moved.transform.height > 0) moved.transform.height /= sy;
+    const Id inner = nestedScene(*source(g->source));
+    sc->items.erase(it);
+    sceneMut(inner)->items.push_back(moved);
+    ++changes_;
+    return true;
+}
+
+bool SceneCollection::ungroup(const Id& sceneId, const Id& groupItem, std::string& error) {
+    if (!isGroupItem(sceneId, groupItem)) {
+        error = "That isn't a group.";
+        return false;
+    }
+    const SceneItem g = *item(sceneId, groupItem);
+    const Transform gt = g.transform;
+    if (gt.rotation != 0 || gt.flipH || gt.flipV || gt.cropLeft > 0 || gt.cropTop > 0 || gt.cropRight > 0 || gt.cropBottom > 0) {
+        error = "The group is rotated, mirrored or cropped, so its sources can't be put back exactly where they show. Reset the group first.";
+        return false;
+    }
+    const Id inner = nestedScene(*source(g.source));
+    const float sx = gt.width > 0 ? gt.width / (float)canvasWidth : 1, sy = gt.height > 0 ? gt.height / (float)canvasHeight : 1;
+    std::vector<SceneItem> back = scene(inner)->items;
+    for (auto& m : back) {
+        m.transform.x = gt.x + m.transform.x * sx;
+        m.transform.y = gt.y + m.transform.y * sy;
+        // An item at its own size gets an explicit size when the group was scaled.
+        if (m.transform.width > 0) m.transform.width *= sx;
+        if (m.transform.height > 0) m.transform.height *= sy;
+        m.transform.opacity *= gt.opacity;
+        if (!g.visible) m.visible = false;
+    }
+    Scene* sc = sceneMut(sceneId);
+    auto pos = std::find_if(sc->items.begin(), sc->items.end(), [&](const SceneItem& i) { return i.id == groupItem; });
+    const long at = pos - sc->items.begin();
+    sc->items.erase(pos);
+    sc->items.insert(sc->items.begin() + at, back.begin(), back.end());
+    // The group's scene goes if nothing else shows it.
+    bool shownElsewhere = false;
+    for (auto& s2 : scenes_)
+        for (auto& i : s2.items)
+            if (i.source == g.source) shownElsewhere = true;
+    if (!shownElsewhere) removeScene(inner);
+    ++changes_;
+    return true;
 }
 
 std::vector<Id> SceneCollection::unusedSources() const {

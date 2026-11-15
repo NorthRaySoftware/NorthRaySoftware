@@ -17,10 +17,11 @@
     "A live preview: drag to move, drag the handles to resize (Shift for any shape), Alt+drag to crop, with snapping to the canvas edges and centre (hold Ctrl to stop it)",
     "Fit, stretch, centre, rotate, mirror, reset; hide, lock and reorder sources; the arrow keys nudge",
     "Scenes: add, rename, duplicate, reorder and delete, switch with Ctrl+1 to Ctrl+9; a source can be shared by several scenes and is captured once; put scenes in folders; export a scene to a file and import it, here or on another PC",
-    "Transitions between scenes: cut, fade, slide, swipe and luma wipe (six patterns, soft or hard edge), with their duration and easing",
+    "Transitions between scenes: cut, fade, slide, swipe, luma wipe (six patterns), a stinger video, or your own shader, with their duration and easing",
     "Studio Mode: prepare the next scene in the Preview while the Program stays live, then put it live with a transition (Ctrl+Enter)",
     "Scenes inside scenes: show one scene inside another, placed like any source (never a scene inside itself)",
     "Images (animated GIFs play; the picture updates when the file changes), text with font, colour, outline and wrapping, colours, slideshows from a folder, and any part of the screen",
+    "Video and sound files, one or a playlist, with their sound in the mixer; group sources to move and hide them as one",
     "Exact controls for every source: type its position and size or rotation, set its opacity, duplicate it",
     "The workspace: resize, rearrange, hide and save the panels as layouts",
     "Light on the computer: when the preview is hidden and nothing is recording or streaming, nothing is composed",
@@ -29,11 +30,11 @@
     "A sync test source (a white flash and a beep at each second) for checking picture and sound line up in a recording",
     "Streaming to Twitch, YouTube, Kick or a custom RTMP/RTMPS server, with the stream key kept in Windows Credential Manager, the server's certificate checked, and automatic reconnection (new, not yet tried with a real platform)",
     "Multistreaming: up to six destinations at once without a restreaming service; destinations at the same bitrate share one encode; each has its own buffer, reconnection and status, and starts or stops on its own (new, not yet tried with a real platform)",
-    "Not yet: video files and web pages as sources, saving recordings as MP4, vertical canvases per destination (each in a later version)"
+    "Not yet: web pages as sources, saving recordings as MP4, vertical canvases per destination (each in a later version)"
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

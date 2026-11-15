@@ -630,6 +630,14 @@ static void testTransitions() {
     s.invert = true;
     const t::Settings r = t::fromJson(t::toJson(s));
     CHECK(r.kind == t::Kind::LumaWipe && r.durationMs == 750 && r.pattern == t::Pattern::Clock && r.direction == t::Direction::Up && r.invert);
+    t::Settings st;
+    st.kind = t::Kind::Stinger;
+    st.stingerFile = "C:\\stinger.mp4";
+    st.cutMs = 700;
+    const t::Settings st2 = t::fromJson(t::toJson(st));
+    CHECK(st2.kind == t::Kind::Stinger && st2.stingerFile == "C:\\stinger.mp4" && st2.cutMs == 700);
+    CHECK(t::shaderSource("float4 transition(float2 uv, float p) { return 1; }").find("float4 ps(") != std::string::npos);
+    CHECK(t::exampleShader().find("float4 transition(float2 uv, float progress)") != std::string::npos);
     const t::Settings bad = t::fromJson(R"({"kind":"explode","durationMs":999999,"softness":3})");
     CHECK(bad.kind == t::Kind::Fade && bad.durationMs == 10000 && near(bad.softness, 0.5f));
 }
@@ -699,6 +707,9 @@ static void testSourceUtil() {
     auto s1 = su::slideOrder({"1", "2", "3", "4", "5", "6"}, true, 42), s2 = su::slideOrder({"6", "5", "4", "3", "2", "1"}, true, 42);
     CHECK(s1 == s2 && s1 != su::slideOrder({"1", "2", "3", "4", "5", "6"}, false, 0));
     CHECK(su::isImageFile("x.PNG") && su::isImageFile("a.b.jpeg") && !su::isImageFile("notes.txt") && !su::isImageFile("png"));
+    CHECK(su::isMediaFile("clip.MP4") && su::isMediaFile("song.flac") && !su::isMediaFile("a.png") && !su::isMediaFile("mp4"));
+    CHECK(su::clockText(65) == "1:05" && su::clockText(3723) == "1:02:03" && su::clockText(-3) == "0:00");
+    CHECK(hasSound(SourceKind::Media) && hasSound(SourceKind::InputAudio) && !hasSound(SourceKind::Image));
     CHECK(su::gifDelayMs(0) == 100 && su::gifDelayMs(1) == 100 && su::gifDelayMs(4) == 40);
     CHECK(kindFromKey("slideshow") == SourceKind::Slideshow && std::string(kindKey(SourceKind::Slideshow)) == "slideshow");
 }
@@ -754,6 +765,57 @@ static void testSceneFiles() {
     CHECK(other2.importScene("not json", err).empty());
 }
 
+static void testGroups() {
+    std::printf("groups\n");
+    SceneCollection c;
+    const Id sc = c.current();
+    const Id a = c.addSource(SourceKind::Image, "Logo"), b = c.addSource(SourceKind::Text, "Title"), d = c.addSource(SourceKind::Camera, "Cam");
+    Transform ta, tb;
+    ta.x = 100;
+    ta.y = 50;
+    tb.x = 300;
+    tb.y = 60;
+    tb.width = 400;
+    tb.height = 100;
+    const Id ia = c.addItem(sc, a, ta), ib = c.addItem(sc, b, tb), id = c.addItem(sc, d);
+    std::string err;
+    CHECK(c.groupItems(sc, {ia}, err).empty() && !err.empty());
+    const Id g = c.groupItems(sc, {ia, ib}, err);
+    CHECK(!g.empty() && c.isGroupItem(sc, g) && !c.isGroupItem(sc, id));
+    CHECK(c.scene(sc)->items.size() == 2 && c.scene(sc)->items[0].id == g && c.scene(sc)->items[1].id == id);
+    const Id inner = SceneCollection::nestedScene(*c.source(c.item(sc, g)->source));
+    CHECK(c.scene(inner)->folder == "Groups" && c.scene(inner)->items.size() == 2 && c.scene(inner)->items[1].transform.x == 300);
+    // Move and halve the group, then put the camera in it: it keeps showing where it was.
+    Transform gt;
+    gt.x = 960;
+    gt.y = 540;
+    gt.width = 960;
+    gt.height = 540;
+    CHECK(c.setTransform(sc, g, gt));
+    Transform cam;
+    cam.x = 1200;
+    cam.y = 600;
+    cam.width = 200;
+    cam.height = 100;
+    c.setTransform(sc, id, cam);
+    CHECK(c.addToGroup(sc, g, id, err));
+    const SceneItem& moved = c.scene(inner)->items.back();
+    CHECK(std::fabs(moved.transform.x - 480) < 0.01f && std::fabs(moved.transform.width - 400) < 0.01f);
+    // Ungroup: everything back where it showed.
+    CHECK(c.ungroup(sc, g, err));
+    CHECK(c.scene(sc)->items.size() == 3 && !c.scene(inner));
+    const SceneItem* back = c.item(sc, ib);
+    CHECK(back && std::fabs(back->transform.x - (960 + 150)) < 0.01f && std::fabs(back->transform.width - 200) < 0.01f);
+    const SceneItem* camBack = c.item(sc, id);
+    CHECK(camBack && std::fabs(camBack->transform.x - 1200) < 0.01f && std::fabs(camBack->transform.width - 200) < 0.01f);
+    // A rotated group can't be undone exactly: refused.
+    const Id g2 = c.groupItems(sc, {ia, ib}, err);
+    Transform rot;
+    rot.rotation = 15;
+    c.setTransform(sc, g2, rot);
+    CHECK(!c.ungroup(sc, g2, err) && !err.empty() && c.isGroupItem(sc, g2));
+}
+
 int main() {
     testScenes();
     testItemEditing();
@@ -768,6 +830,7 @@ int main() {
     testNesting();
     testSourceUtil();
     testSceneFiles();
+    testGroups();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

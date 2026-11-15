@@ -8,7 +8,7 @@
 namespace ncap::transition {
 
 namespace {
-const char* kKinds[] = {"cut", "fade", "slide", "swipe", "luma"};
+const char* kKinds[] = {"cut", "fade", "slide", "swipe", "luma", "stinger", "shader"};
 const char* kEasings[] = {"linear", "ease-in-out", "ease-out"};
 const char* kDirections[] = {"left", "right", "up", "down"};
 const char* kPatterns[] = {"horizontal", "vertical", "diagonal", "circle", "clock", "blinds"};
@@ -36,7 +36,8 @@ bool parse(const std::string& s, Pattern& out) { return parseOf(s, kPatterns, ou
 std::string toJson(const Settings& s) {
     return nlohmann::json{{"kind", key(s.kind)},           {"durationMs", s.durationMs}, {"easing", key(s.easing)},
                           {"direction", key(s.direction)}, {"pattern", key(s.pattern)},  {"softness", s.softness},
-                          {"invert", s.invert}}
+                          {"invert", s.invert},          {"stingerFile", s.stingerFile}, {"cutMs", s.cutMs},
+                          {"shaderFile", s.shaderFile}}
         .dump();
 }
 
@@ -52,7 +53,42 @@ Settings fromJson(const std::string& text) {
     if (j.contains("durationMs") && j["durationMs"].is_number_integer()) s.durationMs = std::clamp(j["durationMs"].get<int>(), 50, 10000);
     if (j.contains("softness") && j["softness"].is_number()) s.softness = std::clamp(j["softness"].get<float>(), 0.0f, 0.5f);
     if (j.contains("invert") && j["invert"].is_boolean()) s.invert = j["invert"].get<bool>();
+    s.stingerFile = str("stingerFile");
+    s.shaderFile = str("shaderFile");
+    if (j.contains("cutMs") && j["cutMs"].is_number_integer()) s.cutMs = std::clamp(j["cutMs"].get<int>(), 0, 60000);
     return s;
+}
+
+std::string shaderSource(const std::string& code) {
+    return R"(cbuffer C : register(b0) { float4 pos_[4]; float4 uv_[4]; float4 colour_; float4 flags_; };
+Texture2D fromTex : register(t0);
+Texture2D toTex : register(t1);
+SamplerState smp_ : register(s0);
+struct V_ { float4 p : SV_Position; float2 t : TEXCOORD0; };
+static const float2 resolution = colour_.xy;
+float4 sampleFrom(float2 uv) { return fromTex.Sample(smp_, uv); }
+float4 sampleTo(float2 uv) { return toTex.Sample(smp_, uv); }
+#line 1 "transition"
+)" + code + R"(
+float4 ps(V_ i) : SV_Target { float4 c = transition(i.t, saturate(flags_.w)); return float4(c.rgb, 1); }
+)";
+}
+
+std::string exampleShader() {
+    return R"(// A NorthRay Capture transition (HLSL). Capture calls transition() for every pixel while the
+// scenes change: uv is the pixel's place on the canvas (0,0 top-left to 1,1 bottom-right) and
+// progress runs from 0 (the old scene) to 1 (the new one). sampleFrom(uv) and sampleTo(uv) give the
+// two scenes' colours there; resolution is the canvas size in pixels.
+//
+// This one is a circle that grows from the centre, with a soft rim.
+float4 transition(float2 uv, float progress)
+{
+    float2 d = (uv - 0.5) * float2(resolution.x / resolution.y, 1);
+    float radius = progress * 1.2;
+    float edge = smoothstep(radius - 0.04, radius, length(d));
+    return lerp(sampleTo(uv), sampleFrom(uv), edge);
+}
+)";
 }
 
 float ease(Easing e, float t) {

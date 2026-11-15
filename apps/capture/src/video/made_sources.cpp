@@ -599,6 +599,8 @@ private:
 
 }  // namespace
 
+std::shared_ptr<VideoSource> createMediaSource(const std::string& settings);   // media_source.cpp
+
 std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings) {
     switch (kind) {
         case SourceKind::Image: return std::make_shared<ImageSource>(settings);
@@ -606,6 +608,7 @@ std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string
         case SourceKind::Text: return std::make_shared<TextSource>(settings);
         case SourceKind::Slideshow: return std::make_shared<SlideshowSource>(settings);
         case SourceKind::Region: return std::make_shared<RegionSource>(settings);
+        case SourceKind::Media: return createMediaSource(settings);
         default: return nullptr;
     }
 }

@@ -29,9 +29,11 @@ enum : UINT {
     CmdImageFile = 6000,
     CmdTextEdit, CmdTextBold, CmdTextItalic, CmdTextFontOther, CmdTextSizeOther, CmdTextColourOther, CmdTextOutlineColourOther, CmdTextWrap,
     CmdColourOther, CmdBoxSize, CmdSlideFolder, CmdSlideShuffle, CmdRegionAgain,
+    CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
-    CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate,
+    CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup,
+    CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500,
 };
 
 const wchar_t* kFonts[] = {L"Segoe UI", L"Segoe UI Black", L"Bahnschrift", L"Arial", L"Arial Black", L"Calibri", L"Cambria", L"Georgia",
@@ -92,6 +94,38 @@ bool pick(HWND owner, bool folder, const wchar_t* title, std::wstring& out) {
     }
     dlg->Release();
     return ok;
+}
+
+// Several files at once (a playlist).
+bool pickMany(HWND owner, const wchar_t* title, std::vector<std::wstring>& out) {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return false;
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_ALLOWMULTISELECT);
+    dlg->SetTitle(title);
+    const COMDLG_FILTERSPEC types[] = {{L"Video and sound", L"*.mp4;*.m4v;*.mov;*.mkv;*.avi;*.wmv;*.webm;*.mp3;*.m4a;*.aac;*.wav;*.wma;*.flac"},
+                                       {L"All files", L"*.*"}};
+    dlg->SetFileTypes(2, types);
+    if (SUCCEEDED(dlg->Show(owner))) {
+        IShellItemArray* items = nullptr;
+        if (SUCCEEDED(dlg->GetResults(&items))) {
+            DWORD n = 0;
+            items->GetCount(&n);
+            for (DWORD i = 0; i < n && i < 500; ++i) {
+                IShellItem* it = nullptr;
+                PWSTR p = nullptr;
+                if (SUCCEEDED(items->GetItemAt(i, &it)) && SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                    out.push_back(p);
+                    CoTaskMemFree(p);
+                }
+                if (it) it->Release();
+            }
+            items->Release();
+        }
+    }
+    dlg->Release();
+    return !out.empty();
 }
 
 std::string baseName(const std::wstring& path) {
@@ -322,6 +356,15 @@ void CaptureWindow::addSlideshow() {
                json{{"folder", narrow(folder)}, {"seconds", 5}, {"shuffle", false}, {"width", scenes_.canvasWidth}, {"height", scenes_.canvasHeight}}.dump());
 }
 
+void CaptureWindow::addMedia() {
+    std::vector<std::wstring> files;
+    if (!pickMany(hwnd(), L"Choose video or sound files (several play in turn)", files)) return;
+    json list = json::array();
+    for (auto& f : files) list.push_back(narrow(f));
+    const std::string name = files.size() == 1 ? baseName(files[0]) : "Playlist (" + std::to_string(files.size()) + " files)";
+    addCapture(SourceKind::Media, name, json{{"files", list}, {"loop", true}, {"shuffle", false}, {"volume", 1.0}, {"muted", false}}.dump());
+}
+
 void CaptureWindow::addRegion() {
     RECT r{};
     if (!pickScreenRegion(r)) return;
@@ -479,6 +522,19 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
         if (pickScreenRegion(r) && regionSettings(r, n)) {
             for (auto& [k, v] : n.items()) changeSourceSetting(source, k.c_str(), v);
         }
+    } else if (cmd == CmdMediaPause || cmd == CmdMediaPlay || cmd == CmdMediaRestart || cmd == CmdMediaNext) {
+        auto it = live_.find(source);
+        if (it != live_.end() && it->second.capture)
+            it->second.capture->command(cmd == CmdMediaPause ? "pause" : cmd == CmdMediaPlay ? "play" : cmd == CmdMediaRestart ? "restart" : "next");
+    } else if (cmd == CmdMediaLoop) changeSourceSetting(source, "loop", !flag(s, "loop", true));
+    else if (cmd == CmdMediaShuffle) changeSourceSetting(source, "shuffle", !flag(s, "shuffle", false));
+    else if (cmd == CmdMediaFiles) {
+        std::vector<std::wstring> files;
+        if (pickMany(hwnd(), L"Choose video or sound files", files)) {
+            json list = json::array();
+            for (auto& f : files) list.push_back(narrow(f));
+            changeSourceSetting(source, "files", list);
+        }
     } else if (cmd >= CmdFont0 && cmd < CmdFont0 + 16) changeSourceSetting(source, "font", narrow(kFonts[cmd - CmdFont0]));
     else if (cmd >= CmdSize0 && cmd < CmdSize0 + 7) changeSourceSetting(source, "size", kSizes[cmd - CmdSize0]);
     else if (cmd >= CmdColour0 && cmd < CmdColour0 + 8) changeSourceSetting(source, "colour", kColours[cmd - CmdColour0].hex);
@@ -505,6 +561,34 @@ void CaptureWindow::itemExtraItems(const SceneItem& item, std::vector<MenuItem>&
     menu.push_back(MenuItem::item(L"Rotation…", CmdRotation, deg, movable));
     menu.push_back(MenuItem::sub(L"Opacity", op));
     menu.push_back(MenuItem::item(L"Duplicate", CmdDuplicate, L"the same source"));
+    // Groups.
+    const Scene* sc = scenes_.scene(scenes_.current());
+    if (!sc) return;
+    const bool isGroup = scenes_.isGroupItem(sc->id, item.id);
+    std::vector<MenuItem> others;
+    for (std::size_t k = 0; k < sc->items.size() && k < 400; ++k) {
+        const SceneItem& o = sc->items[k];
+        if (o.id == item.id) continue;
+        const Source* os = scenes_.source(o.source);
+        others.push_back(MenuItem::item(os ? widen(os->name) : L"?", (isGroup ? CmdAddToGroup0 : CmdGroupWith0) + (UINT)k));
+    }
+    menu.push_back(MenuItem::sep());
+    if (isGroup) {
+        if (!others.empty()) menu.push_back(MenuItem::sub(L"Add to this group", others));
+        menu.push_back(MenuItem::item(L"Ungroup", CmdUngroup, L"its sources back here"));
+    } else if (!others.empty()) {
+        menu.push_back(MenuItem::sub(L"Group with", others));
+    }
+}
+
+// Before an item goes into or out of a scaled group: one shown at its own size gets that size written
+// down, so it keeps showing the same.
+static void pinSize(SceneCollection& scenes, const Id& scene, const SceneItem& i, float w, float h) {
+    if ((i.transform.width > 0 && i.transform.height > 0) || w <= 0 || h <= 0) return;
+    Transform t = i.transform;
+    t.width = w - t.cropLeft - t.cropRight;
+    t.height = h - t.cropTop - t.cropBottom;
+    scenes.setTransform(scene, i.id, t);
 }
 
 bool CaptureWindow::itemExtraCommand(UINT cmd, const Id& itemId) {
@@ -558,6 +642,43 @@ bool CaptureWindow::itemExtraCommand(UINT cmd, const Id& itemId) {
             t.rotation = d;
             setTransform(itemId, t);
         });
+    } else if (cmd >= CmdGroupWith0 && cmd < CmdGroupWith0 + 400) {
+        const Scene* sc = scenes_.scene(scene);
+        const std::size_t k = cmd - CmdGroupWith0;
+        if (!sc || k >= sc->items.size()) return true;
+        std::string err;
+        const Id g = scenes_.groupItems(scene, {itemId, sc->items[k].id}, err);
+        if (g.empty()) flash(widen(err), 6);
+        else {
+            selected_ = g;
+            log::info("Grouped two sources");
+            syncSources();
+            scenesChanged();
+        }
+    } else if (cmd >= CmdAddToGroup0 && cmd < CmdAddToGroup0 + 400) {
+        const Scene* sc = scenes_.scene(scene);
+        const std::size_t k = cmd - CmdAddToGroup0;
+        if (!sc || k >= sc->items.size()) return true;
+        const SceneItem other = sc->items[k];
+        const ItemSize sz = sizeOf(other.source);
+        pinSize(scenes_, scene, other, sz.w, sz.h);
+        std::string err;
+        if (!scenes_.addToGroup(scene, itemId, other.id, err)) flash(widen(err), 7);
+        else scenesChanged();
+    } else if (cmd == CmdUngroup) {
+        const Source* gs = scenes_.source(item->source);
+        const Id inner = gs ? SceneCollection::nestedScene(*gs) : Id();
+        if (const Scene* in = scenes_.scene(inner))
+            for (auto i : in->items) {
+                const ItemSize sz = sizeOf(i.source);
+                pinSize(scenes_, inner, i, sz.w, sz.h);
+            }
+        std::string err;
+        if (!scenes_.ungroup(scene, itemId, err)) flash(widen(err), 7);
+        else {
+            selected_.clear();
+            scenesChanged();
+        }
     } else if (cmd == CmdDuplicate) {
         const Id copy = scenes_.duplicateItem(scene, itemId);
         if (!copy.empty()) {

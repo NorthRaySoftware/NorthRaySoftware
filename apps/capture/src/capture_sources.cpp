@@ -36,7 +36,7 @@ bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 // Kinds with a picture source of their own (scenes inside scenes are composed from their items instead).
 bool isCapture(SourceKind k) {
     return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour || k == SourceKind::Image ||
-           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region;
+           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media;
 }
 
 std::string shortTitle(std::string t) {
@@ -66,6 +66,7 @@ void CaptureWindow::startEngine() {
     }
     log::info("Video engine started on " + narrow(engine_.gpu().adapterName()));
     syncSources();
+    applyTransitionFiles();
 }
 
 void CaptureWindow::syncSources() {
@@ -88,6 +89,7 @@ void CaptureWindow::syncSources() {
             if (it->second.capture) it->second.capture->setSettings(s.settings);
         }
     }
+    syncAudio();   // media files' sound joins the mixer once their source exists
 }
 
 ItemSize CaptureWindow::sizeOf(const Id& source) const {
@@ -164,6 +166,8 @@ void CaptureWindow::pushSnapshot() {
     s.programScene = programScene();
     s.items = buildItems(s.programScene, 0);
     s.transition = settings_.transition;
+    s.stinger = stinger_;
+    s.shaderCode = settings_.transition.kind == transition::Kind::Shader ? shaderCode_ : std::string();
     s.studio = settings_.studioMode;
     if (s.studio) s.previewItems = buildItems(scenes_.current(), 0);
     s.selected = selected_;
@@ -247,6 +251,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::item(L"Sync test (flash and beep)", 10, L"checks recordings"));
     items.push_back(MenuItem::sep());
     items.push_back(MenuItem::item(L"Image or animated GIF\u2026", 5));
+    items.push_back(MenuItem::item(L"Video or sound file\u2026", 11, L"or several, in turn"));
     items.push_back(MenuItem::item(L"Text\u2026", 6));
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
     items.push_back(MenuItem::item(L"Colour\u2026", 8));
@@ -262,6 +267,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 7: addSlideshow(); return;
         case 8: addColour(); return;
         case 9: addRegion(); return;
+        case 11: addMedia(); return;
         default: break;
     }
     if (cmd == 10) {

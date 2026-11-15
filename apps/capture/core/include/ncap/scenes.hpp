@@ -35,6 +35,7 @@ enum class SourceKind {
 const char* kindKey(SourceKind k);                       // "display", "app-audio"...
 std::optional<SourceKind> kindFromKey(const std::string& key);
 bool isAudioOnly(SourceKind k);
+bool hasSound(SourceKind k);   // sound sources and media files: a channel in the mixer
 
 struct Transform {
     float x = 0, y = 0;            // the item's top-left on the canvas, in canvas pixels
@@ -105,6 +106,16 @@ public:
     bool wouldLoop(const Id& into, const Id& nested) const; // showing `nested` inside `into` would show a scene inside itself
     // Copy an item (its own transform; the same source, shared).
     Id duplicateItem(const Id& scene, const Id& item);
+
+    // Groups: items moved together into a scene of their own (in the "Groups" folder), shown in
+    // their place by one item, so they move, resize and hide as one. Their placements are kept (a
+    // group's scene is canvas-sized, and its item starts covering the canvas exactly).
+    Id groupItems(const Id& scene, const std::vector<Id>& items, std::string& error);   // the group's item
+    bool addToGroup(const Id& scene, const Id& groupItem, const Id& item, std::string& error);
+    // The items back in the scene, placed where they showed. Not when the group is rotated, cropped
+    // or mirrored (that can't be put back exactly): false with `error`.
+    bool ungroup(const Id& scene, const Id& groupItem, std::string& error);
+    bool isGroupItem(const Id& scene, const Id& item) const;
 
     const SceneItem* item(const Id& scene, const Id& item) const;
     bool setTransform(const Id& scene, const Id& item, const Transform& t);

@@ -269,6 +269,49 @@ ComPtr<ID3D11ShaderResourceView> Gpu::makeMask(const std::uint8_t* pixels, int w
     return view;
 }
 
+ComPtr<ID3D11PixelShader> Gpu::compilePixelShader(const std::string& source, std::string& error) {
+    ComPtr<ID3D11PixelShader> ps;
+    CompileFn compile = compiler();
+    if (!compile) {
+        error = "The shader compiler (d3dcompiler_47.dll) is missing";
+        return ps;
+    }
+    ComPtr<ID3DBlob> blob, err;
+    if (FAILED(compile(source.data(), source.size(), "transition", nullptr, nullptr, "ps", "ps_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err))) {
+        error = err ? std::string((const char*)err->GetBufferPointer(), err->GetBufferSize()) : "It didn't compile";
+        while (!error.empty() && (error.back() == '\n' || error.back() == '\r' || error.back() == '\0')) error.pop_back();
+        return ps;
+    }
+    if (FAILED(device_->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &ps))) error = "The graphics card refused the shader";
+    return ps;
+}
+
+void Gpu::drawWith(ID3D11PixelShader* ps, ID3D11ShaderResourceView* a, ID3D11ShaderResourceView* b, const Pt corners[4], float progress, float w,
+                   float h) {
+    if (!ps || !a || !b) return;
+    Constants c{};
+    toClip(corners, (float)targetW_, (float)targetH_, c.pos);
+    const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    for (int i = 0; i < 4; ++i) {
+        c.uv[i][0] = uv[i][0];
+        c.uv[i][1] = uv[i][1];
+    }
+    c.colour[0] = w;
+    c.colour[1] = h;
+    c.flags[3] = progress;
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(context_->Map(cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+    std::memcpy(m.pData, &c, sizeof c);
+    context_->Unmap(cb_.Get(), 0);
+    ID3D11ShaderResourceView* views[2] = {a, b};
+    context_->PSSetShader(ps, nullptr, 0);
+    context_->PSSetShaderResources(0, 2, views);
+    context_->Draw(4, 0);
+    ID3D11ShaderResourceView* none[2] = {nullptr, nullptr};
+    context_->PSSetShaderResources(0, 2, none);
+    context_->PSSetShader(ps_.Get(), nullptr, 0);
+}
+
 void Gpu::drawSolid(const Pt corners[4], float r, float g, float b, float a) {
     Constants c{};
     toClip(corners, (float)targetW_, (float)targetH_, c.pos);
