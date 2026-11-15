@@ -28,6 +28,7 @@ struct RecordSettings {
     std::vector<int> tracks = {1};       // recording tracks 1-6, in the file's order
     std::vector<std::string> trackNames; // shown by editors and players ("Track 1 (everything)")
     int audioKbps = 160;
+    std::string profile = "Default";   // names the file: "<profile> 2026-11-15 14-00-05"
 };
 
 struct RecordStatus {

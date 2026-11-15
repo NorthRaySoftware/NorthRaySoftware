@@ -48,6 +48,8 @@ bool Settings::load(const std::wstring& path) {
             if (v.is_string() && !k.empty() && k.size() < 80) savedLayouts[k] = v.get<std::string>();
     const std::string sc = cj::valueOr(j, "sceneCollection", std::string("Default"));
     sceneCollection = sc.empty() || sc.find_first_of("\\/:*?\"<>|") != std::string::npos ? "Default" : sc;
+    const std::string pr = cj::valueOr(j, "profile", std::string("Default"));
+    profile = pr.empty() || pr.size() > 40 || pr.find_first_of("\\/:*?\"<>|") != std::string::npos ? "Default" : pr;
     recordingsFolder = widen(cj::valueOr(j, "recordingsFolder", std::string()));
     welcomed = cj::valueOr(j, "welcomed", false);
     monitorDevice = widen(cj::valueOr(j, "monitorDevice", std::string("default")));
@@ -112,7 +114,7 @@ bool Settings::save(const std::wstring& path) const {
     for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}, {"bus", d.bus}});
     const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
-                              {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
+                              {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
                               {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"audioKbps", audioKbps},

@@ -1047,3 +1047,22 @@ CJ: "automatic MP4 after recording (keep the MKV)" and "markers as chapters".
   converted natively and with the Windows build under Wine (tests/mp4_copy_check.cpp) decodes in ffmpeg without
   an error, with both chapters; the same file cut at 60% converts and decodes too. A full record-then-copy run
   needs Windows (Wine has no H.264 encoder).
+
+## 32. Profiles and scene collections (status: built, 15 Nov 2026; released as 0.10.8)
+
+- core/profiles (tested): names that can be file names (1-40 characters, no \ / : * ? " < > |, no Windows-reserved
+  names, unique ignoring case), "Name 2" when taken, and recording names "<profile> <date time>" ("Recording ..." for
+  the Default profile).
+- A profile is the Settings that aren't the window's own: the window keeps its theme, low-resource mode, preview,
+  workspace layouts, studio mode and scene collection when the profile changes. The current profile is
+  settings.json; the others are profiles\<name>.json. Switching saves the current one there, loads the other, and
+  applies it live (output frame rate, monitor and second outputs, the mixer, transitions). A new profile is a copy of
+  the current one whose stream destinations get new ids with their keys copied in Credential Manager, so removing a
+  key in one profile never touches another; deleting a profile removes only the keys no other profile uses. Not
+  while recording or streaming.
+- Scene collections (scenes\<name>.json, each with its canvas): switching saves, clears every live capture (ids can
+  repeat between collections), loads and rebuilds; new (empty) or a copy; rename; delete to the Recycle Bin.
+- The top bar's "Profile: X" and "Scenes: Y" are menus (they were a fixed label before).
+- Tested in Wine: a copied profile (new destination ids), its frame rate changed to 30, switched back to Default at
+  60 (the engine changed live) and the copy kept 30; an empty collection, then back to Default with everything
+  (captures, music, designs) rebuilt.

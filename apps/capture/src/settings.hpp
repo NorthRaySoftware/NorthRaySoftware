@@ -22,6 +22,7 @@ struct Settings {
     std::string layout;               // the workspace (ncap::Layout JSON)
     std::map<std::string, std::string> savedLayouts;   // name -> layout JSON
     std::string sceneCollection = "Default";
+    std::string profile = "Default";  // this profile's name (the others are in profiles\<name>.json)
     std::wstring recordingsFolder;    // "" = the Videos folder
     bool welcomed = false;
     std::wstring monitorDevice = L"default";   // where the monitor mix plays: "default", an endpoint id, or "off"

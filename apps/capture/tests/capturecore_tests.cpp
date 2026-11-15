@@ -10,6 +10,7 @@
 #include "ncap/border.hpp"
 #include "ncap/chat.hpp"
 #include "ncap/mp4.hpp"
+#include "ncap/profiles.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -1191,6 +1192,22 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testProfileNames() {
+    std::printf("profile names\n");
+    namespace pf = ncap::profiles;
+    std::string why;
+    CHECK(pf::validName("Streaming", {"Default"}, why));
+    CHECK(!pf::validName("default", {"Default"}, why) && why == "there's one called that already");
+    CHECK(!pf::validName("", {}, why) && !pf::validName("   ", {}, why) && !pf::validName("a/b", {}, why) && !pf::validName("x?", {}, why));
+    CHECK(!pf::validName("Name.", {}, why) && !pf::validName(" Name", {}, why) && !pf::validName("con", {}, why) && !pf::validName("LPT1.txt", {}, why));
+    CHECK(!pf::validName(std::string(41, 'a'), {}, why) && pf::validName(std::string(40, 'a'), {}, why));
+    CHECK(pf::validName("Vertical (TikTok) 9:16", {}, why) == false);   // the colon
+    CHECK(pf::validName("Vertical - TikTok", {}, why));
+    CHECK(pf::uniqueName("Streaming", {"Default"}) == "Streaming" && pf::uniqueName("Streaming", {"streaming", "Streaming 2"}) == "Streaming 3");
+    CHECK(pf::recordingName("Art stream", 2026, 11, 15, 14, 0, 5) == "Art stream 2026-11-15 14-00-05");
+    CHECK(pf::recordingName("Default", 2026, 1, 2, 3, 4, 5) == "Recording 2026-01-02 03-04-05");
+}
+
 // The boxes in an MP4 (type -> payload, first match), walked from the top or inside a box.
 static bool mp4Box(const ncap::media::Bytes& b, std::size_t from, std::size_t to, const char* type, std::size_t& at, std::size_t& len) {
     std::size_t p = from;
@@ -1788,6 +1805,7 @@ int main() {
     testTrackNames();
     testDucker();
     testMp4();
+    testProfileNames();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

@@ -879,9 +879,23 @@ void CaptureWindow::drawTopBar(const Rect& r) {
     gfx_.text(L"NorthRay", {x, r.y + 9, 140, 22}, Font::Wordmark, nr::kNightInk, {Align::Left, false});
     gfx_.text(L"CAPTURE", {x + 1, r.y + 32, 140, 14}, Font::Label, nr::kAuroraGreen.withAlpha(0.9f), {Align::Left, false});
     x += 132;
-    // The profile and scene collection (one of each until profiles arrive).
-    const std::wstring prof = L"Profile: Default   ·   Scenes: " + widen(settings_.sceneCollection);
-    gfx_.text(prof, {x, r.y, 360, r.h}, Font::Small, nr::kNightMuted, {Align::Left, false, true, true});
+    // The profile and the scene collection: each a menu to switch, make, rename or delete.
+    auto pick = [&](const std::string& id, const std::wstring& label, std::function<void(POINT)> menu) {
+        const float w = std::min(220.0f, gfx_.measureWidth(label, Font::Small) + 18);
+        const Rect b{x, r.y + 13, w, 28};
+        addHit(id, b, [menu] {
+            POINT pt;
+            GetCursorPos(&pt);
+            menu(pt);
+        });
+        const float hv = hoverAmount(id);
+        if (hv > 0.01f) gfx_.fillRounded(b, 7, nr::kNightInk.withAlpha(0.08f * hv));
+        gfx_.text(label, b, Font::Small, nr::kNightMuted.mix(nr::kNightInk, hv), {Align::Center, false, true, true});
+        if (focused(id)) focusRing(b);
+        x += w + 4;
+    };
+    pick("top:profile", L"Profile: " + widen(settings_.profile) + L" \u25BE", [this](POINT pt) { profileMenu(pt); });
+    pick("top:scenes", L"Scenes: " + widen(settings_.sceneCollection) + L" \u25BE", [this](POINT pt) { collectionMenu(pt); });
     // Commands on the right, before the window buttons.
     const float capW = drawCaptionButtons(r, true);
     float bx = r.right() - capW - 8;

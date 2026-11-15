@@ -21,6 +21,7 @@
     "Now playing in overlays: the song and artist of the music you play, from its tags or file name",
     "Music from a folder, shuffled, with auto-duck: it dips smoothly while your microphone has sound",
     "An MP4 copy of each recording (no re-encoding; the MKV is kept), with markers as chapters",
+    "Profiles and scene collections, switched from the top of the window; recordings named after the profile",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -45,7 +46,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

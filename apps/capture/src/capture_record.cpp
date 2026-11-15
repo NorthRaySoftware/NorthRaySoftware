@@ -39,6 +39,7 @@ void CaptureWindow::startRecording() {
     rs.video.height = scenes_.canvasHeight;
     rs.video.fps = settings_.outputFps;
     rs.video.bitrateKbps = settings_.recordKbps;
+    rs.profile = settings_.profile;
     rs.video.constantBitrate = false;
     rs.video.encoder = settings_.recordEncoder;
     rs.audioKbps = settings_.audioKbps;

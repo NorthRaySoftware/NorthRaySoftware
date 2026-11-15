@@ -1,6 +1,7 @@
 #include "output/recorder.hpp"
 
 #include "ncap/mkv.hpp"
+#include "ncap/profiles.hpp"
 
 #include <objbase.h>
 #include <shlobj.h>
@@ -116,8 +117,11 @@ bool Recorder::start(video::Engine& engine, audio::Mixer& mixer, const RecordSet
     localtime_s(&t, &now);
     std::wstring base = s_.folder + L"\\" +
                         [&] {
-                            const std::string n = media::recordingName(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-                            return std::wstring(n.begin(), n.end());
+                            const std::string n = profiles::recordingName(s_.profile, t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+                            const int len = MultiByteToWideChar(CP_UTF8, 0, n.data(), (int)n.size(), nullptr, 0);
+                            std::wstring w((size_t)len, L'\0');
+                            MultiByteToWideChar(CP_UTF8, 0, n.data(), (int)n.size(), w.data(), len);
+                            return w;
                         }();
     std::wstring path = base + L".mkv";
     for (int k = 2; GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES && k < 100; ++k) path = base + L" (" + std::to_wstring(k) + L").mkv";

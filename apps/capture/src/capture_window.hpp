@@ -258,6 +258,16 @@ private:
     std::set<std::string> timersFired_;       // countdowns that already switched scene (source, element, start)
     output::Mp4Copy mp4Copy_;                 // the MP4 copy after a recording
     std::vector<mp4::Chapter> markers_;       // this recording's markers (chapters in the MP4)
+    // Profiles and scene collections (capture_profiles.cpp).
+    std::wstring profilesFolder() const;
+    std::vector<std::string> profileNames() const;
+    std::vector<std::string> collectionNames() const;
+    bool busyForSwitch(const wchar_t* what);
+    void applyProfile();
+    void switchProfile(const std::string& name);
+    void profileMenu(POINT pt);
+    void switchCollection(const std::string& name, bool copyCurrent);
+    void collectionMenu(POINT pt);
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only

@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.8",
+      "date": "2026-11-15",
+      "notes": [
+        "Profiles: sets of settings (frame rate, sound outputs, recording, streaming destinations, transitions) you switch between from the top of the window. Make one as a copy of another, rename or delete it. Each has its own copy of its stream keys.",
+        "Scene collections: switch between sets of scenes and sources (each with its own canvas) from the top of the window; start an empty one or a copy, rename, or delete (to the Recycle Bin).",
+        "Recordings are named after the profile and the time, e.g. “Art stream 2026-11-15 14-00-05”."
+      ]
+    },
+    {
       "version": "0.10.7",
       "date": "2026-11-15",
       "notes": [
