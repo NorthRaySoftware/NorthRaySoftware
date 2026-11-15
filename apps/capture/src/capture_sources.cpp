@@ -36,7 +36,7 @@ bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 // Kinds with a picture source of their own (scenes inside scenes are composed from their items instead).
 bool isCapture(SourceKind k) {
     return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour || k == SourceKind::Image ||
-           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media;
+           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media || k == SourceKind::Design;
 }
 
 std::string shortTitle(std::string t) {
@@ -165,6 +165,14 @@ void CaptureWindow::pushSnapshot() {
     s.canvasW = scenes_.canvasWidth;
     s.canvasH = scenes_.canvasHeight;
     s.programScene = programScene();
+    if (s.programScene != enteredScene_) {
+        // A scene going live: its designs play their entrances.
+        enteredScene_ = s.programScene;
+        if (const Scene* sc = scenes_.scene(s.programScene))
+            for (auto& it : sc->items)
+                if (const Source* src = scenes_.source(it.source); src && src->kind == SourceKind::Design)
+                    if (auto l = live_.find(src->id); l != live_.end() && l->second.capture) l->second.capture->command("enter");
+    }
     s.items = buildItems(s.programScene, 0);
     s.transition = settings_.transition;
     s.stinger = stinger_;
@@ -253,6 +261,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::sep());
     items.push_back(MenuItem::item(L"Image or animated GIF\u2026", 5));
     items.push_back(MenuItem::item(L"Video or sound file\u2026", 11, L"or several, in turn"));
+    items.push_back(MenuItem::item(L"Overlay design\u2026", 12, L"Starting Soon, lower third, frame\u2026"));
     items.push_back(MenuItem::item(L"Text\u2026", 6));
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
     items.push_back(MenuItem::item(L"Colour\u2026", 8));
@@ -269,6 +278,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 8: addColour(); return;
         case 9: addRegion(); return;
         case 11: addMedia(); return;
+        case 12: addDesign(); return;
         default: break;
     }
     if (cmd == 10) {

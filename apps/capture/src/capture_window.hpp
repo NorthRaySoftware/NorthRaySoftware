@@ -7,6 +7,7 @@
 #include "settings.hpp"
 #include "system.hpp"
 
+#include "ncap/design.hpp"
 #include "ncap/diag.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -147,6 +148,21 @@ private:
     void applyMonitor();
     void monitorMenu(POINT screen);
     void secondOutputMenu(POINT screen);
+    // The overlay designer (capture_designer.cpp).
+    void addDesign();
+    void openDesigner(const Id& source);
+    void drawDesigner(const cjui::Rect& area);
+    void drawDesignerProperties(const cjui::Rect& r);
+    void designChanged(bool keepUndo = true);
+    void designUndo();
+    void exportDesign();
+    bool designerMouseDown(float x, float y);
+    bool designerMouseMove(float x, float y, bool leftDown);
+    bool designerMouseUp();
+    bool designerKey(WPARAM vk, bool ctrl, bool shift);
+    void loadProfile();
+    void editProfile();
+    bool pickImageFile(std::wstring& path);
     // Settings › Plugins (capture_plugins.cpp).
     float drawPluginSettings(float x, float y, float colW);
     void pluginsChanged();
@@ -230,6 +246,20 @@ private:
     std::wstring engineError_;
     struct Live { std::shared_ptr<video::VideoSource> capture; std::string settings; };
     std::map<Id, Live> live_;                 // by source id
+    Id enteredScene_;                         // the program scene whose designs last played their entrances
+    Id designFor_;                            // the design source the designer has open
+    design::Document designDoc_;
+    std::string designSel_, designRendered_, dBefore_;
+    std::vector<std::string> designUndo_;
+    std::vector<std::uint8_t> designPixels_;
+    int designPixW_ = 0, designPixH_ = 0;
+    cjui::Rect designCanvas_;
+    float designScale_ = 1;
+    int ddrag_ = 0;                           // 1 moving, 2 resizing
+    float dStartX_ = 0, dStartY_ = 0;
+    design::Box dStartBox_;
+    std::vector<float> dGuidesX_, dGuidesY_;
+    std::vector<std::pair<std::string, std::string>> profile_;   // {name}, {twitch}... for designs
     Id borderFor_;                            // the item whose border is being made
     Id selected_, hoverItem_;                 // items in the current scene
     enum class Focus { Scenes, Sources, Preview } focus_ = Focus::Scenes;

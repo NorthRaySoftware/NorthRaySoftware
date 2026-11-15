@@ -13,6 +13,7 @@
 #include "video/sources.hpp"
 
 #include "video/devices.hpp"
+#include "video/design_render.hpp"
 
 #include "ncap/sourceutil.hpp"
 
@@ -601,6 +602,97 @@ private:
 
 std::shared_ptr<VideoSource> createMediaSource(const std::string& settings);   // media_source.cpp
 
+// ------------------------------------------------------------------ overlay design
+
+// A design from the overlay designer: drawn on a worker thread when it changes (or its placeholders
+// do), and every 33 ms while its elements are coming in after its scene is shown ("enter").
+class DesignSource : public VideoSource {
+public:
+    explicit DesignSource(const std::string& settings) {
+        setSettings(settings);
+        worker_.start([this](std::atomic<bool>& quit) { run(quit); });
+    }
+    ~DesignSource() override { worker_.stop(); }
+    bool hasAlpha() const override { return true; }
+    void command(const std::string& c) override {
+        if (c == "enter" || c == "start" || c == "restart") {
+            std::lock_guard<std::mutex> l(m_);
+            enteredAt_ = GetTickCount64();
+            ++changes_;
+        }
+    }
+    void update(Gpu& gpu) override {
+        wanted();
+        std::string j;
+        if (takeSettings(j)) {
+            std::lock_guard<std::mutex> l(m_);
+            doc_ = design::fromJson(j);
+            w_ = doc_.width;
+            h_ = doc_.height;
+            ++changes_;
+        }
+        std::lock_guard<std::mutex> l(m_);
+        if (picSerial_ == shownSerial_ || pic_.w <= 0) return;
+        Picture p;
+        p.w = pic_.w;
+        p.h = pic_.h;
+        p.bgra.swap(pic_.bgra);
+        if (uploadPicture(gpu, p, out_)) hasPicture_ = true;
+        shownSerial_ = picSerial_;
+    }
+
+private:
+    void run(std::atomic<bool>& quit) {
+        std::uint64_t done = 0;
+        unsigned valuesSeen = 0;
+        while (!quit) {
+            unsigned vv = 0;
+            const Placeholders values = designValues(&vv);
+            design::Document doc;
+            float t = 1e9f;
+            bool redo = false;
+            {
+                std::lock_guard<std::mutex> l(m_);
+                doc = doc_;
+                if (enteredAt_) t = (float)(GetTickCount64() - enteredAt_);
+                // Again while elements are coming in, and once more after the last picture was mid-entrance.
+                redo = changes_ != done || vv != valuesSeen || (enteredAt_ && design::animating(doc, t - 40)) || lastMoving_;
+                done = changes_;
+            }
+            if (redo && (recentlyWanted() || !hasDrawn_)) {
+                valuesSeen = vv;
+                DesignPicture pic;
+                std::wstring error;
+                lastMoving_ = enteredAt_ && design::animating(doc, t);
+                if (renderDesign(doc, t, 1.0f, values, pic, error)) {
+                    std::lock_guard<std::mutex> l(m_);
+                    pic_ = std::move(pic);
+                    ++picSerial_;
+                    hasDrawn_ = true;
+                    setStatus(L"Design · " + std::to_wstring(doc.elements.size()) + (doc.elements.size() == 1 ? L" element · " : L" elements · ") +
+                              sizeText(doc.width, doc.height));
+                } else {
+                    setStatus(error, true);
+                }
+            } else if (redo) {
+                std::lock_guard<std::mutex> l(m_);
+                --done;   // try again when it's shown
+            }
+            sleepUnless(quit, 33);
+        }
+    }
+
+    Worker worker_;
+    std::mutex m_;
+    design::Document doc_;
+    std::uint64_t changes_ = 0;
+    ULONGLONG enteredAt_ = 0;
+    DesignPicture pic_;
+    std::uint64_t picSerial_ = 0, shownSerial_ = 0;
+    std::atomic<bool> hasDrawn_{false};
+    bool lastMoving_ = false;   // worker thread
+};
+
 std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings) {
     switch (kind) {
         case SourceKind::Image: return std::make_shared<ImageSource>(settings);
@@ -609,6 +701,7 @@ std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string
         case SourceKind::Slideshow: return std::make_shared<SlideshowSource>(settings);
         case SourceKind::Region: return std::make_shared<RegionSource>(settings);
         case SourceKind::Media: return createMediaSource(settings);
+        case SourceKind::Design: return std::make_shared<DesignSource>(settings);
         default: return nullptr;
     }
 }

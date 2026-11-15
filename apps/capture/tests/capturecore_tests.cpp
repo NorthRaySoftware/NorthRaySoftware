@@ -8,6 +8,7 @@
 #include "ncap/sourceutil.hpp"
 #include "ncap/dsp.hpp"
 #include "ncap/border.hpp"
+#include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
@@ -1048,6 +1049,115 @@ static void testPlugins() {
     setExternalFactory(nullptr);
 }
 
+
+static void testDesign() {
+    std::printf("designs\n");
+    using namespace ncap::design;
+    // Gradients: the ends, a middle stop, between stops.
+    Fill g = Fill::linear({{0, {0, 0, 0, 255}}, {0.5f, {255, 0, 0, 255}}, {1, {255, 255, 255, 255}}}, 0);
+    CHECK(colourAt(g, 0).r == 0 && colourAt(g, 0.5f).r == 255 && colourAt(g, 0.5f).g == 0 && colourAt(g, 1).g == 255);
+    CHECK(colourAt(g, 0.25f).r == 128 || colourAt(g, 0.25f).r == 127);
+    CHECK(colourAt(Fill::none(), 0.5f).a == 0 && colourAt(Fill::solid({1, 2, 3, 4}), 0.9f).b == 3);
+
+    // Editing: ids, order, duplicate just above, layers.
+    Document d;
+    Element r;
+    r.kind = Kind::Rect;
+    r.x = 100, r.y = 100, r.w = 200, r.h = 100;
+    const std::string a = add(d, r);
+    Element t;
+    t.kind = Kind::Text;
+    t.text = "Hello";
+    t.x = 500, t.y = 500, t.w = 300, t.h = 80;
+    const std::string b = add(d, t);
+    CHECK(a == "e1" && b == "e2" && d.elements.size() == 2 && d.find(a)->name == "Rectangle");
+    const std::string c = duplicate(d, a);
+    CHECK(c == "e3" && d.indexOf(c) == 1 && d.find(c)->x == 120 && d.find(c)->name == "Rectangle copy");
+    CHECK(toTop(d, a) && d.indexOf(a) == 2 && toBottom(d, a) && d.indexOf(a) == 0 && !toBottom(d, a));
+    CHECK(move(d, a, 1) && d.indexOf(a) == 1 && !move(d, b, 5));
+    CHECK(remove(d, c) && !d.find(c) && !remove(d, "nope"));
+
+    // Hit-testing: topmost first, rotation honoured, hidden and locked skipped, ellipses round.
+    CHECK(hitTest(d, 150, 150) == a && hitTest(d, 600, 520) == b && hitTest(d, 50, 50).empty());
+    d.find(b)->locked = true;
+    CHECK(hitTest(d, 600, 520).empty());
+    d.find(b)->locked = false;
+    Element rot = r;
+    rot.x = 1000, rot.y = 100, rot.w = 400, rot.h = 40, rot.rotation = 90;   // standing up: 40 wide, 400 tall about (1200, 120)
+    const std::string rid = add(d, rot);
+    CHECK(hitTest(d, 1200, 290) == rid && hitTest(d, 1390, 120).empty());
+    Element el = r;
+    el.kind = Kind::Ellipse;
+    el.x = 0, el.y = 600, el.w = 200, el.h = 200;
+    const std::string eid = add(d, el);
+    CHECK(hitTest(d, 100, 700) == eid && hitTest(d, 5, 605).empty());   // the corner of its box is outside the circle
+
+    // JSON: the same document back; nonsense dropped and clamped.
+    d.background = g;
+    d.find(b)->shadow = {true, 3, 4, 10, {0, 0, 0, 100}};
+    d.find(b)->anim = Anim::SlideUp;
+    d.find(b)->bold = true;
+    const Document back = fromJson(toJson(d));
+    CHECK(back.elements.size() == d.elements.size() && back.background == d.background && back.find(b)->shadow == d.find(b)->shadow);
+    CHECK(back.find(b)->anim == Anim::SlideUp && back.find(b)->bold && back.find(b)->text == "Hello" && back.find(rid)->rotation == 90);
+    CHECK(back.elements == d.elements);
+    Element e4;
+    e4.kind = Kind::Rect;
+    CHECK(add(*const_cast<Document*>(&back), e4) == "e" + std::to_string(d.nextId));   // ids keep counting
+    const Document bad = fromJson(R"({"width":99999,"height":-5,"elements":[{"kind":"blob","id":"x"},{"kind":"rect","id":"e9","opacity":7,"w":-3},{"kind":"rect","id":"e9"},{"kind":"text"}],"background":{"type":"linear","stops":[{"at":0,"colour":"#000"}]}})");
+    CHECK(bad.width == 8192 && bad.height == 16 && bad.elements.size() == 1 && bad.elements[0].opacity == 1 && bad.elements[0].w == 1);
+    CHECK(bad.background.type == Fill::None && bad.nextId == 10);
+
+    // Snapping: to the page centre, to another element's edge, only within the threshold.
+    Document s;
+    s.width = 1000, s.height = 500;
+    Element o = r;
+    o.x = 600, o.y = 50, o.w = 100, o.h = 100;
+    add(s, o);
+    Snapped sn = snap(s, "", {447, 300, 100, 50}, 6);
+    CHECK(near(sn.box.x, 450) && sn.guidesX.size() == 1 && near(sn.guidesX[0], 500));   // centre at 497 → 500
+    sn = snap(s, "", {200, 147, 100, 50}, 6);
+    CHECK(near(sn.box.y, 150) && near(sn.guidesY[0], 150));   // top meets the other's bottom (150)
+    sn = snap(s, "", {200, 300, 100, 50}, 6);
+    CHECK(sn.guidesX.empty() && sn.guidesY.empty() && near(sn.box.x, 200));
+    sn = snap(s, "", {400, 300, 197, 50}, 6, true);   // resizing: the right edge to 600
+    CHECK(near(sn.box.w, 200) && near(sn.box.x, 400));
+
+    // Entrances.
+    Element an = r;
+    an.anim = Anim::Fade;
+    an.animMs = 400;
+    CHECK(near(pose(an, 0, 1920, 1080).opacity, 0) && near(pose(an, 400, 1920, 1080).opacity, 1) && pose(an, 200, 1920, 1080).opacity > 0.5f);
+    an.anim = Anim::SlideLeft;
+    CHECK(pose(an, 0, 1920, 1080).dx <= -(an.x + an.w) + 0.01f && near(pose(an, 400, 1920, 1080).dx, 0));
+    an.anim = Anim::Pop;
+    float peak = 0;
+    for (int ms = 0; ms <= 400; ms += 10) peak = std::max(peak, pose(an, (float)ms, 1920, 1080).scale);
+    CHECK(peak > 1.05f && near(pose(an, 400, 1920, 1080).scale, 1));
+    an.anim = Anim::Wipe;
+    CHECK(near(pose(an, 0, 1920, 1080).reveal, 0) && near(pose(an, 1000, 1920, 1080).reveal, 1));
+    Document ad;
+    add(ad, an);
+    CHECK(animating(ad, 100) && !animating(ad, 450));
+
+    // Templates: all valid and round-trip; placeholders.
+    CHECK(templates().size() >= 8);
+    for (auto& tp : templates()) {
+        CHECK(!tp.doc.elements.empty());
+        CHECK(fromJson(toJson(tp.doc)).elements == tp.doc.elements);
+    }
+    CHECK(fillPlaceholders("{twitch} and {twitch} / {x}", {{"twitch", "twitch.tv/cj"}}) == "twitch.tv/cj and twitch.tv/cj / {x}");
+    // Parts between dots whose details aren't set are dropped with their dots; the designer shows the tags.
+    const std::vector<std::pair<std::string, std::string>> vals = {{"twitch", "cjphilip"}, {"youtube", ""}, {"instagram", "@cj"}};
+    CHECK(fillPlaceholders("{twitch}   \u00b7   {youtube}   \u00b7   {instagram}", vals) == "cjphilip   \u00b7   @cj");
+    CHECK(fillPlaceholders("{youtube} \u00b7 {youtube}", vals).empty());
+    CHECK(fillPlaceholders("{twitch} \u00b7 {youtube}", vals, true) == "cjphilip   \u00b7   {youtube}");
+    CHECK(fillPlaceholders("Line one\nTwitch: {twitch}", vals) == "Line one\nTwitch: cjphilip");
+    // Radial fills.
+    const Fill rad = Fill::radial({{0, {255, 255, 255, 200}}, {1, {255, 255, 255, 0}}});
+    CHECK(colourAt(rad, 0).a == 200 && colourAt(rad, 1).a == 0 && fromJson(toJson([&] { Document x; x.background = rad; return x; }())).background == rad);
+}
+
 static void testDsp() {
     std::printf("audio filters\n");
     namespace d = ncap::dsp;
@@ -1212,6 +1322,7 @@ int main() {
     testGroups();
     testDsp();
     testBorder();
+    testDesign();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

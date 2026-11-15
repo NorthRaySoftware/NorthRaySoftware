@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.60.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.0: the overlay designer, with templates for Starting Soon, Be Right Back, Ending, lower thirds, facecam frames and panels."
+      ]
+    },
+    {
       "version": "0.59.0",
       "date": "2026-11-15",
       "notes": [

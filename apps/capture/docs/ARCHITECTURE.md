@@ -817,3 +817,59 @@ groundwork, pushed earlier as work in progress, is in this release's tree but no
   in a child window) on the same trust rules as above, and plugin editors would be the first windows a third party
   draws in Capture. VST 2 isn't available to new hosts. Not started; a later milestone if wanted.
 
+## 24. Milestone 10, part 1: the overlay designer (status: built, 15 Nov 2026; released as 0.10.0)
+
+CJ's answers (claude/northray-feature-questions-2026-11.md in the project) put the overlay designer and its templates first,
+ahead of the brief's milestone order.
+
+**Built**
+- `core/design` (portable, tested): a design is a page (any size up to 8192) with a background and up to 200 elements, bottom
+  to top: text, rectangles, ellipses and pictures. Each has a place, size, rotation, opacity, visible/locked, a fill (none,
+  a colour, or a linear or round gradient of 2-16 stops with see-through colours), an outline, rounded corners, a soft
+  shadow (offset, softness, colour) and an entrance (fade, slide in from any side, pop, wipe; its length). Text has its font,
+  size, bold, italic and alignment; pictures fill their box or fit inside it. Editing (add with unique ids, remove,
+  duplicate just above, up, down, top, bottom), hit-testing that honours rotation and ellipses, snapping to the page's
+  edges and centre and other elements' edges and centres (moving or resizing) with the guides that matched, the
+  entrance's pose at any moment, and JSON that drops nonsense and clamps values.
+- Placeholders: text can hold {name}, {twitch}, {youtube}, {instagram}, {tiktok}, {website} and {schedule}, filled from a
+  profile shared by the NorthRay apps (%LOCALAPPDATA%\NorthRay\profile.json, set under Your details... in the
+  designer). On a line of parts between dots, a part whose details aren't set is left out with its dot, so a
+  socials line never shows "  ·  ·"; the designer shows such parts as their {tag} so they can be seen.
+- Templates in the NorthRay aurora look: Starting Soon, Be Right Back, Ending (night gradient, two soft round aurora
+  glows, a title that pops in with a shadow, a subtitle, a gradient accent that wipes in, socials), a lower third (slides
+  in), a facecam frame (glowing aurora outline and a name tag), a socials bar, a Twitch panel (320 x 100) and an offline
+  banner (1920 x 1080).
+- `src/video/design_render`: one renderer for the live source, the designer's canvas and PNG export: Direct2D and
+  DirectWrite on a WIC bitmap. Gradients are pictures of their colours worked out with design::colourAt (so they match
+  the tests and need no brush rotation); shadows are the element's shape drawn alone in a bitmap just big enough for it
+  and its blur, blurred (three box blurs), tinted and placed under it, moving with its entrance.
+- The Design source (kind "design"): drawn on a worker thread when it changes, when the profile changes, and every 33 ms
+  while its elements come in; the entrances play when its scene goes live (the program scene changing sends "enter"),
+  and once more after the last picture if it was taken mid-entrance.
+- The designer (Sources › + › Overlay design..., or a design's menu › Edit the design...): a template or an empty page
+  to start; the page fitted on a checkerboard (see-through parts show); click to pick (or in Layers), drag to move with
+  snapping and pink guides (Shift: none), the corner to resize (Ctrl: keep its shape); arrow keys nudge (Shift: 10 px),
+  Delete, Ctrl+D copies, Ctrl+Z undoes (60 steps). Layers lists elements top first with show/hide and lock. The
+  properties panel: name, place (typed exactly), rotation, opacity, fill (colours, six gradients, typed stops "#RRGGBB
+  pct, ...", direction, round), outline and thickness, corners, shadow, text (edit, size, bold, italic, font, alignment),
+  picture (another, fill or fit), entrance and its length, and the layer buttons. Page...: size presets (canvas, 720p,
+  vertical, Twitch panel) or typed, background none, colour or gradient. Save as PNG writes the design at its own size
+  to Pictures › NorthRay Capture.
+
+**Tested**
+- capturecore: 456 checks, including gradients (ends, stops, between), editing and layers, hit-testing with rotation, locked
+  and ellipses, JSON both ways and with nonsense, snapping (page centre, another's edge, resizing, nothing beyond the
+  threshold), every entrance (fade, slide, pop overshooting and settling, wipe), every template round-tripping, and
+  placeholders (dropped parts, shown tags, several lines).
+- The app in Wine: Sources › + › Overlay design... › Starting Soon added and opened in the designer; the soft aurora glows,
+  shadowed title, gradient accent and the socials tags drawn on the canvas; the title picked, dragged and snapped (guides
+  at the page's centre lines; its place updated); the design drawn in the scene after its entrance; Save as PNG (1920 x
+  1080, pixels checked). Found and fixed on the way: Wine's Direct2D ignored see-through gradient stops and rotated bitmap
+  brushes, which is why gradients are now made as pictures; a picture taken mid-entrance stayed (one more is drawn).
+
+**Not built yet (CJ's answers, coming next)**
+- A brand kit (colours, fonts including library font files, logos and watermark, stingers), icons (official social logos
+  per their guidelines, general icons, CJ and NorthRay marks), live elements in designs (timers, chat, now playing), QR
+  codes, many-stop gradient editing by dragging, GIF and WebM export, Twitch panel and banner export presets beyond the
+  templates, facecam frames that follow the camera, live animated aurora backgrounds on the GPU, and the media library.
+

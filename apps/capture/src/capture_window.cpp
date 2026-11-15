@@ -114,6 +114,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     applyTheme();
     loadScenes();
     startEngine();
+    loadProfile();                           // {name}, {twitch}... for overlay designs
     PluginHost::get().init(stateFolder_);   // before the audio: chains with plugins need them loaded
     startAudio();
     for (auto& m : PluginHost::get().takeMessages()) {
@@ -423,6 +424,8 @@ void CaptureWindow::panelMenu(int panel, POINT screen) {
 void CaptureWindow::openSettings(bool on) {
     settingsOpen_ = on;
     filtersFor_.clear();   // Settings itself (openFilters sets it again)
+    designFor_.clear();
+    ddrag_ = 0;
     resetScroll();
     invalidate();
 }
@@ -467,7 +470,7 @@ bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (vk == VK_ESCAPE && settingsOpen_) { openSettings(false); return true; }
     if (vk == VK_ESCAPE && !borderFor_.empty()) { borderFor_.clear(); invalidate(); return true; }
     if (ctrl && vk == VK_OEM_COMMA) { openSettings(!settingsOpen_); return true; }
-    if (settingsOpen_) return false;
+    if (settingsOpen_) return designerKey(vk, ctrl, shift);
     if (sourceKey(vk, ctrl, shift)) return true;
     const auto& all = scenes_.scenes();
     auto at = std::find_if(all.begin(), all.end(), [&](const Scene& s) { return s.id == scenes_.current(); });
@@ -499,7 +502,7 @@ bool CaptureWindow::onMouseDown(float x, float y) {
         endAsk(false);
         return true;
     }
-    if (settingsOpen_) return false;
+    if (settingsOpen_) return designerMouseDown(x, y);
     // Dividers: between the preview and the panels, and between panels.
     if (hSplit_.contains(x, y)) {
         drag_ = Drag::Horizontal;
@@ -567,6 +570,7 @@ bool CaptureWindow::onMouseDown(float x, float y) {
 }
 
 void CaptureWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (settingsOpen_ && designerMouseMove(x, y, leftDown)) return;
     if (drag_ == Drag::None && !asking_ && !settingsOpen_ && previewMouseMove(x, y, leftDown)) return;
     if (!leftDown) {
         if (drag_ != Drag::None) { drag_ = Drag::None; saveLayout(); }
@@ -603,6 +607,7 @@ void CaptureWindow::onMouseMove(float x, float y, bool leftDown) {
 }
 
 bool CaptureWindow::onMouseUp(float, float) {
+    if (designerMouseUp()) return true;
     if (pdrag_ != PreviewDrag::None) {
         pdrag_ = PreviewDrag::None;
         guidesX_.clear();
@@ -784,7 +789,8 @@ void CaptureWindow::drawFrame(float W, float H) {
                    previewFps > 0;
     if (settingsOpen_) {
         gfx_.pushClip(body);
-        if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
+        if (!designFor_.empty() && scenes_.source(designFor_)) drawDesigner(body);
+        else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
         else drawSettings(body);
         gfx_.popClip();
     } else {

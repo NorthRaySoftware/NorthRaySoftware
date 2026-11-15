@@ -18,6 +18,7 @@ const KindName kKinds[] = {
     {SourceKind::Text, "text"},       {SourceKind::Colour, "colour"},       {SourceKind::Browser, "browser"},
     {SourceKind::Slideshow, "slideshow"}, {SourceKind::Scene, "scene"},     {SourceKind::InputAudio, "input-audio"}, {SourceKind::DesktopAudio, "desktop-audio"},
     {SourceKind::ApplicationAudio, "app-audio"},
+    {SourceKind::Design, "design"},
 };
 
 std::string lower(std::string s) {

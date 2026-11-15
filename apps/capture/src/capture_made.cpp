@@ -29,7 +29,7 @@ enum : UINT {
     CmdImageFile = 6000,
     CmdTextEdit, CmdTextBold, CmdTextItalic, CmdTextFontOther, CmdTextSizeOther, CmdTextColourOther, CmdTextOutlineColourOther, CmdTextWrap,
     CmdColourOther, CmdBoxSize, CmdSlideFolder, CmdSlideShuffle, CmdRegionAgain,
-    CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles,
+    CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
     CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
@@ -318,6 +318,8 @@ bool regionSettings(const RECT& r, json& out) {
 
 // ---------------------------------------------------------------- adding
 
+bool CaptureWindow::pickImageFile(std::wstring& path) { return pick(hwnd(), false, L"Choose a picture", path); }
+
 void CaptureWindow::addImage() {
     std::wstring path;
     if (!pick(hwnd(), false, L"Choose an image", path)) return;
@@ -445,6 +447,7 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
             break;
         }
         case SourceKind::Region: menu.push_back(MenuItem::item(L"Pick the region again…", CmdRegionAgain)); break;
+        case SourceKind::Design: menu.push_back(MenuItem::item(L"Edit the design…", CmdDesignEdit, L"the overlay designer")); break;
         default: break;
     }
 }
@@ -463,6 +466,10 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
             changeSourceSetting(source, key, su::colourText(c));
         });
     };
+    if (cmd == CmdDesignEdit) {
+        openDesigner(source);
+        return true;
+    }
     if (cmd == CmdImageFile) {
         std::wstring path;
         if (pick(hwnd(), false, L"Choose an image", path)) changeSourceSetting(source, "file", narrow(path));

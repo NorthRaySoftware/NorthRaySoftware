@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.10.0",
+      "date": "2026-11-15",
+      "notes": [
+        "Overlay designer: Sources › + › Overlay design… Start from a template (Starting Soon, Be Right Back, Ending, a lower third, a facecam frame, a socials bar, a Twitch panel or an offline banner) or an empty page.",
+        "Design with text, rectangles, ellipses and pictures: colours or gradients (straight or round, with see-through colours), outlines, rounded corners, soft shadows, rotation and opacity. Drag to move with snapping guides, resize from the corner, and arrange layers. Ctrl+Z undoes.",
+        "Entrances (fade, slide, pop, wipe) play when the design's scene goes live.",
+        "Your details (name, Twitch, YouTube, Instagram, TikTok, website, schedule) fill in {twitch} and the like in any design, and are shared with the other NorthRay apps. Anything not set is left out tidily.",
+        "Save as PNG puts a design at full size in Pictures › NorthRay Capture."
+      ]
+    },
+    {
       "version": "0.9.4",
       "date": "2026-11-15",
       "notes": [

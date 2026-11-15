@@ -14,6 +14,7 @@
     "Optional audio-effect plugins (a documented C interface with an example): off until you switch each one on after seeing its SHA-256 and signature, and switched off again if the file changes",
     "Each stream destination can carry its own sound (the stream mix or any recording track), and a second output plays any mix on another device, for a two-PC setup",
     "A camera border maker: rounded corners or a circle, a plain or gradient ring and a glow or shadow on any source, edited live, and saved as a PNG overlay if you want",
+    "An overlay designer: text, shapes and pictures with gradients, outlines, shadows and entrance animations, snapping guides and layers, ready-made Starting Soon, Be Right Back, Ending, lower third, facecam frame and panel templates in the NorthRay look, and PNG export",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -38,7 +39,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.9.4",
+  "version": "0.10.0",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",
