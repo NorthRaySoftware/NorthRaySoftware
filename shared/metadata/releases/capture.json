@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.9",
+      "date": "2026-11-15",
+      "notes": [
+        "A setup wizard (Settings › Setup wizard…): tell it whether you stream, record or both, test your connection, and it suggests a frame rate, canvas and bitrates for this PC, with the reasons, applied in one click.",
+        "The connection test streams to Twitch's bandwidth test for 20 seconds (Twitch receives it but never shows it; your channel doesn't go live) and measures what your connection keeps up with. Or type a speed from any speed test.",
+        "It never changes the canvas of scenes you've already laid out; it tells you where to change it if you want to."
+      ]
+    },
+    {
       "version": "0.10.8",
       "date": "2026-11-15",
       "notes": [

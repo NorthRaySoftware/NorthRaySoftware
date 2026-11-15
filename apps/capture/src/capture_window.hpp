@@ -22,6 +22,7 @@
 #include "output/streamer.hpp"
 #include "output/twitch_chat.hpp"
 #include "output/mp4_copy.hpp"
+#include "ncap/wizard.hpp"
 
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
@@ -268,6 +269,17 @@ private:
     void profileMenu(POINT pt);
     void switchCollection(const std::string& name, bool copyCurrent);
     void collectionMenu(POINT pt);
+    // The setup wizard (capture_wizard.cpp).
+    void openWizard();
+    void drawWizard(const cjui::Rect& area);
+    void wizardTick();
+    int wizardTwitch() const;
+    void startBandwidthTest();
+    bool wizardOpen_ = false, wizTesting_ = false;
+    int wizStep_ = 0, wizGoal_ = 2, wizUpload_ = 0;
+    wizard::TestResult wizTest_;
+    std::wstring wizTestError_;
+    unsigned long long wizTestStart_ = 0;
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only

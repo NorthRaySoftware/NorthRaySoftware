@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.69.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.9: a setup wizard with a Twitch bandwidth test."
+      ]
+    },
+    {
       "version": "0.68.0",
       "date": "2026-11-15",
       "notes": [

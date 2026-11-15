@@ -11,6 +11,7 @@
 #include "ncap/chat.hpp"
 #include "ncap/mp4.hpp"
 #include "ncap/profiles.hpp"
+#include "ncap/wizard.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -1192,6 +1193,46 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testWizard() {
+    std::printf("setup wizard\n");
+    namespace wz = ncap::wizard;
+    // The bandwidth test: the median after the first 3 seconds; dropped frames take some off.
+    wz::TestResult t;
+    t.connected = true;
+    t.targetKbps = 8000;
+    t.kbpsPerSecond = {500, 7000, 9000, 8000, 8100, 7900, 8000, 12000, 7950, 8050};
+    CHECK(wz::sustainedKbps(t) == 8000);
+    t.droppedFrames = 20;   // 2 a second: 85% - 4% = 81%
+    CHECK(wz::sustainedKbps(t) == 6480);
+    t.connected = false;
+    CHECK(wz::sustainedKbps(t) == 0);
+    wz::TestResult brief;
+    brief.connected = true;
+    brief.kbpsPerSecond = {1, 2, 3};
+    CHECK(wz::sustainedKbps(brief) == 0);
+    // Hardware encoder and a fast connection: 1080p60 at Twitch's 6000.
+    wz::Machine hw{true, 8};
+    wz::Plan p = wz::recommend(wz::Goal::Both, hw, 20000);
+    CHECK(p.width == 1920 && p.height == 1080 && p.fps == 60 && p.streamKbps == 6000 && p.recordKbps == 40000 && !p.reasons.empty());
+    // A slower connection: 75% minus audio, and the picture to suit.
+    p = wz::recommend(wz::Goal::Stream, hw, 5000);
+    CHECK(p.streamKbps == 3590 && p.width == 1280 && p.fps == 30 && p.recordKbps == 0);
+    p = wz::recommend(wz::Goal::Stream, hw, 2000);
+    CHECK(p.streamKbps == 1340 && p.width == 1280 && p.height == 720 && p.fps == 30);
+    p = wz::recommend(wz::Goal::Stream, hw, 7000);
+    CHECK(p.streamKbps == 5090 && p.width == 1280 && p.fps == 60);
+    // No hardware encoder: the processor decides.
+    p = wz::recommend(wz::Goal::Both, wz::Machine{false, 4}, 20000);
+    CHECK(p.width == 1280 && p.fps == 30 && p.streamKbps == 6000);
+    p = wz::recommend(wz::Goal::Record, wz::Machine{false, 16}, 0);
+    CHECK(p.width == 1920 && p.fps == 30 && p.streamKbps == 0 && p.recordKbps == 20000);
+    // Unknown connection: a safe start.
+    p = wz::recommend(wz::Goal::Stream, hw, 0);
+    CHECK(p.streamKbps == 4500 && p.width == 1280);
+    // Recording only with a hardware encoder: generous.
+    CHECK(wz::recommend(wz::Goal::Record, hw, 0).recordKbps == 50000);
+}
+
 static void testProfileNames() {
     std::printf("profile names\n");
     namespace pf = ncap::profiles;
@@ -1806,6 +1847,7 @@ int main() {
     testDucker();
     testMp4();
     testProfileNames();
+    testWizard();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

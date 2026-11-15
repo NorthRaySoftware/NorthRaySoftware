@@ -1066,3 +1066,24 @@ CJ: "automatic MP4 after recording (keep the MKV)" and "markers as chapters".
 - Tested in Wine: a copied profile (new destination ids), its frame rate changed to 30, switched back to Default at
   60 (the engine changed live) and the copy kept 30; an empty collection, then back to Default with everything
   (captures, music, designs) rebuilt.
+
+## 33. The setup wizard (status: built, 15 Nov 2026; released as 0.10.9)
+
+- core/wizard (tested): `sustainedKbps` (the median send rate after the first 3 seconds of a bandwidth test, less a
+  share when frames were dropped; 0 if it didn't connect or ran under 6 seconds) and `recommend` (goal, a hardware
+  encoder or not, processor threads, upload): a hardware encoder gets 1080p60; no hardware encoder gets 1080p30 with
+  12+ threads, else 720p30; the stream gets 75% of the upload less the audio, capped at Twitch's 6000 kbps, with the
+  picture to suit (under 4500 kbps 720p, under 4500 30 fps); unknown connection: 720p at 4500; recordings scale with
+  pixels a second (8,000-40,000 kbps; 50,000 recording-only with a hardware encoder). Every choice comes with a
+  reason in words. The canvas is never below 720p (the canvas sizes Settings offers).
+- Settings > Setup wizard...: 1 what for (streaming / recording / both, this PC's encoder and threads); 2 the
+  connection: "Test my connection" streams the program to the Twitch destination for 20 s at 8000 kbps with
+  "?bandwidthtest=true" after the key (Twitch's documented test: received, never shown, the channel doesn't go
+  live; the key with the suffix is registered as a secret so it never reaches the log), sampling the send rate and
+  dropped frames each second; or a typed speed (Mbps x 0.8: speed tests measure bursts); or skip; 3 the plan with its
+  reasons and "Use these settings" (frame rate, every destination's bitrate, the recording bitrate; the canvas only
+  when the collection is empty, otherwise it says where to change it). Closing stops a test.
+- Tested in Wine: every step; the test failing cleanly with no H.264 encoder (and nothing about the key in the log); a
+  typed 20 Mbps giving 6000 kbps stream, 30 fps, 9000 kbps recording on a 2-thread PC with no hardware encoder,
+  applied to the settings file, the canvas left alone. The test itself against Twitch needs Windows with an encoder
+  and internet.

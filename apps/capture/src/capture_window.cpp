@@ -426,6 +426,12 @@ void CaptureWindow::openSettings(bool on) {
     settingsOpen_ = on;
     filtersFor_.clear();   // Settings itself (openFilters sets it again)
     designFor_.clear();
+    if (!on && wizTesting_) {
+        streamer_.stop("__bandwidth-test");
+        streamer_.clear("__bandwidth-test");
+        wizTesting_ = false;
+    }
+    wizardOpen_ = false;
     ddrag_ = 0;
     resetScroll();
     invalidate();
@@ -700,6 +706,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         streamTick();
         timerTick();
         chatTick();
+        wizardTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -794,6 +801,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         gfx_.pushClip(body);
         if (!designFor_.empty() && scenes_.source(designFor_)) drawDesigner(body);
         else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
+        else if (wizardOpen_) drawWizard(body);
         else drawSettings(body);
         gfx_.popClip();
     } else {
@@ -1288,6 +1296,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
     const float top = beginScroll(clip);
     float y = top + 24;
     gfx_.text(L"Settings", {x, y, colW, 34}, Font::Title, pal_.ink, {Align::Left, false});
+    button("set:wizard", {x + colW - 300, y + 2, 180, 34}, L"Setup wizard\u2026", [this] { openWizard(); });
     button("set:close", {x + colW - 110, y + 2, 110, 34}, L"Done", [this] { openSettings(false); }, true);
     y += 54;
     auto section = [&](const std::wstring& t) {
