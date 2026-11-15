@@ -21,6 +21,7 @@
 #include "output/recorder.hpp"
 #include "output/streamer.hpp"
 #include "output/twitch_chat.hpp"
+#include "output/mp4_copy.hpp"
 
 #include "cjui/menu.hpp"
 #include "cjui/window.hpp"
@@ -255,6 +256,8 @@ private:
     Id enteredScene_;
     std::map<Id, ULONGLONG> designEntered_;   // when each design's scene last went live
     std::set<std::string> timersFired_;       // countdowns that already switched scene (source, element, start)
+    output::Mp4Copy mp4Copy_;                 // the MP4 copy after a recording
+    std::vector<mp4::Chapter> markers_;       // this recording's markers (chapters in the MP4)
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only

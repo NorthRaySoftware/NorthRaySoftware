@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.67.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.7: an MP4 copy of every recording, with markers as chapters."
+      ]
+    },
+    {
       "version": "0.66.0",
       "date": "2026-11-15",
       "notes": [

@@ -1153,6 +1153,23 @@ void CaptureWindow::drawControls(const Rect& b) {
         }
         if (focused("ctl:record")) focusRing(r);
         y += 46;
+        if (rec) {   // markers: chapters in the MP4 copy
+            const Rect mb{b.x + 12, y, w, 32};
+            button("ctl:marker", mb, L"Add a marker" + (markers_.empty() ? std::wstring() : L" (" + std::to_wstring(markers_.size()) + L" so far)"), [this] {
+                const double s = recorder_.status().seconds;
+                markers_.push_back({(std::int64_t)(s * 1e6), "Marker " + std::to_string(markers_.size() + 1)});
+                wchar_t t[64];
+                swprintf(t, 64, L"Marker %zu at %d:%02d:%02d", markers_.size(), (int)s / 3600, (int)s / 60 % 60, (int)s % 60);
+                flash(t, 3);
+                log::info("Marker added at " + std::to_string((int)s) + " s");
+            });
+            y += 38;
+        } else if (mp4Copy_.busy()) {
+            wchar_t t[64];
+            swprintf(t, 64, L"Making the MP4 copy\u2026 %d%%", (int)(mp4Copy_.progress() * 100));
+            gfx_.text(t, {b.x + 14, y, w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            y += 24;
+        }
     }
     struct C { const wchar_t* label; const wchar_t* when; };
     // Streaming: the button and each destination.

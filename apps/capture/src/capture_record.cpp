@@ -60,6 +60,7 @@ void CaptureWindow::startRecording() {
     }
     MFStartup(MF_VERSION, MFSTARTUP_LITE);   // the encoders need Media Foundation (balanced when recording ends)
     std::wstring error;
+    markers_.clear();
     if (!recorder_.start(engine_, mixer_, rs, error)) {
         MFShutdown();
         log::error("Recording couldn't start: " + narrow(error));
@@ -81,6 +82,15 @@ void CaptureWindow::stopRecording() {
 }
 
 void CaptureWindow::recordTick() {
+    {   // An MP4 copy that has finished.
+        bool ok = false;
+        std::wstring why;
+        const std::wstring done = mp4Copy_.takeFinished(&ok, &why);
+        if (!done.empty()) {
+            if (ok) flash(L"MP4 copy made: " + done + (markers_.empty() ? L"" : L" (" + std::to_wstring(markers_.size()) + L" chapters)"), 8);
+            else flash(L"The MP4 copy couldn't be made: " + why + L". The MKV recording is fine.", 10);
+        }
+    }
     // A recording that stopped by itself (the disk filled, a write failed) is wound up here.
     if (recorder_.active() && !recorder_.status().active) recorder_.stop();
     bool ok = false;
@@ -92,7 +102,8 @@ void CaptureWindow::recordTick() {
         const output::RecordStatus st = recorder_.status();
         log::info("Recording saved: " + narrow(file) + " (" + std::to_string((int)st.seconds) + " s, " + std::to_string(st.bytes / (1024 * 1024)) +
                   " MB, " + std::to_string(st.droppedFrames) + " late, " + std::to_string(st.encoderDropped) + " dropped by the encoder)");
-        flash(L"Saved the recording: " + file + (problem.empty() ? L"" : L". " + problem), 10);
+        flash(L"Saved the recording: " + file + (problem.empty() ? L"" : L". " + problem) + (settings_.recordMp4 ? L" Making an MP4 copy\u2026" : L""), 10);
+        if (settings_.recordMp4) mp4Copy_.start(file, markers_);
     } else {
         log::error("Recording failed: " + narrow(problem));
         cjui::messageBox(hwnd(), problem.empty() ? std::wstring(L"The recording couldn’t be saved.") : problem, L"Recording", MB_OK | MB_ICONWARNING);
@@ -213,6 +224,15 @@ float CaptureWindow::drawRecordingSettings(float x, float y0, float colW) {
             if (focused(id)) focusRing(chip);
             cx += 39;
         }
+        y += std::max(h, 34.0f) + 14;
+    }
+    {
+        const float h = row(L"MP4 copy", L"When a recording ends, an MP4 beside it for editors and uploading (copied, not re-encoded: no loss, and quick). "
+                                         L"The MKV is kept: it survives crashes. Markers become chapters.", 60);
+        toggle("rec:mp4", x + colW - 52, y + 4, settings_.recordMp4, [this] {
+            settings_.recordMp4 = !settings_.recordMp4;
+            settings_.save(settingsPath_);
+        });
         y += std::max(h, 34.0f) + 14;
     }
     {

@@ -1022,3 +1022,28 @@ CJ asked for a Twitch chat overlay that's read-only and needs no sign-in.
   down within 70 ms of each beep and 18 dB lower (the amount set), then easing back.
 - Not yet: a folder that picks up new songs by itself (the list is read when it's added), music controls (pause,
   next) outside the source's menu.
+
+## 31. The MP4 copy and markers (status: built, 15 Nov 2026; released as 0.10.7)
+
+CJ: "automatic MP4 after recording (keep the MKV)" and "markers as chapters".
+
+- core/mp4 (portable, tested): `scan` reads Matroska in place (EBML headers only; frames are found, not loaded):
+  Info (timecode scale), Tracks (codec, private data, name, size, rate, channels), Clusters with SimpleBlocks or
+  BlockGroups (a BlockGroup without a ReferenceBlock is a keyframe). Unknown-size segments and clusters (a
+  recording still being written, or cut short) are read up to the next cluster or the end; a frame cut off at the
+  end is dropped. Laced frames are refused in words (Capture never laces). `remux` writes an MP4 with the movie box
+  first (fast start; its size is measured first since the offsets are fixed width), 32- or 64-bit offsets as the
+  size needs, one frame per chunk, stts from the times between frames (rounded on the running total so nothing
+  drifts), stss keyframes, avcC / esds (AudioSpecificConfig), each audio track named in its hdlr, only the first
+  audio track enabled (the rest in the same alternate group), an empty edit for a track that starts late, and Nero
+  chapters (udta/chpl).
+- output/mp4_copy: runs it on its own thread after a recording ends (Settings > Recording > MP4 copy, on by
+  default), reading with a 1 MB window and writing in 4 MB pieces to "<name>.mp4.part", renamed when complete and
+  deleted if anything fails; the MKV is never touched. Progress shows under the Record button; the result is
+  flashed (and logged).
+- Markers: while recording, Controls has "Add a marker"; each becomes a chapter ("Marker 1"...) in the MP4.
+- Tested: the unit tests check every frame's bytes and offset, keyframes, track flags, names, the late track's edit
+  and chapters, a cut-short file, junk and cancelling. A real libx264/AAC MKV (5 s, 300 frames, two named tracks)
+  converted natively and with the Windows build under Wine (tests/mp4_copy_check.cpp) decodes in ffmpeg without
+  an error, with both chapters; the same file cut at 60% converts and decodes too. A full record-then-copy run
+  needs Windows (Wine has no H.264 encoder).

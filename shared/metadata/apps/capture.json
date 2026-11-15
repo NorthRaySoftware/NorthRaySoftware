@@ -20,6 +20,7 @@
     "Live Twitch chat in overlays and in a Chat panel: read-only and without signing in; deleted messages, timeouts and bans disappear too",
     "Now playing in overlays: the song and artist of the music you play, from its tags or file name",
     "Music from a folder, shuffled, with auto-duck: it dips smoothly while your microphone has sound",
+    "An MP4 copy of each recording (no re-encoding; the MKV is kept), with markers as chapters",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -40,11 +41,11 @@
     "A sync test source (a white flash and a beep at each second) for checking picture and sound line up in a recording",
     "Streaming to Twitch, YouTube, Kick or a custom RTMP/RTMPS server, with the stream key kept in Windows Credential Manager, the server's certificate checked, and automatic reconnection (new, not yet tried with a real platform)",
     "Multistreaming: up to six destinations at once without a restreaming service; destinations at the same bitrate share one encode; each has its own buffer, reconnection and status, and starts or stops on its own (new, not yet tried with a real platform)",
-    "Not yet: web pages as sources, saving recordings as MP4, vertical canvases per destination (each in a later version)"
+    "Not yet: web pages as sources, vertical canvases per destination (each in a later version)"
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

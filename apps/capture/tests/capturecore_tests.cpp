@@ -9,6 +9,7 @@
 #include "ncap/dsp.hpp"
 #include "ncap/border.hpp"
 #include "ncap/chat.hpp"
+#include "ncap/mp4.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -19,6 +20,7 @@
 #include "ncap/scenes.hpp"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 using namespace ncap;
@@ -1189,6 +1191,147 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+// The boxes in an MP4 (type -> payload, first match), walked from the top or inside a box.
+static bool mp4Box(const ncap::media::Bytes& b, std::size_t from, std::size_t to, const char* type, std::size_t& at, std::size_t& len) {
+    std::size_t p = from;
+    while (p + 8 <= to) {
+        std::uint64_t sz = ((std::uint32_t)b[p] << 24) | ((std::uint32_t)b[p + 1] << 16) | ((std::uint32_t)b[p + 2] << 8) | b[p + 3];
+        std::size_t hdr = 8;
+        if (sz == 1) {
+            sz = 0;
+            for (int i = 0; i < 8; ++i) sz = (sz << 8) | b[p + 8 + i];
+            hdr = 16;
+        }
+        if (sz < hdr || p + sz > to) return false;
+        if (std::memcmp(&b[p + 4], type, 4) == 0) {
+            at = p + hdr;
+            len = (std::size_t)sz - hdr;
+            return true;
+        }
+        p += (std::size_t)sz;
+    }
+    return false;
+}
+static std::uint32_t be32(const ncap::media::Bytes& b, std::size_t p) {
+    return ((std::uint32_t)b[p] << 24) | ((std::uint32_t)b[p + 1] << 16) | ((std::uint32_t)b[p + 2] << 8) | b[p + 3];
+}
+
+static void testMp4() {
+    std::printf("mp4 copy\n");
+    using namespace ncap;
+    media::Bytes sps = {0x67, 0x64, 0x00, 0x28, 0xAC, 0xD9}, pps = {0x68, 0xEB, 0xE3, 0xCB};
+    mkv::VideoTrack v;
+    v.width = 1920, v.height = 1080, v.fps = 30;
+    v.avcC = media::avcC(sps, pps);
+    std::vector<mkv::AudioTrack> a = {{"Track 1", 48000, 2, media::aacConfig(48000, 2)}, {"Microphone", 48000, 2, media::aacConfig(48000, 2)}};
+    auto frameData = [](int kind, int i) {
+        media::Bytes d = {0, 0, 0, 4, (std::uint8_t)(kind == 0 ? (i % 30 == 0 ? 0x65 : 0x41) : 0x21), (std::uint8_t)i, (std::uint8_t)(i >> 8), (std::uint8_t)kind};
+        for (int k = 0; k < (i % 7); ++k) d.push_back((std::uint8_t)(k * 13 + kind));
+        return d;
+    };
+    auto makeMkv = [&](bool finish, mkv::MemorySink& sink) {
+        mkv::Writer w;
+        CHECK(w.begin(&sink, v, a, "NorthRay Capture test"));
+        // 3 seconds: video at 30 fps (from 0), audio frames of 1024 samples (track 2 starts 0.5 s late).
+        int vi = 0, ai[2] = {0, 0};
+        for (std::int64_t us = 0; us < 3000000; us += 1000) {
+            if (us >= (std::int64_t)vi * 1000000 / 30) {
+                w.video((std::int64_t)vi * 1000000 / 30, vi % 30 == 0, frameData(0, vi));
+                ++vi;
+            }
+            for (int t = 0; t < 2; ++t) {
+                const std::int64_t start = t == 1 ? 500000 : 0;
+                const std::int64_t at = start + (std::int64_t)ai[t] * 1024 * 1000000 / 48000;
+                if (us >= at) {
+                    w.audio(t, at, frameData(1 + t, ai[t]));
+                    ++ai[t];
+                }
+            }
+        }
+        if (finish) CHECK(w.finish());
+    };
+    mkv::MemorySink full;
+    makeMkv(true, full);
+    mp4::MemoryInput in(full.bytes);
+    mp4::Contents ct;
+    std::string err;
+    CHECK(mp4::scan(in, ct, err) && ct.tracks.size() == 3 && !ct.cutShort);
+    CHECK(ct.tracks[0].video && ct.tracks[0].width == 1920 && ct.tracks[1].name == "Track 1" && ct.tracks[2].name == "Microphone");
+    mkv::MemorySink out;
+    std::vector<mp4::Chapter> ch = {{0, "Intro"}, {1500000, "Gameplay"}};
+    int calls = 0;
+    const mp4::Result r = mp4::remux(in, out, ch, [&](double) { ++calls; return true; });
+    CHECK(r.ok && r.videoFrames == 90 && r.audioTracks == 2 && calls > 0);
+    CHECK(r.durationUs > 2990000 && r.durationUs < 3100000);
+    const media::Bytes& m = out.bytes;
+    std::size_t at, len, mvAt, mvLen, mdAt, mdLen;
+    CHECK(mp4Box(m, 0, m.size(), "ftyp", at, len) && at == 8);
+    CHECK(mp4Box(m, 0, m.size(), "moov", mvAt, mvLen) && mp4Box(m, 0, m.size(), "mdat", mdAt, mdLen) && mvAt < mdAt);   // fast start
+    // Three tracks; check each one's sizes and offsets point at exactly its frames' bytes.
+    std::size_t p = mvAt, tracks = 0;
+    std::vector<int> kinds;
+    while (true) {
+        std::size_t tAt, tLen;
+        if (!mp4Box(m, p, mvAt + mvLen, "trak", tAt, tLen)) break;
+        ++tracks;
+        std::size_t mdia, mdiaL, minf, minfL, stbl, stblL, sz, szL, co, coL, hd, hdL;
+        CHECK(mp4Box(m, tAt, tAt + tLen, "mdia", mdia, mdiaL) && mp4Box(m, mdia, mdia + mdiaL, "minf", minf, minfL) &&
+              mp4Box(m, minf, minf + minfL, "stbl", stbl, stblL) && mp4Box(m, stbl, stbl + stblL, "stsz", sz, szL) &&
+              mp4Box(m, stbl, stbl + stblL, "stco", co, coL) && mp4Box(m, mdia, mdia + mdiaL, "hdlr", hd, hdL));
+        const bool video = std::memcmp(&m[hd + 8], "vide", 4) == 0;
+        const int kind = video ? 0 : 1 + (int)kinds.size() - 1;
+        kinds.push_back(kind);
+        const std::uint32_t n = be32(m, sz + 8);
+        CHECK(n == (video ? 90u : tracks == 2 ? 141u : 118u));
+        bool same = true;
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const std::uint32_t size = be32(m, sz + 12 + 4 * i), off = be32(m, co + 8 + 4 * i);
+            const media::Bytes want = frameData(kind, (int)i);
+            same = same && size == want.size() && off + size <= m.size() && std::equal(want.begin(), want.end(), m.begin() + off);
+        }
+        CHECK(same);
+        if (video) {   // keyframes every 30 frames: 1, 31, 61
+            std::size_t ss, ssL;
+            CHECK(mp4Box(m, stbl, stbl + stblL, "stss", ss, ssL) && be32(m, ss + 4) == 3 && be32(m, ss + 8) == 1 && be32(m, ss + 12) == 31);
+            std::size_t tk, tkL;
+            CHECK(mp4Box(m, tAt, tAt + tLen, "tkhd", tk, tkL) && (be32(m, tk) & 0xFFFFFF) == 3);
+        } else {
+            CHECK(std::string(reinterpret_cast<const char*>(&m[hd + 24])) == (tracks == 2 ? "Track 1" : "Microphone"));
+            std::size_t tk, tkL, ed, edL;
+            CHECK(mp4Box(m, tAt, tAt + tLen, "tkhd", tk, tkL) && (be32(m, tk) & 0xFFFFFF) == (tracks == 2 ? 3u : 2u));   // only the first plays
+            CHECK(mp4Box(m, tAt, tAt + tLen, "edts", ed, edL) == (tracks == 3));   // the late track waits 0.5 s
+            if (tracks == 3) {
+                std::size_t el, elL;
+                CHECK(mp4Box(m, ed, ed + edL, "elst", el, elL) && be32(m, el + 4) == 2 && be32(m, el + 8) == 500 && be32(m, el + 12) == 0xFFFFFFFFu);
+            }
+        }
+        p = tAt + tLen;
+    }
+    CHECK(tracks == 3);
+    std::size_t ud, udL, cp, cpL;
+    CHECK(mp4Box(m, mvAt, mvAt + mvLen, "udta", ud, udL) && mp4Box(m, ud, ud + udL, "chpl", cp, cpL) && m[cp + 8] == 2);
+
+    // A recording cut short (no index, sizes unknown, the last frame half written) still converts.
+    mkv::MemorySink cut;
+    makeMkv(false, cut);
+    cut.bytes.resize(cut.bytes.size() - 5);
+    mp4::MemoryInput cin(cut.bytes);
+    mp4::Contents cc;
+    CHECK(mp4::scan(cin, cc, err) && cc.cutShort);
+    mkv::MemorySink out2;
+    const mp4::Result r2 = mp4::remux(cin, out2);
+    CHECK(r2.ok && r2.videoFrames >= 89);
+    // Not an MKV; cancelled.
+    media::Bytes junk = {1, 2, 3, 4, 5, 6, 7, 8};
+    mp4::MemoryInput jin(junk);
+    mkv::MemorySink out3;
+    CHECK(!mp4::remux(jin, out3).ok);
+    mkv::MemorySink out4;
+    const mp4::Result r4 = mp4::remux(in, out4, {}, [](double) { return false; });
+    CHECK(!r4.ok && r4.error == "stopped");
+    CHECK(mp4::mp4NameFor("C:\\Videos\\Stream 2026-11-15.MKV") == "C:\\Videos\\Stream 2026-11-15.mp4" && mp4::mp4NameFor("x.dir/file") == "x.dir/file.mp4");
+}
+
 static void testDucker() {
     std::printf("auto-duck\n");
     using namespace ncap::dsp;
@@ -1644,6 +1787,7 @@ int main() {
     testChat();
     testTrackNames();
     testDucker();
+    testMp4();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

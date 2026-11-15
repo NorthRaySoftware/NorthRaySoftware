@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.7",
+      "date": "2026-11-15",
+      "notes": [
+        "An MP4 copy of every recording: when you stop, Capture makes an MP4 beside the MKV for editors and uploading. It's copied, not re-encoded, so there's no loss and it's quick; the MKV is kept because it survives crashes. Switch it off under Settings › Recording.",
+        "Markers: while recording, Add a marker in Controls. Each one becomes a chapter in the MP4.",
+        "The MP4 plays as it downloads (its index is at the front), keeps every audio track with its name (the first plays by default), and keeps tracks that start late in step. A recording cut short by a crash converts too."
+      ]
+    },
+    {
       "version": "0.10.6",
       "date": "2026-11-15",
       "notes": [
