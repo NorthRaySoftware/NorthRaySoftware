@@ -29,6 +29,7 @@ struct JobRequest {
     Release release;
     std::wstring installDir;     // empty for the launcher: its own installer decides
     bool update = false;
+    bool self = false;           // the running program's own update (like "launcher"): setup shown, window closes
 };
 
 class Jobs {

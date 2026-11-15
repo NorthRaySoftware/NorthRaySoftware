@@ -71,6 +71,7 @@ void Launcher::nightButton(const std::string& id, const Rect& r, const std::wstr
 bool Launcher::create(HINSTANCE inst, int show, const std::string& openApp, bool startInTray) {
     model_.hideCjPhilipApps = true;   // CJ Radio and the like are installed and opened from CJ Philip Community
     model_.load();
+    today_ = readToday();
     markPng_ = model_.dataDir + L"\\brand\\northray-mark.png";
     WindowSpec spec;
     spec.instance = inst;
@@ -239,8 +240,10 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
         if (trayAdded_) { trayAdded_ = false; addTrayIcon(); }
         return 0;
     }
+    if (msg == WM_ACTIVATEAPP && wp) today_ = readToday();   // words written or pictures saved meanwhile
     if (msg == WM_ACTIVATEAPP && !jobs_.anyBusy()) {
         model_.refreshInstalls();  // something may have been installed or removed meanwhile
+        diskUse_.clear();
         invalidate();
     }
     handled = false;
@@ -394,10 +397,10 @@ void Launcher::trayMenu() {
     items.push_back(MenuItem::item(L"Open NorthRay Launcher", IdShow));
     std::vector<std::string> ids;
     bool any = false;
-    // NorthRay's apps, then the optional CJ Philip ones.
-    for (int pass = 0; pass < 2; ++pass)
+    // NorthRay's apps.
+    for (int pass = 0; pass < 1; ++pass)
         for (auto& a : model_.apps) {
-            if (!a.inst.found || (a.entry.associatedCreator == "CJ Philip") != (pass == 1)) continue;
+            if (!a.inst.found) continue;
             if (!any) { items.push_back(MenuItem::sep()); any = true; }
             items.push_back(MenuItem::item(L"Open " + w(a.entry.name), IdApp + (UINT)ids.size()));
             ids.push_back(a.entry.id);
@@ -767,6 +770,65 @@ void Launcher::drawLightbox(float W, float H) {
 
 // ---------------------------------------------------------------- pages
 
+float Launcher::drawToday(const Rect& r) {
+    const AppItem* studio = model_.app("writing-studio");
+    const bool writing = today_.writing && studio && studio->inst.found;
+    const bool pictures = !today_.pictures.empty();
+    if (!writing && !pictures) return 0;
+    float y = r.y;
+    y += sectionLabel(r.x, y, r.w, L"Today");
+    const float gap = 16, h = 150;
+    const float cw = writing && pictures ? (r.w - gap) / 2 : r.w;
+    float x = r.x;
+    auto card = [&](const Rect& c) {
+        softShadow(c, 10, 0.3f);
+        gfx_.fillRounded(c, 12, pal_.surface);
+        gfx_.strokeRounded(c, 12, pal_.rule);
+    };
+    if (writing) {
+        const Rect c{x, y, cw, h};
+        card(c);
+        gfx_.text(L"WRITING", {c.x + 22, c.y + 18, c.w - 44, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        wchar_t b[96];
+        swprintf(b, 96, L"%lld %ls today", today_.wordsToday, today_.wordsToday == 1 ? L"word" : L"words");
+        gfx_.text(b, {c.x + 22, c.y + 40, c.w - 44, 34}, Font::Title, pal_.ink, {Align::Left, false, true});
+        std::wstring sub;
+        if (today_.dailyGoal > 0)
+            sub = today_.wordsToday >= today_.dailyGoal ? L"Goal of " + std::to_wstring(today_.dailyGoal) + L" reached"
+                                                        : std::to_wstring(today_.dailyGoal - today_.wordsToday) + L" to your goal of " +
+                                                              std::to_wstring(today_.dailyGoal);
+        if (today_.streak > 0) sub += (sub.empty() ? L"" : L"  \u00b7  ") + std::to_wstring(today_.streak) + (today_.streak == 1 ? L" day" : L" days") + L" in a row";
+        if (sub.empty()) sub = L"Nothing written yet today.";
+        gfx_.text(sub, {c.x + 22, c.y + 80, c.w - 44, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        if (today_.dailyGoal > 0)
+            progressBar({c.x + 22, c.y + 108, c.w - 200, 6}, std::min(1.0f, (float)today_.wordsToday / (float)today_.dailyGoal), "today:goal");
+        button("today:studio", {c.right() - 160, c.bottom() - 50, 140, 34}, L"Open Writing Studio", [this] { open("writing-studio"); });
+        x += cw + gap;
+    }
+    if (pictures) {
+        const Rect c{x, y, cw, h};
+        card(c);
+        gfx_.text(L"RECENT PICTURES", {c.x + 22, c.y + 18, c.w - 44, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        const float th = h - 64, tw = th * 16 / 10;
+        float px = c.x + 22;
+        for (std::size_t i = 0; i < today_.pictures.size(); ++i) {
+            const Rect t{px, c.y + 42, tw, th};
+            if (t.right() > c.right() - 22) break;
+            const std::string id = "today:pic" + std::to_string(i);
+            const std::wstring path = today_.pictures[i];
+            addHit(id, t, [path] { ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); });
+            gfx_.fillRounded(t, 8, pal_.sunken);
+            gfx_.pushClip(t);
+            gfx_.drawImage(path, t, true);
+            gfx_.popClip();
+            gfx_.strokeRounded(t, 8, pal_.rule.mix(pal_.ribbon, hoverAmount(id)));
+            if (focused(id)) focusRing(t);
+            px += tw + 10;
+        }
+    }
+    return y + h - r.y;
+}
+
 float Launcher::pageLibrary(const Rect& r) {
     float y = r.y;
     // The banner: the night, with what needs doing.
@@ -786,6 +848,11 @@ float Launcher::pageLibrary(const Rect& r) {
                   {sx, hero.y + 62, 200, 20}, Font::Small, updates ? kAuroraGreen : kNightMuted, {Align::Right, false});
         if (updates) nightButton("lib:updall", {hero.right() - 160, hero.y + 98, 130, 34}, L"Update all", [this] { updateAll(); });
         y += hero.h + 28;
+    }
+
+    if (model_.settings.showToday) {
+        const float th = drawToday({r.x, y, r.w, 0});
+        if (th > 0) y += th + 28;
     }
 
     // What's new: the latest release of each app, newest first.
@@ -836,7 +903,7 @@ float Launcher::pageLibrary(const Rect& r) {
     segmented("lib:filter", {r.x, y, 330, 30}, {L"All", L"Installed", L"Not installed"}, filter_, [this](int i) { filter_ = i; });
     y += 46;
     auto wanted = [this](const AppItem& a) { return !((filter_ == 1 && !a.inst.found) || (filter_ == 2 && a.inst.found)); };
-    // NorthRay's own apps first; CJ Philip's are an optional extra in their own section below.
+    // NorthRay's own apps (CJ Philip's are in CJ Philip Community, a separate download).
     int shown = 0;
     for (auto& a : model_.apps) {
         if (a.entry.associatedCreator == "CJ Philip" || !wanted(a)) continue;
@@ -846,18 +913,6 @@ float Launcher::pageLibrary(const Rect& r) {
     if (!shown)
         y += gfx_.text(filter_ == 1 ? L"No NorthRay apps are installed yet." : L"Every NorthRay app is installed.", {r.x, y, r.w, 24},
                        Font::Body, pal_.inkMuted) + 12;
-    bool optionalHeader = false;
-    for (auto& a : model_.apps) {
-        if (a.entry.associatedCreator != "CJ Philip" || !wanted(a)) continue;
-        if (!optionalHeader) {
-            optionalHeader = true;
-            y += 20;
-            y += sectionLabel(r.x, y, r.w, L"Optional");
-            y += gfx_.text(L"Apps from CJ Philip, made in association with NorthRay. Nothing else needs them; install them only if you want them.",
-                           {r.x, y, std::min(r.w, 680.0f), 44}, Font::Small, pal_.inkMuted) + 14;
-        }
-        y += appCard(a, {r.x, y, r.w, 0}) + 14;
-    }
     if (!model_.catalogueConfigured()) {
         y += 12;
         const std::wstring t = L"Downloads become available here once the NorthRay Software website is online. Until then, "
@@ -873,10 +928,14 @@ float Launcher::pageLibrary(const Rect& r) {
 // One app in the library: a big card with its artwork, name, what it is, its version and status, and its buttons.
 float Launcher::appCard(const AppItem& a, const Rect& at) {
     const bool narrow = at.w < 700;
-    const float h = narrow ? 176 : 136;
+    const float actW = narrow ? 0 : 300;
+    // As tall as the tagline needs (long ones wrapped to three lines, not over the status).
+    const float tw0 = at.w - 134 - actW - 20;
+    const float th = std::min(gfx_.measureHeight(w(a.entry.tagline), tw0, Font::Body), 66.0f);
+    const float statusY = 52 + std::max(42.0f, th) + 6;
+    const float h = std::max(narrow ? 176.0f : 136.0f, statusY + 20 + (narrow ? 64 : 18));
     const Rect row{at.x, at.y, at.w, h};
     const std::string id = "app:" + a.entry.id;
-    const float actW = narrow ? 0 : 300;
     // The card opens the app's page; the buttons on it act directly.
     addHit(id, {row.x, row.y, row.w - actW, narrow ? h - 56 : h}, [this, i = a.entry.id] { navigate(Page::App, i); });
     const float hv = hoverAmount(id);
@@ -890,9 +949,9 @@ float Launcher::appCard(const AppItem& a, const Rect& at) {
     drawIcon(a, {row.x + 26, row.y + 26, 84, 84});
     const float tx = row.x + 134, tw = row.w - 134 - actW - 20;
     gfx_.text(w(a.entry.name), {tx, row.y + 22, tw, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
-    gfx_.text(w(a.entry.tagline), {tx, row.y + 52, tw, 42}, Font::Body, pal_.inkMuted);
+    gfx_.text(w(a.entry.tagline), {tx, row.y + 52, tw, std::max(42.0f, th)}, Font::Body, pal_.inkMuted);
     const JobState s = jobs_.state(a.entry.id);
-    gfx_.text(statusLine(a), {tx, row.y + 100, tw + (narrow ? 0 : 120), 20}, Font::Small,
+    gfx_.text(statusLine(a), {tx, row.y + statusY, tw + (narrow ? 0 : 120), 20}, Font::Small,
               s.stage == JobState::Failed ? pal_.live : a.updateAvailable() ? pal_.ribbon : pal_.inkFaint, {Align::Left, false, true});
     if (narrow) actionArea(a, {tx, row.bottom() - 50, row.right() - tx - 20, 36}, "lib:", false);
     else actionArea(a, {row.right() - actW - 4, row.y + h / 2 - 18, actW - 20, 36}, "lib:", false);
@@ -1004,6 +1063,11 @@ float Launcher::pageApp(const Rect& r) {
     if (a.release) kv(L"Latest version", w(a.release->version));
     if (a.release) kv(L"Download size", formatSize(a.release->size));
     kv(L"Install folder", a.inst.found ? a.inst.dir : model_.installDirFor(e.id) + L" (when installed)");
+    if (a.inst.found && !a.inst.dir.empty()) {
+        auto it = diskUse_.find(e.id);
+        if (it == diskUse_.end()) it = diskUse_.emplace(e.id, folderSize(a.inst.dir)).first;
+        kv(L"On disk", formatSize(it->second) + L" (the app itself; your own files are kept elsewhere)");
+    }
     if (a.inst.legacy) kv(L"Note", L"Installed by the older CJ Community setup. Updating moves it to NorthRay's folder.");
     return std::max(ay, ky) - r.y;
 }
@@ -1122,7 +1186,15 @@ float Launcher::pageSettings(const Rect& r) {
         model_.saveSettings();
         applyTheme();
     });
-    y += 54;
+    y += 46;
+    checkbox("set:today", {r.x, y, w2, 26}, L"Show Today on the home page", model_.settings.showToday, [this] {
+        model_.settings.showToday = !model_.settings.showToday;
+        model_.saveSettings();
+    }, false);
+    y += 28;
+    y += gfx_.text(L"Your words today from NorthRay Writing Studio, and your newest screenshots and pictures saved by NorthRay Capture. "
+                   L"Read from this PC only.",
+                   {r.x + 30, y, w2 - 30, 60}, Font::Small, pal_.inkMuted) + 24;
 
     y += sectionLabel(r.x, y, w2, L"About");
     y += gfx_.text(L"NorthRay Launcher " CJ_VERSION_WSTR L". Developed by the " CJ_DEVELOPER_WSTR L" project.", {r.x, y, w2, 40},

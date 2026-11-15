@@ -109,8 +109,6 @@ void CommunityApp::load() {
 
 void CommunityApp::refresh() {
     model_.refreshInstalls();
-    const auto nr = cjui::findInstalledApp("launcher", "NorthRayLauncher.exe");
-    launcherExe_ = nr.found ? nr.exe : std::wstring{};
     invalidate();
 }
 
@@ -225,11 +223,6 @@ void CommunityApp::uninstall(const std::string& id) {
     const std::wstring err = model_.uninstall(id);
     flash(err.empty() ? name + L" was uninstalled." : err, 6);
     refresh();
-}
-
-void CommunityApp::openLauncher() {
-    if (!launcherExe_.empty()) start(launcherExe_, L"");
-    else if (!downloadPage_.empty()) cjui::openInBrowser(downloadPage_ + "#launcher");
 }
 
 // -------------------------------------------------------------------- input
@@ -418,11 +411,41 @@ void CommunityApp::drawCard(const Rect& r, const AppItem& a) {
     else button("btn:" + appId, b, label, act, true);
 }
 
+float CommunityApp::drawSelfUpdate(const Rect& r) {
+    const AppItem* me = model_.app("cj-philip-community");
+    if (!me || !me->release || cjui::compareVersions(me->release->version, CJ_VERSION_STR) <= 0) return 0;
+    const Rect box{r.x, r.y, r.w, 64};
+    gfx_.fillRounded(box, 12, pal_.ribbon.withAlpha(0.12f));
+    gfx_.strokeRounded(box, 12, pal_.ribbon.withAlpha(0.5f));
+    const std::wstring t = L"CJ Philip Community " + w(me->release->version) + L" is available (you have " CJ_VERSION_WSTR L").";
+    gfx_.text(t, {box.x + 18, box.y + 12, box.w - 240, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+    gfx_.text(L"Its setup opens; this window closes while it updates.", {box.x + 18, box.y + 34, box.w - 240, 18}, Font::Small, pal_.inkMuted,
+              {Align::Left, false, true, true});
+    const Rect b{box.right() - 200, box.y + 14, 182, 36};
+    const JobState s = jobs_.state("cj-philip-community");
+    if (jobs_.busy("cj-philip-community")) {
+        disabledButton(b, s.stage == JobState::Downloading ? L"Downloading" : L"Updating");
+        invalidate();
+    } else {
+        button("selfupd", b, L"Update", [this, me] {
+            nrl::JobRequest jr;
+            jr.appId = "cj-philip-community";
+            jr.release = *me->release;
+            jr.update = true;
+            jr.self = true;
+            jobs_.enqueue(jr);
+        }, true);
+    }
+    if (s.stage == JobState::Failed)
+        gfx_.text(s.message, {box.x + 18, box.bottom() + 4, box.w, 18}, Font::Small, pal_.live, {Align::Left, false, true, true});
+    return box.h + (s.stage == JobState::Failed ? 26 : 0) + 18;
+}
+
 float CommunityApp::drawCards(const Rect& r) {
     float y = r.y;
     const auto apps = cjApps();
     if (apps.empty()) {
-        y += gfx_.text(L"No CJ apps were found. Reinstall CJ Philip Community from NorthRay Launcher.", {r.x, y, r.w, 60},
+        y += gfx_.text(L"No CJ apps were found. Reinstall CJ Philip Community from the NorthRay Software website.", {r.x, y, r.w, 60},
                        Font::Body, pal_.inkMuted) + 10;
         return y - r.y;
     }
@@ -458,18 +481,6 @@ void CommunityApp::drawFrame(float W, float H) {
         gfx_.strokeRounded(tb, 14, hexColor("#CDB9BF").withAlpha(0.35f + 0.4f * hv));
         gfx_.text(names[theme_], tb, Font::Small, hexColor("#E8DCD6"), {Align::Center, false, false, true});
         if (focused(id)) focusRing(tb);
-        // NorthRay Launcher, beside it (it used to be in a footer).
-        if (!launcherExe_.empty() || !downloadPage_.empty()) {
-            const std::wstring more = launcherExe_.empty() ? L"Get NorthRay Launcher" : L"Open NorthRay Launcher";
-            const float lw = gfx_.measureWidth(more, Font::Small) + 24;
-            const Rect lb{tb.x - lw - 10, 56, lw, 28};
-            const std::string lid = "launcher";
-            addHit(lid, lb, [this] { openLauncher(); });
-            const float lh = hoverAmount(lid);
-            gfx_.strokeRounded(lb, 14, hexColor("#CDB9BF").withAlpha(0.35f + 0.4f * lh));
-            gfx_.text(more, lb, Font::Small, hexColor("#E8DCD6"), {Align::Center, false, false, true});
-            if (focused(lid)) focusRing(lb);
-        }
     }
 
     // Cards.
@@ -484,6 +495,7 @@ void CommunityApp::drawFrame(float W, float H) {
         else gfx_.text(chk, {W - pad - cw, y - 2, cw + 4, 18}, Font::Small, pal_.inkFaint, {Align::Left, false});
     }
     y += 28;
+    y += drawSelfUpdate({pad, y, W - pad * 2, 0});
     y += drawCards({pad, y, W - pad * 2, 0});
     y += 18;
     y += gfx_.text(w(developer_) + L"  ·  CJ Philip Community " CJ_VERSION_WSTR, {pad, y, W - pad * 2, 20}, Font::Small, pal_.inkFaint,

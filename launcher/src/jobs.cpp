@@ -176,7 +176,8 @@ bool Jobs::install(const JobRequest& r, const std::wstring& path, std::wstring& 
     // Apps install silently into the chosen folder. NorthRay Launcher's own
     // setup is shown normally (it has to replace this program).
     std::wstring cmd = L"\"" + path + L"\"";
-    if (r.appId != "launcher") cmd += L" /S /D=" + r.installDir;  // NSIS: /D must be last and unquoted
+    const bool self = r.appId == "launcher" || r.self;
+    if (!self) cmd += L" /S /D=" + r.installDir;  // NSIS: /D must be last and unquoted
     STARTUPINFOW si{sizeof si};
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(path.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
@@ -184,7 +185,7 @@ bool Jobs::install(const JobRequest& r, const std::wstring& path, std::wstring& 
         return false;
     }
     CloseHandle(pi.hThread);
-    if (r.appId == "launcher") {
+    if (self) {
         CloseHandle(pi.hProcess);
         if (notify_) PostMessageW(notify_, WM_CLOSE, 1, 0);  // really quit (not just to the tray): the setup replaces the launcher
         return true;

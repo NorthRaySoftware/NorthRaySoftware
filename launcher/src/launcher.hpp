@@ -10,6 +10,7 @@
 #include "version.hpp"
 
 #include <functional>
+#include <map>
 #include <string>
 
 namespace nrl {
@@ -65,6 +66,7 @@ private:
     void drawWelcome(float W, float H);
     void finishWelcome();
     float pageLibrary(const Rect& r);
+    float drawToday(const Rect& r);   // the home page's Today strip (0 if there's nothing to show)
     float appCard(const AppItem& a, const Rect& r);
     float pageApp(const Rect& r);
     float pageUpdates(const Rect& r);
@@ -82,6 +84,8 @@ private:
     bool trayAdded_ = false;
     bool quitting_ = false;
     bool toldAboutTray_ = false;
+    Today today_;              // read when the window is shown or activated
+    std::map<std::string, unsigned long long> diskUse_;   // installed apps' folder sizes, worked out once per visit
     UINT taskbarCreated_ = 0;  // Explorer restarted: the tray icon has to be added again
 };
 

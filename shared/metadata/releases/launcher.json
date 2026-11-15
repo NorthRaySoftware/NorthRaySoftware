@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.59.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Launcher now holds NorthRay's own apps only. CJ Philip Community (with CJ Radio) is a separate launcher, downloaded from the NorthRay Software website, and keeps itself up to date.",
+        "Today, on the home page: your words today, your goal and your writing streak from NorthRay Writing Studio, and your newest screenshots and pictures saved by NorthRay Capture. Switch it off in Settings if you'd rather not see it.",
+        "An app's page shows how much space it takes on disk.",
+        "Fixed: a long description on an app's card no longer runs into its version line."
+      ]
+    },
+    {
       "version": "0.58.0",
       "date": "2026-11-15",
       "notes": [

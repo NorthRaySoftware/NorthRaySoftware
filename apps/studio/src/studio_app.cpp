@@ -173,6 +173,7 @@ bool StudioApp::create(HINSTANCE inst, int show) {
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     SetTimer(hwnd(), kTickTimer, 30000, nullptr);
+    writeSummary();
     SetTimer(hwnd(), kBackupTimer, 30 * 60 * 1000, nullptr);
     return true;
 }
@@ -1048,6 +1049,7 @@ void StudioApp::onTimer(UINT_PTR id) {
         return;
     }
     if (id == kBackupTimer) { backupTick(); return; }
+    if (id == kTickTimer) writeSummary();   // for NorthRay Launcher's home (every 30 s, only when it changed)
     if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
         commitFields();

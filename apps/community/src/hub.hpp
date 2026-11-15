@@ -2,8 +2,9 @@
 //
 // It lists every app whose metadata names CJ Philip as its associated creator
 // (CJ Radio today; others appear by themselves as they're released), and is the
-// one place they're installed, updated, opened and uninstalled. NorthRay
-// Launcher doesn't list them; it installs CJ Philip Community itself.
+// one place they're installed, updated, opened and uninstalled. Since suite 0.59
+// it's a launcher of its own: downloaded from the NorthRay Software website, not
+// listed in NorthRay Launcher, and it updates itself.
 //
 // Installs use the same catalogue, checks and silent setups as NorthRay
 // Launcher (its Model and Jobs, built into this app too).
@@ -43,9 +44,9 @@ private:
     void open(const std::string& id);
     void install(const std::string& id);
     void uninstall(const std::string& id);
-    void openLauncher();
     void drawCard(const Rect& r, const nrl::AppItem& a);
     float drawCards(const Rect& r);
+    float drawSelfUpdate(const Rect& r);   // a newer CJ Philip Community, if the catalogue has one
     void progressBar(const Rect& r, float fraction, const std::string& key);
     std::wstring statusLine(const nrl::AppItem& a) const;
 
@@ -53,7 +54,6 @@ private:
     nrl::Jobs jobs_;
     bool checking_ = false;
     std::wstring stateDir_;
-    std::wstring launcherExe_;
     std::string downloadPage_;
     std::string developer_ = "NorthRay Software";
     int theme_ = 0;                // 0 as Windows, 1 light, 2 dark

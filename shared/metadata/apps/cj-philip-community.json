@@ -3,17 +3,18 @@
   "id": "cj-philip-community",
   "name": "CJ Philip Community",
   "tagline": "The home of the CJ Philip apps: get, open and update them in one place.",
-  "description": "CJ Philip Community is the home of the apps associated with CJ Philip, starting with CJ Radio. It installs them, keeps them up to date and opens them in one click, and new CJ apps appear on their own as they're released. NorthRay Launcher installs CJ Philip Community itself; the CJ apps are got and opened from here. It's an associated creator project published by NorthRay Software.",
+  "description": "CJ Philip Community is the home of the apps associated with CJ Philip, starting with CJ Radio. It installs them, keeps them up to date and opens them in one click, and new CJ apps appear on their own as they're released. It's a launcher of its own, downloaded separately from the NorthRay Software website, and it updates itself. It's an associated creator project published by NorthRay Software.",
   "features": [
     "Installs, updates, opens and uninstalls CJ Radio and the other CJ Philip apps",
     "Shows what's installed, running, or has an update",
+    "Updates itself: a newer version is offered at the top",
     "Downloads are checked against their published size and SHA-256 before they install",
     "New CJ apps appear on their own as they're released",
     "Light, dark, or matching Windows"
   ],
   "category": "Community",
   "status": "preview",
-  "version": "0.27.3",
+  "version": "0.28.0",
   "accent": "#6A2E3F",
   "artwork": {
     "fallbackStyle": "broadcast",

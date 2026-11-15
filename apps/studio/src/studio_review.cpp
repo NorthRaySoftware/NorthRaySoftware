@@ -58,6 +58,29 @@ static std::string dayBefore(const std::string& day, int n) {
     return b;
 }
 
+int StudioApp::writingStreak() const {
+    if (!lib_) return 0;
+    const std::string today = Library::localDay(now());
+    const auto longer = lib_->wordsWritten({}, dayBefore(today, 400));
+    auto met = [&](const std::string& d) { auto it = longer.find(d); return it != longer.end() && it->second >= 1; };
+    int streak = 0;
+    std::string d = met(today) ? today : dayBefore(today, 1);
+    while (met(d) && streak < 400) { ++streak; d = dayBefore(d, 1); }
+    return streak;
+}
+
+void StudioApp::writeSummary() {
+    if (!lib_) return;
+    const std::string today = Library::localDay(now());
+    const auto days = lib_->wordsWritten({}, today);
+    const nlohmann::json j = {{"format", "northray-writing-summary"}, {"day", today},
+                              {"wordsToday", days.count(today) ? days.at(today) : 0}, {"dailyGoal", dailyGoal()}, {"streak", writingStreak()}};
+    const std::string text = j.dump(1);
+    if (text == lastSummary_) return;
+    std::string err;
+    if (atomicWrite(narrow(stateDir() + L"\\summary.json"), text, err)) lastSummary_ = text;
+}
+
 std::int64_t StudioApp::dailyGoal() const {
     const std::string s = lib_ ? lib_->setting("goal:daily") : std::string();
     return s.empty() ? 0 : std::max<std::int64_t>(0, std::strtoll(s.c_str(), nullptr, 10));
@@ -596,14 +619,8 @@ void StudioApp::drawReviewPage(const Rect& r) {
         const auto all = lib_->wordsWritten({}, from);
         const auto mine = lib_->wordsWritten(rv_.book, from);
         const std::int64_t goal = dailyGoal();
-        // Streak: days in a row (to today, or to yesterday if today isn't done yet) meeting the goal, or with any words.
-        int streak = 0;
-        {
-            const auto longer = lib_->wordsWritten({}, dayBefore(today, 400));
-            auto met = [&](const std::string& d) { auto it = longer.find(d); return it != longer.end() && it->second >= std::max<std::int64_t>(1, goal); };
-            std::string d = met(today) ? today : dayBefore(today, 1);
-            while (met(d) && streak < 400) { ++streak; d = dayBefore(d, 1); }
-        }
+        // Streak: days in a row (to today, or to yesterday if today isn't done yet) with any words written.
+        const int streak = writingStreak();
         std::int64_t week = 0, month = 0;
         for (int i = 0; i < 28; ++i) {
             const std::string d = dayBefore(today, i);
@@ -724,7 +741,7 @@ void StudioApp::drawReviewPanel(const Rect& r) {
     } else {
         panelHeading(c, y, L"YOUR GOAL", true);
         y = panelField(c, y, L"Words a day (blank: none)", FTarget);
-        y += gfx_.text(L"Counted across every book. A streak is the days in a row you've reached it (or written anything, with no goal).",
+        y += gfx_.text(L"Counted across every book. A streak is the days in a row you've written anything.",
                        {c.x, y, c.w, 100}, Font::Small, pal_.inkMuted) + 14;
     }
     clearHitClip();

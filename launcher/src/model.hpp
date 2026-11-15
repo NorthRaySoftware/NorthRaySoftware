@@ -20,7 +20,19 @@ struct Settings {
     bool autoUpdate = true;          // install updates by themselves (apps that aren't running)
     bool keepInTray = true;          // closing the window leaves the launcher in the notification area
     bool startWithWindows = false;   // starts in the notification area when you sign in
+    bool showToday = true;           // the Today strip on the home page (writing, recent pictures)
 };
+
+// The home page's Today strip: what the other NorthRay apps left for it on this PC.
+struct Today {
+    bool writing = false;            // Writing Studio's summary.json is there and is for today
+    long long wordsToday = 0, dailyGoal = 0;
+    int streak = 0;
+    std::vector<std::wstring> pictures;   // newest first: screenshots and Capture's saved pictures
+};
+Today readToday();
+// The size of everything in a folder (and the folders in it), in bytes.
+unsigned long long folderSize(const std::wstring& dir);
 
 // A screenshot shipped with an app's metadata (data/screenshots/<id>.json).
 struct Screenshot {
@@ -73,7 +85,9 @@ public:
     std::wstring effectiveInstallRoot() const;
 
     // CJ Philip's apps (CJ Radio, ...) live in CJ Philip Community, which installs,
-    // updates and opens them; NorthRay Launcher leaves them out.
+    // updates and opens them. Since suite 0.59 NorthRay Launcher leaves out CJ Philip
+    // Community too: it's a separate launcher, downloaded from the NorthRay website,
+    // that updates itself.
     bool hideCjPhilipApps = false;
     static bool isCjPhilipApp(const cj::AppEntry& e) { return e.associatedCreator == "CJ Philip" && e.id != "cj-philip-community"; }
 

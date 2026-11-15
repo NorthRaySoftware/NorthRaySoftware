@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.34.3",
+      "date": "2026-11-15",
+      "notes": [
+        "A writing streak now counts every day you write anything, whether or not you reach your daily goal.",
+        "Today's words, your goal and your streak are shared with NorthRay Launcher's home page (a small file on this PC only)."
+      ]
+    },
+    {
       "version": "0.34.2",
       "date": "2026-11-14",
       "notes": [

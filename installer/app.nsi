@@ -38,7 +38,13 @@ VIAddVersionKey "CompanyName" "${DEVELOPER}"
 !define MUI_ABORTWARNING
 
 !define MUI_WELCOMEPAGE_TITLE "Install ${APP_NAME}"
-!define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. NorthRay Launcher finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
+!if "${APP_ID}" == "cj-philip-community"
+  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} is a launcher of its own for the CJ Philip apps, such as CJ Radio, and it keeps itself up to date.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
+!else if "${APP_ID}" == "cj-radio"
+  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. CJ Philip Community finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
+!else
+  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. NorthRay Launcher finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
+!endif
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TITLE "${APP_NAME} is installed"

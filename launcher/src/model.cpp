@@ -91,7 +91,7 @@ void Model::load() {
         std::string err;
         auto entry = cj::parseAppEntry(text, err);
         if (!entry) { warnings.push_back(narrow(path) + ": " + err); continue; }
-        if (hideCjPhilipApps && isCjPhilipApp(*entry)) continue;
+        if (hideCjPhilipApps && entry->associatedCreator == "CJ Philip") continue;   // CJ Philip Community too
         AppItem a;
         a.entry = *entry;
         json j = json::parse(text, nullptr, false);
@@ -260,6 +260,7 @@ void Model::loadSettings() {
     settings.autoUpdate = version >= 2 ? cj::valueOr(j, "autoUpdate", true) : true;
     settings.keepInTray = cj::valueOr(j, "keepInTray", true);
     settings.startWithWindows = cj::valueOr(j, "startWithWindows", false);
+    settings.showToday = cj::valueOr(j, "showToday", true);
 }
 
 void Model::saveSettings() {
@@ -269,8 +270,96 @@ void Model::saveSettings() {
     j["autoUpdate"] = settings.autoUpdate;
     j["keepInTray"] = settings.keepInTray;
     j["startWithWindows"] = settings.startWithWindows;
+    j["showToday"] = settings.showToday;
     j["settingsVersion"] = 2;
     writeFileAtomic(stateDir + L"\\settings.json", j.dump(2));
+}
+
+
+Today readToday() {
+    Today t;
+    PWSTR p = nullptr;
+    std::wstring local, pics;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p))) local = p;
+    CoTaskMemFree(p);
+    p = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &p))) pics = p;
+    CoTaskMemFree(p);
+    // Writing Studio: today's words, the goal and the streak (only if it's for today).
+    std::string text;
+    if (!local.empty() && readFile(local + L"\\NorthRay\\Writing Studio\\summary.json", text)) {
+        const json j = json::parse(text, nullptr, false);
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char today[16];
+        std::snprintf(today, sizeof today, "%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+        if (j.is_object() && cj::valueOr(j, "format", std::string()) == "northray-writing-summary") {
+            t.writing = true;
+            const bool isToday = cj::valueOr(j, "day", std::string()) == today;
+            t.wordsToday = isToday ? cj::valueOr(j, "wordsToday", 0LL) : 0;
+            t.dailyGoal = cj::valueOr(j, "dailyGoal", 0LL);
+            t.streak = cj::valueOr(j, "streak", 0);
+            if (!isToday) {
+                // Written on an earlier day: a streak only carries on if that day was yesterday.
+                SYSTEMTIME y = st;
+                FILETIME ft;
+                SystemTimeToFileTime(&y, &ft);
+                ULARGE_INTEGER u{{ft.dwLowDateTime, ft.dwHighDateTime}};
+                u.QuadPart -= 864000000000ULL;
+                ft = {u.LowPart, u.HighPart};
+                FileTimeToSystemTime(&ft, &y);
+                char yd[16];
+                std::snprintf(yd, sizeof yd, "%04d-%02d-%02d", y.wYear, y.wMonth, y.wDay);
+                if (cj::valueOr(j, "day", std::string()) != yd) t.streak = 0;
+            }
+        }
+    }
+    // Recent pictures: screenshots and what NorthRay Capture saved (borders, test pictures).
+    struct F { std::wstring path; ULONGLONG when; };
+    std::vector<F> found;
+    if (!pics.empty())
+        for (const std::wstring dir : {pics + L"\\Screenshots", pics + L"\\NorthRay Capture"}) {
+            WIN32_FIND_DATAW fd{};
+            HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) continue;
+            int n = 0;
+            do {
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                std::wstring name = fd.cFileName;
+                const auto dot = name.find_last_of(L'.');
+                std::wstring ext = dot == std::wstring::npos ? L"" : name.substr(dot);
+                for (auto& c : ext) c = (wchar_t)towlower(c);
+                if (ext != L".png" && ext != L".jpg" && ext != L".jpeg" && ext != L".webp") continue;
+                found.push_back({dir + L"\\" + name, ((ULONGLONG)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime});
+            } while (FindNextFileW(h, &fd) && ++n < 2000);
+            FindClose(h);
+        }
+    std::sort(found.begin(), found.end(), [](const F& a, const F& b) { return a.when > b.when; });
+    for (std::size_t i = 0; i < found.size() && i < 4; ++i) t.pictures.push_back(found[i].path);
+    return t;
+}
+
+unsigned long long folderSize(const std::wstring& dir) {
+    unsigned long long total = 0;
+    std::vector<std::wstring> todo{dir};
+    int seen = 0;
+    while (!todo.empty() && seen < 200000) {
+        const std::wstring d = todo.back();
+        todo.pop_back();
+        WIN32_FIND_DATAW fd{};
+        HANDLE h = FindFirstFileW((d + L"\\*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do {
+            ++seen;
+            const std::wstring n = fd.cFileName;
+            if (n == L"." || n == L"..") continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;   // never follow links out of the folder
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) todo.push_back(d + L"\\" + n);
+            else total += ((unsigned long long)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    return total;
 }
 
 }  // namespace nrl

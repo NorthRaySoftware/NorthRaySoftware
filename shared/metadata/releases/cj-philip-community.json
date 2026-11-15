@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.28.0",
+      "date": "2026-11-15",
+      "notes": [
+        "CJ Philip Community is now a launcher of its own, downloaded from the NorthRay Software website. NorthRay Launcher no longer installs or updates it.",
+        "It updates itself: when a newer version is out, a banner at the top offers it. Its setup opens and this window closes while it updates.",
+        "The button for NorthRay Launcher is gone."
+      ]
+    },
+    {
       "version": "0.27.3",
       "date": "2026-11-14",
       "notes": [

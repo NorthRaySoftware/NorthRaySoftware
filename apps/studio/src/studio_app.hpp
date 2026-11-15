@@ -251,7 +251,12 @@ private:
     void drawReviewPage(const Rect& r);
     void drawReviewPanel(const Rect& r);
     std::int64_t dailyGoal() const;
+    int writingStreak() const;   // days in a row with any words written (to today, or yesterday if none yet today)
     std::wstring todayLine() const;
+    // Today's words, the goal and the streak, in summary.json beside the settings, for NorthRay
+    // Launcher's home page. Written only when they change.
+    void writeSummary();
+    std::string lastSummary_;
     // Planning (studio_plan.cpp)
     void openPlanning(const Id& bookId);
     void selectCard(const Id& nodeId);   // "" = the book itself
