@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.9.1",
+      "date": "2026-11-15",
+      "notes": [
+        "Each streaming destination chooses its sound: the Stream mix, or one of the six recording tracks (Settings › Streaming › Sound). Destinations still share the video encode. Not yet tested on a live stream on Windows; please report how it goes.",
+        "A second output (Settings › Audio) plays any one mix on another device as well, such as a line out to a streaming PC.",
+        "Quick routing in a source's Send to menu: Stream and recordings, Recordings only, Stream only, or Only me.",
+        "The routing check warns if the second output would feed desktop audio back into itself, or shares the monitor's device."
+      ]
+    },
+    {
       "version": "0.9.0",
       "date": "2026-11-15",
       "notes": [

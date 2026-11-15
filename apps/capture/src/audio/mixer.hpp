@@ -51,6 +51,7 @@ struct Levels {
 // Plays the monitor bus on an output device (event-driven WASAPI render, shared mode).
 class MonitorOutput {
 public:
+    explicit MonitorOutput(bool second = false) : second_(second) {}
     ~MonitorOutput() { stop(); }
     void start(const std::wstring& deviceId);   // "" or "default": Windows' default output
     void stop();
@@ -59,6 +60,7 @@ public:
 
 private:
     void run(std::wstring device);
+    const bool second_;   // the second output (for its status words)
     Ring ring_{kRate / 4};
     std::thread thread_;
     std::atomic<bool> quit_{false};
@@ -85,6 +87,10 @@ public:
     // The monitor device ("" or "default" for Windows' default; "off" for none).
     void setMonitorDevice(const std::wstring& device);
     std::wstring monitorStatus() const { return monitor_.status(); }
+    // A second output: one bus played on another device (a line out to a second PC, a recorder),
+    // independent of the monitor. "off" for none; bus 0-7.
+    void setSecondOutput(const std::wstring& device, int bus);
+    std::wstring secondStatus() const { return second_.status(); }
     // Per source; "#bus0".."#bus7" for the buses.
     std::map<Id, Levels> takeLevels();
     static Id busKey(int index) { return "#bus" + std::to_string(index); }
@@ -109,6 +115,9 @@ private:
     std::map<Id, Levels> levels_;
     MonitorOutput monitor_;
     std::wstring monitorDevice_ = L"off";
+    MonitorOutput second_{true};
+    std::wstring secondDevice_ = L"off";
+    std::atomic<int> secondBus_{-1};
     // A test clip in progress (mixer thread), and the one that's finished (for the UI).
     Id clipKey_;
     std::FILE* clip_ = nullptr;

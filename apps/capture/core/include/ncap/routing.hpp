@@ -52,6 +52,8 @@ struct Warning {
         CapturedTwice,        // the same app (or device) reaches one bus from two sources
         MonitorFeedback,      // monitoring desktop audio plays it back into what's being captured
         EchoOnMicrophone,     // monitored sound may be picked up by a microphone (speakers, not headphones)
+        OutputFeedback,       // the second output plays desktop audio back onto the device it's captured from
+        OutputsShareDevice,   // the monitor and the second output play to the same device, so both are heard mixed
     } type;
     std::vector<std::string> sources;   // the sources involved (ids)
     std::string app;                    // the application, when it's about one
@@ -60,8 +62,23 @@ struct Warning {
 
 // The checks, for the given sources and the apps playing now. `monitorDevice` is the output the
 // monitor bus plays to ("" = default); `monitorIsHeadphones` says whether it's headphones.
+// `secondDevice` and `secondBus` are the second output (a line out to a streaming PC, say) when it's
+// on: the device and the bus it plays (one bit of Bus); "" and 0 when it's off.
 std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std::vector<PlayingApp>& playing,
-                             const std::string& monitorDevice, bool monitorIsHeadphones);
+                             const std::string& monitorDevice, bool monitorIsHeadphones, const std::string& secondDevice = "",
+                             std::uint32_t secondBus = 0);
+
+// Ready-made places for a source's sound, set from its menu in the mixer.
+enum class Preset {
+    StreamAndRecord,   // the stream, track 1 and its kind's own track (as a new source starts)
+    RecordOnly,        // track 1 and its own track, never the stream
+    StreamOnly,        // the stream alone, not in recordings
+    MonitorOnly,       // only you hear it
+};
+// The buses for a preset, keeping whether it's monitored (except MonitorOnly, which is just that).
+std::uint32_t applyPreset(Preset p, Kind k, std::uint32_t current);
+// The preset the buses match, if any.
+bool matchPreset(std::uint32_t buses, Kind k, Preset& out);
 
 // The path a source's sound takes, for the routing diagnostics view: "Spotify → (muted for the
 // stream) · Monitor → Headphones".

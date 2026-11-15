@@ -11,6 +11,7 @@
     "Sound: microphones and other inputs, desktop audio (everything an output device plays), and on Windows 11 one program's sound on its own (a game without your music or voice chat), each found again when the device or program comes back",
     "An audio mixer with level meters, a volume fader and mute for each sound source, and meters for the stream and your headphones",
     "Audio filters on any sound source: gain, noise gate, noise suppression, expander, compressor, limiter, equaliser, balance and delay, with presets for a microphone or a game",
+    "Each stream destination can carry its own sound (the stream mix or any recording track), and a second output plays any mix on another device, for a two-PC setup",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -35,7 +36,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

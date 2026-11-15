@@ -432,6 +432,27 @@ static void testRouting() {
     w = analyse({mic, game}, playing, "Speakers", false);
     CHECK(w.size() == 1 && w[0].type == Warning::EchoOnMicrophone);
 
+    // The second output: desktop audio on the Stream bus played onto the device it captures feeds back;
+    // onto another device it doesn't; sharing the monitor's device is pointed out.
+    AudioSource deskStream{"k3", "Desktop audio", Kind::Desktop, "Speakers", "", {"spotify.exe", "discord.exe", "minecraft.exe"}, Stream, false, 1.0f};
+    w = analyse({deskStream}, playing, "Headphones", true, "speakers", Stream);
+    CHECK(w.size() == 1 && w[0].type == Warning::OutputFeedback);
+    CHECK(analyse({deskStream}, playing, "Headphones", true, "Line out", Stream).empty());
+    CHECK(analyse({deskStream}, playing, "Headphones", true, "Speakers", Track2).empty());   // it isn't on Track 2
+    w = analyse({mic, game}, playing, "Headphones", true, "headphones", Stream);
+    CHECK(w.size() == 1 && w[0].type == Warning::OutputsShareDevice);
+    CHECK(analyse({mic, game}, playing, "Headphones", true).empty());   // second output off
+
+    // Presets.
+    CHECK(applyPreset(Preset::StreamAndRecord, Kind::Input, Monitor) == (Stream | Track1 | Track2 | Monitor));
+    CHECK(applyPreset(Preset::RecordOnly, Kind::Desktop, Stream | Track1 | Track3) == (Track1 | Track3));
+    CHECK(applyPreset(Preset::StreamOnly, Kind::Application, Stream | Track1 | Track4) == Stream);
+    CHECK(applyPreset(Preset::MonitorOnly, Kind::Application, Stream | Track1) == Monitor);
+    Preset pr;
+    CHECK(matchPreset(defaultBuses(Kind::Input), Kind::Input, pr) && pr == Preset::StreamAndRecord);
+    CHECK(matchPreset(Track1 | Track4 | Monitor, Kind::Application, pr) && pr == Preset::RecordOnly);
+    CHECK(!matchPreset(Stream | Track5, Kind::Application, pr));
+
     // Two sources for one app.
     AudioSource game2 = game;
     game2.id = "g2";

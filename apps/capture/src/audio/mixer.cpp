@@ -79,12 +79,12 @@ void MonitorOutput::run(std::wstring device) {
         if (SUCCEEDED(hr)) hr = client->GetService(IID_PPV_ARGS(&render));
         if (SUCCEEDED(hr)) hr = client->Start();
         if (FAILED(hr)) {
-            setStatus(L"The monitor device isn't available");
+            setStatus(second_ ? L"The second output's device isn't available" : L"The monitor device isn't available");
             CloseHandle(ready);
             for (int i = 0; i < 40 && !quit_; ++i) Sleep(50);
             continue;
         }
-        setStatus(L"Monitoring on " + deviceName(id));
+        setStatus((second_ ? L"Playing on " : L"Monitoring on ") + deviceName(id));
         ULONGLONG lastCheck = GetTickCount64();
         while (!quit_) {
             WaitForSingleObject(ready, 50);
@@ -123,6 +123,7 @@ void Mixer::stop() {
     quit_ = true;
     if (thread_.joinable()) thread_.join();
     monitor_.stop();
+    second_.stop();
     std::lock_guard<std::mutex> l(m_);
     if (clip_) {
         std::fclose(clip_);
@@ -141,6 +142,20 @@ void Mixer::setMonitorDevice(const std::wstring& device) {
     monitorDevice_ = device;
     if (device == L"off") monitor_.stop();
     else monitor_.start(device);
+}
+
+void Mixer::setSecondOutput(const std::wstring& device, int bus) {
+    if (bus < 0 || bus >= kBuses || device == L"off") {
+        secondBus_ = -1;
+        second_.stop();
+        secondDevice_ = L"off";
+        return;
+    }
+    secondBus_ = bus;
+    if (device == secondDevice_) return;
+    second_.stop();
+    secondDevice_ = device;
+    second_.start(device);
 }
 
 std::map<Id, Levels> Mixer::takeLevels() {
@@ -276,6 +291,7 @@ void Mixer::block() {
         lv.right = peakOf(bus_[(size_t)b].data(), kBlock, 1);
     }
     monitor_.push(bus_[7].data(), kBlock);
+    if (const int sb = secondBus_; sb >= 0) second_.push(bus_[(size_t)sb].data(), kBlock);
     std::lock_guard<std::mutex> l(m_);
     for (auto& t : taps_) {
         if (t->bus < 0 || t->bus >= kBuses) continue;

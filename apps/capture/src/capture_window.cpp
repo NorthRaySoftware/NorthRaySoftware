@@ -1339,6 +1339,42 @@ void CaptureWindow::drawSettings(const Rect& area) {
             analyseRouting();
         });
         y += std::max(h2, 34.0f) + 14;
+        {
+            const float h3 = row(L"Second output",
+                                 L"Plays one mix on another device as well: a line out to a streaming PC, or a recorder. Separate from the "
+                                 L"monitor; viewers hear only what the stream carries.",
+                                 300);
+            std::wstring dev = settings_.secondDevice == L"default" ? L"Windows\u2019 default" : settings_.secondDevice == L"off" ? L"Off"
+                                                                                                                                 : audio::deviceName(settings_.secondDevice);
+            if (dev.empty()) dev = L"A device that isn\u2019t connected";
+            button("set:second", {x + colW - 300, y - 2, 300, 32}, dev, [this] {
+                POINT pt;
+                GetCursorPos(&pt);
+                secondOutputMenu(pt);
+            });
+            y += std::max(h3, 34.0f) + 14;
+            if (settings_.secondDevice != L"off") {
+                const float h4 = row(L"It plays", mixer_.secondStatus(), 300);
+                const std::wstring now = settings_.secondBus == 0 ? L"The Stream mix" : settings_.secondBus == 7 ? L"The Monitor mix"
+                                                                                                                  : L"Track " + std::to_wstring(settings_.secondBus);
+                button("set:secondbus", {x + colW - 300, y - 2, 300, 32}, now, [this] {
+                    std::vector<MenuItem> items = {MenuItem::item(L"The Stream mix", 100, {}, true, settings_.secondBus == 0)};
+                    for (int t = 1; t <= 6; ++t)
+                        items.push_back(MenuItem::item(L"Track " + std::to_wstring(t), 100 + (UINT)t, {}, true, settings_.secondBus == t));
+                    items.push_back(MenuItem::item(L"The Monitor mix", 107, {}, true, settings_.secondBus == 7));
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+                    if (cmd < 100 || cmd > 107) return;
+                    settings_.secondBus = (int)cmd - 100;
+                    settings_.save(settingsPath_);
+                    applyMonitor();
+                    analyseRouting();
+                    invalidate();
+                });
+                y += std::max(h4, 34.0f) + 14;
+            }
+        }
         gfx_.text(L"Where each sound source goes", {x, y, colW, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
         y += 28;
         y += drawRoutes(x, y, colW) + 8;

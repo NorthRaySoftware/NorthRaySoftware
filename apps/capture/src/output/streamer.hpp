@@ -1,8 +1,10 @@
 // NorthRay Capture: streaming to several destinations at once (system 8):
 // Capture → Composite → Encode → Distribute → Multiple Destinations.
 //
-// Destinations that ask for the same video bitrate share one encode (one H.264 and one AAC encoder);
-// a destination at another bitrate gets its own encode path. Each destination sends on its own thread
+// Destinations that ask for the same video bitrate share one H.264 encode; a destination at another
+// bitrate gets its own. Within an encode, each audio mix a destination asks for (the Stream bus, or a
+// track: a game-only mix for one platform, say) has its own AAC encoder, shared by the destinations
+// that want it, and its own interleaving with the video. Each destination sends on its own thread
 // with its own buffer and reconnects by itself (output/destination.hpp), so one failing never ends the
 // others. Destinations start and stop independently; an encode with no destinations left is stopped.
 #pragma once
@@ -35,6 +37,7 @@ struct DestinationStart {
     std::string name;                // "Twitch"
     std::string url, key;            // the key is never logged
     int videoKbps = 6000;
+    int bus = 0;                     // the mixer bus it carries: 0 Stream, 1-6 Track 1-6
 };
 
 struct EncodeStatus {
@@ -43,6 +46,7 @@ struct EncodeStatus {
     bool hardware = false;
     std::uint64_t encoderDropped = 0;
     int destinations = 0;
+    std::vector<int> buses;          // the audio mixes it carries
 };
 
 class Streamer {
@@ -63,30 +67,42 @@ public:
     void tick();
 
 private:
+    // One audio mix within an encode: a bus's tap, its AAC encoder, and the destinations that carry it.
+    struct Mix {
+        int bus = 0;
+        std::unique_ptr<encode::AudioEncoder> audio;
+        std::shared_ptr<audio::Tap> tap;
+        std::unique_ptr<media::Interleaver> il;
+        bool anchored = false;
+        std::vector<std::shared_ptr<Destination>> dests;
+    };
     struct Path {
         int kbps = 0;
         std::string sink;
         std::unique_ptr<encode::VideoEncoder> video;
-        std::unique_ptr<encode::AudioEncoder> audio;
-        std::shared_ptr<audio::Tap> tap;
         std::thread thread;
         std::atomic<bool> stopping{false};
         LONGLONG t0 = 0, freq = 1;
         std::int64_t lastFrame = -1;
         std::mutex frameM;                         // the engine's frame callback vs. stopping
-        std::mutex m;                              // destinations, configuration
-        std::vector<std::shared_ptr<Destination>> dests;
-        media::Bytes avcC, aac;
+        std::mutex m;                              // mixes, their destinations, configuration
+        std::map<int, std::shared_ptr<Mix>> mixes; // by bus
+        media::Bytes avcC;
         int fps = 60;
         void frame(ID3D11Texture2D* canvas, LONGLONG qpc);
         void run();
     };
+    struct Entry {
+        int kbps = 0, bus = 0;
+        std::shared_ptr<Destination> dest;
+    };
     void stopPath(int kbps);
+    void dropMixIfUnused(int kbps, int bus);   // m_ held
 
     video::Engine* engine_ = nullptr;
     audio::Mixer* mixer_ = nullptr;
     std::map<int, std::unique_ptr<Path>> paths_;                    // by video bitrate
-    std::map<std::string, std::pair<int, std::shared_ptr<Destination>>> dests_;   // id → (path, destination)
+    std::map<std::string, Entry> dests_;                            // by destination id
     mutable std::mutex m_;
 };
 

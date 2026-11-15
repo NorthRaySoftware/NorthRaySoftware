@@ -26,6 +26,8 @@ struct Settings {
     bool welcomed = false;
     std::wstring monitorDevice = L"default";   // where the monitor mix plays: "default", an endpoint id, or "off"
     bool monitorHeadphones = true;
+    std::wstring secondDevice = L"off";        // a second output (to a streaming PC, say): an endpoint id, "default" or "off"
+    int secondBus = 0;                         // what it plays: 0 Stream, 1-6 Track 1-6, 7 Monitor
     std::wstring recordEncoder;       // "" = the best available
     int recordKbps = 20000;           // video bitrate for recordings
     unsigned recordTracks = 0x0F;     // bit n-1 = recording track n (1-4 by default)
@@ -37,6 +39,7 @@ struct Settings {
         std::string url = "rtmps://ingest.global-contribute.live-video.net/app";
         int kbps = 6000;                  // video bitrate (CBR); destinations at the same bitrate share one encode
         bool enabled = true;              // started by "Start streaming"
+        int bus = 0;                      // the sound it carries: 0 the Stream mix, 1-6 Track 1-6
     };
     std::vector<StreamDestination> destinations{StreamDestination{}};
     int streamRetryMax = 60;

@@ -696,3 +696,31 @@ then apply, plus wiring the Account row back into Settings › Streaming.
 **Not built / limits**
 - A gain-reduction meter on the mixer channel; VST plugins (part 3 looks at plugins).
 
+## 21. Milestone 9, part 2: routing and monitoring (status: built, 15 Nov 2026; released as 0.9.1)
+
+**Built**
+- Each stream destination chooses its sound: the Stream mix or one of Tracks 1-6 (Settings › Streaming › Sound),
+  so one platform can get a game-only mix, say. The streamer keeps one H.264 encode per bitrate; within it, one
+  AAC encode per mix that any destination carries (a tap on that bus, its own interleaving with the shared
+  video), shared by the destinations that want it. A mix nobody carries any more is dropped; the video encode
+  stops when its last destination does. Settings shows when destinations' different sound adds encodes.
+- A second output (Settings › Audio): any one mix (Stream, a track or Monitor) also played on another device, a
+  line out to a second PC or a recorder, by its own WASAPI render thread, independent of the monitor.
+- Routing checks for it: desktop audio played by the second output onto the device it captures (it would feed
+  back), and the second output sharing the monitor's device (both heard mixed).
+- Routing presets in a source's Send to menu: Stream and recordings (as a new source starts), Recordings only
+  (never the stream), Stream only (not recorded), Only me (monitor). The one the source matches is ticked; the
+  buses stay adjustable one by one beneath. Presets keep whether a source is monitored.
+- Media sources in the routing view are named by their files, not as a microphone.
+
+**Tested**
+- capturecore: 342 checks, including the second output's feedback and shared-device warnings (and none for a
+  bus the source isn't on, or with the output off) and each preset for each kind of source.
+- The app in Wine (PulseAudio): presets applied and ticked; the second output playing the Stream mix on the
+  default device ("Playing on PulseAudio Output"); the destination Sound menu and settings saved.
+- Not tested end to end: a stream carrying a track instead of the Stream mix. Wine has no H.264 or AAC encoders,
+  so the streamer itself can't run here; it needs a Windows test before it's relied on.
+
+**Not built**
+- A different video per destination (another canvas or scene); per-destination audio bitrate.
+

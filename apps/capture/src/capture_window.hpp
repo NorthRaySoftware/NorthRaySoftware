@@ -146,6 +146,7 @@ private:
     void saveMixClip(int bus);
     void applyMonitor();
     void monitorMenu(POINT screen);
+    void secondOutputMenu(POINT screen);
     float drawRoutes(float x, float y, float w);
     // Audio filters (capture_filters.cpp): a page per sound source, like Settings.
     void openFilters(const Id& source);

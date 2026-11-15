@@ -7,6 +7,7 @@
 #include "ncap/rtmp.hpp"
 
 #include "cjui/dialog.hpp"
+#include "cjui/menu.hpp"
 
 #include <mfapi.h>
 
@@ -18,6 +19,7 @@ namespace ncap {
 using cjui::Align;
 using cjui::Color;
 using cjui::Font;
+using cjui::MenuItem;
 using cjui::narrow;
 using cjui::Rect;
 using cjui::widen;
@@ -99,6 +101,7 @@ bool CaptureWindow::startDestination(const std::string& id, bool quiet) {
     ds.key = secrets::load(keyName(d.id));
     if (!ds.key.empty()) log::addSecret(ds.key);   // never written to a log, whatever happens
     ds.videoKbps = d.kbps;
+    ds.bus = d.bus;
     std::wstring error;
     const bool ok = streamer_.start(engine_, mixer_, c, ds, error);
     SecureZeroMemory(ds.key.data(), ds.key.size());
@@ -445,6 +448,24 @@ float CaptureWindow::drawDestinationSettings(int index, float x, float y0, float
         });
         y += std::max(h, 34.0f) + 12;
     }
+    {
+        const float h = row(L"Sound", L"What this destination hears: the Stream mix, or one of the recording tracks (a game-only mix for one "
+                                      L"platform, say). Choose what goes on each in the Audio mixer.", 200);
+        const std::wstring now = d.bus == 0 ? L"The Stream mix" : L"Track " + std::to_wstring(d.bus);
+        button("str:bus:" + id, {x + colW - 200, y - 2, 200, 32}, now, [this, find, id, busy] {
+            if (busy) return;
+            std::vector<MenuItem> items = {MenuItem::item(L"The Stream mix", 100)};
+            for (int t = 1; t <= 6; ++t) items.push_back(MenuItem::item(L"Track " + std::to_wstring(t), 100 + (UINT)t));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            auto* e = find(id);
+            if (!e || cmd < 100 || cmd > 106) return;
+            e->bus = (int)cmd - 100;
+            settings_.save(settingsPath_);
+        });
+        y += std::max(h, 34.0f) + 12;
+    }
     if (busy) y += gfx_.text(L"Streaming there now: stop it to change these.", {x + 14, y, colW, 20}, Font::Small, kBad) + 6;
     return y - y0;
 }
@@ -483,11 +504,13 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
     }
     // What it all adds up to.
     std::set<int> rates;
+    std::set<std::pair<int, int>> mixes;
     double upload = 0;
     int on = 0;
     for (auto& d : settings_.destinations)
         if (d.enabled) {
             rates.insert(d.kbps);
+            mixes.insert({d.kbps, d.bus});
             upload += (d.kbps + 160) * 1.05;   // video, audio, and about 5% for RTMP and TLS
             ++on;
         }
@@ -503,6 +526,8 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
                                  : L" " + std::to_wstring(rates.size()) +
                                        L" encodes, one per bitrate (destinations at the same bitrate share one; each extra encode is more work "
                                        L"for the graphics card).";
+        if (mixes.size() > rates.size())
+            sum += L" Destinations with different sound share the video but each sound is encoded on its own (a small cost).";
     } else {
         sum = L"No destination is switched on, so Start streaming has nowhere to go.";
     }

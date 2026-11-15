@@ -53,6 +53,10 @@ bool Settings::load(const std::wstring& path) {
     monitorDevice = widen(cj::valueOr(j, "monitorDevice", std::string("default")));
     if (monitorDevice.empty()) monitorDevice = L"default";
     monitorHeadphones = cj::valueOr(j, "monitorHeadphones", true);
+    secondDevice = widen(cj::valueOr(j, "secondDevice", std::string("off")));
+    if (secondDevice.empty()) secondDevice = L"off";
+    const int sb = cj::valueOr(j, "secondBus", 0);
+    secondBus = sb >= 0 && sb <= 7 ? sb : 0;
     recordEncoder = widen(cj::valueOr(j, "recordEncoder", std::string()));
     const int rk = cj::valueOr(j, "recordKbps", 20000);
     recordKbps = rk >= 1000 && rk <= 150000 ? rk : 20000;
@@ -78,6 +82,8 @@ bool Settings::load(const std::wstring& path) {
             const int k = cj::valueOr(d, "kbps", 6000);
             sd.kbps = validKbps(k) ? k : 6000;
             sd.enabled = cj::valueOr(d, "enabled", true);
+            const int b = cj::valueOr(d, "bus", 0);
+            sd.bus = b >= 0 && b <= 6 ? b : 0;
             destinations.push_back(sd);
         }
     } else if (j.contains("streamService")) {   // 0.6: one destination ("main", whose key is already "stream/main")
@@ -102,12 +108,12 @@ bool Settings::save(const std::wstring& path) const {
     nlohmann::json layouts = nlohmann::json::object();
     for (auto& [k, v] : savedLayouts) layouts[k] = v;
     nlohmann::json dests = nlohmann::json::array();
-    for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}});
+    for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}, {"bus", d.bus}});
     const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
-                              {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones},
+                              {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
                               {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};

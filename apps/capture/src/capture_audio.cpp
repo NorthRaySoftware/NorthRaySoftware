@@ -28,7 +28,7 @@ constexpr UINT_PTR kMeterTimer = 3;
 enum : UINT {
     CmdInDefault = 5000, CmdIn0 = 5001, CmdOutDefault = 6000, CmdOut0 = 6001, CmdApp0 = 7000,
     CmdARename = 100, CmdAMute, CmdAClip, CmdARemove, CmdAFilters, CmdADevice0 = 200,
-    CmdBus0 = 300, CmdBusClip0 = 320, CmdLeaveOutNone = 340, CmdLeaveOut0 = 341,
+    CmdBus0 = 300, CmdPreset0 = 310, CmdBusClip0 = 320, CmdLeaveOutNone = 340, CmdLeaveOut0 = 341,
 };
 
 double seconds() {
@@ -90,6 +90,17 @@ routing::AudioSource CaptureWindow::routingOf(const Source& s) const {
     r.name = s.name;
     r.kind = s.kind == SourceKind::InputAudio || s.kind == SourceKind::Media ? routing::Kind::Input : s.kind == SourceKind::DesktopAudio ? routing::Kind::Desktop : routing::Kind::Application;
     r.device = get("device");
+    if (s.kind == SourceKind::Media) {   // a file's sound: named by its files (its own, never a device's)
+        std::vector<std::string> files;
+        if (j.contains("files") && j["files"].is_array())
+            for (auto& f : j["files"])
+                if (f.is_string()) files.push_back(f.get<std::string>());
+        std::string f = files.empty() ? std::string() : files[0];
+        if (const auto cut = f.find_last_of("\\/"); cut != std::string::npos) f = f.substr(cut + 1);
+        r.device = files.empty() ? std::string("No file chosen")
+                   : files.size() == 1 ? "The file " + f
+                                       : "Files: " + f + " and " + std::to_string(files.size() - 1) + " more";
+    }
     if (r.kind == routing::Kind::Desktop && (r.device.empty() || r.device == "default")) r.device = narrow(audio::defaultDevice(false));
     r.app = routing::exeKey(get("exe"));
     if (!get("exclude").empty()) r.excluded = {routing::exeKey(get("exclude"))};
@@ -114,7 +125,14 @@ void CaptureWindow::analyseRouting() {
     if (monitor == "default") monitor = narrow(audio::defaultDevice(false));
     if (settings_.monitorDevice == L"off")
         for (auto& r : list) r.buses &= ~(std::uint32_t)routing::Monitor;   // nothing is played back
-    warnings_ = routing::analyse(list, playing, monitor, settings_.monitorHeadphones);
+    std::string second;
+    std::uint32_t secondBus = 0;
+    if (settings_.secondDevice != L"off") {
+        second = narrow(settings_.secondDevice);
+        if (second == "default") second = narrow(audio::defaultDevice(false));
+        secondBus = audio::busBit(settings_.secondBus);
+    }
+    warnings_ = routing::analyse(list, playing, monitor, settings_.monitorHeadphones, second, secondBus);
     for (auto& r : list)
         if (r.kind == routing::Kind::Desktop) carried_[r.id] = routing::carriedApps(r, playing);
 }
@@ -125,6 +143,23 @@ void CaptureWindow::applyMonitor() {
     for (auto& s : scenes_.sources())
         if (hasSound(s.kind) && (audioBuses(s) & routing::Monitor) && !audioMuted(s)) any = true;
     mixer_.setMonitorDevice(any ? settings_.monitorDevice : L"off");
+    mixer_.setSecondOutput(settings_.secondDevice, settings_.secondBus);
+}
+
+void CaptureWindow::secondOutputMenu(POINT screen) {
+    const auto outs = audio::listOutputs();
+    std::vector<MenuItem> items = {MenuItem::item(L"Off", 2, {}, true, settings_.secondDevice == L"off"),
+                                   MenuItem::item(L"Whichever is Windows\u2019 default", 1, {}, true, settings_.secondDevice == L"default"), MenuItem::sep()};
+    for (size_t i = 0; i < outs.size() && i < 90; ++i)
+        items.push_back(MenuItem::item(outs[i].name, 10 + (UINT)i, {}, true, outs[i].id == settings_.secondDevice));
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (!cmd) return;
+    settings_.secondDevice = cmd == 1 ? L"default" : cmd == 2 ? L"off" : outs[cmd - 10].id;
+    settings_.save(settingsPath_);
+    mixer_.setSecondOutput(L"off", 0);   // restart on the new device
+    applyMonitor();
+    analyseRouting();
+    invalidate();
 }
 
 void CaptureWindow::monitorMenu(POINT screen) {
@@ -388,9 +423,17 @@ void CaptureWindow::audioItemMenu(const Id& source, POINT screen) {
     }
     // Where it goes.
     const std::uint32_t buses = audioBuses(*s);
+    const routing::Kind rk = routingOf(*s).kind;
+    routing::Preset now{};
+    const bool matched = routing::matchPreset(buses, rk, now);
+    const wchar_t* presetNames[] = {L"Stream and recordings", L"Recordings only (never the stream)", L"Stream only (not recorded)", L"Only me (monitor)"};
     std::vector<MenuItem> to;
+    for (int pr = 0; pr < 4; ++pr)
+        to.push_back(MenuItem::item(presetNames[pr], CmdPreset0 + (UINT)pr, {}, true, matched && (int)now == pr));
+    to.push_back(MenuItem::sep());
     for (int b = 0; b < audio::kBuses; ++b) {
         if (b == 1 || b == 7) to.push_back(MenuItem::sep());
+        if (b == 0) to.push_back(MenuItem::item(L"Or each mix on its own:", 1, {}, false));
         std::wstring label = widen(routing::busLabel(audio::busBit(b)));
         if (b == 0) label = L"Stream (what viewers hear)";
         if (b == 7) label = L"Monitor (your headphones)";
@@ -420,6 +463,11 @@ void CaptureWindow::audioItemMenu(const Id& source, POINT screen) {
     const UINT cmd = cjui::showMenu(hwnd(), menu, screen, pal_);
     if (cmd >= CmdBus0 && cmd < CmdBus0 + audio::kBuses) {
         setAudioSetting(source, "buses", buses ^ audio::busBit((int)(cmd - CmdBus0)));
+        analyseRouting();
+        return;
+    }
+    if (cmd >= CmdPreset0 && cmd < CmdPreset0 + 4) {
+        setAudioSetting(source, "buses", routing::applyPreset((routing::Preset)(cmd - CmdPreset0), rk, buses));
         analyseRouting();
         return;
     }
@@ -634,6 +682,7 @@ float CaptureWindow::drawRoutes(float x, float y0, float w) {
     for (const Source* s : list) {
         routing::AudioSource r = routingOf(*s);
         if (r.device == "#synctone") r.device = "the sync test tone";
+        else if (s->kind == SourceKind::Media) {}   // already the file
         else if (!r.device.empty()) {   // the device's name, not its id
             const std::wstring n = audio::deviceName(widen(r.device));
             r.device = n.empty() ? std::string("a device that isn't connected") : narrow(n);

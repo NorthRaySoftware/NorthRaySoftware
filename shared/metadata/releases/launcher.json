@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.55.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.9.1: a different audio mix for each stream destination, a second audio output, and routing presets."
+      ]
+    },
+    {
       "version": "0.54.0",
       "date": "2026-11-15",
       "notes": [

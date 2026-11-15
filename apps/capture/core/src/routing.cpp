@@ -45,7 +45,7 @@ std::string exeKey(const std::string& pathOrName) {
 }
 
 std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std::vector<PlayingApp>& playing, const std::string& monitorDevice,
-                             bool monitorIsHeadphones) {
+                             bool monitorIsHeadphones, const std::string& secondDevice, std::uint32_t secondBus) {
     std::vector<Warning> out;
 
     // 1. Leaks through desktop audio. An app that has its own source kept off the stream (or that's
@@ -116,6 +116,21 @@ std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std:
             out.push_back({Warning::MonitorFeedback, {s.id}, "",
                            "\"" + s.name + "\" is monitored on the device it captures, so it would feed back into itself. Turn off its monitoring."});
 
+    // 3b. The second output does the same if it plays desktop audio onto the device it's captured from.
+    if (secondBus) {
+        for (const auto& s : sources)
+            if (s.kind == Kind::Desktop && s.reaches(secondBus) && sameDevice(s.device, secondDevice))
+                out.push_back({Warning::OutputFeedback, {s.id}, "",
+                               "The second output plays \"" + s.name + "\" onto the device it captures, so it would feed back into itself. "
+                               "Choose another device for the second output, or keep this source off " + busLabel(secondBus) + "."});
+        bool monitored = false;
+        for (const auto& s : sources) monitored |= s.reaches(Monitor);
+        if (monitored && sameDevice(secondDevice, monitorDevice))
+            out.push_back({Warning::OutputsShareDevice, {}, "",
+                           "The monitor and the second output play to the same device, so you'd hear both mixed together. Give the second "
+                           "output a device of its own."});
+    }
+
     // 4. Monitoring through speakers while a microphone goes out: the microphone hears the monitor.
     if (!monitorIsHeadphones) {
         std::vector<std::string> monitored, mics;
@@ -131,6 +146,27 @@ std::vector<Warning> analyse(const std::vector<AudioSource>& sources, const std:
         }
     }
     return out;
+}
+
+std::uint32_t applyPreset(Preset p, Kind k, std::uint32_t current) {
+    const std::uint32_t own = defaultBuses(k) & ~(std::uint32_t)(Stream | Track1);   // its kind's track
+    const std::uint32_t mon = current & Monitor;
+    switch (p) {
+        case Preset::StreamAndRecord: return Stream | Track1 | own | mon;
+        case Preset::RecordOnly: return Track1 | own | mon;
+        case Preset::StreamOnly: return Stream | mon;
+        case Preset::MonitorOnly: return Monitor;
+    }
+    return current;
+}
+
+bool matchPreset(std::uint32_t buses, Kind k, Preset& out) {
+    for (Preset p : {Preset::StreamAndRecord, Preset::RecordOnly, Preset::StreamOnly, Preset::MonitorOnly})
+        if (applyPreset(p, k, buses) == buses) {
+            out = p;
+            return true;
+        }
+    return false;
 }
 
 std::uint32_t defaultBuses(Kind k) {
