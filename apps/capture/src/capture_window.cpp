@@ -988,6 +988,7 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
         case Layout::Sources: drawSources(body); break;
         case Layout::Mixer: drawMixer(body); break;
         case Layout::Controls: drawControls(body); break;
+        case Layout::Chat: drawChatPanel(body); break;
         default: break;
     }
     clearHitClip();

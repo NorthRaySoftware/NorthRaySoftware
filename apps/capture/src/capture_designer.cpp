@@ -13,6 +13,7 @@
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <algorithm>
@@ -1233,10 +1234,73 @@ void CaptureWindow::chatTick() {
             break;
         }
     if (!designFor_.empty() && dz::usesChat(designDoc_)) needed = true;
+    if (layout_.shows(Layout::Chat)) needed = true;
     std::string twitch;
     for (auto& [k, v] : profile_)
         if (k == "twitch") twitch = v;
     chat_.watch(needed ? chat::channelFrom(twitch) : std::string());
+}
+
+// The Chat panel: the newest messages at the bottom (as many as fit), each with its name in the
+// viewer's colour (made readable on the panel) and what they are (streamer, mod, VIP, sub). Read-only;
+// "Reply on Twitch" opens Twitch's own chat window in the browser.
+void CaptureWindow::drawChatPanel(const Rect& b) {
+    std::string twitch;
+    for (auto& [k, v] : profile_)
+        if (k == "twitch") twitch = v;
+    const std::string channel = chat::channelFrom(twitch);
+    const float pad = 12;
+    float bottom = b.bottom() - 8;
+    if (!channel.empty()) {
+        const Rect rb{b.x + pad, bottom - 30, b.w - 2 * pad, 30};
+        button("chat:reply", rb, L"Reply on Twitch\u2026", [this, channel] {
+            const std::wstring url = L"https://www.twitch.tv/popout/" + widen(channel) + L"/chat";
+            ShellExecuteW(hwnd(), L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        });
+        bottom -= 38;
+    }
+    const auto st = chat_.status();
+    std::wstring status;
+    if (channel.empty())
+        status = twitch.empty() ? L"Add your Twitch name under Your details\u2026 (in any design) to read your chat here. Read-only: no sign-in."
+                                : L"\u201C" + widen(twitch) + L"\u201D isn't a Twitch name or link.";
+    else if (st.state == output::TwitchChat::State::Connected) status = L"#" + widen(channel) + L" \u00B7 live \u00B7 read-only";
+    else if (st.state == output::TwitchChat::State::Waiting) status = widen(st.error) + L". Trying again in " + std::to_wstring(st.retryInS) + L" s.";
+    else status = L"Connecting to #" + widen(channel) + L"\u2026";
+    const float sh = gfx_.measureHeight(status, b.w - 2 * pad, Font::Small);
+    gfx_.text(status, {b.x + pad, b.y + 8, b.w - 2 * pad, sh}, Font::Small, st.state == output::TwitchChat::State::Waiting ? pal_.live : pal_.inkFaint);
+    const float top = b.y + 8 + sh + 8;
+    const auto msgs = video::designChat();
+    if (msgs.empty() && !channel.empty() && st.state == output::TwitchChat::State::Connected) {
+        gfx_.text(L"No messages yet. New ones appear here as they're sent.", {b.x + pad, top, b.w - 2 * pad, 40}, Font::Small, pal_.inkMuted);
+        return;
+    }
+    // Readable name colours: lighter on the dark theme, darker on the light one.
+    const Color surf = pal_.surface;
+    const bool darkTheme = 0.2126f * surf.r + 0.7152f * surf.g + 0.0722f * surf.b < 0.5f;
+    for (auto it = msgs.rbegin(); it != msgs.rend(); ++it) {
+        const std::wstring body = widen(it->text);
+        const float th = gfx_.measureHeight(body.empty() ? L" " : body, b.w - 2 * pad, Font::Body);
+        const float h = 19 + th + 8;
+        if (bottom - h < top) break;
+        const float y = bottom - h;
+        const su::Rgba rc = it->colour.a ? it->colour : chat::defaultColour(it->login);
+        Color nc{rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1};
+        const float lum = 0.2126f * nc.r + 0.7152f * nc.g + 0.0722f * nc.b;
+        if (darkTheme && lum < 0.5f) nc = nc.mix(Color{1, 1, 1, 1}, 0.45f);
+        if (!darkTheme && lum > 0.55f) nc = nc.mix(Color{0, 0, 0, 1}, 0.4f);
+        std::wstring role;
+        for (auto& bd : it->badges) {
+            const wchar_t* r = bd == "broadcaster" ? L"streamer" : bd == "moderator" ? L"mod" : bd == "vip" ? L"VIP" : bd == "subscriber" ? L"sub" : nullptr;
+            if (r) role += (role.empty() ? L"" : L", ") + std::wstring(r);
+        }
+        const std::wstring name = widen(it->name);
+        const float nw = std::min(gfx_.measureWidth(name, Font::BodyStrong) + 2, b.w - 2 * pad);
+        gfx_.text(name, {b.x + pad, y, nw, 19}, Font::BodyStrong, nc, {Align::Left, false, true});
+        if (!role.empty()) gfx_.text(role, {b.x + pad + nw + 8, y + 1, b.w - 2 * pad - nw - 8, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+        gfx_.text(body, {b.x + pad, y + 19, b.w - 2 * pad, th + 2}, Font::Body, it->action ? nc : pal_.ink);
+        bottom = y;
+    }
 }
 
 // What the chat is doing, for the designer.

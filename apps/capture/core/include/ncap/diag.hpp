@@ -17,9 +17,9 @@ std::string redact(const std::string& text, const std::vector<std::string>& secr
 
 // The workspace: a preview over a row of docked panels.
 struct Layout {
-    enum Panel { Scenes = 0, Sources, Mixer, Controls, kPanels };
+    enum Panel { Scenes = 0, Sources, Mixer, Controls, Chat, kPanels };   // Chat: hidden at first
     std::vector<int> order = {Scenes, Sources, Mixer, Controls};   // left to right; hidden panels aren't listed
-    std::vector<float> widths = {0.2f, 0.25f, 0.35f, 0.2f};        // by panel, fractions of the row
+    std::vector<float> widths = {0.2f, 0.25f, 0.35f, 0.2f, 0.22f};  // by panel, fractions of the row
     float dockHeight = 0.34f;                                        // the panel row, as a fraction of the space
     bool previewVisible = true;
 

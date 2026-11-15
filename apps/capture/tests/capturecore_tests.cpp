@@ -512,7 +512,13 @@ static void testDiagnostics() {
     const Layout r = Layout::fromJson(l.toJson());
     CHECK(r.order == l.order && r.dockHeight == l.dockHeight);
     const Layout junk = Layout::fromJson(R"({"order":[9,9,1,1],"widths":[1],"dockHeight":5})");
-    CHECK(junk.order == std::vector<int>{1} && junk.dockHeight <= 0.8f && junk.widths.size() == 4);
+    CHECK(junk.order == std::vector<int>{1} && junk.dockHeight <= 0.8f && junk.widths.size() == (size_t)Layout::kPanels);
+    // A layout saved before the Chat panel: its widths stay, Chat is hidden until shown.
+    const Layout old = Layout::fromJson(R"({"order":[0,1,2,3],"widths":[0.1,0.4,0.3,0.2]})");
+    CHECK(!old.shows(Layout::Chat) && old.widths.size() == (size_t)Layout::kPanels && old.widths[1] > 0.39f && old.widths[1] < 0.41f);
+    Layout withChat = old;
+    withChat.show(Layout::Chat);
+    CHECK(withChat.shows(Layout::Chat) && withChat.order.back() == Layout::Chat && std::string(Layout::panelName(Layout::Chat)) == "Chat");
     Layout one;
     one.order = {Layout::Scenes};
     one.hide(Layout::Scenes);   // the last panel stays

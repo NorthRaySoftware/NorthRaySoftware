@@ -975,3 +975,16 @@ CJ asked for a Twitch chat overlay that's read-only and needs no sign-in.
 - Only Twitch. YouTube and Kick chat need their own connections (YouTube's needs an API key or sign-in).
 - A chat dock panel (reading chat inside Capture) comes next.
 - Tested against a local stand-in server speaking Twitch's chat protocol, not against Twitch itself.
+
+## 28. The Chat panel (status: built, 15 Nov 2026; released as 0.10.4)
+
+- core/diag `Layout`: a fifth panel, Chat, hidden at first (Layout menu). Layouts saved before it keep their widths
+  (missing widths are filled in rather than all reset); tested.
+- The panel shows the connection in words (live / connecting / the error and the retry), then the newest messages
+  that fit, newest at the bottom: the name in the viewer's colour (lightened on the dark theme, darkened on the
+  light one), their role (streamer, mod, VIP, sub) and the message; /me messages in the name's colour. Deletions,
+  timeouts and bans apply as on the overlay (same log).
+- Read-only. "Reply on Twitch..." opens https://www.twitch.tv/popout/<channel>/chat in the browser.
+- While the panel is shown, chat stays connected even with no chat element in a design.
+- Tested in Wine against the local stand-in server (messages, roles, colours, a deletion and a timeout).
+- Not yet: scrolling back through older messages (no scroll bars by design; the newest that fit are shown).

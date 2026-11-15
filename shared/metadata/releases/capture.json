@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.4",
+      "date": "2026-11-15",
+      "notes": [
+        "A Chat panel: read your Twitch chat inside Capture while you stream. Turn it on from the Layout menu.",
+        "Names in each viewer's colour (kept readable in the light and dark themes), marked streamer, mod, VIP or sub; deleted messages, timeouts and bans disappear here too.",
+        "Read-only, without signing in. Reply on Twitch… opens Twitch's own chat window in your browser. Saved layouts keep their panel widths."
+      ]
+    },
+    {
       "version": "0.10.3",
       "date": "2026-11-15",
       "notes": [

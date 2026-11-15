@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.64.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.4: a read-only Chat panel for your Twitch chat."
+      ]
+    },
+    {
       "version": "0.63.0",
       "date": "2026-11-15",
       "notes": [

@@ -256,6 +256,7 @@ private:
     std::set<std::string> timersFired_;       // countdowns that already switched scene (source, element, start)
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
+    void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only
     output::TwitchChat chat_;
     void timerTick();                         // countdowns reaching zero switch scenes                         // the program scene whose designs last played their entrances
     Id designFor_;                            // the design source the designer has open
