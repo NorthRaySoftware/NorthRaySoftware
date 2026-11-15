@@ -8,6 +8,7 @@
 #include "ncap/sourceutil.hpp"
 #include "ncap/dsp.hpp"
 #include "ncap/border.hpp"
+#include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -936,6 +937,115 @@ static void testBorder() {
     CHECK(circle);
 }
 
+// A stand-in plugin for the chain: halves the sound; only "half.dll" is "switched on".
+struct HalfExternal : ncap::dsp::External {
+    float g;
+    explicit HalfExternal(float g) : g(g) {}
+    void process(float* x, std::size_t n) override {
+        for (std::size_t i = 0; i < n * 2; ++i) x[i] *= g;
+    }
+    int latency() const override { return 7; }
+};
+static std::unique_ptr<ncap::dsp::External> halfFactory(const std::string& plugin, const std::map<std::string, float>& v) {
+    if (plugin != "half.dll") return nullptr;
+    auto it = v.find("gain");
+    return std::make_unique<HalfExternal>(it == v.end() ? 0.5f : it->second);
+}
+
+static void testPlugins() {
+    std::printf("plugins\n");
+    using namespace ncap::plugins;
+    // File names.
+    CHECK(validFileName("tremolo.dll") && validFileName("My Effect 2.DLL"));
+    CHECK(!validFileName("..\\evil.dll") && !validFileName("a/b.dll") && !validFileName("c:x.dll") && !validFileName("x.exe"));
+    CHECK(!validFileName("con.dll") && !validFileName("NUL.dll") && !validFileName(".dll") && !validFileName(""));
+    CHECK(!validFileName(std::string(130, 'a') + ".dll"));
+    const std::uint8_t b[] = {0x00, 0x7f, 0xab, 0xff};
+    CHECK(hex(b, 4) == "007fabff");
+
+    // Nothing is on until enabled; enabling ties it to the hash; a changed file turns it off.
+    const std::string h1(64, 'a'), h2(64, 'b');
+    Registry r;
+    CHECK(reconcile(r, {{"tremolo.dll", h1, 100}}).empty());
+    CHECK(!r.find("tremolo.dll"));
+    enable(r, {"tremolo.dll", h1, 100});
+    CHECK(r.find("tremolo.dll")->enabled);
+    CHECK(reconcile(r, {{"tremolo.dll", h1, 100}}).empty() && r.find("tremolo.dll")->enabled);
+    auto msgs = reconcile(r, {{"TREMOLO.dll", h2, 100}});
+    CHECK(msgs.size() == 1 && !r.find("tremolo.dll")->enabled && r.find("tremolo.dll")->offReason.find("changed") != std::string::npos);
+    enable(r, {"tremolo.dll", h2, 100});
+    CHECK(r.find("tremolo.dll")->enabled && r.find("tremolo.dll")->offReason.empty());
+    msgs = reconcile(r, {});
+    CHECK(msgs.size() == 1 && !r.find("tremolo.dll")->enabled && r.find("tremolo.dll")->offReason.find("no longer") != std::string::npos);
+
+    // Saved and read back; a bad hash can't stay enabled; bad names dropped.
+    enable(r, {"tremolo.dll", h2, 100});
+    enable(r, {"other.dll", h1, 5});
+    disable(r, "other.dll");
+    Registry r2 = fromJson(toJson(r));
+    CHECK(r2.records.size() == 2 && r2.find("tremolo.dll")->enabled && r2.find("tremolo.dll")->sha256 == h2 && !r2.find("other.dll")->enabled);
+    r2 = fromJson(R"({"plugins":[{"file":"x.dll","sha256":"zz","enabled":true},{"file":"..\\y.dll","sha256":")" + h1 +
+                  R"(","enabled":true},{"file":"x.dll","sha256":")" + h1 + R"(","enabled":true}]})");
+    CHECK(r2.records.size() == 1 && !r2.records[0].enabled);
+    CHECK(fromJson("not json").records.empty());
+
+    // After a crash, the plugins that were running are switched off.
+    enable(r, {"other.dll", h1, 5});
+    const auto running = runningFromText(runningToText({"tremolo.dll", "..\\bad.dll"}) + "other.dll\r\n");
+    CHECK(running.size() == 2);
+    msgs = disableAfterCrash(r, running);
+    CHECK(msgs.size() == 2 && !r.find("tremolo.dll")->enabled && !r.find("other.dll")->enabled);
+
+    // A plugin's own description.
+    Info i;
+    i.api = 1;
+    i.name = "Tremolo";
+    i.hasCreate = i.hasDestroy = i.hasSetParam = i.hasProcess = true;
+    i.params = {{"rate", "Rate", "Hz", 0.5f, 20, 5}, {"depth", "Depth", "%", 0, 100, 50}};
+    std::string why;
+    CHECK(validate(i, why));
+    Info bad = i;
+    bad.api = 2;
+    CHECK(!validate(bad, why) && why.find("version 2") != std::string::npos);
+    bad = i;
+    bad.hasProcess = false;
+    CHECK(!validate(bad, why));
+    bad = i;
+    bad.params[1].key = "rate";
+    CHECK(!validate(bad, why));
+    bad = i;
+    bad.params[0].def = 30;
+    CHECK(!validate(bad, why));
+    bad = i;
+    bad.params[0].max = NAN;
+    CHECK(!validate(bad, why));
+    bad = i;
+    bad.params.resize(17, {"k", "K", "", 0, 1, 0});
+    CHECK(!validate(bad, why));
+
+    // In a chain: a plugin filter runs through the host's factory; one that isn't on passes sound through.
+    using namespace ncap::dsp;
+    Filter pf = Filter::make(Type::Plugin);
+    pf.plugin = "half.dll";
+    pf.values["gain"] = 0.25f;
+    Filter off = pf;
+    off.plugin = "missing.dll";
+    const Chain chain = ncap::dsp::fromJson(ncap::dsp::toJson(Chain{pf, off}));
+    CHECK(chain.size() == 2 && chain[0].type == Type::Plugin && chain[0].plugin == "half.dll" && chain[0].get("gain") == 0.25f);
+    CHECK(ncap::dsp::fromJson(R"([{"type":"plugin","plugin":"..\\x.dll"},{"type":"plugin"}])").empty());
+    {
+        Processor none(chain);   // no host yet: neither runs
+        CHECK(none.notRunning().size() == 2);
+    }
+    setExternalFactory(halfFactory);
+    Processor p(chain);
+    CHECK(p.notRunning().size() == 1 && p.notRunning()[0] == "missing.dll" && p.latencyFrames() == 7);
+    float x[4] = {1, -1, 0.5f, 0.5f};
+    p.process(x, 2);
+    CHECK(x[0] == 0.25f && x[1] == -0.25f && x[2] == 0.125f);
+    setExternalFactory(nullptr);
+}
+
 static void testDsp() {
     std::printf("audio filters\n");
     namespace d = ncap::dsp;
@@ -1100,6 +1210,7 @@ int main() {
     testGroups();
     testDsp();
     testBorder();
+    testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

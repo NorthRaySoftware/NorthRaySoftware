@@ -12,8 +12,8 @@ namespace ncap::dsp {
 namespace {
 constexpr float kRate = 48000.0f;
 constexpr float kPi = 3.14159265358979f;
-const char* kKeys[] = {"gain", "noise-gate", "noise-suppression", "expander", "compressor", "limiter", "equaliser", "balance", "delay"};
-const char* kLabels[] = {"Gain", "Noise gate", "Noise suppression", "Expander", "Compressor", "Limiter", "Equaliser", "Balance", "Delay"};
+const char* kKeys[] = {"gain", "noise-gate", "noise-suppression", "expander", "compressor", "limiter", "equaliser", "balance", "delay", "plugin"};
+const char* kLabels[] = {"Gain", "Noise gate", "Noise suppression", "Expander", "Compressor", "Limiter", "Equaliser", "Balance", "Delay", "Plugin"};
 
 // Time constant for an attack or release of `ms`.
 float coeff(float ms) { return ms <= 0 ? 0.0f : std::exp(-1.0f / (ms * 0.001f * kRate)); }
@@ -25,7 +25,7 @@ float linearToDb(float lin) { return lin <= 1e-6f ? -120.0f : 20.0f * std::log10
 const char* key(Type t) { return kKeys[(int)t]; }
 const char* label(Type t) { return kLabels[(int)t]; }
 bool parse(const std::string& k, Type& out) {
-    for (int i = 0; i < kTypes; ++i)
+    for (int i = 0; i <= kTypes; ++i)
         if (k == kKeys[i]) {
             out = (Type)i;
             return true;
@@ -34,7 +34,7 @@ bool parse(const std::string& k, Type& out) {
 }
 
 const std::vector<Param>& params(Type t) {
-    static const std::vector<Param> p[kTypes] = {
+    static const std::vector<Param> p[kTypes + 1] = {
         {{"gain", "Gain", -30, 30, 0, "dB"}},
         {{"open", "Opens above", -80, 0, -36, "dB"}, {"close", "Closes below", -80, 0, -42, "dB"}, {"attack", "Attack", 0.1f, 100, 2, "ms"},
          {"hold", "Hold", 0, 1000, 150, "ms"}, {"release", "Release", 5, 2000, 150, "ms"}},
@@ -48,6 +48,7 @@ const std::vector<Param>& params(Type t) {
          {"high", "High (8 kHz)", -15, 15, 0, "dB"}},
         {{"balance", "Balance", -100, 100, 0, "%"}},
         {{"delay", "Delay", 0, 2000, 0, "ms"}},
+        {},
     };
     return p[(int)t];
 }
@@ -72,7 +73,9 @@ std::string toJson(const Chain& c) {
     for (auto& f : c) {
         nlohmann::json v = nlohmann::json::object();
         for (auto& [k, x] : f.values) v[k] = x;
-        a.push_back({{"type", key(f.type)}, {"enabled", f.enabled}, {"values", v}});
+        nlohmann::json e = {{"type", key(f.type)}, {"enabled", f.enabled}, {"values", v}};
+        if (f.type == Type::Plugin) e["plugin"] = f.plugin;
+        a.push_back(e);
     }
     return a.dump();
 }
@@ -87,7 +90,15 @@ Chain fromJson(const std::string& text) {
         if (!parse(e["type"].get<std::string>(), t)) continue;
         Filter f = Filter::make(t);
         f.enabled = !e.contains("enabled") || !e["enabled"].is_boolean() || e["enabled"].get<bool>();
-        if (e.contains("values") && e["values"].is_object())
+        if (t == Type::Plugin) {
+            // Its values are the plugin's own; the host clamps them to the plugin's ranges.
+            if (!e.contains("plugin") || !e["plugin"].is_string()) continue;
+            f.plugin = e["plugin"].get<std::string>();
+            if (f.plugin.empty() || f.plugin.size() > 128 || f.plugin.find_first_of("/\\:") != std::string::npos) continue;
+            if (e.contains("values") && e["values"].is_object())
+                for (auto& [k, v] : e["values"].items())
+                    if (v.is_number() && k.size() <= 32 && f.values.size() < 32 && std::isfinite(v.get<float>())) f.values[k] = v.get<float>();
+        } else if (e.contains("values") && e["values"].is_object())
             for (auto& p : params(t))
                 if (e["values"].contains(p.key) && e["values"][p.key].is_number()) f.values[p.key] = std::clamp(e["values"][p.key].get<float>(), p.min, p.max);
         c.push_back(f);
@@ -112,6 +123,7 @@ std::string describe(const Filter& f) {
             break;
         }
         case Type::Delay: std::snprintf(b, sizeof b, "%.0f ms", f.get("delay")); break;
+        case Type::Plugin: std::snprintf(b, sizeof b, "%s", f.plugin.c_str()); break;
     }
     return std::string(label(f.type)) + ": " + b;
 }
@@ -463,6 +475,21 @@ private:
 
 }  // namespace
 
+namespace {
+ExternalFactory gFactory = nullptr;
+class ExternalStage : public Stage {
+public:
+    explicit ExternalStage(std::unique_ptr<External> e) : e_(std::move(e)) {}
+    void process(float* x, std::size_t n) override { e_->process(x, n); }
+    int latency() const override { return e_->latency(); }
+
+private:
+    std::unique_ptr<External> e_;
+};
+}  // namespace
+
+void setExternalFactory(ExternalFactory f) { gFactory = f; }
+
 Processor::Processor(const Chain& chain) {
     for (auto& f : chain) {
         if (!f.enabled) continue;
@@ -476,6 +503,12 @@ Processor::Processor(const Chain& chain) {
             case Type::Equaliser: stages_.push_back(std::make_unique<EqStage>(f)); break;
             case Type::Balance: stages_.push_back(std::make_unique<BalanceStage>(f)); break;
             case Type::Delay: stages_.push_back(std::make_unique<DelayStage>(f)); break;
+            case Type::Plugin: {
+                std::unique_ptr<External> e = gFactory ? gFactory(f.plugin, f.values) : nullptr;
+                if (e) stages_.push_back(std::make_unique<ExternalStage>(std::move(e)));
+                else notRunning_.push_back(f.plugin);
+                break;
+            }
         }
     }
 }
