@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.61.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.1: timers, QR codes and icons in overlay designs."
+      ]
+    },
+    {
       "version": "0.60.0",
       "date": "2026-11-15",
       "notes": [

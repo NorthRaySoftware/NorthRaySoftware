@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.1",
+      "date": "2026-11-15",
+      "notes": [
+        "Timers in overlay designs: a countdown for a length or to a time (like 20:00), a stopwatch, time live, or a clock with the date. Countdowns pulse for the last ten seconds, show your words at zero, and can switch to another scene.",
+        "QR codes from any link (or {website} from your details), drawn crisp so phones can read them.",
+        "Twenty built-in icons (star, heart, arrow, chat, music, camera, book, brush and more) that take any colour or gradient."
+      ]
+    },
+    {
       "version": "0.10.0",
       "date": "2026-11-15",
       "notes": [

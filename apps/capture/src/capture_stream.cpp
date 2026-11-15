@@ -1,5 +1,6 @@
 // NorthRay Capture's window: streaming to one or more destinations (system 8).
 #include "capture_window.hpp"
+#include "video/design_render.hpp"
 
 #include "log.hpp"
 #include "output/credentials.hpp"
@@ -171,6 +172,12 @@ void CaptureWindow::stopStreaming() {
 }
 
 void CaptureWindow::streamTick() {
+    {   // How long it's been live, for timers in designs.
+        double longest = -1;
+        for (auto& id : streamer_.ids())
+            if (streamer_.active(id)) longest = std::max(longest, streamer_.status(id).seconds);
+        video::setLiveTime(longest < 0 ? -1 : (std::int64_t)(longest * 1000));
+    }
     if (streamer_.ids().empty()) return;
     streamer_.tick();
     int running = 0;

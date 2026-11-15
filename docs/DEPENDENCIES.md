@@ -31,3 +31,10 @@ Build tools: CMake ≥ 3.21 and either MSVC (Visual Studio 2022) or MinGW-w64 GC
 | Microsoft Edge WebView2 SDK | 1.0.4314.35 (`libs/third_party/webview2-sdk`: header, generated MinGW uuids, signed `WebView2Loader.dll`) | BSD-3-Clause | The browser engine interface |
 | Microsoft Edge WebView2 Runtime | Evergreen (part of Windows 11, updated by Microsoft) | Microsoft software licence | The engine itself; not shipped |
 | WIC, Shell, COM | system | — | Site icons, folders |
+
+## NorthRay Capture (`apps/capture`)
+
+| Dependency | Version | Licence | Why |
+|---|---|---|---|
+| QR Code generator library (Project Nayuki), C++ | commit bcfe1b0 (2026-10-29), vendored in `libs/third_party/qrcodegen` | MIT | QR codes in overlay designs |
+| Direct3D 11, Direct2D, DirectWrite, WIC, Media Foundation, WASAPI, SChannel | system | — | Composing video, drawing designs and text, pictures, encoding and decoding, sound, secure streaming |

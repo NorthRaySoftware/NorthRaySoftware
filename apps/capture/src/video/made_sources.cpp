@@ -651,10 +651,28 @@ private:
             design::Document doc;
             float t = 1e9f;
             bool redo = false;
+            design::Clock clock;
             {
                 std::lock_guard<std::mutex> l(m_);
                 doc = doc_;
                 if (enteredAt_) t = (float)(GetTickCount64() - enteredAt_);
+                clock = clockNow(enteredAt_ ? (std::int64_t)(GetTickCount64() - enteredAt_) : 0);
+                // Timers: every second (every frame or two while one pulses).
+                if (design::usesTime(doc)) {
+                    std::string shown;
+                    float pulse = 1;
+                    for (auto& e : doc.elements)
+                        if (e.visible && e.kind == design::Kind::Timer) {
+                            const auto ts = design::timerText(e, clock);
+                            shown += ts.text + "|";
+                            pulse = std::max(pulse, ts.pulse);
+                        }
+                    if (shown != lastTimers_ || pulse > 1.0001f || lastPulse_) {
+                        lastTimers_ = shown;
+                        ++changes_;
+                    }
+                    lastPulse_ = pulse > 1.0001f;
+                }
                 // Again while elements are coming in, and once more after the last picture was mid-entrance.
                 redo = changes_ != done || vv != valuesSeen || (enteredAt_ && design::animating(doc, t - 40)) || lastMoving_;
                 done = changes_;
@@ -664,7 +682,7 @@ private:
                 DesignPicture pic;
                 std::wstring error;
                 lastMoving_ = enteredAt_ && design::animating(doc, t);
-                if (renderDesign(doc, t, 1.0f, values, pic, error)) {
+                if (renderDesign(doc, t, 1.0f, values, pic, error, false, clock)) {
                     std::lock_guard<std::mutex> l(m_);
                     pic_ = std::move(pic);
                     ++picSerial_;
@@ -691,6 +709,8 @@ private:
     std::uint64_t picSerial_ = 0, shownSerial_ = 0;
     std::atomic<bool> hasDrawn_{false};
     bool lastMoving_ = false;   // worker thread
+    std::string lastTimers_;    // what the timers showed last time
+    bool lastPulse_ = false;
 };
 
 std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings) {

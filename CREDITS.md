@@ -25,6 +25,7 @@ NorthRay Software is a project identity, not a company or a team: credits never 
 - **Noto Sans Symbols 2, Noto Sans Symbols and Noto Emoji** (SIL Open Font License 1.1, Google): fallback fonts the Writing Studio's typesetter uses for symbols the book font doesn't have. `apps/studio/fonts/symbols/` (licence: `OFL.txt` there).
 - **WordNet 3.1** (Princeton University, WordNet licence; files from wordnet-db 3.1.14, MIT packaging): the Writing Studio's thesaurus, boiled down by `tools/build-thesaurus.mjs` into `apps/studio/web/dict/thesaurus.json`. WordNet 3.0 Copyright 2006 by Princeton University. All rights reserved. Licence: `apps/studio/licenses/WordNet.txt`.
 - **miniz** (MIT): reading EPUB (ZIP) files. `libs/third_party/miniz/LICENSE`.
+- **QR Code generator library** by Project Nayuki (MIT): QR codes in NorthRay Capture's overlay designs. `libs/third_party/qrcodegen/LICENSE`.
 - **PDFium** (BSD-3-Clause / Apache-2.0) and the libraries it bundles: PDF import. Windows build from bblanchon/pdfium-binaries. `apps/studio/licenses/PDFium/`.
 - **Microsoft Edge WebView2** loader (BSD-style licence from Microsoft): hosts the editor, as in CJ Radio. `apps/studio/licenses/WebView2-LICENSE.txt`.
 

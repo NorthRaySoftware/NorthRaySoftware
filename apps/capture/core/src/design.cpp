@@ -4,6 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdio>
+#include <sstream>
+
+#include "qrcodegen/qrcodegen.hpp"
 
 namespace ncap::design {
 
@@ -13,7 +18,7 @@ using sourceutil::parseColour;
 
 namespace {
 constexpr float kPi = 3.14159265358979f;
-const char* kKinds[] = {"text", "rect", "ellipse", "image"};
+const char* kKinds[] = {"text", "rect", "ellipse", "image", "timer", "qr", "icon"};
 const char* kAnims[] = {"none", "fade", "slide-left", "slide-right", "slide-up", "slide-down", "pop", "wipe"};
 float clampf(float v, float a, float b) { return std::isfinite(v) ? std::clamp(v, a, b) : a; }
 std::uint8_t mix8(std::uint8_t a, std::uint8_t b, float t) { return (std::uint8_t)std::lround(a + (b - a) * t); }
@@ -113,7 +118,7 @@ Rgba colourAt(const Fill& f, float t) {
 
 const char* key(Kind k) { return kKinds[(int)k]; }
 bool parse(const std::string& s, Kind& out) {
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 7; ++i)
         if (s == kKinds[i]) {
             out = (Kind)i;
             return true;
@@ -167,7 +172,13 @@ std::string toJson(const Document& d) {
                   {"shadow", {{"on", e.shadow.on}, {"dx", e.shadow.dx}, {"dy", e.shadow.dy}, {"blur", e.shadow.blur}, {"colour", colourJson(e.shadow.colour)}}},
                   {"anim", key(e.anim)},
                   {"animMs", e.animMs}};
-        if (e.kind == Kind::Text) {
+        if (e.kind == Kind::Timer) {
+            j["timer"] = {{"mode", e.timerMode}, {"seconds", e.timerSeconds}, {"until", e.timerUntil}, {"end", e.timerEnd},
+                          {"date", e.timerDate}, {"pulse", e.timerPulse}, {"scene", e.timerScene}};
+        }
+        if (e.kind == Kind::Qr) j["qr"] = e.qr;
+        if (e.kind == Kind::Icon) j["icon"] = e.icon;
+        if (e.kind == Kind::Text || e.kind == Kind::Timer) {
             j["text"] = e.text;
             j["font"] = e.font;
             j["size"] = e.size;
@@ -241,6 +252,20 @@ Document fromJson(const std::string& text) {
             e.align = str(o, "align", "left", 8);
             if (e.align != "left" && e.align != "centre" && e.align != "right") e.align = "left";
             e.file = str(o, "file", "", 1024);
+            e.qr = str(o, "qr", "", 1000);
+            e.icon = str(o, "icon", "", 32);
+            if (o.contains("timer") && o["timer"].is_object()) {
+                const json& t = o["timer"];
+                e.timerMode = str(t, "mode", "countdown", 16);
+                if (e.timerMode != "countdown" && e.timerMode != "until" && e.timerMode != "stopwatch" && e.timerMode != "live" && e.timerMode != "clock")
+                    e.timerMode = "countdown";
+                e.timerSeconds = (int)num(t, "seconds", 300, 1, 359999);
+                e.timerUntil = (int)num(t, "until", 20 * 60, 0, 24 * 60 - 1);
+                e.timerEnd = str(t, "end", "Starting now!", 200);
+                e.timerDate = flag(t, "date", false);
+                e.timerPulse = flag(t, "pulse", true);
+                e.timerScene = str(t, "scene", "", 64);
+            }
             e.cover = flag(o, "cover", true);
             d.elements.push_back(e);
         }
@@ -252,7 +277,10 @@ std::string add(Document& d, Element e) {
     if (d.elements.size() >= 200) return {};
     e.id = "e" + std::to_string(d.nextId++);
     while (d.find(e.id)) e.id = "e" + std::to_string(d.nextId++);
-    if (e.name.empty()) e.name = e.kind == Kind::Text ? "Text" : e.kind == Kind::Rect ? "Rectangle" : e.kind == Kind::Ellipse ? "Ellipse" : "Picture";
+    if (e.name.empty()) {
+        static const char* names[] = {"Text", "Rectangle", "Ellipse", "Picture", "Timer", "QR code", "Icon"};
+        e.name = names[(int)e.kind];
+    }
     d.elements.push_back(e);
     return d.elements.back().id;
 }
@@ -437,6 +465,143 @@ std::string fillPlaceholders(const std::string& text, const std::vector<std::pai
     return out;
 }
 
+// ------------------------------------------------------------------ timers, QR codes, icons
+
+std::string durationText(std::int64_t ms) {
+    if (ms < 0) ms = 0;
+    const std::int64_t s = ms / 1000, h = s / 3600, m = (s / 60) % 60, sec = s % 60;
+    char b[32];
+    if (h > 0) std::snprintf(b, sizeof b, "%lld:%02lld:%02lld", (long long)h, (long long)m, (long long)sec);
+    else std::snprintf(b, sizeof b, "%lld:%02lld", (long long)m, (long long)sec);
+    return b;
+}
+
+TimerShown timerText(const Element& e, const Clock& c) {
+    TimerShown t;
+    auto counting = [&](std::int64_t remaining) {
+        t.remainingMs = std::max<std::int64_t>(0, remaining);
+        if (remaining <= 0) {
+            t.ended = true;
+            t.text = e.timerEnd;
+            return;
+        }
+        t.text = durationText(remaining + 999);   // whole seconds left, rounded up: 0:01 until it's zero
+        if (e.timerPulse && remaining <= 10000) {
+            // Each second: bigger as it ticks, settling back.
+            const float within = (float)(remaining % 1000) / 1000.0f;   // 1 → 0 through the second
+            t.pulse = 1 + 0.12f * within * within;
+        }
+    };
+    if (e.timerMode == "countdown") {
+        counting((std::int64_t)e.timerSeconds * 1000 - c.elapsedMs);
+    } else if (e.timerMode == "until") {
+        // To the next time it's that time of day; a time passed less than twelve hours ago has ended.
+        std::int64_t diff = (std::int64_t)e.timerUntil * 60 - c.localSeconds;
+        if (diff < -12 * 3600) diff += 24 * 3600;
+        counting(diff * 1000);
+    } else if (e.timerMode == "stopwatch") {
+        t.text = durationText(c.elapsedMs);
+    } else if (e.timerMode == "live") {
+        t.text = c.liveMs < 0 ? "Not live" : durationText(c.liveMs);
+    } else {   // clock, 24-hour
+        char b[16];
+        std::snprintf(b, sizeof b, "%02d:%02d", (c.localSeconds / 3600) % 24, (c.localSeconds / 60) % 60);
+        t.text = b;
+        if (e.timerDate && !c.dateText.empty()) t.text += "\n" + c.dateText;
+    }
+    if (!e.text.empty() && !t.ended) {   // words around it: "Starting in {time}"
+        std::string w = e.text;
+        const std::size_t at = w.find("{time}");
+        t.text = at == std::string::npos ? w + " " + t.text : w.replace(at, 6, t.text);
+    }
+    return t;
+}
+
+bool usesTime(const Document& d) {
+    for (auto& e : d.elements)
+        if (e.visible && e.kind == Kind::Timer) return true;
+    return false;
+}
+
+const std::vector<Icon>& icons() {
+    // Drawn for NorthRay: simple, filled, 24 x 24.
+    static const std::vector<Icon> v = {
+        {"star", "Star", "M12 2 L14.9 8.6 L22 9.3 L16.6 14 L18.2 21 L12 17.3 L5.8 21 L7.4 14 L2 9.3 L9.1 8.6 Z"},
+        {"heart", "Heart", "M12 21 C5 15.5 2 12.5 2 8.5 C2 5.5 4.3 3.5 7 3.5 C9 3.5 10.8 4.6 12 6.3 C13.2 4.6 15 3.5 17 3.5 C19.7 3.5 22 5.5 22 8.5 C22 12.5 19 15.5 12 21 Z"},
+        {"arrow", "Arrow", "M3 10.5 L14 10.5 L14 5 L21.5 12 L14 19 L14 13.5 L3 13.5 Z"},
+        {"check", "Tick", "M3.5 12.5 L6 10 L9.5 13.5 L18 5 L20.5 7.5 L9.5 18.5 Z"},
+        {"play", "Play", "M7 4 L20 12 L7 20 Z"},
+        {"chat", "Chat", "M3 4 L21 4 L21 16 L10 16 L5 20.5 L5.5 16 L3 16 Z"},
+        {"music", "Music", "M9 4 L20 2 L20 15.5 C20 17.4 18.4 18.8 16.5 18.8 C14.6 18.8 13.5 17.6 13.5 16.2 C13.5 14.6 14.9 13.4 16.6 13.4 C17.2 13.4 17.7 13.5 18 13.7 L18 6.4 L11 7.7 L11 18 C11 19.9 9.4 21.3 7.5 21.3 C5.6 21.3 4.5 20.1 4.5 18.7 C4.5 17.1 5.9 15.9 7.6 15.9 C8.2 15.9 8.7 16 9 16.2 Z"},
+        {"camera", "Camera", "M2 7 L7 7 L9 4 L15 4 L17 7 L22 7 L22 20 L2 20 Z"},
+        {"pin", "Place", "M12 22 C7 15.5 4.5 12 4.5 9 C4.5 4.9 7.9 2 12 2 C16.1 2 19.5 4.9 19.5 9 C19.5 12 17 15.5 12 22 Z"},
+        {"mail", "Mail", "M2 5 L22 5 L22 19 L2 19 Z"},
+        {"bell", "Bell", "M12 2.5 C15.6 2.5 18 5.3 18 9 L18 14 L20.5 17.5 L3.5 17.5 L6 14 L6 9 C6 5.3 8.4 2.5 12 2.5 Z M9.5 19 L14.5 19 C14.5 20.4 13.4 21.5 12 21.5 C10.6 21.5 9.5 20.4 9.5 19 Z"},
+        {"calendar", "Calendar", "M3 5 L7 5 L7 2.5 L9 2.5 L9 5 L15 5 L15 2.5 L17 2.5 L17 5 L21 5 L21 21 L3 21 Z"},
+        {"clock", "Clock", "O 12 12 10"},
+        {"dot", "Dot", "O 12 12 6"},
+        {"book", "Book", "M3 4 C6 3.5 9.5 3.8 11.5 5.5 L11.5 20.5 C9.5 19 6 18.7 3 19.2 Z M12.5 5.5 C14.5 3.8 18 3.5 21 4 L21 19.2 C18 18.7 14.5 19 12.5 20.5 Z"},
+        {"brush", "Brush", "M20.5 2.5 L22 4 L13 14.5 L10 11.5 Z M9 12.5 L12 15.5 C11.5 18.5 9.5 21 5.5 21 C3.5 21 2.5 20.5 2 20 C4 19.5 4.5 18 5 16 C5.5 14 7 12.5 9 12.5 Z"},
+        {"mic", "Microphone", "M9 3.5 C9 2.4 10.3 1.5 12 1.5 C13.7 1.5 15 2.4 15 3.5 L15 11.5 C15 12.6 13.7 13.5 12 13.5 C10.3 13.5 9 12.6 9 11.5 Z M5.5 10 L7 10 C7 13 9.2 15.2 12 15.2 C14.8 15.2 17 13 17 10 L18.5 10 C18.5 13.5 16 16.3 12.8 16.7 L12.8 20 L16 20 L16 22 L8 22 L8 20 L11.2 20 L11.2 16.7 C8 16.3 5.5 13.5 5.5 10 Z"},
+        {"globe", "Globe", "O 12 12 10"},
+        {"sparkle", "Sparkle", "M12 2 C12.8 7.5 16.5 11.2 22 12 C16.5 12.8 12.8 16.5 12 22 C11.2 16.5 7.5 12.8 2 12 C7.5 11.2 11.2 7.5 12 2 Z"},
+        {"moon", "Moon", "M15 2.5 C10 3.5 7 7.5 7 12 C7 16.5 10 20.5 15 21.5 C9 22.5 3 18 3 12 C3 6 9 1.5 15 2.5 Z"},
+    };
+    return v;
+}
+
+const Icon* iconById(const std::string& id) {
+    for (auto& i : icons())
+        if (id == i.id) return &i;
+    return nullptr;
+}
+
+std::vector<std::vector<std::pair<float, float>>> iconFigures(const std::string& path) {
+    std::vector<std::vector<std::pair<float, float>>> figs;
+    std::string spaced;   // "M12 2" → "M 12 2"
+    for (char ch : path) {
+        if (std::isalpha((unsigned char)ch)) spaced += std::string(" ") + ch + " ";
+        else spaced += ch;
+    }
+    std::stringstream ss(spaced);
+    std::string tok;
+    std::vector<std::pair<float, float>>* cur = nullptr;
+    float lx = 0, ly = 0;
+    auto rd = [&](float& v) { return static_cast<bool>(ss >> v); };
+    while (ss >> tok) {
+        if (tok == "M") {
+            float x, y;
+            if (!rd(x) || !rd(y)) break;
+            figs.push_back({{x, y}});
+            cur = &figs.back();
+            lx = x, ly = y;
+        } else if (tok == "L" && cur) {
+            float x, y;
+            if (!rd(x) || !rd(y)) break;
+            cur->push_back({x, y});
+            lx = x, ly = y;
+        } else if (tok == "C" && cur) {
+            float x1, y1, x2, y2, x, y;
+            if (!rd(x1) || !rd(y1) || !rd(x2) || !rd(y2) || !rd(x) || !rd(y)) break;
+            for (int i = 1; i <= 12; ++i) {   // flattened into short lines
+                const float t = i / 12.0f, u = 1 - t;
+                cur->push_back({u * u * u * lx + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x,
+                                u * u * u * ly + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y});
+            }
+            lx = x, ly = y;
+        } else if (tok == "O") {
+            float cx, cy, r;
+            if (!rd(cx) || !rd(cy) || !rd(r)) break;
+            figs.push_back({});
+            for (int i = 0; i < 48; ++i) figs.back().push_back({cx + r * std::cos(2 * kPi * i / 48), cy + r * std::sin(2 * kPi * i / 48)});
+            cur = nullptr;
+        } else if (tok == "Z") {
+            cur = nullptr;
+        }
+    }
+    return figs;
+}
+
 // ------------------------------------------------------------------ templates
 
 namespace {
@@ -572,6 +737,21 @@ const std::vector<Template>& templates() {
         return v;
     }();
     return t;
+}
+
+std::vector<std::vector<bool>> qrModules(const std::string& text) {
+    std::vector<std::vector<bool>> m;
+    if (text.empty() || text.size() > 1000) return m;
+    try {
+        const qrcodegen::QrCode q = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+        const int n = q.getSize();
+        m.assign((std::size_t)n, std::vector<bool>((std::size_t)n));
+        for (int y = 0; y < n; ++y)
+            for (int x = 0; x < n; ++x) m[(std::size_t)y][(std::size_t)x] = q.getModule(x, y);
+    } catch (...) {
+        m.clear();
+    }
+    return m;
 }
 
 }  // namespace ncap::design

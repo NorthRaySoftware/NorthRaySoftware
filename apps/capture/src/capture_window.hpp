@@ -246,7 +246,10 @@ private:
     std::wstring engineError_;
     struct Live { std::shared_ptr<video::VideoSource> capture; std::string settings; };
     std::map<Id, Live> live_;                 // by source id
-    Id enteredScene_;                         // the program scene whose designs last played their entrances
+    Id enteredScene_;
+    std::map<Id, ULONGLONG> designEntered_;   // when each design's scene last went live
+    std::set<std::string> timersFired_;       // countdowns that already switched scene (source, element, start)
+    void timerTick();                         // countdowns reaching zero switch scenes                         // the program scene whose designs last played their entrances
     Id designFor_;                            // the design source the designer has open
     design::Document designDoc_;
     std::string designSel_, designRendered_, dBefore_;

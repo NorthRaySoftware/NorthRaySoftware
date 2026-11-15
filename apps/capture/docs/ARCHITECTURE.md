@@ -873,3 +873,40 @@ ahead of the brief's milestone order.
   codes, many-stop gradient editing by dragging, GIF and WebM export, Twitch panel and banner export presets beyond the
   templates, facecam frames that follow the camera, live animated aurora backgrounds on the GPU, and the media library.
 
+## 25. Milestone 10, part 2: timers, QR codes and icons in designs (status: built, 15 Nov 2026; released as 0.10.1)
+
+**Built**
+- Three more element kinds in `core/design`, saved with the design:
+  - Timer: text that counts, in the text's own look (font, size, bold, colour, shadow): a countdown for a length (from
+    when its scene goes live), a countdown to a time of day (a time passed less than twelve hours ago has ended; earlier
+    ones mean tomorrow), a stopwatch, time live (the longest-running stream destination; "Not live" otherwise) and a
+    24-hour clock, optionally with the day and date. Words can go around it ("Starting in {time}"). Countdowns round up
+    to whole seconds, show their own words at zero, and pulse for the last ten seconds (switchable). At zero a
+    countdown can switch to a chosen scene (once each time its scene goes live; Studio Mode switches the program).
+  - QR code: from a link or text (placeholders such as {website} work), via Project Nayuki's QR Code generator library
+    (MIT, vendored in libs/third_party/qrcodegen, medium error correction), drawn as crisp squares with a quiet border;
+    fill is its light colour and outline its dark one.
+  - Icon: twenty built-in icons drawn for NorthRay (star, heart, arrow, tick, play, chat, music, camera, place, mail,
+    bell, calendar, clock, dot, book, brush, microphone, globe, sparkle, moon) as simple paths in a 24 x 24 box, filled
+    with any fill (gradients too) and outlined.
+- The Design source draws again every second while a timer's text changes and every 33 ms while one pulses; the
+  designer's canvas follows timers too. The window checks countdowns each second for their scene switch.
+- Designer: Timer, QR code and Icon... in Add; their properties (what a timer shows, its length or time typed as 5,
+  4:30, 1:00:00 or 20:00, what it shows at zero, the scene to switch to, pulse, date, the words around it; a QR code's
+  link; which icon). A selection reaching off the page is drawn only up to the page.
+
+**Tested**
+- capturecore: 1321 checks (the icon checks look at every point of every icon): countdown text through the seconds,
+  rounding, pulse only in the last ten seconds, the end words, hours; until before and after the time and tomorrow's;
+  stopwatch, time live and not live, the clock with and without the date; saving; QR codes square with the three
+  finder patterns; nothing for empty or over-long text; every icon parsing into closed figures inside its box.
+- The app in Wine: a Timer added to Starting Soon, set to 0:08 and to switch to Just chatting; its scene shown, the
+  countdown running on the page (0:01 seen) and Capture switching to Just chatting at zero (the log says so); a QR code
+  for https://northray.example/download saved as PNG and read back by OpenCV's QR reader to exactly that link; star,
+  heart and play icons drawn with gradient fills.
+
+**Not built / limits**
+- Playing a sound at zero: it belongs with the soundboard, so it's heard on stream through the mixer. Official
+  social-platform logos: they need the platforms' own brand files and rules. A timer that pulses redraws its whole
+  design about 30 times a second for ten seconds (fine on a PC, slow under Wine).
+

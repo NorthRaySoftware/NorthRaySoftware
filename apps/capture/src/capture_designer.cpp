@@ -484,6 +484,52 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
+        y += 38;
+        button("dz:add:timer", {left.x, y, bw, 30}, L"Timer", [this] {
+            dz::Element e;
+            e.kind = dz::Kind::Timer;
+            e.w = 600, e.h = 160;
+            e.x = std::round((designDoc_.width - e.w) / 2);
+            e.y = std::round((designDoc_.height - e.h) / 2);
+            e.size = 96;
+            e.bold = true;
+            e.align = "centre";
+            e.fill = dz::Fill::solid({244, 247, 251, 255});
+            designSel_ = dz::add(designDoc_, e);
+            designChanged();
+        });
+        button("dz:add:qr", {left.x + bw + 8, y, bw, 30}, L"QR code", [this] {
+            dz::Element e;
+            e.kind = dz::Kind::Qr;
+            e.qr = "{website}";
+            e.w = e.h = 240;
+            e.x = std::round((designDoc_.width - e.w) / 2);
+            e.y = std::round((designDoc_.height - e.h) / 2);
+            e.fill = dz::Fill::solid({255, 255, 255, 255});
+            e.radius = 0;
+            designSel_ = dz::add(designDoc_, e);
+            designChanged();
+        });
+        y += 38;
+        button("dz:add:icon", {left.x, y, left.w, 30}, L"Icon\u2026", [this] {
+            std::vector<MenuItem> items;
+            const auto& ics = dz::icons();
+            for (std::size_t i = 0; i < ics.size(); ++i) items.push_back(MenuItem::item(widen(ics[i].name), 100 + (UINT)i));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (cmd < 100 || cmd >= 100 + ics.size()) return;
+            dz::Element e;
+            e.kind = dz::Kind::Icon;
+            e.icon = ics[cmd - 100].id;
+            e.name = ics[cmd - 100].name;
+            e.w = e.h = 120;
+            e.x = std::round((designDoc_.width - e.w) / 2);
+            e.y = std::round((designDoc_.height - e.h) / 2);
+            e.fill = dz::Fill::linear(gradients()[0].stops, 0);
+            designSel_ = dz::add(designDoc_, e);
+            designChanged();
+        });
         y += 48;
         gfx_.text(L"LAYERS", {left.x, y, left.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
         y += 22;
@@ -502,6 +548,14 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             {   // a small picture of its kind
                 const Rect ic{row.x + 8, row.y + 8, 16, 14};
                 if (e.kind == dz::Kind::Text) gfx_.text(L"T", {row.x + 6, row.y, 20, 30}, Font::BodyStrong, pal_.inkMuted, {Align::Center, false, false, true});
+                else if (e.kind == dz::Kind::Timer) {
+                    gfx_.circle(ic.x + 8, ic.y + 7, 7, pal_.inkMuted, false, 1.5f);
+                    gfx_.line(ic.x + 8, ic.y + 7, ic.x + 8, ic.y + 2, pal_.inkMuted, 1.5f);
+                    gfx_.line(ic.x + 8, ic.y + 7, ic.x + 12, ic.y + 7, pal_.inkMuted, 1.5f);
+                } else if (e.kind == dz::Kind::Qr) {
+                    for (int q = 0; q < 4; ++q) gfx_.fill({ic.x + (q % 2) * 9.0f, ic.y + (q / 2) * 8.0f, 6, 6}, pal_.inkMuted);
+                } else if (e.kind == dz::Kind::Icon)
+                    gfx_.text(L"*", {row.x + 6, row.y, 20, 30}, Font::BodyStrong, pal_.inkMuted, {Align::Center, false, false, true});
                 else if (e.kind == dz::Kind::Ellipse) gfx_.circle(ic.x + 8, ic.y + 7, 7, pal_.inkMuted, false, 1.5f);
                 else if (e.kind == dz::Kind::Rect) gfx_.strokeRounded(ic, 3, pal_.inkMuted, 1.5f);
                 else {
@@ -549,14 +603,20 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 gfx_.fill({xx, yy, cell, cell}, ((int)((xx - c.x) / cell) + (int)((yy - c.y) / cell)) % 2 ? cjui::hexColor("#D8DEE6") : cjui::hexColor("#F1F4F8"));
         gfx_.popClip();
         // Drawn again only when the design (or its size on screen) changes.
-        const std::string key = dz::toJson(designDoc_) + "@" + std::to_string((int)c.w) + "x" + std::to_string((int)c.h) + "#" +
-                                std::to_string(profile_.size()) + (profile_.empty() ? "" : profile_[0].second);
+        // Timers show the time now (a countdown its full length): the canvas follows them each second.
+        const dz::Clock clock = video::clockNow(0);
+        std::string timers;
+        for (auto& el : designDoc_.elements)
+            if (el.kind == dz::Kind::Timer) timers += dz::timerText(el, clock).text + "|";
+        std::string prof;
+        for (auto& [k, v] : profile_) prof += v + "|";
+        const std::string key = dz::toJson(designDoc_) + "@" + std::to_string((int)c.w) + "x" + std::to_string((int)c.h) + "#" + prof + timers;
         if (key != designRendered_) {
             video::DesignPicture p;
             std::wstring err;
             gfx_.forgetImage(L"designer:canvas");
             designPixels_.clear();
-            if (video::renderDesign(designDoc_, 1e9f, sc * gfx_.dpiScale(), profile_, p, err, true)) {
+            if (video::renderDesign(designDoc_, 1e9f, sc * gfx_.dpiScale(), profile_, p, err, true, clock)) {
                 designPixels_.resize(p.bgra.size());
                 for (std::size_t i = 0; i < p.bgra.size(); i += 4) {   // BGRA → RGBA
                     designPixels_[i] = p.bgra[i + 2];
@@ -574,6 +634,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
         // Guides while dragging, and the selection.
         for (float gx : dGuidesX_) gfx_.line(c.x + gx * sc, c.y, c.x + gx * sc, c.bottom(), cjui::hexColor("#FF3DD6"), 1);
         for (float gy : dGuidesY_) gfx_.line(c.x, c.y + gy * sc, c.right(), c.y + gy * sc, cjui::hexColor("#FF3DD6"), 1);
+        gfx_.pushClip({c.x - 6, c.y - 6, c.w + 12, c.h + 12});   // a selection reaching off the page stops at its edge
         if (const dz::Element* e = designDoc_.find(designSel_)) {
             const Rect r{c.x + e->x * sc, c.y + e->y * sc, e->w * sc, e->h * sc};
             gfx_.strokeRounded(r, 0, cjui::hexColor("#3FCF8E"), 1.5f);
@@ -583,6 +644,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 gfx_.strokeRounded(hnd, 0, cjui::hexColor("#3FCF8E"), 1.5f);
             }
         }
+        gfx_.popClip();
         gfx_.text(L"Drag to move (Shift: no snapping), the corner to resize (Ctrl: keep its shape). Arrow keys nudge; Delete removes; "
                   L"Ctrl+D copies; Ctrl+Z undoes.",
                   {centre.x, centre.bottom() - 2, centre.w, 18}, Font::Small, pal_.inkFaint, {Align::Center, false, true, true});
@@ -656,7 +718,8 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     };
 
     // Name and kind.
-    gfx_.text(e->kind == dz::Kind::Text ? L"TEXT" : e->kind == dz::Kind::Rect ? L"RECTANGLE" : e->kind == dz::Kind::Ellipse ? L"ELLIPSE" : L"PICTURE",
+    static const wchar_t* kKindNames[] = {L"TEXT", L"RECTANGLE", L"ELLIPSE", L"PICTURE", L"TIMER", L"QR CODE", L"ICON"};
+    gfx_.text(kKindNames[(int)e->kind],
               {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 22;
     {
@@ -782,6 +845,153 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             sliderRow("shy", L"Down", e->shadow.dy, -40, 40, L" px", [](dz::Element& x, float v) { x.shadow.dy = v; });
         }
     }
+    // Timer.
+    if (e->kind == dz::Kind::Timer) {
+        static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock"};
+        static const wchar_t* modeNames[] = {L"Countdown for a length", L"Countdown to a time", L"Stopwatch", L"Time live", L"Clock"};
+        int mi = 0;
+        for (int i = 0; i < 5; ++i)
+            if (e->timerMode == modes[i]) mi = i;
+        label(L"Shows");
+        button("dz:p:tmode", {r.x + 112, y - 2, r.w - 112, 30}, modeNames[mi], [this, eid, edit] {
+            std::vector<MenuItem> items;
+            const dz::Element* x = designDoc_.find(eid);
+            for (int i = 0; i < 5; ++i) items.push_back(MenuItem::item(modeNames[i], 100 + (UINT)i, {}, true, x && x->timerMode == modes[i]));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (cmd >= 100 && cmd < 105) edit([cmd](dz::Element& z) { z.timerMode = modes[cmd - 100]; });
+        });
+        y += 36;
+        if (e->timerMode == "countdown" || e->timerMode == "until") {
+            label(e->timerMode == "countdown" ? L"Length" : L"Until");
+            wchar_t b[32];
+            if (e->timerMode == "countdown") swprintf(b, 32, L"%ls", widen(dz::durationText((std::int64_t)e->timerSeconds * 1000)).c_str());
+            else swprintf(b, 32, L"%02d:%02d", e->timerUntil / 60, e->timerUntil % 60);
+            button("dz:p:tval", {r.x + 112, y - 2, r.w - 112, 30}, b, [this, eid] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                const bool cd = x->timerMode == "countdown";
+                askText(cd ? L"How long: minutes, or h:mm:ss / m:ss" : L"The time to count to (24-hour, e.g. 20:00)",
+                        cd ? widen(dz::durationText((std::int64_t)x->timerSeconds * 1000)) : L"20:00", [this, eid, cd](const std::wstring& v) {
+                            // "5" = 5 minutes; "4:30" = m:ss (or hh:mm for a time); "1:00:00" = h:mm:ss.
+                            int parts[3] = {0, 0, 0}, n = 0;
+                            std::string t = narrow(v);
+                            std::stringstream ss(t);
+                            std::string p;
+                            while (std::getline(ss, p, ':') && n < 3) {
+                                if (p.empty() || p.find_first_not_of("0123456789 ") != std::string::npos) return flash(L"Type it like 5, 4:30 or 20:00.", 5);
+                                parts[n++] = std::atoi(p.c_str());
+                            }
+                            dz::Element* z = designDoc_.find(eid);
+                            if (!z || n == 0) return;
+                            if (cd) {
+                                const int secs = n == 1 ? parts[0] * 60 : n == 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
+                                if (secs < 1 || secs > 359999) return flash(L"Between one second and 99 hours.", 5);
+                                z->timerSeconds = secs;
+                            } else {
+                                const int mins = n == 1 ? parts[0] * 60 : parts[0] * 60 + parts[1];
+                                if (n > 2 || mins < 0 || mins >= 24 * 60 || (n == 2 && parts[1] > 59)) return flash(L"A time like 20:00.", 5);
+                                z->timerUntil = mins;
+                            }
+                            designChanged();
+                        });
+            });
+            y += 36;
+            label(L"At zero");
+            button("dz:p:tend", {r.x + 112, y - 2, r.w - 112, 30}, L"Shows: " + widen(e->timerEnd), [this, eid] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                askText(L"What it shows at zero", widen(x->timerEnd), [this, eid](const std::wstring& v) {
+                    if (dz::Element* z = designDoc_.find(eid)) z->timerEnd = narrow(v).substr(0, 200);
+                    designChanged();
+                });
+            });
+            y += 36;
+            const Scene* target = scenes_.scene(e->timerScene);
+            label(L"Then");
+            button("dz:p:tscene", {r.x + 112, y - 2, r.w - 112, 30}, target ? L"Switch to " + widen(target->name) : L"Stay on this scene", [this, eid, edit] {
+                std::vector<MenuItem> items = {MenuItem::item(L"Stay on this scene", 1)};
+                std::vector<Id> ids;
+                for (auto& sc : scenes_.scenes()) {
+                    ids.push_back(sc.id);
+                    items.push_back(MenuItem::item(L"Switch to " + widen(sc.name), 100 + (UINT)(ids.size() - 1)));
+                }
+                POINT pt;
+                GetCursorPos(&pt);
+                const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+                if (cmd == 1) edit([](dz::Element& z) { z.timerScene.clear(); });
+                else if (cmd >= 100 && cmd < 100 + ids.size()) {
+                    const Id to = ids[cmd - 100];
+                    edit([to](dz::Element& z) { z.timerScene = to; });
+                }
+            });
+            y += 36;
+            label(L"Last 10 s");
+            toggle("dz:p:tpulse", r.x + 112, y + 2, e->timerPulse, [edit] { edit([](dz::Element& z) { z.timerPulse = !z.timerPulse; }); });
+            gfx_.text(L"pulse", {r.x + 170, y, 100, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            y += 36;
+        }
+        if (e->timerMode == "clock") {
+            label(L"Date");
+            toggle("dz:p:tdate", r.x + 112, y + 2, e->timerDate, [edit] { edit([](dz::Element& z) { z.timerDate = !z.timerDate; }); });
+            y += 36;
+        }
+        button("dz:p:twords", {r.x, y, r.w, 30}, e->text.empty() ? L"Words around it\u2026" : L"Words: " + widen(e->text), [this, eid] {
+            const dz::Element* x = designDoc_.find(eid);
+            if (!x) return;
+            askText(L"Words around the time ({time} is where it goes; empty for the time alone)", widen(x->text.empty() ? "Starting in {time}" : x->text),
+                    [this, eid](const std::wstring& v) {
+                        if (dz::Element* z = designDoc_.find(eid)) z->text = narrow(v).substr(0, 200);
+                        designChanged();
+                    });
+        });
+        y += 38;
+        sliderRow("size", L"Size", e->size, 8, 300, L" px", [](dz::Element& x, float v) { x.size = v; });
+        label(L"Style");
+        {
+            const float bw = (r.w - 112 - 8) / 2;
+            button("dz:p:bold", {r.x + 112, y - 2, bw, 30}, L"Bold", [edit] { edit([](dz::Element& z) { z.bold = !z.bold; }); }, e->bold);
+            button("dz:p:font", {r.x + 112 + bw + 8, y - 2, bw, 30}, L"Font", [this, eid] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                askText(L"The font's name, as Windows lists it", widen(x->font), [this, eid](const std::wstring& v) {
+                    if (v.empty()) return;
+                    if (dz::Element* z = designDoc_.find(eid)) z->font = narrow(v).substr(0, 64);
+                    designChanged();
+                });
+            });
+        }
+        y += 36;
+    }
+    if (e->kind == dz::Kind::Qr) {
+        button("dz:p:qr", {r.x, y, r.w, 30}, L"Link: " + widen(e->qr), [this, eid] {
+            const dz::Element* x = designDoc_.find(eid);
+            if (!x) return;
+            askText(L"The link or text it holds ({website}, {twitch}\u2026 work too)", widen(x->qr), [this, eid](const std::wstring& v) {
+                if (dz::Element* z = designDoc_.find(eid)) z->qr = narrow(v).substr(0, 1000);
+                designChanged();
+            });
+        });
+        y += 38;
+        y += gfx_.text(L"Fill is its light colour, Outline its dark one. Keep good contrast so phones can read it.", {r.x, y - 4, r.w, 36}, Font::Small,
+                       pal_.inkFaint) + 6;
+    }
+    if (e->kind == dz::Kind::Icon) {
+        const dz::Icon* ic = dz::iconById(e->icon);
+        button("dz:p:icon", {r.x, y, r.w, 30}, L"Icon: " + (ic ? widen(ic->name) : std::wstring(L"?")), [this, edit] {
+            std::vector<MenuItem> items;
+            const auto& ics = dz::icons();
+            for (std::size_t i = 0; i < ics.size(); ++i) items.push_back(MenuItem::item(widen(ics[i].name), 100 + (UINT)i));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (cmd < 100 || cmd >= 100 + ics.size()) return;
+            const std::string id = ics[cmd - 100].id;
+            edit([id](dz::Element& z) { z.icon = id; });
+        });
+        y += 38;
+    }
     // Text.
     if (e->kind == dz::Kind::Text) {
         button("dz:p:text", {r.x, y, r.w, 30}, L"Edit the text…", [this, eid] {
@@ -866,6 +1076,33 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             designChanged();
         });
         y += 38;
+    }
+}
+
+// ---------------------------------------------------------------- timers reaching zero
+
+void CaptureWindow::timerTick() {
+    const Scene* sc = scenes_.scene(programScene());
+    if (!sc) return;
+    for (auto& it : sc->items) {
+        const Source* src = scenes_.source(it.source);
+        if (!src || src->kind != SourceKind::Design || !it.visible) continue;
+        auto ent = designEntered_.find(src->id);
+        if (ent == designEntered_.end()) continue;
+        const dz::Document d = dz::fromJson(src->settings);
+        if (!dz::usesTime(d)) continue;
+        const dz::Clock clock = video::clockNow((std::int64_t)(GetTickCount64() - ent->second));
+        for (auto& e : d.elements) {
+            if (e.kind != dz::Kind::Timer || !e.visible || e.timerScene.empty() || !scenes_.scene(e.timerScene)) continue;
+            if (!dz::timerText(e, clock).ended) continue;
+            const std::string key = src->id + "/" + e.id + "/" + std::to_string(ent->second);
+            if (!timersFired_.insert(key).second) continue;   // once per time its scene goes live
+            log::info("Timer reached zero: switching to " + scenes_.scene(e.timerScene)->name);
+            if (settings_.studioMode) programScene_ = e.timerScene;
+            else scenes_.setCurrent(e.timerScene);
+            scenesChanged();
+            return;
+        }
     }
 }
 

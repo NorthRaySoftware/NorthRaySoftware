@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <mutex>
 
 namespace ncap::video {
@@ -120,7 +121,8 @@ ComPtr<IDWriteTextLayout> layoutFor(Ctx& c, const Element& e, const std::wstring
 }
 
 // One element's shape, in its own box at (e.x, e.y), with the brush given (the shadow pass uses black).
-void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholders& values, float alpha, bool shadowPass, bool showMissing) {
+void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholders& values, float alpha, bool shadowPass, bool showMissing,
+               const Clock& clock) {
     const D2D1_RECT_F box = D2D1::RectF(e.x, e.y, e.x + e.w, e.y + e.h);
     ComPtr<ID2D1SolidColorBrush> black;
     if (shadowPass) rt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1), &black);
@@ -150,8 +152,10 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
                                         stroke.Get(), e.strokeWidth);
             break;
         }
+        case Kind::Timer:
         case Kind::Text: {
-            const std::wstring t = widen(fillPlaceholders(e.text, values, showMissing));
+            const std::wstring t = widen(e.kind == Kind::Timer ? fillPlaceholders(timerText(e, clock).text, values, showMissing)
+                                                               : fillPlaceholders(e.text, values, showMissing));
             ComPtr<IDWriteTextLayout> lay = layoutFor(c, e, t.empty() ? L" " : t);
             if (!lay) break;
             if (stroke) {   // an outline: the text drawn around itself, under the letters
@@ -162,6 +166,50 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
                 }
             }
             if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F(e.x, e.y), lay.Get(), fill.Get());
+            break;
+        }
+        case Kind::Qr: {
+            // Dark squares on a light square with a quiet border (fill: the light; outline colour: the dark).
+            const auto m = qrModules(fillPlaceholders(e.qr, values, false));
+            if (m.empty()) {
+                ComPtr<ID2D1SolidColorBrush> ph;
+                rt->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.55f, 0.62f, 0.35f * alpha), &ph);
+                rt->FillRectangle(box, ph.Get());
+                break;
+            }
+            const float side = std::min(e.w, e.h), quiet = 2;
+            const float cell = side / (m.size() + 2 * quiet);
+            const float ox = e.x + (e.w - side) / 2 + quiet * cell, oy = e.y + (e.h - side) / 2 + quiet * cell;
+            if (fill && e.fill.type != Fill::None)
+                rt->FillRectangle(D2D1::RectF(e.x + (e.w - side) / 2, e.y + (e.h - side) / 2, e.x + (e.w + side) / 2, e.y + (e.h + side) / 2), fill.Get());
+            ComPtr<ID2D1SolidColorBrush> dark;
+            if (shadowPass) dark = black;
+            else rt->CreateSolidColorBrush(e.stroke.a ? col(e.stroke, alpha) : D2D1::ColorF(0.04f, 0.07f, 0.12f, alpha), &dark);
+            const D2D1_ANTIALIAS_MODE was = rt->GetAntialiasMode();
+            rt->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);   // crisp squares that touch
+            for (std::size_t y = 0; y < m.size(); ++y)
+                for (std::size_t x = 0; x < m.size(); ++x)
+                    if (m[y][x]) rt->FillRectangle(D2D1::RectF(ox + x * cell, oy + y * cell, ox + (x + 1) * cell + 0.01f, oy + (y + 1) * cell + 0.01f), dark.Get());
+            rt->SetAntialiasMode(was);
+            break;
+        }
+        case Kind::Icon: {
+            const Icon* ic = iconById(e.icon);
+            if (!ic) break;
+            ComPtr<ID2D1PathGeometry> g;
+            ComPtr<ID2D1GeometrySink> sink;
+            if (FAILED(c.d2->CreatePathGeometry(&g)) || FAILED(g->Open(&sink))) break;
+            sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+            const float side = std::min(e.w, e.h), k = side / 24, ox = e.x + (e.w - side) / 2, oy = e.y + (e.h - side) / 2;
+            for (const auto& f : iconFigures(ic->path)) {
+                if (f.size() < 3) continue;
+                sink->BeginFigure(D2D1::Point2F(ox + f[0].first * k, oy + f[0].second * k), D2D1_FIGURE_BEGIN_FILLED);
+                for (std::size_t i = 1; i < f.size(); ++i) sink->AddLine(D2D1::Point2F(ox + f[i].first * k, oy + f[i].second * k));
+                sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            }
+            sink->Close();
+            if (fill && e.fill.type != Fill::None) rt->FillGeometry(g.Get(), fill.Get());
+            if (stroke) rt->DrawGeometry(g.Get(), stroke.Get(), e.strokeWidth);
             break;
         }
         case Kind::Image: {
@@ -220,6 +268,8 @@ void blurAlpha(std::vector<std::uint8_t>& a, int w, int h, int r) {
 }
 
 std::mutex gValuesM;
+std::atomic<std::int64_t> gLiveMs{-1};
+std::atomic<ULONGLONG> gLiveAt{0};
 Placeholders gValues;
 unsigned gValuesVersion = 1;
 
@@ -238,7 +288,27 @@ Placeholders designValues(unsigned* version) {
     return gValues;
 }
 
-bool renderDesign(const Document& d, float tMs, float scale, const Placeholders& values, DesignPicture& out, std::wstring& error, bool showMissing) {
+void setLiveTime(std::int64_t ms) {
+    gLiveMs = ms;
+    gLiveAt = GetTickCount64();
+}
+
+Clock clockNow(std::int64_t elapsedMs) {
+    Clock c;
+    c.elapsedMs = elapsedMs;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    c.localSeconds = st.wHour * 3600 + st.wMinute * 60 + st.wSecond;
+    static const char* days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    c.dateText = std::string(days[st.wDayOfWeek % 7]) + " " + std::to_string(st.wDay) + " " + months[(st.wMonth + 11) % 12];
+    const std::int64_t live = gLiveMs;
+    c.liveMs = live < 0 ? -1 : live + (std::int64_t)(GetTickCount64() - gLiveAt);
+    return c;
+}
+
+bool renderDesign(const Document& d, float tMs, float scale, const Placeholders& values, DesignPicture& out, std::wstring& error, bool showMissing,
+                  const Clock& clock) {
     Ctx c;
     if (!makeCtx(c)) {
         error = L"Direct2D isn't available";
@@ -261,7 +331,8 @@ bool renderDesign(const Document& d, float tMs, float scale, const Placeholders&
     // An element's placement: its entrance, then its rotation about its centre, then the page scale.
     auto placement = [&](const Element& e, const Pose& p) {
         const D2D1_POINT_2F centre = D2D1::Point2F(e.x + e.w / 2, e.y + e.h / 2);
-        return D2D1::Matrix3x2F::Scale(p.scale, p.scale, centre) * D2D1::Matrix3x2F::Rotation(e.rotation, centre) *
+        const float pulse = e.kind == Kind::Timer ? timerText(e, clock).pulse : 1.0f;   // the last ten seconds
+        return D2D1::Matrix3x2F::Scale(p.scale * pulse, p.scale * pulse, centre) * D2D1::Matrix3x2F::Rotation(e.rotation, centre) *
                D2D1::Matrix3x2F::Translation(p.dx, p.dy) * base;
     };
 
@@ -288,7 +359,7 @@ bool renderDesign(const Document& d, float tMs, float scale, const Placeholders&
         srt->BeginDraw();
         srt->Clear(D2D1::ColorF(0, 0, 0, 0));
         srt->SetTransform(base * D2D1::Matrix3x2F::Translation((float)-bx, (float)-by));   // unposed: it moves with its element below
-        drawShape(c, srt.Get(), e, values, 1, true, showMissing);
+        drawShape(c, srt.Get(), e, values, 1, true, showMissing, clock);
         if (FAILED(srt->EndDraw())) continue;
         std::vector<std::uint8_t> px((size_t)bw * bh * 4);
         if (FAILED(sb->CopyPixels(nullptr, (UINT)bw * 4, (UINT)px.size(), px.data()))) continue;
@@ -336,7 +407,7 @@ bool renderDesign(const Document& d, float tMs, float scale, const Placeholders&
         }
         rt->SetTransform(placement(e, p));
         if (wiping) rt->PushAxisAlignedClip(D2D1::RectF(e.x, e.y - 1e4f, e.x + e.w * p.reveal, e.y + e.h + 1e4f), D2D1_ANTIALIAS_MODE_ALIASED);
-        drawShape(c, rt.Get(), e, values, alpha, false, showMissing);
+        drawShape(c, rt.Get(), e, values, alpha, false, showMissing, clock);
         if (wiping) rt->PopAxisAlignedClip();
     }
     if (FAILED(rt->EndDraw())) {

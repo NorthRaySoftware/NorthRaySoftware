@@ -1158,6 +1158,101 @@ static void testDesign() {
     CHECK(colourAt(rad, 0).a == 200 && colourAt(rad, 1).a == 0 && fromJson(toJson([&] { Document x; x.background = rad; return x; }())).background == rad);
 }
 
+
+static void testDesignLive() {
+    std::printf("design timers, QR codes, icons\n");
+    using namespace ncap::design;
+    Element t;
+    t.kind = Kind::Timer;
+    t.timerMode = "countdown";
+    t.timerSeconds = 300;
+    Clock c;
+    CHECK(timerText(t, c).text == "5:00" && !timerText(t, c).ended);
+    c.elapsedMs = 200;
+    CHECK(timerText(t, c).text == "5:00");          // 4:59.8 left still reads 5:00
+    c.elapsedMs = 1000;
+    CHECK(timerText(t, c).text == "4:59");
+    c.elapsedMs = 299500;
+    TimerShown s = timerText(t, c);
+    CHECK(s.text == "0:01" && s.pulse > 1 && s.remainingMs == 500);
+    c.elapsedMs = 290000;
+    CHECK(timerText(t, c).pulse == 1 || timerText(t, c).pulse > 1);   // exactly 10 s left: at the edge
+    c.elapsedMs = 280000;
+    CHECK(timerText(t, c).pulse == 1);              // 20 s left: no pulse yet
+    c.elapsedMs = 300000;
+    s = timerText(t, c);
+    CHECK(s.ended && s.text == "Starting now!" && s.remainingMs == 0);
+    t.timerPulse = false;
+    c.elapsedMs = 299500;
+    CHECK(timerText(t, c).pulse == 1);
+    t.text = "Starting in {time}";
+    CHECK(timerText(t, c).text == "Starting in 0:01");
+    t.text = "";
+    t.timerSeconds = 3 * 3600 + 5;
+    c.elapsedMs = 0;
+    CHECK(timerText(t, c).text == "3:00:05");
+
+    // Until a time of day: before it, after it (ended), and long after (tomorrow's).
+    t.timerMode = "until";
+    t.timerUntil = 20 * 60;   // 20:00
+    c.localSeconds = 19 * 3600 + 58 * 60 + 30;
+    CHECK(timerText(t, c).text == "1:30");
+    c.localSeconds = 20 * 3600 + 5;
+    CHECK(timerText(t, c).ended);
+    t.timerUntil = 6 * 60;    // 06:00, asked at 20:00: tomorrow morning, 10 hours away
+    CHECK(timerText(t, c).text == "9:59:55");
+
+    t.timerMode = "stopwatch";
+    c.elapsedMs = 61000;
+    CHECK(timerText(t, c).text == "1:01");
+    t.timerMode = "live";
+    CHECK(timerText(t, c).text == "Not live");
+    c.liveMs = 3723000;
+    CHECK(timerText(t, c).text == "1:02:03");
+    t.timerMode = "clock";
+    c.localSeconds = 9 * 3600 + 5 * 60 + 59;
+    c.dateText = "Sun 15 Nov";
+    CHECK(timerText(t, c).text == "09:05");
+    t.timerDate = true;
+    CHECK(timerText(t, c).text == "09:05\nSun 15 Nov");
+
+    // Saved and read back; usesTime.
+    Document d;
+    t.timerScene = "s7";
+    const std::string id = add(d, t);
+    CHECK(d.find(id)->name == "Timer" && usesTime(d));
+    const Document back = fromJson(toJson(d));
+    CHECK(back.elements == d.elements);
+    d.find(id)->visible = false;
+    CHECK(!usesTime(d));
+    CHECK(fromJson(R"({"elements":[{"kind":"timer","id":"e1","timer":{"mode":"bogus","seconds":-5}}]})").elements[0].timerMode == "countdown");
+
+    // QR codes: square, odd-sized, with the three finder patterns in their corners.
+    const auto q = qrModules("https://northray.example/download");
+    CHECK(!q.empty() && q.size() == q[0].size() && q.size() % 4 == 1 && q.size() >= 21);
+    const std::size_t n = q.size();
+    auto finder = [&](std::size_t x0, std::size_t y0) {
+        for (std::size_t i = 0; i < 7; ++i)
+            if (!q[y0][x0 + i] || !q[y0 + 6][x0 + i] || !q[y0 + i][x0] || !q[y0 + i][x0 + 6]) return false;   // the dark ring
+        return !q[y0 + 1][x0 + 1] && q[y0 + 3][x0 + 3];   // light inside it, dark centre
+    };
+    CHECK(finder(0, 0) && finder(n - 7, 0) && finder(0, n - 7));
+    CHECK(qrModules("").empty() && qrModules(std::string(2000, 'x')).empty());
+    CHECK(qrModules("a") != q);
+
+    // Icons: each parses to closed figures within its 24 x 24 box.
+    CHECK(icons().size() >= 16 && iconById("star") && !iconById("nope"));
+    for (auto& ic : icons()) {
+        const auto figs = iconFigures(ic.path);
+        CHECK(!figs.empty());
+        for (auto& f : figs) {
+            CHECK(f.size() >= 3);
+            for (auto& [x, y] : f) CHECK(x >= -0.01f && x <= 24.01f && y >= -0.01f && y <= 24.01f);
+        }
+    }
+    CHECK(iconFigures("M 1 1 L 2").size() == 1);   // stops at bad input, keeps what it had
+}
+
 static void testDsp() {
     std::printf("audio filters\n");
     namespace d = ncap::dsp;
@@ -1323,6 +1418,7 @@ int main() {
     testDsp();
     testBorder();
     testDesign();
+    testDesignLive();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

@@ -171,7 +171,10 @@ void CaptureWindow::pushSnapshot() {
         if (const Scene* sc = scenes_.scene(s.programScene))
             for (auto& it : sc->items)
                 if (const Source* src = scenes_.source(it.source); src && src->kind == SourceKind::Design)
-                    if (auto l = live_.find(src->id); l != live_.end() && l->second.capture) l->second.capture->command("enter");
+                    if (auto l = live_.find(src->id); l != live_.end() && l->second.capture) {
+                        l->second.capture->command("enter");
+                        designEntered_[src->id] = GetTickCount64();   // its timers count from here (timerTick)
+                    }
     }
     s.items = buildItems(s.programScene, 0);
     s.transition = settings_.transition;

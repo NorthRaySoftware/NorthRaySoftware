@@ -43,7 +43,9 @@ struct Shadow {
     bool operator==(const Shadow&) const = default;
 };
 
-enum class Kind { Text, Rect, Ellipse, Image };
+// Timer, Qr and Icon draw like text or shapes: a timer is text that counts, a QR code is squares from a
+// link, an icon is one of the built-in drawings (icons()).
+enum class Kind { Text, Rect, Ellipse, Image, Timer, Qr, Icon };
 const char* key(Kind k);
 bool parse(const std::string& s, Kind& out);
 
@@ -64,7 +66,7 @@ struct Element {
     float strokeWidth = 0;
     float radius = 0;                        // rectangles' corners; pictures' corners
     Shadow shadow;
-    // Text.
+    // Text (and a timer's look).
     std::string text, font = "Segoe UI";
     float size = 64;
     bool bold = false, italic = false;
@@ -72,6 +74,16 @@ struct Element {
     // Picture.
     std::string file;                        // a path (or a library file)
     bool cover = true;                       // fill the box (cropping) or fit inside it
+    // Timer.
+    std::string timerMode = "countdown";     // countdown (for a length), until (a time of day), stopwatch, live (time since going live), clock
+    int timerSeconds = 300;                  // countdown
+    int timerUntil = 20 * 60;                // until: minutes after midnight
+    std::string timerEnd = "Starting now!";  // shown at zero (countdown, until)
+    bool timerDate = false;                  // clock: with the day and date
+    bool timerPulse = true;                  // the last ten seconds pulse
+    std::string timerScene;                  // at zero, switch to this scene (its id), if set
+    // QR code: its text or link. Icon: its name.
+    std::string qr, icon;
     // Entrance (when its scene is shown).
     Anim anim = Anim::None;
     int animMs = 500;
@@ -120,6 +132,39 @@ struct Pose {
 };
 Pose pose(const Element& e, float tMs, int pageW, int pageH);
 bool animating(const Document& d, float tMs);   // any element still coming in
+
+// What a timer shows now. `elapsedMs`: since its scene went live (countdown, stopwatch); `localSeconds`:
+// seconds since local midnight; `dateText`: today ("Sun 15 Nov"); `liveMs`: since streaming began (-1 if not).
+struct Clock {
+    std::int64_t elapsedMs = 0;
+    int localSeconds = 0;
+    std::string dateText;
+    std::int64_t liveMs = -1;
+};
+struct TimerShown {
+    std::string text;
+    bool ended = false;     // a countdown at zero
+    float pulse = 1;        // scale for the last ten seconds (1 otherwise)
+    std::int64_t remainingMs = -1;
+};
+TimerShown timerText(const Element& e, const Clock& c);
+std::string durationText(std::int64_t ms);   // "4:59", "1:02:03" (rounded up for countdowns by the caller)
+bool usesTime(const Document& d);            // anything that changes every second (timers)
+
+// QR codes (via Project Nayuki's library): the modules, row by row, true = dark; empty if too long.
+std::vector<std::vector<bool>> qrModules(const std::string& text);
+
+// Built-in icons: drawn in a 24 x 24 box from simple paths ("M x y L x y C x1 y1 x2 y2 x y Z", and
+// "O cx cy r" for a circle); filled with the element's fill.
+struct Icon {
+    const char* id;
+    const char* name;
+    const char* path;
+};
+const std::vector<Icon>& icons();
+const Icon* iconById(const std::string& id);
+// The path as figures of points (curves flattened), for drawing and for the tests.
+std::vector<std::vector<std::pair<float, float>>> iconFigures(const std::string& path);
 
 // Ready-made designs in the NorthRay aurora look. `id`s are stable.
 struct Template {
