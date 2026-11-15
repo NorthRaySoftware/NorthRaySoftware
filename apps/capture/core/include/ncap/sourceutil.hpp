@@ -34,4 +34,14 @@ std::string clockText(double seconds);   // by its extension: png, jpg, jpeg, bm
 // A GIF frame's delay in hundredths of a second, as browsers show it: 0 or 1 means 10 (a tenth of a second).
 int gifDelayMs(int hundredths);
 
+// A track's title and artist from its file name when it has no tags: "Artist - Title.mp3",
+// "03 - Title.flac", "03. Artist - Title", "Title_With_Underscores.wav". The folders and the extension
+// are dropped; a leading track number is dropped; underscores become spaces. Tags win when present
+// (the media source reads those first).
+struct TrackInfo {
+    std::string title, artist;
+    bool operator==(const TrackInfo&) const = default;
+};
+TrackInfo trackFromFileName(const std::string& path);
+
 }  // namespace ncap::sourceutil

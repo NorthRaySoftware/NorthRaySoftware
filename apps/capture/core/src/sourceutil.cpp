@@ -162,4 +162,38 @@ std::string clockText(double seconds) {
 
 int gifDelayMs(int hundredths) { return hundredths <= 1 ? 100 : hundredths * 10; }
 
+
+TrackInfo trackFromFileName(const std::string& path) {
+    std::string n = path.substr(path.find_last_of("\\/") + 1);
+    if (const std::size_t dot = n.find_last_of('.'); dot != std::string::npos && dot > 0 && n.size() - dot <= 5) n = n.substr(0, dot);
+    for (char& c : n)
+        if (c == '_') c = ' ';
+    auto trim = [](std::string s) {
+        while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(s.begin());
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.pop_back();
+        return s;
+    };
+    auto dropNumber = [&](std::string s) {   // "03 ", "03. ", "03 - ", "3-"
+        std::size_t i = 0;
+        while (i < s.size() && i < 3 && std::isdigit((unsigned char)s[i])) ++i;
+        if (i == 0 || i == s.size()) return s;
+        std::size_t j = i;
+        while (j < s.size() && (s[j] == ' ' || s[j] == '.' || s[j] == '-' || s[j] == ')')) ++j;
+        if (j == i) return s;   // "1999 Song": a number that's part of the name
+        return trim(s.substr(j));
+    };
+    n = dropNumber(trim(n));
+    while (!n.empty() && (n.back() == '-' || n.back() == ' ')) n.pop_back();   // "Artist - " with no title
+    TrackInfo t;
+    const std::size_t sep = n.find(" - ");
+    if (sep != std::string::npos) {
+        t.artist = trim(n.substr(0, sep));
+        t.title = trim(n.substr(sep + 3));
+    } else {
+        t.title = n;
+    }
+    if (t.title.empty()) std::swap(t.title, t.artist);
+    return t;
+}
+
 }  // namespace ncap::sourceutil

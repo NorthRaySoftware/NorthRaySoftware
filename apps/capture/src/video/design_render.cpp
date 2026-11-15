@@ -336,6 +336,8 @@ Placeholders gValues;
 unsigned gValuesVersion = 1;
 Brand gBrand = defaultBrand();
 std::vector<chat::Message> gChat;
+const void* gPlayingOwner = nullptr;
+sourceutil::TrackInfo gPlaying;
 
 // The brand kit's font files with the system's fonts, made once per list of files (DirectWrite's font
 // sets: Windows 10 1703 and later).
@@ -389,6 +391,27 @@ void setDesignChat(std::vector<chat::Message> m) {
     std::lock_guard<std::mutex> l(gValuesM);
     gChat = std::move(m);
     ++gValuesVersion;
+}
+
+void setNowPlaying(const void* owner, const sourceutil::TrackInfo& track) {
+    std::lock_guard<std::mutex> l(gValuesM);
+    if (owner == gPlayingOwner && track == gPlaying) return;
+    gPlayingOwner = owner;
+    gPlaying = track;
+    ++gValuesVersion;
+}
+
+void clearNowPlaying(const void* owner) {
+    std::lock_guard<std::mutex> l(gValuesM);
+    if (owner != gPlayingOwner) return;
+    gPlayingOwner = nullptr;
+    gPlaying = {};
+    ++gValuesVersion;
+}
+
+sourceutil::TrackInfo nowPlaying() {
+    std::lock_guard<std::mutex> l(gValuesM);
+    return gPlaying;
 }
 
 std::vector<chat::Message> designChat() {
@@ -496,7 +519,7 @@ Clock clockNow(std::int64_t elapsedMs) {
     return c;
 }
 
-bool renderDesign(const Document& linked, float tMs, float scale, const Placeholders& values, DesignPicture& out, std::wstring& error, bool showMissing,
+bool renderDesign(const Document& linked, float tMs, float scale, const Placeholders& profileValues, DesignPicture& out, std::wstring& error, bool showMissing,
                   const Clock& clock) {
     Ctx c;
     if (!makeCtx(c)) {
@@ -504,7 +527,19 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         return false;
     }
     const Brand brand = designBrand();
-    const Document d = applyBrand(linked, brand);
+    Document d = applyBrand(linked, brand);
+    // Your details, and what's playing ({song}, {artist}).
+    Placeholders values = profileValues;
+    {
+        const sourceutil::TrackInfo t = nowPlaying();
+        values.push_back({"song", t.title});
+        values.push_back({"artist", t.artist});
+    }
+    // "Only while music plays": an empty, see-through page when nothing is (the designer still shows it).
+    if (d.onlyWhilePlaying && !showMissing && nowPlaying().title.empty()) {
+        d.elements.clear();
+        d.background = Fill::none();
+    }
     c.fonts = fontsFor(c.dw.Get(), brand.fontFiles);
     scale = std::clamp(scale, 0.02f, 4.0f);
     const int W = std::clamp((int)std::lround(d.width * scale), 1, 8192), H = std::clamp((int)std::lround(d.height * scale), 1, 8192);

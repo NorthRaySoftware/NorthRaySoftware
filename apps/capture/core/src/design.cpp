@@ -214,7 +214,7 @@ std::string toJson(const Document& d) {
         els.push_back(j);
     }
     return json{{"format", "northray-capture-design"}, {"version", 1}, {"name", d.name}, {"width", d.width}, {"height", d.height},
-                {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}}
+                {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying}}
         .dump();
 }
 
@@ -233,6 +233,7 @@ Document fromJson(const std::string& text) {
     d.width = (int)num(j, "width", 1920, 16, 8192);
     d.height = (int)num(j, "height", 1080, 16, 8192);
     if (j.contains("background")) d.background = fillFrom(j["background"], Fill::none());
+    d.onlyWhilePlaying = j.contains("onlyWhilePlaying") && j["onlyWhilePlaying"].is_boolean() && j["onlyWhilePlaying"].get<bool>();
     int maxId = 0;
     if (j.contains("elements") && j["elements"].is_array())
         for (auto& o : j["elements"]) {
@@ -802,6 +803,61 @@ const std::vector<Template>& templates() {
             e.chatCount = 8;
             add(d, e);
             v.push_back({"chat-box", "Chat box (your Twitch chat, live)", "On stream", d});
+        }
+        {
+            Document d;
+            d.name = "Now playing";
+            d.width = 760;
+            d.height = 150;
+            d.onlyWhilePlaying = true;
+            Element card;
+            card.kind = Kind::Rect;
+            card.name = "Card";
+            card.x = 10, card.y = 10, card.w = 740, card.h = 130;
+            card.radius = 28;
+            card.fill = Fill::solid(hex("#0B1A2EE6"));
+            card.stroke = hex("#3FCF8E55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideLeft;
+            add(d, card);
+            Element ic;
+            ic.kind = Kind::Icon;
+            ic.icon = "music";
+            ic.name = "Music";
+            ic.x = 40, ic.y = 35, ic.w = 80, ic.h = 80;
+            ic.fill = Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0);
+            ic.anim = Anim::SlideLeft;
+            add(d, ic);
+            Element k;
+            k.kind = Kind::Text;
+            k.name = "Label";
+            k.text = "NOW PLAYING";
+            k.x = 145, k.y = 26, k.w = 580, k.h = 28;
+            k.size = 20;
+            k.bold = true;
+            k.fill = Fill::solid(hex("#3FCF8E"));
+            k.anim = Anim::SlideLeft;
+            add(d, k);
+            Element t;
+            t.kind = Kind::Text;
+            t.name = "Song";
+            t.text = "{song}";
+            t.x = 145, t.y = 52, t.w = 580, t.h = 48;
+            t.size = 38;
+            t.bold = true;
+            t.fill = Fill::solid(hex("#F4F7FB"));
+            t.anim = Anim::SlideLeft;
+            add(d, t);
+            Element a;
+            a.kind = Kind::Text;
+            a.name = "Artist";
+            a.text = "{artist}";
+            a.x = 145, a.y = 98, a.w = 580, a.h = 34;
+            a.size = 26;
+            a.fill = Fill::solid(hex("#9FB3C8"));
+            a.anim = Anim::SlideLeft;
+            add(d, a);
+            v.push_back({"now-playing", "Now playing (your music's title and artist)", "On stream", d});
         }
         // Keep each group together (the watermark was added last).
         std::stable_sort(v.begin(), v.end(), [](const Template& x, const Template& y) {

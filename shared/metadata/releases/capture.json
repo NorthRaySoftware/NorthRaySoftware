@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.5",
+      "date": "2026-11-15",
+      "notes": [
+        "Now playing: while music plays in a video or sound source, any design can show {song} and {artist}, read from the file's tags or from a name like “Artist - Title.mp3”.",
+        "A Now playing template (a card with a music icon, the song and the artist, in your brand colours), and a page option to show a design only while music plays."
+      ]
+    },
+    {
       "version": "0.10.4",
       "date": "2026-11-15",
       "notes": [

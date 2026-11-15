@@ -9,6 +9,7 @@
 //
 // Pausing stops both clocks; restarting and skipping open the file again.
 #include "video/sources.hpp"
+#include "video/design_render.hpp"
 
 #include "ncap/sourceutil.hpp"
 
@@ -17,7 +18,9 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
+#include <propkey.h>
 #include <propvarutil.h>
+#include <shobjidl.h>
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +34,45 @@ using nlohmann::json;
 namespace su = sourceutil;
 
 namespace {
+
+// A sound file's title and artist: its tags (through Windows' property system), else its file name.
+su::TrackInfo trackInfo(const std::wstring& path) {
+    su::TrackInfo t;
+    ComPtr<IPropertyStore> store;
+    if (SUCCEEDED(SHGetPropertyStoreFromParsingName(path.c_str(), nullptr, GPS_DEFAULT, IID_PPV_ARGS(&store)))) {
+        auto get = [&](const PROPERTYKEY& k) {
+            std::string out;
+            PROPVARIANT v;
+            PropVariantInit(&v);
+            if (SUCCEEDED(store->GetValue(k, &v)) && v.vt != VT_EMPTY) {
+                PWSTR s = nullptr;
+                if (SUCCEEDED(PropVariantToStringAlloc(v, &s)) && s) {
+                    const int n = WideCharToMultiByte(CP_UTF8, 0, s, -1, nullptr, 0, nullptr, nullptr);
+                    if (n > 1) {
+                        out.resize((size_t)n - 1);
+                        WideCharToMultiByte(CP_UTF8, 0, s, -1, out.data(), n, nullptr, nullptr);
+                    }
+                    CoTaskMemFree(s);
+                }
+            }
+            PropVariantClear(&v);
+            return out.substr(0, 200);
+        };
+        t.title = get(PKEY_Title);
+        t.artist = get(PKEY_Music_Artist);
+        if (t.artist.empty()) t.artist = get(PKEY_Music_AlbumArtist);
+    }
+    if (t.title.empty()) {
+        const int n = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string p((size_t)std::max(n - 1, 0), '\0');
+        if (n > 1) WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, p.data(), n, nullptr, nullptr);
+        const su::TrackInfo f = su::trackFromFileName(p);
+        t.title = f.title;
+        if (t.artist.empty()) t.artist = f.artist;
+    }
+    return t;
+}
+
 
 std::wstring widen(const std::string& s) {
     if (s.empty()) return {};
@@ -247,7 +289,10 @@ double durationOf(IMFSourceReader* r) {
 class MediaSource : public VideoSource {
 public:
     explicit MediaSource(const std::string& settings) : sound_(std::make_shared<audio::Ring>((std::size_t)audio::kRate / 2)) { setSettings(settings); }
-    ~MediaSource() override { stopPlaying(); }
+    ~MediaSource() override {
+        stopPlaying();
+        clearNowPlaying(this);
+    }
     std::shared_ptr<audio::Ring> sound() override { return sound_; }
     double length() const override { return length_.load(); }
 
@@ -371,6 +416,7 @@ private:
             }
             if (!loop) {   // stays on its last picture until it's started again
                 setStatus(L"Finished (" + fileName(order.back()) + L")");
+                clearNowPlaying(this);   // nothing's playing now
                 skip_ = -1;
                 while (!quit_ && skip_ != 0) Sleep(10);
                 if (quit_) return;
@@ -383,6 +429,8 @@ private:
         Format vf, af;
         ComPtr<IMFSourceReader> video = openReader(path, true, vf), sound = openReader(path, false, af);
         if (!video && !sound) return 0;
+        // Music (sound-only files, not a stinger) is what designs show as {song} and {artist}.
+        if (!video && sound && !cue_) setNowPlaying(this, trackInfo(path));
         const double length = durationOf(video ? video.Get() : sound.Get());
         length_ = length;
         {

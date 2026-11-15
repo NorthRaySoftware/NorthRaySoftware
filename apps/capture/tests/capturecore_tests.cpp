@@ -1168,6 +1168,27 @@ static void testDesign() {
 }
 
 
+static void testTrackNames() {
+    std::printf("track names\n");
+    using ncap::sourceutil::trackFromFileName;
+    using T = ncap::sourceutil::TrackInfo;
+    CHECK(trackFromFileName("C:\\Music\\Aurora Band - Night Sky.mp3") == (T{"Night Sky", "Aurora Band"}));
+    CHECK(trackFromFileName("03 - Calm Waters.flac") == (T{"Calm Waters", ""}));
+    CHECK(trackFromFileName("03. Lofi Girl - Snowfall.m4a") == (T{"Snowfall", "Lofi Girl"}));
+    CHECK(trackFromFileName("/home/x/Quiet_Reading_Loop.wav") == (T{"Quiet Reading Loop", ""}));
+    CHECK(trackFromFileName("1999 Song.mp3") == (T{"1999 Song", ""}));
+    CHECK(trackFromFileName("Plain") == (T{"Plain", ""}));
+    CHECK(trackFromFileName("Artist - .mp3") == (T{"Artist", ""}));
+    // Designs that show only while music plays.
+    namespace dz = ncap::design;
+    const dz::Template* np = nullptr;
+    for (auto& tp : dz::templates())
+        if (std::string(tp.id) == "now-playing") np = &tp;
+    CHECK(np && np->doc.onlyWhilePlaying && dz::usesBrand(np->doc));
+    CHECK(np && dz::fromJson(dz::toJson(np->doc)).onlyWhilePlaying && !dz::fromJson(dz::toJson(dz::Document{})).onlyWhilePlaying);
+    CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
+}
+
 static void testChat() {
     std::printf("twitch chat\n");
     namespace ch = ncap::chat;
@@ -1579,6 +1600,7 @@ int main() {
     testDesignLive();
     testBrandKit();
     testChat();
+    testTrackNames();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

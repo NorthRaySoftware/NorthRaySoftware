@@ -988,3 +988,18 @@ CJ asked for a Twitch chat overlay that's read-only and needs no sign-in.
 - While the panel is shown, chat stays connected even with no chat element in a design.
 - Tested in Wine against the local stand-in server (messages, roles, colours, a deletion and a timeout).
 - Not yet: scrolling back through older messages (no scroll bars by design; the newest that fit are shown).
+
+## 29. Now playing (status: built, 15 Nov 2026; released as 0.10.5)
+
+- core/sourceutil `trackFromFileName`: title and artist from "Artist - Title", leading track numbers dropped,
+  underscores to spaces (tested).
+- The media source: when a sound-only file starts (music; not video files, not stingers) it reads the title and
+  artist through Windows' property system (PKEY_Title, PKEY_Music_Artist, else the album artist), else the file
+  name, and publishes it (video::setNowPlaying, keyed by the source). A source clears it when it finishes (no loop)
+  or goes away; the latest track started wins.
+- Designs: {song} and {artist} fill in like Your details (empty parts between dots drop out). A document option,
+  "Show only while music plays" (Page...), draws an empty see-through page when nothing plays (the designer always
+  shows it). A "Now playing" template (760 x 150, brand-linked, slides in).
+- Tested in Wine with an untagged WAV named "Aurora Band - Night Sky.wav". Reading real tags (MP3/FLAC) is Windows'
+  property system's job and needs checking on Windows (Wine's support is limited).
+- Not yet: Capture's own music player (playlists, auto-duck under the microphone) - next.

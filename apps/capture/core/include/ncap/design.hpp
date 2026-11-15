@@ -105,6 +105,7 @@ struct Document {
     std::string name = "Design";
     int width = 1920, height = 1080;
     Fill background = Fill::none();
+    bool onlyWhilePlaying = false;   // drawn only while music plays ({song} has something)
     std::vector<Element> elements;   // bottom first
     int nextId = 1;
     const Element* find(const std::string& id) const;

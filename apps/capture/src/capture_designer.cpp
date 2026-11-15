@@ -437,6 +437,8 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             items.push_back(MenuItem::sep());
             items.push_back(MenuItem::item(L"Follow the brand kit", 30, L"links matching colours and fonts"));
             items.push_back(MenuItem::item(L"Stop following the brand kit", 31, L"keeps how it looks now", dz::usesBrand(designDoc_)));
+            items.push_back(MenuItem::sep());
+            items.push_back(MenuItem::item(L"Show only while music plays", 32, L"{song} and {artist}", true, designDoc_.onlyWhilePlaying));
             POINT pt;
             GetCursorPos(&pt);
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
@@ -476,6 +478,9 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 designChanged();
                 flash(dz::usesBrand(designDoc_) ? L"This design now follows your brand kit where its colours and fonts match."
                                                 : L"Nothing here matches the brand kit's colours or Segoe UI text.", 6);
+            } else if (cmd == 32) {
+                designDoc_.onlyWhilePlaying = !designDoc_.onlyWhilePlaying;
+                designChanged();
             } else if (cmd == 31) {
                 designDoc_ = dz::unlinkBrand(designDoc_, brand);
                 designChanged();
@@ -746,7 +751,8 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                            fillText(designDoc_.background) + L". Change both under Page…",
                        {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 12;
         y += gfx_.text(L"Click an element on the page or in Layers to change it. Text can show your details: {name}, {twitch}, {youtube}, "
-                       L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…). Colours and fonts marked Brand "
+                       L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…), and the music playing in a "
+                       L"video or sound source: {song} and {artist}. Colours and fonts marked Brand "
                        L"follow your Brand kit…: change it once and every design using it changes.",
                        {r.x, y, r.w, 120}, Font::Small, pal_.inkMuted) + 12;
         return;

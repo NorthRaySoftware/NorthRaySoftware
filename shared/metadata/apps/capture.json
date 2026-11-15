@@ -18,6 +18,7 @@
     "Timers in designs (countdowns to a time or for a length, stopwatch, time live, clock) that can switch scenes at zero, QR codes from your links, and built-in icons",
     "A brand kit: your colours, heading and body fonts (including font files that aren't installed) and logo; designs and templates that use it change when it does",
     "Live Twitch chat in overlays and in a Chat panel: read-only and without signing in; deleted messages, timeouts and bans disappear too",
+    "Now playing in overlays: the song and artist of the music you play, from its tags or file name",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -42,7 +43,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

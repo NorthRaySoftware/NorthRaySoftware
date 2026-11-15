@@ -5,6 +5,7 @@
 
 #include "ncap/chat.hpp"
 #include "ncap/design.hpp"
+#include "ncap/sourceutil.hpp"
 
 #include <cstdint>
 #include <map>
@@ -43,6 +44,11 @@ Placeholders designValues(unsigned* version = nullptr);   // the version also ch
 void setDesignBrand(const design::Brand& b);
 // The live chat messages chat elements show (set by the chat connection; any thread).
 void setDesignChat(std::vector<chat::Message> messages);
+// What's playing (a music file in a media source): designs fill in {song} and {artist}. The latest
+// track started wins; a source clears it when it goes away. `owner` tells sources apart.
+void setNowPlaying(const void* owner, const sourceutil::TrackInfo& track);
+void clearNowPlaying(const void* owner);
+sourceutil::TrackInfo nowPlaying();
 std::vector<chat::Message> designChat();
 design::Brand designBrand();
 // The font families designs can use (Windows' and the kit's font files), sorted; `error` says if some
