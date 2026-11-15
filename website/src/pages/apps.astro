@@ -20,7 +20,7 @@ const size = (id) => rel?.installers.find((i) => i.id === id);
         </div>
         <div class="links">
           <a class="button" href={`${base}${a.website?.slug ?? a.id}/`}>Details</a>
-          {size(a.id) && <a class="button primary" href={`${base}download/#${a.id}`}>Download</a>}
+          {size(a.id) && <a class="button primary" href={`${base}downloads/${size(a.id).file}`} download>Download</a>}
         </div>
       </li>
     ))}

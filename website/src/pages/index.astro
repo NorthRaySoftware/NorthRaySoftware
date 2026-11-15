@@ -15,7 +15,7 @@ const b = brand();
       for authors. NorthRay Launcher installs, updates and opens them in one place. They work offline, and none of them needs an account.</p>
     <div class="actions">
       {launcher
-        ? <a class="button primary" href={`${base}download/#launcher`}>Download NorthRay Launcher</a>
+        ? <a class="button primary" href={`${base}downloads/${launcher.file}`} download>Download NorthRay Launcher</a>
         : <span class="button disabled">No download yet</span>}
       <a class="button" href={`${base}apps/`}>See the apps</a>
     </div>

@@ -9,6 +9,9 @@ const { app } = Astro.props;
 const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
 const rel = release();
 const inst = rel?.installers.find((i) => i.id === app.id);
+// The launcher that manages this app: CJ Philip's apps come with CJ Philip Community, the rest with NorthRay Launcher.
+const viaCommunity = !!app.credits?.associatedCreator;
+const manager = rel?.installers.find((i) => i.id === (viaCommunity ? 'cj-philip-community' : 'launcher'));
 const notes = releaseNotes(app.id);
 const b = brand();
 const shots = screenshots(app.id);
@@ -42,8 +45,8 @@ const milestones = [
       <div class="actions">
         {inst
           ? <>
-              <a class="button primary" href={`${base}download/#launcher`}>Get it with NorthRay Launcher</a>
-              <a class="button" href={`${base}download/#${app.id}`}>Download the app on its own</a>
+              {manager && manager.id !== app.id && <a class="button primary" href={`${base}downloads/${manager.file}`} download>Get it with {viaCommunity ? 'CJ Philip Community' : 'NorthRay Launcher'}</a>}
+              <a class="button" href={`${base}downloads/${inst.file}`} download>Download the app on its own</a>
             </>
           : <span class="button disabled">No download yet</span>}
       </div>
