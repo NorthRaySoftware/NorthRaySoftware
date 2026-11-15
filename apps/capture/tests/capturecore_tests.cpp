@@ -7,6 +7,7 @@
 #include "ncap/transition.hpp"
 #include "ncap/sourceutil.hpp"
 #include "ncap/dsp.hpp"
+#include "ncap/border.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
@@ -862,6 +863,79 @@ void run(ncap::dsp::Processor& p, std::vector<float>& v) {
 }
 }  // namespace dsptest
 
+
+static void testBorder() {
+    std::printf("border\n");
+    using namespace ncap::border;
+    // Distances: the centre is inside, an edge is 0, a rounded corner's outside is outside.
+    CHECK(near(distance(50, 25, 100, 50, 0), -25, 1e-4));
+    CHECK(near(distance(100, 25, 100, 50, 0), 0, 1e-4));
+    CHECK(near(distance(0, 0, 100, 50, 0), 0, 1e-4));
+    CHECK(distance(0.5f, 0.5f, 100, 50, 20) > 5);           // cut off by a 20 px corner
+    CHECK(near(distance(20, 0, 100, 50, 20), 0, 1e-4));     // where the corner's curve meets the top edge
+    CHECK(near(distance(25, 25, 50, 50, 25), -25, 1e-4));   // a circle: its centre is a radius in
+    CHECK(near(distance(50, 25, 50, 50, 25), 0, 1e-4));
+    CHECK(near(distance(25 + 25 / std::sqrt(2.0f), 25 + 25 / std::sqrt(2.0f), 50, 50, 25), 0, 1e-3));
+    CHECK(coverage(-3) == 1 && coverage(3) == 0 && near(coverage(0), 0.5f, 1e-6));
+    Style s;
+    s.roundness = 100;
+    CHECK(near(radius(s, 200, 100), 50, 1e-4));
+    s.roundness = 50;
+    CHECK(near(radius(s, 200, 100), 25, 1e-4));
+
+    // JSON: kept, and clamped when it's out of range or nonsense.
+    Style a = presets()[1].style;
+    CHECK(fromJson(toJson(a)) == a);
+    Style b = fromJson(R"({"on":true,"width":500,"roundness":-4,"colour":"#ff000080","glow":"x","offsetX":-999,"colour2":"nope"})");
+    CHECK(b.on && b.width == 60 && b.roundness == 0 && b.colour.r == 255 && b.colour.a == 128 && b.glow == 0 && b.offsetX == -60 && b.colour2.b == 255);
+    CHECK(!fromJson("[]").on);
+
+    // Gradient: one colour at one end, the other at the other.
+    Style g;
+    g.gradient = true;
+    g.colour = {255, 0, 0, 255};
+    g.colour2 = {0, 0, 255, 255};
+    g.angle = 0;
+    CHECK(ringColour(g, 0, 50, 200, 100).r == 255 && ringColour(g, 200, 50, 200, 100).b == 255);
+    CHECK(ringColour(g, 100, 50, 200, 100).r == 128 || ringColour(g, 100, 50, 200, 100).r == 127);
+    g.angle = 90;   // top to bottom
+    CHECK(ringColour(g, 100, 0, 200, 100).r == 255 && ringColour(g, 100, 100, 200, 100).b == 255);
+
+    // The picture: ring at the edge, clear inside, clear outside without a glow; glow around it with one.
+    Style r;
+    r.on = true;
+    r.width = 4;
+    r.roundness = 0;
+    int w = 0, h = 0;
+    auto px = render(r, 40, 20, w, h);
+    CHECK(w == 40 && h == 20 && px.size() == 40u * 20 * 4);
+    auto at = [&](int x, int y) { return &px[((size_t)y * (size_t)w + (size_t)x) * 4]; };
+    CHECK(at(1, 10)[3] == 255 && at(1, 10)[0] == 255);   // in the ring
+    CHECK(at(20, 10)[3] == 0);                           // inside: clear for the camera
+    CHECK(at(39, 0)[3] == 255);                          // square corner, in the ring
+    r.roundness = 100;                                   // a pill: its corners are cut away
+    px = render(r, 40, 20, w, h);
+    CHECK(at(0, 0)[3] == 0 && at(20, 1)[3] == 255);
+    r.glow = 10;
+    r.glowOpacity = 100;
+    r.offsetY = 5;
+    px = render(r, 40, 20, w, h);
+    CHECK(margin(r) == 15 && w == 70 && h == 50);
+    CHECK(at(35, 15 + 10)[3] == 0);                      // the inside stays clear even with a glow under it
+    CHECK(at(35, 15 + 20 + 3)[3] > at(35, 15 - 3)[3]);   // the shadow falls more below (offset down) than above
+    CHECK(at(0, 0)[3] == 0);                             // far corner: nothing
+    r.on = false;
+    CHECK(margin(r) == 0);
+
+    // Presets: the circle wants a square item; all are on.
+    bool circle = false;
+    for (auto& p : presets()) {
+        CHECK(p.style.on);
+        if (p.square) circle = p.style.roundness == 100;
+    }
+    CHECK(circle);
+}
+
 static void testDsp() {
     std::printf("audio filters\n");
     namespace d = ncap::dsp;
@@ -1025,6 +1099,7 @@ int main() {
     testSceneFiles();
     testGroups();
     testDsp();
+    testBorder();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

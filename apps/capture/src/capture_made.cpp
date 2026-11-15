@@ -32,7 +32,7 @@ enum : UINT {
     CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
-    CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup,
+    CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
     CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500,
 };
 
@@ -560,6 +560,7 @@ void CaptureWindow::itemExtraItems(const SceneItem& item, std::vector<MenuItem>&
     swprintf(deg, 32, L"%g°", std::round(item.transform.rotation * 10) / 10);
     menu.push_back(MenuItem::item(L"Rotation…", CmdRotation, deg, movable));
     menu.push_back(MenuItem::sub(L"Opacity", op));
+    menu.push_back(MenuItem::item(L"Border…", CmdBorder, item.border.on ? L"on" : L"rounded corners, a ring, a glow"));
     menu.push_back(MenuItem::item(L"Duplicate", CmdDuplicate, L"the same source"));
     // Groups.
     const Scene* sc = scenes_.scene(scenes_.current());
@@ -595,6 +596,10 @@ bool CaptureWindow::itemExtraCommand(UINT cmd, const Id& itemId) {
     const SceneItem* item = scenes_.item(scenes_.current(), itemId);
     if (!item || cmd < CmdOpacity0) return false;
     const Id scene = scenes_.current();
+    if (cmd == CmdBorder) {
+        openBorder(itemId);
+        return true;
+    }
     if (cmd >= CmdOpacity0 && cmd < CmdOpacity0 + 6) {
         Transform t = item->transform;
         t.opacity = kOpacities[cmd - CmdOpacity0] / 100.0f;

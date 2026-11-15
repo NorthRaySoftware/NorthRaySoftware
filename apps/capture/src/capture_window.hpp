@@ -147,6 +147,11 @@ private:
     void applyMonitor();
     void monitorMenu(POINT screen);
     void secondOutputMenu(POINT screen);
+    // The Camera Border maker (capture_border.cpp), drawn in the dock under the live preview.
+    void openBorder(const Id& item);
+    void setItemBorder(const Id& item, const border::Style& b);
+    void saveBorderPng(const Id& item);
+    void drawBorderEditor(const cjui::Rect& area);
     float drawRoutes(float x, float y, float w);
     // Audio filters (capture_filters.cpp): a page per sound source, like Settings.
     void openFilters(const Id& source);
@@ -222,6 +227,7 @@ private:
     std::wstring engineError_;
     struct Live { std::shared_ptr<video::VideoSource> capture; std::string settings; };
     std::map<Id, Live> live_;                 // by source id
+    Id borderFor_;                            // the item whose border is being made
     Id selected_, hoverItem_;                 // items in the current scene
     enum class Focus { Scenes, Sources, Preview } focus_ = Focus::Scenes;
     enum class PreviewDrag { None, Move, Resize, Crop } pdrag_ = PreviewDrag::None;

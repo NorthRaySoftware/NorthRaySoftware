@@ -2,6 +2,7 @@
 // colours, slideshows) and for typing an item's position exactly. Unit-tested.
 #pragma once
 
+#include "ncap/colour.hpp"
 #include "ncap/scenes.hpp"
 
 #include <cstdint>
@@ -10,12 +11,6 @@
 
 namespace ncap::sourceutil {
 
-struct Rgba {
-    std::uint8_t r = 255, g = 255, b = 255, a = 255;
-};
-// "#RRGGBB", "#RRGGBBAA", "#RGB" (case and spaces don't matter); false if it isn't one.
-bool parseColour(const std::string& text, Rgba& out);
-std::string colourText(const Rgba& c);   // "#RRGGBB", or "#RRGGBBAA" when not opaque
 
 // "x, y, width, height" (commas or spaces; width and height may be left off, and "x" and "y" may
 // be "-" for "as it is"). Sizes must be positive. Canvas pixels.

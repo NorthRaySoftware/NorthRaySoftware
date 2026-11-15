@@ -7,6 +7,8 @@
 // once and shared, so switching scenes never restarts a capture.
 #pragma once
 
+#include "ncap/border.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -59,6 +61,7 @@ struct SceneItem {
     Transform transform;
     bool visible = true;
     bool locked = false;
+    border::Style border;   // rounded corners, a ring and a glow (off unless set)
 };
 
 struct Scene {
@@ -121,6 +124,7 @@ public:
     bool setTransform(const Id& scene, const Id& item, const Transform& t);
     bool setItemVisible(const Id& scene, const Id& item, bool visible);
     bool setItemLocked(const Id& scene, const Id& item, bool locked);
+    bool setItemBorder(const Id& scene, const Id& item, const border::Style& b);
     // Towards the top of the scene (+1, drawn later) or the bottom (-1); +100 / -100 to the very top / bottom.
     bool moveItem(const Id& scene, const Id& item, int delta);
 

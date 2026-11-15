@@ -11,6 +11,8 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include "ncap/border.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -48,6 +50,10 @@ public:
     // corners in the texture (0..1). `opaque` ignores the texture's alpha (captures, cameras).
     void drawTexture(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque);
     void drawSolid(const Pt corners[4], float r, float g, float b, float a);
+    // drawTexture with a border (rounded corners, a ring, a glow), for an item of w×h canvas pixels
+    // whose own rectangle is `corners`; the glow reaches outside it. Plain drawTexture if `b` is off.
+    void drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque, const border::Style& b, float w,
+                    float h);
     // A luma wipe: `srv` (the new scene's canvas) shown where `mask` (one byte per pixel, stretched
     // over the corners) is below the progress, with a soft edge.
     void drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* mask, const Pt corners[4], float progress, float softness, bool invert);
@@ -66,7 +72,13 @@ private:
         float colour[4];
         float flags[4];   // x: textured, y: opaque
     };
+    struct FrameConstants {
+        float size[4], c1[4], c2[4], glowCol[4], g[4], o[4];
+    };
     void draw(const Constants& c, ID3D11ShaderResourceView* srv);
+    ComPtr<ID3D11VertexShader> frameVs_;
+    ComPtr<ID3D11PixelShader> framePs_;
+    ComPtr<ID3D11Buffer> frameCb_;
 
     ComPtr<ID3D11Device> device_;
     ComPtr<ID3D11DeviceContext> context_;

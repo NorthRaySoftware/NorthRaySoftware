@@ -457,6 +457,7 @@ bool CaptureWindow::preTranslate(MSG& msg) {
 
 bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (vk == VK_ESCAPE && settingsOpen_) { openSettings(false); return true; }
+    if (vk == VK_ESCAPE && !borderFor_.empty()) { borderFor_.clear(); invalidate(); return true; }
     if (ctrl && vk == VK_OEM_COMMA) { openSettings(!settingsOpen_); return true; }
     if (settingsOpen_) return false;
     if (sourceKey(vk, ctrl, shift)) return true;
@@ -791,6 +792,10 @@ void CaptureWindow::drawFrame(float W, float H) {
             if (hv > 0) gfx_.fillRounded({hSplit_.x + hSplit_.w / 2 - 24, hSplit_.y + 2, 48, 3}, 1.5f, pal_.inkFaint.withAlpha(hv));
         }
         dockRect_ = {area.x, area.bottom() - dockH, area.w, dockH};
+        if (!borderFor_.empty() && scenes_.item(scenes_.current(), borderFor_)) {
+            drawBorderEditor(dockRect_);   // the Camera Border maker, in place of the panels
+        } else {
+        borderFor_.clear();
         // The panels, left to right, with a divider between each.
         const size_t n = layout_.order.size();
         const float usable = dockRect_.w - kSplit * (float)(n - 1);
@@ -806,6 +811,7 @@ void CaptureWindow::drawFrame(float W, float H) {
                 vSplits_.push_back({x, dockRect_.y, kSplit, dockRect_.h});
                 x += kSplit;
             }
+        }
         }
     }
     drawStatusBar({0, H - kStatusH, W, kStatusH});

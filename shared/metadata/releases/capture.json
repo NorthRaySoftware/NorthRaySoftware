@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.9.2",
+      "date": "2026-11-15",
+      "notes": [
+        "Camera Border maker: right-click a camera (or anything in a scene) › Border… Round its corners or make it a circle, add a ring of colour (plain or a gradient) and a glow or drop shadow, and see it change live in the preview as you adjust it.",
+        "Six presets to start from: Clean white, Neon glow, Soft shadow, Circle, Gold frame and Thin and square.",
+        "Save as PNG writes the border with a clear inside to Pictures › NorthRay Capture, to use as an overlay anywhere."
+      ]
+    },
+    {
       "version": "0.9.1",
       "date": "2026-11-15",
       "notes": [

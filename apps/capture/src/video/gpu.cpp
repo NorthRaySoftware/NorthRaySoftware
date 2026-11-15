@@ -45,6 +45,61 @@ float4 ps(V i) : SV_Target {
 }
 )";
 
+// A scene item with a border (ncap::border, the same sums): its picture inside rounded corners with a
+// ring of colour over its edge (mode 1), or the glow around it (mode 0). uv.xy is the texture's place,
+// uv.zw the pixel's place in the item (0..w, 0..h).
+const char kFrameShader[] = R"(
+cbuffer C : register(b0) { float4 pos[4]; float4 uv[4]; float4 colour; float4 flags; };
+cbuffer F : register(b1) { float4 size; float4 c1; float4 c2; float4 glowCol; float4 g; float4 o; };
+Texture2D tex : register(t0);
+SamplerState smp : register(s0);
+struct V { float4 p : SV_Position; float4 t : TEXCOORD0; };
+V vs(uint id : SV_VertexID) {
+    uint k = id == 0 ? 0 : id == 1 ? 1 : id == 2 ? 3 : 2;
+    V v;
+    v.p = float4(pos[k].xy, 0, 1);
+    v.t = uv[k];
+    return v;
+}
+float sd(float2 p, float2 sz, float r) {
+    r = clamp(r, 0, min(sz.x, sz.y) * 0.5);
+    float2 q = abs(p - sz * 0.5) - (sz * 0.5 - r);
+    return length(max(q, 0)) + min(max(q.x, q.y), 0) - r;
+}
+float cov(float d) { return saturate(0.5 - d); }
+float4 ring(float2 L, float2 sz) {
+    if (g.z < 0.5) return c1;
+    float2 dir = float2(cos(g.y), sin(g.y));
+    float half_ = (abs(dir.x) * sz.x + abs(dir.y) * sz.y) * 0.5;
+    float t = half_ > 0 ? saturate(dot(L - sz * 0.5, dir) / (2 * half_) + 0.5) : 0;
+    return lerp(c1, c2, t);
+}
+float4 ps(V i) : SV_Target {
+    float2 L = i.t.zw, sz = size.xy;
+    float r = size.z, w = size.w;
+    float inside = cov(sd(L, sz, r));
+    if (g.w < 0.5) {
+        float d = sd(L - o.xy, sz, r);
+        float a = d <= 0 ? 1 : 1 - saturate(d / max(g.x, 0.001));
+        a = a * a * (3 - 2 * a);
+        return float4(glowCol.rgb, a * glowCol.a * (1 - inside) * o.z);
+    }
+    float4 s = tex.Sample(smp, i.t.xy);
+    if (o.w > 0.5) s.a = 1;
+    s.a *= inside;
+    float ra = 0;
+    float4 rc = c1;
+    if (w > 0) {
+        float inner = (sz.x > 2 * w && sz.y > 2 * w) ? cov(sd(L - w, sz - 2 * w, max(r - w, 0))) : 0;
+        rc = ring(L, sz);
+        ra = inside * (1 - inner) * rc.a;
+    }
+    float oa = ra + s.a * (1 - ra);
+    float3 rgb = (rc.rgb * ra + s.rgb * s.a * (1 - ra)) / max(oa, 1e-5);
+    return float4(rgb, oa * o.z);
+}
+)";
+
 using CompileFn = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
                                    ID3DBlob**);
 
@@ -123,6 +178,22 @@ bool Gpu::create(std::wstring& error) {
         FAILED(device_->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &ps_))) {
         error = L"The compositor's shader couldn't be prepared.";
         return false;
+    }
+    {   // Borders: if this fails, items are drawn without them (and the log says so).
+        ComPtr<ID3DBlob> fv, fp, fe;
+        if (FAILED(compile(kFrameShader, sizeof kFrameShader - 1, "frame", nullptr, nullptr, "vs", "vs_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &fv, &fe)) ||
+            FAILED(compile(kFrameShader, sizeof kFrameShader - 1, "frame", nullptr, nullptr, "ps", "ps_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &fp, &fe)) ||
+            FAILED(device_->CreateVertexShader(fv->GetBufferPointer(), fv->GetBufferSize(), nullptr, &frameVs_)) ||
+            FAILED(device_->CreatePixelShader(fp->GetBufferPointer(), fp->GetBufferSize(), nullptr, &framePs_))) {
+            frameVs_.Reset();
+            framePs_.Reset();
+        }
+        D3D11_BUFFER_DESC fb{};
+        fb.ByteWidth = sizeof(FrameConstants);
+        fb.Usage = D3D11_USAGE_DYNAMIC;
+        fb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        fb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        if (FAILED(device_->CreateBuffer(&fb, nullptr, &frameCb_))) framePs_.Reset();
     }
     D3D11_BUFFER_DESC bd{};
     bd.ByteWidth = sizeof(Constants);
@@ -225,6 +296,61 @@ void Gpu::drawTexture(ID3D11ShaderResourceView* srv, const Pt corners[4], const 
     c.flags[0] = 1;
     c.flags[1] = opaque ? 1.0f : 0.0f;
     draw(c, srv);
+}
+
+void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque, const border::Style& b,
+                     float w, float h) {
+    if (!srv) return;
+    if (!framePs_ || !b.on || w <= 0 || h <= 0) {
+        drawTexture(srv, corners, uv, opacity, opaque);
+        return;
+    }
+    auto rgba = [](const sourceutil::Rgba& c, float* out) {
+        out[0] = c.r / 255.0f, out[1] = c.g / 255.0f, out[2] = c.b / 255.0f, out[3] = c.a / 255.0f;
+    };
+    FrameConstants f{};
+    f.size[0] = w, f.size[1] = h, f.size[2] = border::radius(b, w, h), f.size[3] = b.width;
+    rgba(b.colour, f.c1);
+    rgba(b.colour2, f.c2);
+    rgba(b.glowColour, f.glowCol);
+    f.glowCol[3] *= b.glowOpacity / 100.0f;
+    f.g[0] = b.glow, f.g[1] = b.angle * 3.14159265f / 180.0f, f.g[2] = b.gradient ? 1.0f : 0.0f;
+    f.o[0] = b.offsetX, f.o[1] = b.offsetY, f.o[2] = opacity, f.o[3] = opaque ? 1.0f : 0.0f;
+    // A point of the item's own rectangle, in the target: corners[0] + across + down.
+    auto at = [&](float u, float v) {
+        return Pt{corners[0].x + (corners[1].x - corners[0].x) * (u / w) + (corners[3].x - corners[0].x) * (v / h),
+                  corners[0].y + (corners[1].y - corners[0].y) * (u / w) + (corners[3].y - corners[0].y) * (v / h)};
+    };
+    auto pass = [&](float mode, float m) {
+        f.g[3] = mode;
+        Constants c{};
+        const Pt q[4] = {at(-m, -m), at(w + m, -m), at(w + m, h + m), at(-m, h + m)};
+        const float lu[4] = {-m, w + m, w + m, -m}, lv[4] = {-m, -m, h + m, h + m};
+        toClip(q, (float)targetW_, (float)targetH_, c.pos);
+        for (int i = 0; i < 4; ++i) {
+            c.uv[i][0] = uv[i].x, c.uv[i][1] = uv[i].y;
+            c.uv[i][2] = lu[i], c.uv[i][3] = lv[i];
+        }
+        D3D11_MAPPED_SUBRESOURCE mp{};
+        if (FAILED(context_->Map(cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mp))) return;
+        std::memcpy(mp.pData, &c, sizeof c);
+        context_->Unmap(cb_.Get(), 0);
+        if (FAILED(context_->Map(frameCb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mp))) return;
+        std::memcpy(mp.pData, &f, sizeof f);
+        context_->Unmap(frameCb_.Get(), 0);
+        ID3D11ShaderResourceView* views[1] = {srv};
+        context_->PSSetShaderResources(0, 1, views);
+        context_->Draw(4, 0);
+    };
+    context_->VSSetShader(frameVs_.Get(), nullptr, 0);
+    context_->PSSetShader(framePs_.Get(), nullptr, 0);
+    context_->PSSetConstantBuffers(1, 1, frameCb_.GetAddressOf());
+    if (const float m = border::margin(b); m > 0) pass(0, m);
+    pass(1, 0);
+    ID3D11ShaderResourceView* none[1] = {nullptr};
+    context_->PSSetShaderResources(0, 1, none);
+    context_->VSSetShader(vs_.Get(), nullptr, 0);
+    context_->PSSetShader(ps_.Get(), nullptr, 0);
 }
 
 void Gpu::drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* maskSrv, const Pt corners[4], float progress, float softness,
