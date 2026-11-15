@@ -29,6 +29,7 @@ enum : UINT {
     CmdInDefault = 5000, CmdIn0 = 5001, CmdOutDefault = 6000, CmdOut0 = 6001, CmdApp0 = 7000,
     CmdARename = 100, CmdAMute, CmdAClip, CmdARemove, CmdAFilters, CmdADevice0 = 200,
     CmdBus0 = 300, CmdPreset0 = 310, CmdBusClip0 = 320, CmdLeaveOutNone = 340, CmdLeaveOut0 = 341,
+    CmdDuckOff = 700, CmdDuck0 = 701, CmdDuckAmt0 = 800,
 };
 
 double seconds() {
@@ -206,6 +207,14 @@ void CaptureWindow::syncAudio() {
         else ++it;
     }
     std::vector<audio::MixSource> mix;
+    // Auto-duck: {"duck": {"under": <source id>, "amount": -12}} in a source's settings.
+    auto duckOf = [this](const Source& s, audio::MixSource& m) {
+        const json j = settingsOf(s);
+        if (!j.contains("duck") || !j["duck"].is_object()) return;
+        const json& d = j["duck"];
+        if (d.contains("under") && d["under"].is_string() && scenes_.source(d["under"].get<std::string>())) m.duckUnder = d["under"].get<std::string>();
+        if (d.contains("amount") && d["amount"].is_number()) m.duck.amountDb = std::clamp(d["amount"].get<float>(), -40.0f, 0.0f);
+    };
     for (const Source& s : scenes_.sources()) {
         if (!hasSound(s.kind)) continue;
         AudioLive& a = audio_[s.id];
@@ -215,6 +224,7 @@ void CaptureWindow::syncAudio() {
             audio::MixSource m{s.id, nullptr, audioGain(s), audioMuted(s), audioBuses(s)};
             m.feed = feed;
             m.filters = filtersFor(s);
+            duckOf(s, m);
             mix.push_back(m);
             continue;
         }
@@ -230,6 +240,7 @@ void CaptureWindow::syncAudio() {
         }
         audio::MixSource m{s.id, a.capture, audioGain(s), audioMuted(s), audioBuses(s)};
         m.filters = filtersFor(s);
+        duckOf(s, m);
         mix.push_back(m);
     }
     if (stinger_) {   // a stinger's sound goes out with it
@@ -265,6 +276,7 @@ void CaptureWindow::meterTick() {
         if (it == audio_.end()) continue;
         it->second.left.feed(lv.left, now);
         it->second.right.feed(lv.right, now);
+        it->second.duckDb = lv.duckDb;
     }
     bool ok = false;
     const std::wstring clip = mixer_.takeFinishedClip(&ok);
@@ -440,6 +452,30 @@ void CaptureWindow::audioItemMenu(const Id& source, POINT screen) {
         to.push_back(MenuItem::item(label, CmdBus0 + (UINT)b, {}, true, (buses & audio::busBit(b)) != 0));
     }
     menu.push_back(MenuItem::sub(L"Send to", to));
+    // Auto-duck: quieter while another source (usually the microphone) has sound.
+    std::vector<const Source*> triggers;
+    std::string duckUnder;
+    float duckAmount = -12;
+    if (j.contains("duck") && j["duck"].is_object()) {
+        if (j["duck"].contains("under") && j["duck"]["under"].is_string()) duckUnder = j["duck"]["under"].get<std::string>();
+        if (j["duck"].contains("amount") && j["duck"]["amount"].is_number()) duckAmount = j["duck"]["amount"].get<float>();
+    }
+    {
+        std::vector<MenuItem> dm = {MenuItem::item(L"Off", CmdDuckOff, {}, true, duckUnder.empty())};
+        for (int pass = 0; pass < 2; ++pass)   // microphones and inputs first
+            for (const Source& o : scenes_.sources())
+                if (o.id != source && hasSound(o.kind) && ((o.kind == SourceKind::InputAudio) == (pass == 0)) && triggers.size() < 60) {
+                    dm.push_back(MenuItem::item(L"While " + widen(o.name) + L" has sound", CmdDuck0 + (UINT)triggers.size(),
+                                                o.kind == SourceKind::InputAudio ? L"microphone or input" : L"", true, o.id == duckUnder));
+                    triggers.push_back(&o);
+                }
+        dm.push_back(MenuItem::sep());
+        const int amounts[] = {-6, -12, -18, -24};
+        for (int i = 0; i < 4; ++i)
+            dm.push_back(MenuItem::item(std::to_wstring(-amounts[i]) + L" dB quieter", CmdDuckAmt0 + (UINT)i, {}, !duckUnder.empty(),
+                                        !duckUnder.empty() && std::lround(duckAmount) == amounts[i]));
+        menu.push_back(MenuItem::sub(L"Auto-duck (quieter while you talk)", dm));
+    }
     // Desktop audio: leave one program out (Windows takes one per source).
     std::vector<audio::App> leaveOut;
     if (s->kind == SourceKind::DesktopAudio) {
@@ -478,6 +514,25 @@ void CaptureWindow::audioItemMenu(const Id& source, POINT screen) {
     if (cmd == CmdLeaveOutNone || (cmd >= CmdLeaveOut0 && cmd < CmdLeaveOut0 + leaveOut.size())) {
         setAudioSetting(source, "exclude", cmd == CmdLeaveOutNone ? std::string() : narrow(leaveOut[cmd - CmdLeaveOut0].exe));
         analyseRouting();
+        return;
+    }
+    if (cmd == CmdDuckOff) {
+        json jj = settingsOf(*s);
+        jj.erase("duck");
+        scenes_.setSourceSettings(source, jj.dump());
+        syncAudio();
+        scenesChanged();
+        return;
+    }
+    if (cmd >= CmdDuck0 && cmd < CmdDuck0 + triggers.size()) {
+        setAudioSetting(source, "duck", json{{"under", triggers[cmd - CmdDuck0]->id}, {"amount", duckAmount}});
+        flash(L"Auto-duck on: " + widen(s->name) + L" gets " + std::to_wstring(-std::lround(duckAmount)) + L" dB quieter while " +
+                  widen(triggers[cmd - CmdDuck0]->name) + L" has sound.", 6);
+        return;
+    }
+    if (cmd >= CmdDuckAmt0 && cmd < CmdDuckAmt0 + 4 && !duckUnder.empty()) {
+        const int amounts[] = {-6, -12, -18, -24};
+        setAudioSetting(source, "duck", json{{"under", duckUnder}, {"amount", amounts[cmd - CmdDuckAmt0]}});
         return;
     }
     if (cmd == CmdAFilters) openFilters(source);
@@ -606,6 +661,11 @@ void CaptureWindow::drawMixer(const Rect& b) {
                 for (size_t k = 0; k < c->second.size() && k < 4; ++k) st += (k ? L", " : L"") + audio::describeExe(widen(c->second[k]));
                 if (c->second.size() > 4) st += L"…";
             }
+        }
+        if (a.duckDb < -0.5f) {
+            wchar_t db[32];
+            swprintf(db, 32, L"ducked %.0f dB \u00B7 ", a.duckDb);
+            st = db + st;
         }
         gfx_.text(st, {row.x + 8, row.y + 21, row.w - 16, 16}, Font::Small, problem || flagged ? warn : pal_.inkMuted, {Align::Left, false, true, true});
         drawMeter({row.x + 8, row.y + 41, row.w - 16, 10}, a.left, a.right, muted);

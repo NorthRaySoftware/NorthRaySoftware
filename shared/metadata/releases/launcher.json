@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.66.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.10.6: auto-duck (music dips while you talk) and a music folder source."
+      ]
+    },
+    {
       "version": "0.65.0",
       "date": "2026-11-15",
       "notes": [

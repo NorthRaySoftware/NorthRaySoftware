@@ -1003,3 +1003,22 @@ CJ asked for a Twitch chat overlay that's read-only and needs no sign-in.
 - Tested in Wine with an untagged WAV named "Aurora Band - Night Sky.wav". Reading real tags (MP3/FLAC) is Windows'
   property system's job and needs checking on Windows (Wine's support is limited).
 - Not yet: Capture's own music player (playlists, auto-duck under the microphone) - next.
+
+## 30. Auto-duck and music from a folder (status: built, 15 Nov 2026; released as 0.10.6)
+
+- core/dsp `Ducker` + `DuckSettings` (amount -12 dB by default, threshold -38 dBFS, attack 80 ms, hold 400 ms,
+  release 700 ms): per 10 ms block it takes the trigger's loudest sample and returns the gain at the block's start
+  and end; it moves in decibels at a steady rate (all the way down in the attack time, back up in the release time)
+  and lands on exactly 1 when done (tested: timing, smoothness, re-ducking mid-release, 0 dB does nothing).
+- Mixer: a source's settings can hold {"duck": {"under": <source id>, "amount": dB}}. The trigger's level is its
+  previous block's peak after its volume and mute (so a muted microphone never ducks), the gain is ramped across
+  the block, and the meters and the strip's words show how far it's ducked ("ducked -12 dB").
+- The mixer menu: Auto-duck (quieter while you talk): Off, or "while <source> has sound" (inputs first), and the
+  amount (6, 12, 18 or 24 dB).
+- Music (a folder of songs)...: a media source with every MP3, M4A, AAC, WAV, WMA or FLAC in the folder (sorted,
+  then shuffled, looping, at half volume), ducking 12 dB under the first microphone if there is one. Its tracks feed
+  now playing ({song}, {artist}).
+- Tested in Wine: a 440 Hz "song" ducked under the sync test tone's beeps; a 10-second Stream-mix clip measured
+  down within 70 ms of each beep and 18 dB lower (the amount set), then easing back.
+- Not yet: a folder that picks up new songs by itself (the list is read when it's added), music controls (pause,
+  next) outside the source's menu.

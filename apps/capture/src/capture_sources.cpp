@@ -264,6 +264,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::sep());
     items.push_back(MenuItem::item(L"Image or animated GIF\u2026", 5));
     items.push_back(MenuItem::item(L"Video or sound file\u2026", 11, L"or several, in turn"));
+    items.push_back(MenuItem::item(L"Music (a folder of songs)\u2026", 13, L"shuffled, ducks under your mic"));
     items.push_back(MenuItem::item(L"Overlay design\u2026", 12, L"Starting Soon, lower third, frame\u2026"));
     items.push_back(MenuItem::item(L"Text\u2026", 6));
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
@@ -282,6 +283,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 9: addRegion(); return;
         case 11: addMedia(); return;
         case 12: addDesign(); return;
+        case 13: addMusic(); return;
         default: break;
     }
     if (cmd == 10) {

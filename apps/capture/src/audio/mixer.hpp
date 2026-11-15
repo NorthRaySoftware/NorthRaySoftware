@@ -42,10 +42,13 @@ struct MixSource {
     std::shared_ptr<dsp::Processor> filters;   // its filters (run on the mixer thread only)
     bool syncTone = false;   // no capture: a 1 kHz beep for 50 ms at each whole second of the clock,
                              // in step with the sync test pattern's flash (checking sync in a recording)
+    Id duckUnder;              // auto-duck: quieter while this source (a microphone) has sound
+    dsp::DuckSettings duck;
 };
 
 struct Levels {
     float left = 0, right = 0;   // the loudest samples since last asked (after volume and mute)
+    float duckDb = 0;            // how far auto-duck has it turned down now (0: not at all)
 };
 
 // Plays the monitor bus on an output device (event-driven WASAPI render, shared mode).
@@ -128,6 +131,9 @@ private:
     std::array<std::vector<float>, kBuses> bus_;
     std::vector<std::shared_ptr<Tap>> taps_;
     std::int64_t blockQpc_ = 0;   // when the block being mixed was due
+    // Auto-duck (mixer thread): each source's loudest sample last block, and each ducked source's state.
+    std::map<Id, float> lastPeak_;
+    std::map<Id, dsp::Ducker> duckers_;
 };
 
 }  // namespace ncap::audio

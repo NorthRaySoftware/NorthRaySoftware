@@ -107,6 +107,7 @@ private:
     void addSlideshow();
     void addRegion();
     void addMedia();
+    void addMusic();
     void madeMenuItems(const Source& src, std::vector<cjui::MenuItem>& menu);
     bool madeCommand(UINT cmd, const Id& source);
     void itemExtraItems(const SceneItem& item, std::vector<cjui::MenuItem>& menu);
@@ -294,6 +295,7 @@ private:
         std::shared_ptr<audio::Capture> capture;
         std::string key;                      // the device or program it was started with
         audio::Meter left, right;
+        float duckDb = 0;                     // auto-duck: how far it's turned down now
     };
     std::map<Id, AudioLive> audio_;           // by source id
     audio::Meter mixLeft_, mixRight_, monLeft_, monRight_;

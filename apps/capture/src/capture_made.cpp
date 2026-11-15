@@ -11,6 +11,8 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <cmath>
 
 namespace ncap {
@@ -365,6 +367,40 @@ void CaptureWindow::addMedia() {
     for (auto& f : files) list.push_back(narrow(f));
     const std::string name = files.size() == 1 ? baseName(files[0]) : "Playlist (" + std::to_string(files.size()) + " files)";
     addCapture(SourceKind::Media, name, json{{"files", list}, {"loop", true}, {"shuffle", false}, {"volume", 1.0}, {"muted", false}}.dump());
+}
+
+// Music: every sound file in a folder (not its sub-folders), shuffled and looping, a little quieter
+// than full, and ducking under the first microphone (if there is one) so talking stays clear.
+void CaptureWindow::addMusic() {
+    std::wstring folder;
+    if (!pick(hwnd(), true, L"Choose a folder of songs", folder)) return;
+    std::vector<std::string> files;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(std::filesystem::path(folder), ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        std::string ext = narrow(it->path().extension().wstring());
+        for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+        if (ext == ".mp3" || ext == ".m4a" || ext == ".aac" || ext == ".wav" || ext == ".wma" || ext == ".flac") files.push_back(narrow(it->path().wstring()));
+        if (files.size() >= 2000) break;
+    }
+    if (files.empty()) {
+        flash(L"No songs in that folder (MP3, M4A, AAC, WAV, WMA or FLAC).", 6);
+        return;
+    }
+    std::sort(files.begin(), files.end());
+    json s{{"files", files}, {"loop", true}, {"shuffle", true}, {"volume", 0.5}, {"muted", false}};
+    std::string mic;
+    for (auto& src : scenes_.sources())
+        if (src.kind == SourceKind::InputAudio && src.settings.find("#synctone") == std::string::npos) {
+            mic = src.id;
+            s["duck"] = json{{"under", src.id}, {"amount", -12}};
+            break;
+        }
+    addCapture(SourceKind::Media, "Music: " + baseName(folder + L".x"), s.dump());
+    flash(std::to_wstring(files.size()) + L" songs, shuffled." +
+              (mic.empty() ? std::wstring(L" Add your microphone, then choose Auto-duck in the music's mixer menu so it dips while you talk.")
+                           : L" It dips 12 dB while " + widen(scenes_.source(mic)->name) + L" has sound (Auto-duck in its mixer menu)."),
+          8);
 }
 
 void CaptureWindow::addRegion() {

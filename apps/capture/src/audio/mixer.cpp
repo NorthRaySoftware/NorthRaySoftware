@@ -278,9 +278,25 @@ void Mixer::block() {
             clipWrite(s.id, buf_.data());
         }
         const float gain = s.muted ? 0.0f : s.gain;
+        float duckDb = 0;
+        if (!s.duckUnder.empty() && s.duckUnder != s.id) {
+            // The trigger's level from the block before (10 ms: nobody hears that), after its volume
+            // and mute, so a muted microphone never ducks the music.
+            const auto lp = lastPeak_.find(s.duckUnder);
+            const auto [g0, g1] = duckers_[s.id].block(lp == lastPeak_.end() ? 0.0f : lp->second, 1000.0f * kBlock / kRate, s.duck);
+            if (g0 != 1.0f || g1 != 1.0f)
+                for (int i = 0; i < kBlock; ++i) {
+                    const float g = g0 + (g1 - g0) * (float)i / (float)kBlock;
+                    buf_[(size_t)i * 2] *= g;
+                    buf_[(size_t)i * 2 + 1] *= g;
+                }
+            duckDb = duckers_[s.id].gainDb();
+        }
         Levels& lv = peaks[s.id];
         lv.left = peakOf(buf_.data(), kBlock, 0) * gain;
         lv.right = peakOf(buf_.data(), kBlock, 1) * gain;
+        lv.duckDb = duckDb;
+        lastPeak_[s.id] = std::max(lv.left, lv.right);
         if (gain == 0) continue;
         for (int b = 0; b < kBuses; ++b)
             if (s.buses & busBit(b)) mixInto(bus_[(size_t)b].data(), buf_.data(), buf_.size(), gain);
@@ -304,6 +320,7 @@ void Mixer::block() {
         Levels& have = levels_[id];
         have.left = std::max(have.left, p.left);
         have.right = std::max(have.right, p.right);
+        have.duckDb = p.duckDb;
     }
 }
 

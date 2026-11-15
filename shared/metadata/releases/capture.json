@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.6",
+      "date": "2026-11-15",
+      "notes": [
+        "Auto-duck: any sound source can get quieter while another has sound, usually music under your microphone. Choose it in the source's mixer menu (6, 12, 18 or 24 dB); the mixer shows how far it's ducked.",
+        "It eases down in under a tenth of a second, waits 0.4 s after you stop, and comes back over 0.7 s, without clicks. A muted microphone never ducks anything.",
+        "Music (a folder of songs): every song in a folder, shuffled and looping at half volume, ducking under your microphone straight away, with now playing for your overlays."
+      ]
+    },
+    {
       "version": "0.10.5",
       "date": "2026-11-15",
       "notes": [

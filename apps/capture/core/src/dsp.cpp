@@ -526,4 +526,21 @@ void Processor::process(float* frames, std::size_t count) {
 }
 
 
+
+std::pair<float, float> Ducker::block(float triggerPeak, float blockMs, const DuckSettings& st) {
+    const float low = dbToLinear(std::clamp(st.amountDb, -60.0f, 0.0f));
+    const bool loud = linearToDb(triggerPeak) > st.thresholdDb;
+    quietMs_ = loud ? 0 : quietMs_ + blockMs;
+    target_ = (loud || quietMs_ < (float)std::max(0, st.holdMs)) ? low : 1.0f;
+    const float start = gain_;
+    // Move in decibels at a steady rate: the whole way down in attackMs, back up in releaseMs.
+    const float span = std::max(0.5f, -linearToDb(low));
+    const float now = linearToDb(gain_), want = linearToDb(target_);
+    float next = now;
+    if (want < now) next = std::max(want, now - span * blockMs / (float)std::max(1, st.attackMs));
+    else if (want > now) next = std::min(want, now + span * blockMs / (float)std::max(1, st.releaseMs));
+    gain_ = target_ >= 0.999f && next > -0.05f ? 1.0f : dbToLinear(next);
+    return {start, gain_};
+}
+
 }  // namespace ncap::dsp

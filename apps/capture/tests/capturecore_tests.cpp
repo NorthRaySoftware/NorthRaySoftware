@@ -1189,6 +1189,48 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testDucker() {
+    std::printf("auto-duck\n");
+    using namespace ncap::dsp;
+    DuckSettings st;   // -12 dB, threshold -38, attack 80, hold 400, release 700
+    Ducker d;
+    // Quiet microphone: nothing changes.
+    for (int i = 0; i < 50; ++i) {
+        auto g = d.block(dbToLinear(-60), 10, st);
+        CHECK(g.first == 1.0f && g.second == 1.0f);
+    }
+    // Talking: down to -12 dB within the attack time, smoothly (never a jump bigger than one step).
+    float prev = 1;
+    int blocks = 0;
+    while (d.gainDb() > -11.99f && blocks < 100) {
+        auto g = d.block(dbToLinear(-20), 10, st);
+        CHECK(std::fabs(g.first - prev) < 1e-6f);   // each block starts where the last ended
+        CHECK(linearToDb(g.first) - linearToDb(g.second) <= 12.0f * 10 / 80 + 0.01f);
+        prev = g.second;
+        ++blocks;
+    }
+    CHECK(blocks >= 7 && blocks <= 9 && d.ducking());   // 80 ms in 10 ms blocks
+    // Stops talking: holds for 400 ms, then comes back over 700 ms.
+    for (int i = 0; i < 39; ++i) d.block(dbToLinear(-60), 10, st);
+    CHECK(d.gainDb() < -11.9f);
+    blocks = 0;
+    while (d.gainDb() < -0.01f && blocks < 200) {
+        d.block(dbToLinear(-60), 10, st);
+        ++blocks;
+    }
+    CHECK(blocks >= 70 && blocks <= 73 && !d.ducking());
+    auto g = d.block(0, 10, st);
+    CHECK(g.second == 1.0f);   // back to exactly unchanged
+    // A short word mid-release ducks again straight away.
+    for (int i = 0; i < 5; ++i) d.block(dbToLinear(-10), 10, st);
+    CHECK(d.gainDb() < -5);
+    // Amount 0 dB: never changes anything.
+    Ducker z;
+    DuckSettings none;
+    none.amountDb = 0;
+    for (int i = 0; i < 20; ++i) CHECK(z.block(1.0f, 10, none).second == 1.0f);
+}
+
 static void testChat() {
     std::printf("twitch chat\n");
     namespace ch = ncap::chat;
@@ -1601,6 +1643,7 @@ int main() {
     testBrandKit();
     testChat();
     testTrackNames();
+    testDucker();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

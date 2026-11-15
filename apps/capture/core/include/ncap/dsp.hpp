@@ -5,6 +5,8 @@
 // Processor built from it (stateful: envelopes, delay lines), rebuilt when the chain changes.
 #pragma once
 
+#include <utility>
+
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -80,5 +82,27 @@ private:
 // Helpers the tests use too.
 float dbToLinear(float db);
 float linearToDb(float lin);   // -120 for silence
+
+// Auto-duck: one source (music) made quieter while another (the microphone) has sound. Each 10 ms
+// block the mixer gives it the trigger's loudest sample; it gives back the gain for the block's start
+// and end, so the change is a smooth ramp (no clicks). Above the threshold it goes down to `amountDb`
+// over `attackMs`; after the trigger has been quiet for `holdMs` it comes back up over `releaseMs`.
+struct DuckSettings {
+    float amountDb = -12;      // how much quieter (negative)
+    float thresholdDb = -38;   // the trigger counts as "talking" above this
+    int attackMs = 80, holdMs = 400, releaseMs = 700;
+    bool operator==(const DuckSettings&) const = default;
+};
+class Ducker {
+public:
+    // `triggerPeak` linear (0..1+); `blockMs` the block's length. Returns {gain at start, gain at end}.
+    std::pair<float, float> block(float triggerPeak, float blockMs, const DuckSettings& s);
+    float gainDb() const { return linearToDb(gain_); }
+    bool ducking() const { return target_ < 0.999f; }
+
+private:
+    float gain_ = 1, target_ = 1;
+    float quietMs_ = 1e9f;   // how long the trigger has been quiet
+};
 
 }  // namespace ncap::dsp
