@@ -77,12 +77,16 @@ float4 ring(float2 L, float2 sz) {
 float4 ps(V i) : SV_Target {
     float2 L = i.t.zw, sz = size.xy;
     float r = size.z, w = size.w;
+    // The ring goes round the outside: the item's shape grown by its thickness.
+    float2 L2 = L + w, sz2 = sz + 2 * w;
+    float r2 = r > 0 ? r + w : 0;   // square stays square
     float inside = cov(sd(L, sz, r));
+    float outer = cov(sd(L2, sz2, r2));
     if (g.w < 0.5) {
-        float d = sd(L - o.xy, sz, r);
+        float d = sd(L2 - o.xy, sz2, r2);
         float a = d <= 0 ? 1 : 1 - saturate(d / max(g.x, 0.001));
         a = a * a * (3 - 2 * a);
-        return float4(glowCol.rgb, a * glowCol.a * (1 - inside) * o.z);
+        return float4(glowCol.rgb, a * glowCol.a * (1 - outer) * o.z);
     }
     float4 s = tex.Sample(smp, i.t.xy);
     if (o.w > 0.5) s.a = 1;
@@ -90,9 +94,8 @@ float4 ps(V i) : SV_Target {
     float ra = 0;
     float4 rc = c1;
     if (w > 0) {
-        float inner = (sz.x > 2 * w && sz.y > 2 * w) ? cov(sd(L - w, sz - 2 * w, max(r - w, 0))) : 0;
-        rc = ring(L, sz);
-        ra = inside * (1 - inner) * rc.a;
+        rc = ring(L2, sz2);
+        ra = outer * (1 - inside) * rc.a;
     }
     float oa = ra + s.a * (1 - ra);
     float3 rgb = (rc.rgb * ra + s.rgb * s.a * (1 - ra)) / max(oa, 1e-5);
@@ -321,6 +324,11 @@ void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const P
         return Pt{corners[0].x + (corners[1].x - corners[0].x) * (u / w) + (corners[3].x - corners[0].x) * (v / h),
                   corners[0].y + (corners[1].y - corners[0].y) * (u / w) + (corners[3].y - corners[0].y) * (v / h)};
     };
+    // The texture's place at a point of the item (extended past its edges the same way).
+    auto uvAt = [&](float u, float v) {
+        return Pt{uv[0].x + (uv[1].x - uv[0].x) * (u / w) + (uv[3].x - uv[0].x) * (v / h),
+                  uv[0].y + (uv[1].y - uv[0].y) * (u / w) + (uv[3].y - uv[0].y) * (v / h)};
+    };
     auto pass = [&](float mode, float m) {
         f.g[3] = mode;
         Constants c{};
@@ -328,7 +336,8 @@ void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const P
         const float lu[4] = {-m, w + m, w + m, -m}, lv[4] = {-m, -m, h + m, h + m};
         toClip(q, (float)targetW_, (float)targetH_, c.pos);
         for (int i = 0; i < 4; ++i) {
-            c.uv[i][0] = uv[i].x, c.uv[i][1] = uv[i].y;
+            const Pt t = uvAt(lu[i], lv[i]);
+            c.uv[i][0] = t.x, c.uv[i][1] = t.y;
             c.uv[i][2] = lu[i], c.uv[i][3] = lv[i];
         }
         D3D11_MAPPED_SUBRESOURCE mp{};
@@ -345,8 +354,8 @@ void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const P
     context_->VSSetShader(frameVs_.Get(), nullptr, 0);
     context_->PSSetShader(framePs_.Get(), nullptr, 0);
     context_->PSSetConstantBuffers(1, 1, frameCb_.GetAddressOf());
-    if (const float m = border::margin(b); m > 0) pass(0, m);
-    pass(1, 0);
+    if (b.glow > 0 && b.glowOpacity > 0) pass(0, border::margin(b));
+    pass(1, b.width);
     ID3D11ShaderResourceView* none[1] = {nullptr};
     context_->PSSetShaderResources(0, 1, none);
     context_->VSSetShader(vs_.Get(), nullptr, 0);

@@ -146,8 +146,8 @@ void CaptureWindow::drawBorderEditor(const Rect& area) {
         invalidate();
     }, true);
     y += 42;
-    y += gfx_.text(L"Shown live in the preview above. Click another item there to give it a border too. The ring is drawn just inside the "
-                   L"item's edge; the glow goes round it.",
+    y += gfx_.text(L"Shown live in the preview above. Click another item there to give it a border too. The ring goes round the outside of the "
+                   L"item, so none of the picture is covered; the glow goes round that.",
                    {x0, y, W, 40}, Font::Small, pal_.inkMuted) + 10;
 
     // Presets.
@@ -266,8 +266,8 @@ void CaptureWindow::drawBorderEditor(const Rect& area) {
     sliderRow(rx, ry, "ox", L"Move across", b.offsetX, -60, 60, L" px", g, [](border::Style& s, float v) { s.offsetX = v; });
     sliderRow(rx, ry, "oy", L"Move down", b.offsetY, -60, 60, L" px", g, [](border::Style& s, float v) { s.offsetY = v; });
     y = std::max(ly, ry) + 4;
-    wchar_t info[200];
-    swprintf(info, 200, L"The item is %.0f × %.0f on the canvas. Save as PNG makes a %.0f × %.0f picture with the inside left clear.", sz.w, sz.h,
+    wchar_t info[260];
+    swprintf(info, 260, L"The item is %.0f × %.0f on the canvas. With the ring and glow round it, Save as PNG makes a %.0f × %.0f picture, the item's area left clear.", sz.w, sz.h,
              sz.w + 2 * border::margin([&] { border::Style s = b; s.on = true; return s; }()),
              sz.h + 2 * border::margin([&] { border::Style s = b; s.on = true; return s; }()));
     y += gfx_.text(info, {x0, y, W, 40}, Font::Small, pal_.inkMuted) + 12;

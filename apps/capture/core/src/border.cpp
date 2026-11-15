@@ -74,8 +74,10 @@ float distance(float x, float y, float w, float h, float r) {
 float coverage(float d) { return std::clamp(0.5f - d, 0.0f, 1.0f); }
 
 float margin(const Style& s) {
-    if (!s.on || s.glow <= 0 || s.glowOpacity <= 0) return 0;
-    return std::ceil(s.glow + std::max(std::fabs(s.offsetX), std::fabs(s.offsetY)));
+    if (!s.on) return 0;
+    float m = s.width;
+    if (s.glow > 0 && s.glowOpacity > 0) m += s.glow + std::max(std::fabs(s.offsetX), std::fabs(s.offsetY));
+    return std::ceil(m);
 }
 
 Rgba ringColour(const Style& s, float x, float y, float w, float h) {
@@ -94,36 +96,38 @@ Rgba ringColour(const Style& s, float x, float y, float w, float h) {
 }
 
 std::vector<std::uint8_t> render(const Style& s, int w, int h, int& outW, int& outH) {
-    const int m = (int)margin(s);
+    Style on = s;
+    on.on = true;
+    const int m = (int)margin(on);
     outW = std::max(0, w) + 2 * m;
     outH = std::max(0, h) + 2 * m;
     std::vector<std::uint8_t> px((std::size_t)outW * (std::size_t)outH * 4, 0);
     if (w <= 0 || h <= 0) return px;
     const float r = radius(s, (float)w, (float)h);
-    const float ir = std::max(0.0f, r - s.width);
+    const float bw = s.width;
+    // The ring's outside: the item's shape grown by the thickness (its corners grown with it).
+    const float ow = (float)w + 2 * bw, oh = (float)h + 2 * bw, orad = r > 0 ? r + bw : 0.0f;   // square stays square
     for (int py = 0; py < outH; ++py)
         for (int pxl = 0; pxl < outW; ++pxl) {
-            const float x = (float)(pxl - m) + 0.5f, y = (float)(py - m) + 0.5f;
-            // The glow: the shape, moved by the offset, fading out over `glow` pixels.
+            const float x = (float)(pxl - m) + 0.5f, y = (float)(py - m) + 0.5f;   // from the item's top-left
+            const float outer = coverage(distance(x + bw, y + bw, ow, oh, orad));
+            const float inside = coverage(distance(x, y, (float)w, (float)h, r));
+            // The glow: the ring's outside, moved by the offset, fading over `glow` pixels; never under the ring or the item.
             float gr = 0, gg = 0, gb = 0, ga = 0;
-            if (m > 0) {
-                const float d = distance(x - s.offsetX, y - s.offsetY, (float)w, (float)h, r);
+            if (s.glow > 0 && s.glowOpacity > 0) {
+                const float d = distance(x + bw - s.offsetX, y + bw - s.offsetY, ow, oh, orad);
                 float a = d <= 0 ? 1.0f : 1.0f - std::clamp(d / s.glow, 0.0f, 1.0f);
-                a = a * a * (3 - 2 * a);   // smooth
-                ga = a * s.glowOpacity / 100.0f * s.glowColour.a / 255.0f;
+                a = a * a * (3 - 2 * a);
+                ga = a * s.glowOpacity / 100.0f * s.glowColour.a / 255.0f * (1 - outer);
                 gr = s.glowColour.r, gg = s.glowColour.g, gb = s.glowColour.b;
             }
-            // The item's own shape covers the glow (the camera shows there); the ring is drawn over it.
-            const float inside = coverage(distance(x, y, (float)w, (float)h, r));
-            ga *= 1 - inside;
+            // The ring: between the item's edge and the grown shape.
             float ra = 0;
             Rgba rc{};
-            if (s.width > 0) {
-                const float inner = coverage(distance(x - s.width, y - s.width, (float)w - 2 * s.width, (float)h - 2 * s.width, ir));
-                rc = ringColour(s, x, y, (float)w, (float)h);
-                ra = inside * (1 - (w > 2 * s.width && h > 2 * s.width ? inner : 0.0f)) * rc.a / 255.0f;
+            if (bw > 0) {
+                rc = ringColour(s, x + bw, y + bw, ow, oh);
+                ra = outer * (1 - inside) * rc.a / 255.0f;
             }
-            // Ring over glow ("over" in straight alpha).
             const float oa = ra + ga * (1 - ra);
             std::uint8_t* o = &px[((std::size_t)py * (std::size_t)outW + (std::size_t)pxl) * 4];
             if (oa > 0) {

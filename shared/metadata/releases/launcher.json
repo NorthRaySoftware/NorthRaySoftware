@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.57.0",
+      "date": "2026-11-15",
+      "notes": [
+        "NorthRay Capture 0.9.3: camera borders go round the outside of the picture."
+      ]
+    },
+    {
       "version": "0.56.0",
       "date": "2026-11-15",
       "notes": [

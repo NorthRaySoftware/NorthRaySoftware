@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.9.3",
+      "date": "2026-11-15",
+      "notes": [
+        "Borders now go round the outside of a source instead of covering its edge, so the whole picture still shows. Saved PNG overlays include the ring's thickness."
+      ]
+    },
+    {
       "version": "0.9.2",
       "date": "2026-11-15",
       "notes": [

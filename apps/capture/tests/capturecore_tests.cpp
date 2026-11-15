@@ -902,31 +902,33 @@ static void testBorder() {
     g.angle = 90;   // top to bottom
     CHECK(ringColour(g, 100, 0, 200, 100).r == 255 && ringColour(g, 100, 100, 200, 100).b == 255);
 
-    // The picture: ring at the edge, clear inside, clear outside without a glow; glow around it with one.
+    // The picture: the ring round the outside, the item's own area clear; a glow round that.
     Style r;
     r.on = true;
     r.width = 4;
     r.roundness = 0;
     int w = 0, h = 0;
     auto px = render(r, 40, 20, w, h);
-    CHECK(w == 40 && h == 20 && px.size() == 40u * 20 * 4);
+    CHECK(margin(r) == 4 && w == 48 && h == 28 && px.size() == 48u * 28 * 4);
     auto at = [&](int x, int y) { return &px[((size_t)y * (size_t)w + (size_t)x) * 4]; };
-    CHECK(at(1, 10)[3] == 255 && at(1, 10)[0] == 255);   // in the ring
-    CHECK(at(20, 10)[3] == 0);                           // inside: clear for the camera
-    CHECK(at(39, 0)[3] == 255);                          // square corner, in the ring
-    r.roundness = 100;                                   // a pill: its corners are cut away
+    CHECK(at(1, 14)[3] == 255 && at(1, 14)[0] == 255);   // outside the item's left edge: the ring
+    CHECK(at(4, 14)[3] == 0 && at(24, 14)[3] == 0);      // the item's own area (its first column, its middle): clear
+    CHECK(at(47, 0)[3] == 255);                          // square corner of the ring
+    r.roundness = 100;                                   // a pill: the ring's corners are rounded too
     px = render(r, 40, 20, w, h);
-    CHECK(at(0, 0)[3] == 0 && at(20, 1)[3] == 255);
+    CHECK(at(0, 0)[3] == 0 && at(24, 1)[3] == 255);
     r.glow = 10;
     r.glowOpacity = 100;
     r.offsetY = 5;
     px = render(r, 40, 20, w, h);
-    CHECK(margin(r) == 15 && w == 70 && h == 50);
-    CHECK(at(35, 15 + 10)[3] == 0);                      // the inside stays clear even with a glow under it
-    CHECK(at(35, 15 + 20 + 3)[3] > at(35, 15 - 3)[3]);   // the shadow falls more below (offset down) than above
+    CHECK(margin(r) == 19 && w == 78 && h == 58);
+    CHECK(at(39, 29)[3] == 0);                           // the item's area stays clear even with a glow under it
+    CHECK(at(39, 19 + 20 + 4 + 3)[3] > at(39, 19 - 4 - 3)[3]);   // the shadow falls more below (offset down) than above
     CHECK(at(0, 0)[3] == 0);                             // far corner: nothing
     r.on = false;
     CHECK(margin(r) == 0);
+    px = render(r, 40, 20, w, h);                        // a PNG of a border that's off is drawn as if on
+    CHECK(w == 78);
 
     // Presets: the circle wants a square item; all are on.
     bool circle = false;

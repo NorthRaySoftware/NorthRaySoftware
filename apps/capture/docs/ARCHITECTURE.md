@@ -730,12 +730,14 @@ Asked for by CJ in the middle of Milestone 9 (plugins, part 3, is paused in git 
 
 **Built**
 - `core/border`: a border is part of a scene item (saved with it, copied with it, exported with its scene): corners
-  rounded from square to a circle or pill (roundness as a share of half the shorter side), a ring of colour drawn just
-  inside the item's edge (plain or a two-colour gradient at any angle, colours with transparency), and a glow or
+  rounded from square to a circle or pill (roundness as a share of half the shorter side), a ring of colour round the
+  outside of the item's edge, so none of the picture is covered (since 0.9.3; 0.9.2 drew it just inside) (plain or a two-colour gradient at any angle, colours with transparency), and a glow or
   shadow round it (size, colour, strength, and an offset for a drop shadow). The shape is a rounded-box signed
   distance with one-pixel anti-aliasing.
 - The video engine draws it on the graphics card in the same pass as the item (a second small shader: the glow
-  first on a quad grown by the glow's reach, then the picture masked to the shape with the ring over it), so it
+  first on a quad grown by the ring and glow's reach, then a quad grown by the ring's thickness with the picture
+  masked to the item's shape and the ring between that and the shape grown by the thickness; a square item's ring
+  keeps square corners), so it
   follows the item when it's moved, scaled, rotated or faded. If that shader can't be made, items draw as before.
 - The editor: an item's menu (in Sources or on the preview) › Border... opens it in the dock under the live preview,
   so changes show on the real picture. Six presets (Clean white, Neon glow, Soft shadow, Circle, Gold frame, Thin
@@ -747,8 +749,8 @@ Asked for by CJ in the middle of Milestone 9 (plugins, part 3, is paused in git 
 - A group with a border can't be ungrouped (its sources would lose it) until the border is off.
 
 **Tested**
-- capturecore: 376 checks, including distances (edges, rounded corners, a circle), the gradient's ends and middle,
-  JSON kept and clamped, and the rendered picture: the ring at the edge, inside clear, cut corners, a glow that
+- capturecore: 376 checks (406 with 0.9.3's), including distances (edges, rounded corners, a circle), the gradient's
+  ends and middle, JSON kept and clamped, and the rendered picture: the ring outside the item's edge, the item's area clear, cut corners, a glow that
   falls further on the shadow's side, and the margin.
 - The app in Wine: Neon glow on a video (rounded corners, cyan-to-pink ring, purple glow seen in the preview);
   Circle (cropped to the middle, 720 x 720, same centre, round in the preview); Save as PNG (756 x 756: clear
@@ -757,4 +759,12 @@ Asked for by CJ in the middle of Milestone 9 (plugins, part 3, is paused in git 
 **Limits**
 - The glow and shadow turn with a rotated item (the offset is in the item's own directions). Importing a scene
   that's scaled to another canvas doesn't scale ring thickness or glow.
+
+### 0.9.3 (15 Nov 2026): the ring goes outward
+
+CJ: the border should go out from the source, not into it. The ring is now drawn round the outside of the item (the
+picture keeps its full size; the item's box and its handles are unchanged, the ring sits just beyond them), the
+glow round the ring, and margin() and Save as PNG include the ring's thickness. Checked in Wine on the circle with a
+thick ring: the whole picture shows inside, the ring outside the selection box. 406 core checks (the plugins
+groundwork, pushed earlier as work in progress, is in this release's tree but not switched on anywhere yet).
 
