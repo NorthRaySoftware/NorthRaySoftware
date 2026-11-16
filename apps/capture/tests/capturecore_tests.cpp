@@ -1690,6 +1690,13 @@ static void testSceneTemplates() {
         return nullptr;
     };
     CHECK(doc("book-card") && doc("show-title"));
+    {   // The book card's cover picture comes from {cover} (Writing Studio's book being written).
+        bool coverPic = false;
+        for (auto& e : doc("book-card")->elements) coverPic |= e.kind == design::Kind::Image && e.file == "{cover}";
+        CHECK(coverPic);
+        CHECK(design::fillPlaceholders("{cover}", {{"cover", "C:\\lib\\objects\\4b\\a7"}}) == "C:\\lib\\objects\\4b\\a7");
+        CHECK(design::fillPlaceholders("{cover}", {{"cover", ""}}).empty());
+    }
     const float cw = 1920, ch = 1080;
     for (auto& t : st::all()) {
         std::vector<st::Rect> placed;

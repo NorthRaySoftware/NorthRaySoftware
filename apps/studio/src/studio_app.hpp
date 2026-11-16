@@ -254,8 +254,10 @@ private:
     int writingStreak() const;   // days in a row with any words written (to today, or yesterday if none yet today)
     std::wstring todayLine() const;
     // Today's words, the goal and the streak, in summary.json beside the settings, for NorthRay
-    // Launcher's home page. Written only when they change.
+    // Launcher's home page, and the book being written (title, series line, cover file) for NorthRay Capture.
+    // Written only when they change.
     void writeSummary();
+    std::string seriesLine(const Id& bookId) const;   // "Book Three of The Alvora Chronicles", or ""
     std::string lastSummary_;
     // Planning (studio_plan.cpp)
     void openPlanning(const Id& bookId);

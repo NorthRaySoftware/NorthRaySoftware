@@ -281,6 +281,10 @@ private:
     void openChecklist();
     void automationTick();
     void addAuroraSky();
+    void writingTick();
+    std::vector<std::pair<std::string, std::string>> writingValues_;   // from Writing Studio's summary
+    ULONGLONG writingChecked_ = 0;
+    long long writingStamp_ = -1;
     void newSceneMenu();
     void sceneFromTemplate(const scene_templates::SceneTemplate& t);
     void addBrandVideo(bool intro);

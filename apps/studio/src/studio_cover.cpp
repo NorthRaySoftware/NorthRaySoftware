@@ -81,13 +81,7 @@ void StudioApp::openCoverDesigner() {
         cv_.spec.title = b->title;
         cv_.spec.subtitle = b->subtitle;
         cv_.spec.author = b->penName.empty() ? b->author : b->penName;
-        // "Book Three of The Alvora Chronicles", when it's numbered in a series.
-        for (const Series* s : lib_->seriesOfBook(b->id))
-            if (const Membership* m = lib_->membership(s->id, b->id); m && !m->number.empty()) {
-                const int n = std::atoi(m->number.c_str());
-                cv_.spec.series = "Book " + (n > 0 && std::to_string(n) == m->number ? studio::typeset::spelledNumber(n) : m->number) + " of " + s->name;
-                break;
-            }
+        cv_.spec.series = seriesLine(b->id);
         cv_.spec.fontId = typeset::designFromJson(lib_->setting("typeset:" + b->id)).font;
     }
     if (cv_.spec.backText.empty()) cv_.spec.backText = b->synopsis;   // the blurb, to start with
@@ -95,6 +89,17 @@ void StudioApp::openCoverDesigner() {
     setFocus({Focus::Cover, b->id, {}});
     renderCoverPreview();
     invalidate();
+}
+
+// "Book Three of The Alvora Chronicles", when the book is numbered in a series; "" otherwise.
+std::string StudioApp::seriesLine(const Id& bookId) const {
+    if (!lib_) return {};
+    for (const Series* s : lib_->seriesOfBook(bookId))
+        if (const Membership* m = lib_->membership(s->id, bookId); m && !m->number.empty()) {
+            const int n = std::atoi(m->number.c_str());
+            return "Book " + (n > 0 && std::to_string(n) == m->number ? studio::typeset::spelledNumber(n) : m->number) + " of " + s->name;
+        }
+    return {};
 }
 
 void StudioApp::closeCoverDesigner() {

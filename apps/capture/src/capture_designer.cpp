@@ -169,6 +169,16 @@ void CaptureWindow::loadProfile() {
     const nlohmann::json j = nlohmann::json::parse(ss.str(), nullptr, false);
     video::Placeholders v;
     for (const char* k : kProfileKeys) v.push_back({k, j.is_object() && j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : std::string()});
+    // Writing Studio's book being written, when it has one, comes before Your details' book and series.
+    for (auto& [k, val] : writingValues_) {
+        if (val.empty()) continue;
+        auto it = std::find_if(v.begin(), v.end(), [&](const auto& p) { return p.first == k; });
+        if (it != v.end()) it->second = val;
+        else v.push_back({k, val});
+    }
+    v.push_back({"cover", ""});   // stays "" without Writing Studio's cover
+    for (auto& [k, val] : writingValues_)
+        if (k == "cover" && !val.empty()) v.back().second = val;
     profile_ = v;
     video::setDesignValues(v);
 }
@@ -177,7 +187,10 @@ void CaptureWindow::editProfile() {
     std::vector<MenuItem> items;
     for (int i = 0; i < kProfileCount; ++i) {
         const std::string now = i < (int)profile_.size() ? profile_[(size_t)i].second : std::string();
-        items.push_back(MenuItem::item(kProfileLabels[i], 100 + (UINT)i, now.empty() ? L"not set" : widen(now)));
+        std::wstring hint = now.empty() ? L"not set" : widen(now);
+        for (auto& [k, val] : writingValues_)
+            if (k == kProfileKeys[i] && !val.empty()) hint = L"from Writing Studio: " + widen(val);
+        items.push_back(MenuItem::item(kProfileLabels[i], 100 + (UINT)i, hint));
     }
     POINT pt;
     GetCursorPos(&pt);
@@ -196,6 +209,47 @@ void CaptureWindow::editProfile() {
                 designRendered_.clear();
                 invalidate();
             });
+}
+
+// Writing Studio's summary (%LOCALAPPDATA%\NorthRay\Writing Studio\summary.json): the book being written,
+// its series line and cover, today's words and the streak, as {book} {series} {cover} {words} {streak}. Looked
+// at every few seconds; read when it changes. Today's words count only if it's today's summary.
+void CaptureWindow::writingTick() {
+    const ULONGLONG now = GetTickCount64();
+    if (now - writingChecked_ < 4000) return;
+    writingChecked_ = now;
+    std::error_code ec;
+    const std::filesystem::path p = std::filesystem::path(profilePath()).parent_path() / L"Writing Studio" / L"summary.json";
+    const auto t = std::filesystem::last_write_time(p, ec);
+    const long long stamp = ec ? 0 : (long long)t.time_since_epoch().count();
+    if (stamp == writingStamp_) return;
+    writingStamp_ = stamp;
+    std::vector<std::pair<std::string, std::string>> vals;
+    if (stamp) {
+        std::ifstream f(p, std::ios::binary);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        const nlohmann::json j = nlohmann::json::parse(ss.str(), nullptr, false);
+        if (j.is_object() && j.value("format", "") == "northray-writing-summary") {
+            auto str = [&](const char* k) { return j.contains(k) && j[k].is_string() ? j[k].get<std::string>().substr(0, 1024) : std::string(); };
+            vals.push_back({"book", str("book")});
+            vals.push_back({"series", str("series")});
+            vals.push_back({"cover", str("cover")});
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            char today[16];
+            std::snprintf(today, sizeof today, "%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+            const bool isToday = str("day") == today;
+            const long long words = isToday && j.contains("wordsToday") && j["wordsToday"].is_number_integer() ? j["wordsToday"].get<long long>() : 0;
+            vals.push_back({"words", std::to_string(words)});
+            if (j.contains("streak") && j["streak"].is_number_integer()) vals.push_back({"streak", std::to_string(j["streak"].get<long long>())});
+        }
+    }
+    if (vals == writingValues_) return;
+    writingValues_ = vals;
+    loadProfile();
+    designRendered_.clear();
+    invalidate();
 }
 
 // ---------------------------------------------------------------- opening and saving

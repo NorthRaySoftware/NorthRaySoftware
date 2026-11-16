@@ -73,8 +73,15 @@ void StudioApp::writeSummary() {
     if (!lib_) return;
     const std::string today = Library::localDay(now());
     const auto days = lib_->wordsWritten({}, today);
-    const nlohmann::json j = {{"format", "northray-writing-summary"}, {"day", today},
-                              {"wordsToday", days.count(today) ? days.at(today) : 0}, {"dailyGoal", dailyGoal()}, {"streak", writingStreak()}};
+    nlohmann::json j = {{"format", "northray-writing-summary"}, {"day", today},
+                        {"wordsToday", days.count(today) ? days.at(today) : 0}, {"dailyGoal", dailyGoal()}, {"streak", writingStreak()}};
+    // The book being written (the chapter in the editor), for NorthRay Capture's book card.
+    if (const ManuscriptNode* n = lib_->node(currentNode_))
+        if (const Book* b = lib_->book(n->bookId)) {
+            j["book"] = b->title;
+            j["series"] = seriesLine(b->id);
+            j["cover"] = b->coverBlob.empty() ? std::string() : lib_->blobPath(b->coverBlob);
+        }
     const std::string text = j.dump(1);
     if (text == lastSummary_) return;
     std::string err;

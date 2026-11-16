@@ -1318,3 +1318,18 @@ the same):
   frame at 41,50 1224×756 (the opening exactly over it) following it, chat and lower third on the canvas. Wine can't
   open cameras at all (mf.dll MFCreateDeviceSource isn't implemented and aborts the process), so a camera source
   can't be run there; on Windows a missing camera is reported by the source.
+
+## 46. The book card from Writing Studio (status: built, 16 Nov 2026; released as 0.10.22)
+
+- Writing Studio's summary.json (%LOCALAPPDATA%\NorthRay\Writing Studio, "northray-writing-summary", written every
+  30 s when it changes) now also carries the book being written (the book of the chapter in its editor): "book",
+  "series" (its series line, "Book One of The Alvora Chronicles") and "cover" (the cover file in its library).
+- Capture (writingTick, from the stats timer every 4 s) reads it when its time stamp changes and gives designs
+  {book}, {series} and {cover} (ahead of Your details' Book and Series), {words} (today's words, 0 when the summary
+  isn't today's) and {streak}. Your details shows "from Writing Studio: …" for those it supplies.
+- Picture elements whose file holds a value ("{cover}") are filled in at render time; an empty one draws nothing
+  on stream (a placeholder in the designer). The Book card has a "{cover}" picture over its coloured panel and book
+  icon, so with no cover the panel shows.
+- Tested in Wine: Writing Studio with the test library, opening The Envoy of Telvana in Writing (the editor itself
+  needs WebView2, which Wine lacks), wrote the book, "Book One of The Alvora Chronicles" and the cover's library
+  file; Capture's Reading and writing template then showed that cover, title and series on the book card.

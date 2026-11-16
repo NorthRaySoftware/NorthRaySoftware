@@ -727,6 +727,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         wizardTick();
         keyPickTick();
         automationTick();
+        writingTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {

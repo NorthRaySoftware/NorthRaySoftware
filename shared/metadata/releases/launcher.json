@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.82.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.22 and Writing Studio 0.34.4: the book card on stream shows the book you're writing, with its cover."
+      ]
+    },
+    {
       "version": "0.81.0",
       "date": "2026-11-16",
       "notes": [

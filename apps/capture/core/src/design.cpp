@@ -876,7 +876,7 @@ const std::vector<Template>& templates() {
             card.strokeWidth = 2;
             card.anim = Anim::SlideLeft;
             add(d, card);
-            Element cover = rectEl("Cover (swap for your cover picture)", 40, 40, 160, 240,
+            Element cover = rectEl("Cover (until there is a picture)", 40, 40, 160, 240,
                                    Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 10);
             cover.shadow = {true, 0, 6, 18, hex("#00000080")};
             cover.anim = Anim::SlideLeft;
@@ -889,6 +889,15 @@ const std::vector<Template>& templates() {
             ic.fill = Fill::solid(hex("#F4F7FB"));
             ic.anim = Anim::SlideLeft;
             add(d, ic);
+            Element pic;   // the cover itself, over the panel, when Writing Studio (or {cover} in Your details) names one
+            pic.kind = Kind::Image;
+            pic.name = "Cover picture";
+            pic.file = "{cover}";
+            pic.cover = true;
+            pic.radius = 10;
+            pic.x = 40, pic.y = 40, pic.w = 160, pic.h = 240;
+            pic.anim = Anim::SlideLeft;
+            add(d, pic);
             Element k = textEl("Label", "NOW WRITING", 240, 52, 620, 30, 22, "#3FCF8E", true, "left");
             k.anim = Anim::SlideLeft;
             add(d, k);

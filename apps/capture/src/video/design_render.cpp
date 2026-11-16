@@ -274,8 +274,10 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
             break;
         }
         case Kind::Image: {
-            ComPtr<ID2D1Bitmap> bmp = e.file.empty() ? nullptr : loadPicture(c, rt, e.file);
-            if (!bmp && e.file.empty() && !showMissing) break;   // e.g. no brand logo yet: nothing on stream
+            // A value can name the file ("{cover}": the book Writing Studio says is being written).
+            const std::string file = e.file.find('{') == std::string::npos ? e.file : fillPlaceholders(e.file, values, false);
+            ComPtr<ID2D1Bitmap> bmp = file.empty() ? nullptr : loadPicture(c, rt, file);
+            if (!bmp && file.empty() && !showMissing) break;   // e.g. no brand logo or cover yet: nothing on stream
             if (!bmp) {
                 if (!shadowPass) {   // a placeholder so it can be seen and picked
                     ComPtr<ID2D1SolidColorBrush> ph;

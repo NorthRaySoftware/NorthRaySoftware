@@ -365,3 +365,10 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   `entries.cpp`) decodes the UTF-8 character on each side instead of treating every non-ASCII byte as a letter, so
   curly quotes, apostrophes (possessives), dashes, ellipses and non-breaking spaces end a name; letters in any script
   still don't. Tested with “Marren, wait!”, Marren’s, Marren—, …Marren…, and not Marrenson, ÉMarren or Marrené.
+
+## Sharing the book being written with NorthRay Capture (0.34.4, 16 Nov 2026)
+
+- summary.json (beside the settings) also gives "book", "series" and "cover" for the book of the chapter in the
+  editor: its title, its series line (`seriesLine`, shared with the cover designer: "Book Three of The Alvora
+  Chronicles" when it's numbered in a series) and its cover's library file. NorthRay Capture's Book card shows them.
+  Nothing leaves the PC.

@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.22",
+      "date": "2026-11-16",
+      "notes": [
+        "The book card fills itself in from NorthRay Writing Studio: the book you're writing, its series line (\"Book One of The Alvora Chronicles\") and its cover. Writing Studio's today's words and streak are there too, as {words} and {streak}. Without Writing Studio, Your details' Book and Series are used.",
+        "Pictures in designs can be named by a value, such as {cover}."
+      ]
+    },
+    {
       "version": "0.10.21",
       "date": "2026-11-16",
       "notes": [

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.34.4",
+      "date": "2026-11-16",
+      "notes": [
+        "The book you're writing (its title, series line and cover) is shared with NorthRay Capture's book card, through the same small file on this PC that shares today's words with NorthRay Launcher."
+      ]
+    },
+    {
       "version": "0.34.3",
       "date": "2026-11-15",
       "notes": [
