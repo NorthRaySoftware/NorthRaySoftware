@@ -1,6 +1,9 @@
 // Unit tests for cjcore. Deliberately dependency-free: run the binary, it
 // prints each check and exits non-zero on any failure.
 #include "cj/medialib.hpp"
+
+#include <miniz.h>
+#include <map>
 #include "cj/radio.hpp"
 #include "cj/registry.hpp"
 #include "cj/station.hpp"
@@ -449,6 +452,69 @@ static void testMediaLibrary() {
     CHECK(lib.remove(c) && !lib.remove(c) && lib.items().size() == 3);
 }
 
+static void testTemplatePacks() {
+    namespace ml = cj::medialib;
+    using ml::Kind;
+    std::map<std::string, std::string> disk = {{"cover.png", std::string("\x89PNG fake cover", 15)}, {"Starting soon.nrdesign", "{\"elements\":[]}"},
+                                               {"bed.mp3", std::string(200000, 'x')}, {"other.png", "other"}};
+    auto read = [&](const std::string& f, std::string& b) {
+        auto it = disk.find(f);
+        if (it == disk.end()) return false;
+        b = it->second;
+        return true;
+    };
+    ml::Library lib;
+    const auto a = lib.add("cover.png", "Cover", Kind::Picture, "Kit/Pictures", "2026-11-16");
+    lib.addTag(a, "alvora");
+    lib.add("Starting soon.nrdesign", "Starting soon", Kind::Design, "Kit", "2026-11-16");
+    lib.add("bed.mp3", "Music bed", Kind::Music, "Kit/Sounds", "2026-11-16");
+    lib.add("other.png", "Not in the kit", Kind::Picture, "Elsewhere", "2026-11-16");
+    lib.add("missing.png", "Missing file", Kind::Picture, "Kit", "2026-11-16");
+    ml::PackResult pr;
+    const std::string pack = ml::buildPack(lib, "Kit", "Aurora stream kit", read, pr);
+    CHECK(pr.ok && pr.count == 3 && !pack.empty() && pack.size() < 20000);   // compressed; the missing file left out
+    CHECK(ml::packName(pack) == "Aurora stream kit" && ml::packName("not a zip").empty());
+    // Into another library: fresh names where taken, folders kept under the one chosen, tags kept.
+    ml::Library other;
+    other.add("cover.png", "Their own cover", Kind::Picture, "", "2026-11-01");
+    std::map<std::string, std::string> written;
+    auto write = [&](const std::string& f, const std::string& b) {
+        written[f] = b;
+        return true;
+    };
+    const auto rr = ml::readPack(other, pack, "Packs/Aurora stream kit", "2026-11-17", write);
+    CHECK(rr.ok && rr.count == 3 && other.items().size() == 4);
+    CHECK(written.count("cover (2).png") && written["cover (2).png"] == disk["cover.png"] && written["bed.mp3"].size() == 200000);
+    const auto found = other.search({"cover", (int)Kind::Picture, "Packs"});
+    CHECK(found.size() == 1 && found[0]->folder == "Packs/Aurora stream kit/Pictures" && found[0]->tags == (std::vector<std::string>{"alvora"}));
+    CHECK(other.search({"starting"}).size() == 1 && other.search({"starting"})[0]->folder == "Packs/Aurora stream kit");
+    // Everything, when no folder is given; nothing for an empty folder.
+    CHECK(!ml::buildPack(lib, "", "All", read, pr).empty() && pr.count == 4);
+    CHECK(ml::buildPack(lib, "Nowhere", "x", read, pr).empty() && !pr.ok && !pr.error.empty());
+    // A hostile pack: entries outside files/, a path in the file name, a junk manifest.
+    {
+        mz_zip_archive z{};
+        mz_zip_writer_init_heap(&z, 0, 0);
+        const std::string evil = "evil";
+        mz_zip_writer_add_mem(&z, "files/0-a.png", evil.data(), evil.size(), 0);
+        mz_zip_writer_add_mem(&z, "../../outside.txt", evil.data(), evil.size(), 0);
+        const std::string man = R"({"format":"northray-pack","name":"Bad","items":[{"entry":"../../outside.txt","file":"x.txt"},
+            {"entry":"files/0-a.png","file":"..\\..\\Windows\\a.png","name":"A","folder":"../../up"},{"entry":"files/none.png"},7]})";
+        mz_zip_writer_add_mem(&z, "pack.json", man.data(), man.size(), 0);
+        void* buf;
+        size_t size;
+        mz_zip_writer_finalize_heap_archive(&z, &buf, &size);
+        const std::string bad(static_cast<const char*>(buf), size);
+        mz_free(buf);
+        mz_zip_writer_end(&z);
+        ml::Library l3;
+        written.clear();
+        const auto r3 = ml::readPack(l3, bad, "", "2026-11-17", write);
+        CHECK(r3.ok && r3.count == 1 && written.size() == 1 && written.count("a.png") && l3.items()[0].folder == "up");
+    }
+    CHECK(!ml::readPack(other, "junk", "", "d", write).ok && !ml::readPack(other, pack.substr(0, 100), "", "d", write).ok);
+}
+
 int main() {
     testGithubRecordings();
     testIcal();
@@ -458,6 +524,7 @@ int main() {
     testRadioStatus();
     testRegistry();
     testMediaLibrary();
+    testTemplatePacks();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

@@ -9,7 +9,9 @@ add_library(cjcore STATIC
 )
 target_include_directories(cjcore
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../third_party ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/miniz)
+# miniz (template packs) is defined in libs/studiocore.
+target_link_libraries(cjcore PUBLIC miniz)
 if(MSVC)
   target_compile_options(cjcore PRIVATE /W4 /utf-8)
 else()

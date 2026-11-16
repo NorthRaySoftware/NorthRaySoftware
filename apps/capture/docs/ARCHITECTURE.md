@@ -1380,3 +1380,20 @@ the same):
 - Tested in Wine with a cover, a video, a sound and a design in the library: kinds, nested folders and tags shown;
   the #alvora tag showed only the cover; searching "soon" found the design; clicking it put it in the scene; adding
   the tag "telvana" from the right-click menu was saved in library.json.
+
+## 49. Template packs and design thumbnails (status: built, 16 Nov 2026; released as 0.10.25)
+
+- cj/medialib (tested): `buildPack` zips (miniz, in memory) a folder and those inside it, or everything, as
+  files/<n>-<stored name> plus pack.json ("northray-pack": name; per item its entry, file, name, kind, folder within
+  the pack, tags); items whose files can't be read are left out; at most 2000 items and 1 GB. `readPack` takes only
+  entries under files/, checks declared sizes against what's left of the 1 GB before unpacking, gives every file a
+  fresh stored name (so names like "..\\..\\Windows\\a.png" become "a.png" and "../../up" folders are cleaned) and
+  adds the items under the chosen folder with their folders and tags. Tests: a round trip into a library with a
+  clashing name, a hostile pack (an entry outside files/, paths in names), junk, a cut-off zip; checked for leaks
+  with AddressSanitizer (which caught the finished buffer not being freed). cjcore now links miniz.
+- Capture's Library: Export folder… / Export all… (save dialog, the folder's name as the pack's) and Import a pack…
+  (into "Packs/<pack name>", then shown). Overlay designs get a picture of the design (rendered at most 360 wide into
+  Library\thumbs, again when the design file is newer).
+- Tested in Wine: the design thumbnail showed; Export all saved kit.nrpack (4 files and pack.json; Python's zipfile
+  reads it); importing it added the 4 items under Packs/My NorthRay library with Books/Alvora and Overlays inside,
+  fresh names ("Envoy cover (2).png") and their tags.

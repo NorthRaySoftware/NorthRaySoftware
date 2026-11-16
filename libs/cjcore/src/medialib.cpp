@@ -1,5 +1,6 @@
 #include "cj/medialib.hpp"
 
+#include <miniz.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -312,6 +313,140 @@ bool Library::fromJson(const std::string& text, Library& out) {
     l.next_ = std::max(highest + 1, j.contains("next") && j["next"].is_number_integer() ? j["next"].get<int>() : 1);
     out = l;
     return true;
+}
+
+}  // namespace cj::medialib
+
+// ------------------------------------------------------------------ template packs
+
+
+namespace cj::medialib {
+
+namespace {
+bool unzipEntry(mz_zip_archive& z, const char* name, std::string& out, std::size_t limit) {
+    const int i = mz_zip_reader_locate_file(&z, name, nullptr, 0);
+    if (i < 0) return false;
+    mz_zip_archive_file_stat st;
+    if (!mz_zip_reader_file_stat(&z, (mz_uint)i, &st) || st.m_uncomp_size > limit) return false;
+    out.resize((std::size_t)st.m_uncomp_size);
+    return out.empty() || mz_zip_reader_extract_to_mem(&z, (mz_uint)i, out.data(), out.size(), 0);
+}
+}  // namespace
+
+std::string buildPack(const Library& lib, const std::string& folderIn, const std::string& name,
+                      const std::function<bool(const std::string&, std::string&)>& read, PackResult& result) {
+    result = {};
+    const std::string folder = Library::cleanFolder(folderIn);
+    mz_zip_archive z{};
+    if (!mz_zip_writer_init_heap(&z, 0, 1 << 16)) {
+        result.error = "The pack couldn't be started.";
+        return {};
+    }
+    json items = json::array();
+    std::size_t total = 0;
+    int n = 0;
+    for (auto& it : lib.items()) {
+        if (!folder.empty() && !(it.folder == folder || (it.folder.size() > folder.size() && it.folder.compare(0, folder.size(), folder) == 0 &&
+                                                         it.folder[folder.size()] == '/')))
+            continue;
+        if ((std::size_t)n >= kPackMaxItems) break;
+        std::string bytes;
+        if (!read(it.file, bytes)) continue;
+        total += bytes.size();
+        if (total > kPackMaxBytes) {
+            result.error = "The pack would be over 1 GB.";
+            mz_zip_writer_end(&z);
+            return {};
+        }
+        const std::string entry = "files/" + std::to_string(n) + "-" + it.file;
+        if (!mz_zip_writer_add_mem(&z, entry.c_str(), bytes.data(), bytes.size(), MZ_DEFAULT_COMPRESSION)) continue;
+        const std::string rel = folder.empty() ? it.folder : it.folder.size() > folder.size() ? it.folder.substr(folder.size() + 1) : std::string();
+        items.push_back({{"entry", entry}, {"file", it.file}, {"name", it.name}, {"kind", kindKey(it.kind)}, {"folder", rel}, {"tags", it.tags}});
+        ++n;
+    }
+    if (n == 0) {
+        result.error = "There's nothing in that folder to pack.";
+        mz_zip_writer_end(&z);
+        return {};
+    }
+    const std::string manifest = json{{"format", "northray-pack"}, {"version", 1}, {"name", name.substr(0, 120)}, {"items", items}}.dump(1);
+    void* buf = nullptr;
+    std::size_t size = 0;
+    if (!mz_zip_writer_add_mem(&z, "pack.json", manifest.data(), manifest.size(), MZ_DEFAULT_COMPRESSION) ||
+        !mz_zip_writer_finalize_heap_archive(&z, &buf, &size)) {
+        result.error = "The pack couldn't be made.";
+        mz_zip_writer_end(&z);
+        return {};
+    }
+    std::string out(static_cast<const char*>(buf), size);
+    mz_free(buf);   // finishing hands the buffer over
+    mz_zip_writer_end(&z);
+    result.ok = true;
+    result.count = n;
+    return out;
+}
+
+std::string packName(const std::string& bytes) {
+    mz_zip_archive z{};
+    if (!mz_zip_reader_init_mem(&z, bytes.data(), bytes.size(), 0)) return {};
+    std::string m;
+    const bool ok = unzipEntry(z, "pack.json", m, 16u * 1024u * 1024u);
+    mz_zip_reader_end(&z);
+    if (!ok) return {};
+    const json j = json::parse(m, nullptr, false);
+    if (!j.is_object() || j.value("format", "") != "northray-pack") return {};
+    const std::string n = j.contains("name") && j["name"].is_string() ? j["name"].get<std::string>() : std::string();
+    return n.empty() ? std::string("Pack") : n;
+}
+
+PackResult readPack(Library& lib, const std::string& bytes, const std::string& intoIn, const std::string& day,
+                    const std::function<bool(const std::string&, const std::string&)>& write) {
+    PackResult r;
+    mz_zip_archive z{};
+    if (!mz_zip_reader_init_mem(&z, bytes.data(), bytes.size(), 0)) {
+        r.error = "That isn't a NorthRay pack (it isn't a zip).";
+        return r;
+    }
+    std::string m;
+    if (!unzipEntry(z, "pack.json", m, 16u * 1024u * 1024u)) {
+        mz_zip_reader_end(&z);
+        r.error = "That isn't a NorthRay pack (there's no pack.json).";
+        return r;
+    }
+    const json j = json::parse(m, nullptr, false);
+    if (!j.is_object() || j.value("format", "") != "northray-pack" || !j.contains("items") || !j["items"].is_array()) {
+        mz_zip_reader_end(&z);
+        r.error = "That isn't a NorthRay pack.";
+        return r;
+    }
+    const std::string into = Library::cleanFolder(intoIn);
+    std::size_t total = 0;
+    for (auto& e : j["items"]) {
+        if ((std::size_t)r.count >= kPackMaxItems) break;
+        if (!e.is_object()) continue;
+        auto str = [&](const char* k) { return e.contains(k) && e[k].is_string() ? e[k].get<std::string>() : std::string(); };
+        const std::string entry = str("entry");
+        if (entry.rfind("files/", 0) != 0) continue;   // only the pack's own files
+        std::string data;
+        if (!unzipEntry(z, entry.c_str(), data, kPackMaxBytes - total)) continue;
+        total += data.size();
+        const std::string stored = lib.storedName(str("file").empty() ? entry.substr(6) : str("file"));
+        if (!write(stored, data)) continue;
+        Kind kind;
+        if (!kindFromKey(str("kind"), kind)) kind = kindOf(stored);
+        const std::string rel = Library::cleanFolder(str("folder"));
+        const std::string id = lib.add(stored, str("name"), kind, into.empty() ? rel : rel.empty() ? into : into + "/" + rel, day);
+        if (id.empty()) continue;
+        if (e.contains("tags") && e["tags"].is_array())
+            for (auto& t : e["tags"])
+                if (t.is_string()) lib.addTag(id, t.get<std::string>());
+        ++r.count;
+    }
+    mz_zip_reader_end(&z);
+    if (!into.empty()) lib.addFolder(into);
+    r.ok = r.count > 0;
+    if (!r.ok) r.error = "The pack had nothing that could be added.";
+    return r;
 }
 
 }  // namespace cj::medialib

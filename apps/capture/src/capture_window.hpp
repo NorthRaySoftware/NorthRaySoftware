@@ -293,6 +293,10 @@ private:
     void libraryItemMenu(const std::string& id);
     void drawLibrary(const cjui::Rect& area);
     bool libraryRightClick(float x, float y);
+    void libraryExportPack();
+    void libraryImportPack();
+    std::wstring libraryThumb(const cj::medialib::Item& it);
+    std::set<std::string> libThumbFailed_;
     cj::medialib::Library library_;
     long long libStamp_ = -1;
     bool libBroken_ = false, libraryOpen_ = false;

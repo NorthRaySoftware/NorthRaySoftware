@@ -38,6 +38,7 @@
     "A book card that shows the book you're writing in Writing Studio, with its cover",
     "The aurora pulse: an aurora background that moves with your music",
     "The NorthRay library: one media library for the suite, with folders, tags and search",
+    "Template packs: share a folder of your library as one file",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -62,7 +63,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.24",
+  "version": "0.10.25",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

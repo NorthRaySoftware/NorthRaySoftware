@@ -4,6 +4,7 @@
 // show it (NorthRay Capture's Library first).
 #pragma once
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -74,5 +75,24 @@ private:
     std::set<std::string> folders_;
     int next_ = 1;
 };
+
+// Template packs (.nrpack): a library folder (and those inside it), or everything, in one file to share or keep: a
+// zip of pack.json (each item's name, kind, folder within the pack and tags) and its files. Done in memory; the app
+// reads and writes the files. Nothing in a pack chooses where a file goes: imported files get fresh names.
+struct PackResult {
+    bool ok = false;
+    std::string error;
+    int count = 0;
+};
+constexpr std::size_t kPackMaxItems = 2000;
+constexpr std::size_t kPackMaxBytes = 1024u * 1024u * 1024u;   // everything in a pack, unpacked
+// `read` gives a stored file's bytes (false if it can't). Items whose files can't be read are left out.
+std::string buildPack(const Library& lib, const std::string& folder, const std::string& packName,
+                      const std::function<bool(const std::string& stored, std::string& bytes)>& read, PackResult& result);
+// Adds a pack's items under the folder `into` (cleaned; "" the top); `write` stores a new file's bytes.
+PackResult readPack(Library& lib, const std::string& packBytes, const std::string& into, const std::string& day,
+                    const std::function<bool(const std::string& stored, const std::string& bytes)>& write);
+// The pack's own name (from pack.json), or "" if it isn't a pack.
+std::string packName(const std::string& packBytes);
 
 }  // namespace cj::medialib

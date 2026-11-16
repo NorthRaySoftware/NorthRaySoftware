@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.85.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.25: template packs from the NorthRay library."
+      ]
+    },
+    {
       "version": "0.84.0",
       "date": "2026-11-16",
       "notes": [

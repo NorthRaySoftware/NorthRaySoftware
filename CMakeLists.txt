@@ -43,7 +43,7 @@ add_subdirectory(apps/capture)
 
 if(CJ_BUILD_TESTS)
   add_executable(cjcore_tests tests/cjcore_tests.cpp)
-  target_link_libraries(cjcore_tests PRIVATE cjcore)
+  target_link_libraries(cjcore_tests PRIVATE cjcore miniz)
   add_executable(studiocore_tests tests/studiocore_tests.cpp)
   target_link_libraries(studiocore_tests PRIVATE studiocore miniz)
   target_include_directories(studiocore_tests PRIVATE libs/third_party libs/studiocore/src libs/third_party/miniz)

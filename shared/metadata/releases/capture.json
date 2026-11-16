@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.25",
+      "date": "2026-11-16",
+      "notes": [
+        "Template packs: in the Library, Export folder… (or Export all…) saves a folder of your library, with the folders inside it, as one .nrpack file to keep or share. Import a pack… adds one into Packs, keeping its names, folders and tags. Nothing in a pack can choose where its files go.",
+        "Overlay designs in the Library show the design itself."
+      ]
+    },
+    {
       "version": "0.10.24",
       "date": "2026-11-16",
       "notes": [

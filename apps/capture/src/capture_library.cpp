@@ -8,6 +8,7 @@
 
 #include "cj/medialib.hpp"
 #include "ncap/design.hpp"
+#include "video/design_render.hpp"
 
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
@@ -44,6 +45,47 @@ std::wstring libraryRoot() {
 }
 std::wstring filesDir() { return libraryRoot() + L"\\files"; }
 std::wstring indexPath() { return libraryRoot() + L"\\library.json"; }
+std::wstring thumbsDir() { return libraryRoot() + L"\\thumbs"; }
+
+bool readAll(const std::wstring& path, std::string& out) {
+    std::ifstream f(fs::path(path), std::ios::binary);
+    if (!f) return false;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+bool writeAll(const std::wstring& path, const std::string& bytes) {
+    std::ofstream f(fs::path(path), std::ios::binary | std::ios::trunc);
+    f.write(bytes.data(), (std::streamsize)bytes.size());
+    return (bool)f;
+}
+
+// A .nrpack to save or open (the file dialogs).
+bool pickPack(HWND owner, bool save, const std::wstring& suggested, std::wstring& out) {
+    IFileDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return false;
+    const COMDLG_FILTERSPEC spec[] = {{L"NorthRay template packs", L"*.nrpack"}};
+    dlg->SetFileTypes(1, spec);
+    dlg->SetDefaultExtension(L"nrpack");
+    if (save) dlg->SetFileName(suggested.c_str());
+    dlg->SetTitle(save ? L"Save the template pack" : L"Open a template pack");
+    bool ok = false;
+    if (SUCCEEDED(dlg->Show(owner))) {
+        IShellItem* it = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&it))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                out = p;
+                CoTaskMemFree(p);
+                ok = true;
+            }
+            it->Release();
+        }
+    }
+    dlg->Release();
+    return ok;
+}
 
 std::string today() {
     SYSTEMTIME st;
@@ -391,6 +433,8 @@ void CaptureWindow::drawLibrary(const Rect& area) {
         openSettings(false);
     });
     button("lib:add", {x + w - 250, y + 2, 150, 32}, L"Add files…", [this] { libraryAddFiles(); }, true);
+    button("lib:import", {x + w - 410, y + 2, 150, 32}, L"Import a pack…", [this] { libraryImportPack(); });
+    button("lib:export", {x + w - 570, y + 2, 150, 32}, libFolder_.empty() ? L"Export all…" : L"Export folder…", [this] { libraryExportPack(); });
     y += 44;
     gfx_.text(L"One library for all the NorthRay apps. Files you add are copied in, so they stay put. Right-click one to add it to "
               L"the scene, tag it or move it.",
@@ -433,6 +477,13 @@ void CaptureWindow::drawLibrary(const Rect& area) {
             gfx_.fillRounded(thumb, 8, pal_.ink.withAlpha(0.06f));
             drawn = gfx_.drawImage(filesDir() + L"\\" + widen(it.file), thumb, false);   // the whole picture
         }
+        if (it.kind == ml::Kind::Design) {
+            const std::wstring t = libraryThumb(it);
+            if (!t.empty()) {
+                gfx_.fillRounded(thumb, 8, pal_.ink.withAlpha(0.06f));
+                drawn = gfx_.drawImage(t, thumb, false);
+            }
+        }
         if (!drawn) {
             gfx_.fillRounded(thumb, 8, pal_.ribbon.withAlpha(0.12f));
             gfx_.text(kindWord(it.kind), thumb, Font::BodyStrong, pal_.ribbon, {Align::Center, false, true, true});
@@ -448,6 +499,79 @@ void CaptureWindow::drawLibrary(const Rect& area) {
     gfx_.text(L"Click to add to the scene · right-click for more", {x, y, w, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
     y += 30;
     endScroll(y - top + 20);
+}
+
+// A design's picture for its card, made once (and again if the design file is newer) in Library\thumbs.
+std::wstring CaptureWindow::libraryThumb(const cj::medialib::Item& it) {
+    const std::wstring src = filesDir() + L"\\" + widen(it.file);
+    const std::wstring png = thumbsDir() + L"\\" + widen(it.file) + L".png";
+    std::error_code ec;
+    const auto ts = fs::last_write_time(fs::path(src), ec);
+    if (ec) return {};
+    const auto tt = fs::last_write_time(fs::path(png), ec);
+    if (!ec && tt >= ts) return png;
+    if (libThumbFailed_.count(it.file)) return {};
+    std::string text;
+    video::DesignPicture p;
+    std::wstring err;
+    const design::Document d = readAll(src, text) ? design::fromJson(text) : design::Document{};
+    const float scale = std::min(1.0f, 360.0f / (float)std::max(1, d.width));
+    fs::create_directories(fs::path(thumbsDir()), ec);
+    if (text.empty() || !video::renderDesign(d, 1e9f, scale, profile_, p, err) || !video::savePng(png, p)) {
+        libThumbFailed_.insert(it.file);
+        return {};
+    }
+    return png;
+}
+
+void CaptureWindow::libraryExportPack() {
+    loadLibrary(false);
+    const std::string name = libFolder_.empty() ? std::string("My NorthRay library") : libFolder_.substr(libFolder_.find_last_of('/') + 1);
+    std::wstring path;
+    if (!pickPack(hwnd(), true, widen(name) + L".nrpack", path)) return;
+    ml::PackResult r;
+    const std::string bytes = ml::buildPack(library_, libFolder_, name, [](const std::string& f, std::string& b) { return readAll(filesDir() + L"\\" + widen(f), b); }, r);
+    if (!r.ok) {
+        flash(widen(r.error), 6);
+        return;
+    }
+    if (!writeAll(path, bytes)) {
+        flash(L"The pack couldn't be saved there.", 6);
+        return;
+    }
+    log::info("Library: template pack exported (" + std::to_string(r.count) + " items)");
+    flash(L"Saved a pack of " + std::to_wstring(r.count) + (r.count == 1 ? L" item" : L" items") + L" as " + fs::path(path).filename().wstring() + L".", 6);
+}
+
+void CaptureWindow::libraryImportPack() {
+    std::wstring path;
+    if (!pickPack(hwnd(), false, L"", path)) return;
+    std::string bytes;
+    if (!readAll(path, bytes)) {
+        flash(L"That file couldn't be read.", 5);
+        return;
+    }
+    const std::string name = ml::packName(bytes);
+    if (name.empty()) {
+        flash(L"That isn't a NorthRay template pack.", 6);
+        return;
+    }
+    loadLibrary(false);
+    std::error_code ec;
+    fs::create_directories(fs::path(filesDir()), ec);
+    const std::string into = "Packs/" + ml::Library::cleanFolder(name);
+    const ml::PackResult r = ml::readPack(library_, bytes, into, today(),
+                                          [](const std::string& f, const std::string& b) { return writeAll(filesDir() + L"\\" + widen(f), b); });
+    if (!r.ok) {
+        flash(widen(r.error), 6);
+        loadLibrary(true);   // back to what's saved
+        return;
+    }
+    saveLibrary();
+    libFolder_ = ml::Library::cleanFolder(into);
+    log::info("Library: template pack \"" + name + "\" imported (" + std::to_string(r.count) + " items)");
+    flash(L"Added the pack “" + widen(name) + L"”: " + std::to_wstring(r.count) + (r.count == 1 ? L" item" : L" items") + L", in Packs.", 6);
+    invalidate();
 }
 
 bool CaptureWindow::libraryRightClick(float x, float y) {
