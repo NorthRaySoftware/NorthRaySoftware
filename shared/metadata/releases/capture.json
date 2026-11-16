@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.21",
+      "date": "2026-11-16",
+      "notes": [
+        "Scene templates (the Scenes panel's + › From a template): Gaming, Just chatting, Art, Reading and writing, and Radio show. Each makes a whole scene: your screen or the aurora sky, your camera with a facecam frame that follows it, and the overlays that suit it (chat, now playing, your name, socials). An existing camera or screen capture is reused; with no camera, those parts are left out and you're told.",
+        "Two new overlay designs: Book card (cover, {book} and {series}) and Show title ({show} and {episode}, with an on-air badge). Your details now has Book, Series, Radio show and Episode."
+      ]
+    },
+    {
       "version": "0.10.20",
       "date": "2026-11-16",
       "notes": [

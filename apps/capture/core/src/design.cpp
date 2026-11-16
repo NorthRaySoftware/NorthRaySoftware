@@ -866,6 +866,71 @@ const std::vector<Template>& templates() {
             add(d, a);
             v.push_back({"now-playing", "Now playing (your music's title and artist)", "On stream", d});
         }
+        {   // The book you're writing or reading: a cover, its title and series (reading and author streams).
+            Document d;
+            d.name = "Book card";
+            d.width = 900;
+            d.height = 320;
+            Element card = rectEl("Card", 10, 10, 880, 300, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#3FCF8E55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideLeft;
+            add(d, card);
+            Element cover = rectEl("Cover (swap for your cover picture)", 40, 40, 160, 240,
+                                   Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 10);
+            cover.shadow = {true, 0, 6, 18, hex("#00000080")};
+            cover.anim = Anim::SlideLeft;
+            add(d, cover);
+            Element ic;
+            ic.kind = Kind::Icon;
+            ic.icon = "book";
+            ic.name = "Book";
+            ic.x = 85, ic.y = 125, ic.w = 70, ic.h = 70;
+            ic.fill = Fill::solid(hex("#F4F7FB"));
+            ic.anim = Anim::SlideLeft;
+            add(d, ic);
+            Element k = textEl("Label", "NOW WRITING", 240, 52, 620, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::SlideLeft;
+            add(d, k);
+            Element t = textEl("Title", "{book}", 240, 88, 620, 120, 52, "#F4F7FB", true, "left");
+            t.anim = Anim::SlideLeft;
+            add(d, t);
+            Element s = textEl("Series", "{series}", 240, 214, 620, 44, 28, "#9FB3C8", false, "left");
+            s.anim = Anim::SlideLeft;
+            s.animMs = 700;
+            add(d, s);
+            v.push_back({"book-card", "Book card (your book's title and series)", "On stream", d});
+        }
+        {   // A radio show's title and episode, with an on-air badge.
+            Document d;
+            d.name = "Show title";
+            d.width = 1100;
+            d.height = 220;
+            Element card = rectEl("Card", 10, 10, 1080, 200, Fill::linear({{0, hex("#0B1A2EF0")}, {1, hex("#10213AE0")}}, 0), 30);
+            card.shadow = {true, 0, 8, 20, hex("#00000080")};
+            card.anim = Anim::Fade;
+            add(d, card);
+            Element pill = rectEl("On air", 40, 40, 170, 48, Fill::solid(hex("#E0566A")), 24);
+            pill.anim = Anim::Pop;
+            add(d, pill);
+            add(d, textEl("On air text", "ON AIR", 40, 44, 170, 40, 24, "#FFFFFF", true));
+            Element ic;
+            ic.kind = Kind::Icon;
+            ic.icon = "mic";
+            ic.name = "Microphone";
+            ic.x = 960, ic.y = 50, ic.w = 100, ic.h = 100;
+            ic.fill = Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0);
+            ic.anim = Anim::Fade;
+            add(d, ic);
+            Element t = textEl("Show", "{show}", 40, 96, 900, 66, 54, "#F4F7FB", true, "left");
+            t.anim = Anim::SlideLeft;
+            add(d, t);
+            Element e = textEl("Episode", "{episode}", 40, 158, 900, 40, 28, "#9FB3C8", false, "left");
+            e.anim = Anim::SlideLeft;
+            e.animMs = 700;
+            add(d, e);
+            v.push_back({"show-title", "Show title (your radio show and episode)", "On stream", d});
+        }
         // Keep each group together (the watermark was added last).
         std::stable_sort(v.begin(), v.end(), [](const Template& x, const Template& y) {
             auto rank = [](const char* g) { return std::string(g) == "Holding screens" ? 0 : std::string(g) == "On stream" ? 1 : 2; };

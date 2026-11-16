@@ -8,6 +8,7 @@
 #include "system.hpp"
 
 #include "ncap/aurora_sky.hpp"
+#include "ncap/scene_templates.hpp"
 #include "ncap/design.hpp"
 #include "ncap/diag.hpp"
 #include "ncap/placement.hpp"
@@ -280,6 +281,8 @@ private:
     void openChecklist();
     void automationTick();
     void addAuroraSky();
+    void newSceneMenu();
+    void sceneFromTemplate(const scene_templates::SceneTemplate& t);
     void addBrandVideo(bool intro);
     void brandVideos();
     void brandSky(aurora_sky::Settings& a) const;

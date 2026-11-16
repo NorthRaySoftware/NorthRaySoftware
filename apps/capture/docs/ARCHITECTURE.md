@@ -1296,3 +1296,25 @@ the same):
   restarted from the start each time its scene was switched to (frames 13, 22, 29; status 0:00 to 0:03); the
   transition set to the kit's stinger showed "Stinger · brand kit" and the kit's 1.5 s cut, played full-screen over
   the switch and ended on the new scene; changing the cut there saved 800 ms to brand.json.
+
+## 45. Scene templates (status: built, 16 Nov 2026; released as 0.10.21)
+
+- core/scene_templates (tested): five templates (gaming, chatting, art, reading, radio), each a list of parts
+  bottom to top: Display, Camera, AuroraSky or Design (a design::templates() id), placed by left/top/width as
+  fractions of the canvas (`place`: designs keep their page's shape, the camera is 16:9, the screen and sky fill the
+  canvas); a part can follow an earlier one (a facecam frame its camera), placed by `frameAround` so the design's
+  first element (its "Frame" opening) sits over the camera. Tests: every design exists, every follower follows an
+  earlier camera through a "Frame" opening, every part lands on a 1920×1080 canvas (which caught the socials bar
+  running off the bottom), shapes are kept, and the frame maths.
+- New designs: Book card (900×320: a cover-shaped panel to swap for your cover, {book}, {series}, "NOW WRITING") and
+  Show title (1100×220: ON AIR badge, {show}, {episode}, a microphone). Your details gains Book, Series, Radio show
+  and Episode (profile.json, shared by the NorthRay apps).
+- The window (capture_scene_templates.cpp): the Scenes panel's + offers An empty scene… or a template. The scene is
+  named after it (made unique); the screen is the main monitor, reusing a display source already capturing it; the
+  camera reuses the camera source in use (a device opens once) or the first Windows lists; none leaves out the camera
+  and its frame and says so; the aurora sky takes the brand colours; the frame follows the camera.
+- Tested in Wine: Gaming reused Display 1 and added the chat box and now playing, leaving out the camera with the
+  note (Wine has no camera). Just chatting with a camera source present placed the camera at 77,86 1152×648 and its
+  frame at 41,50 1224×756 (the opening exactly over it) following it, chat and lower third on the canvas. Wine can't
+  open cameras at all (mf.dll MFCreateDeviceSource isn't implemented and aborts the process), so a camera source
+  can't be run there; on Windows a missing camera is reported by the source.

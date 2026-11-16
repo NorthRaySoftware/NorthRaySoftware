@@ -153,8 +153,10 @@ std::wstring profilePath() {
 }
 
 // The details templates fill in, shared by the NorthRay apps (%LOCALAPPDATA%\NorthRay\profile.json).
-const char* kProfileKeys[] = {"name", "twitch", "youtube", "instagram", "tiktok", "website", "schedule"};
-const wchar_t* kProfileLabels[] = {L"Your name", L"Twitch", L"YouTube", L"Instagram", L"TikTok", L"Website", L"Schedule (e.g. Saturdays 8pm)"};
+const char* kProfileKeys[] = {"name", "twitch", "youtube", "instagram", "tiktok", "website", "schedule", "book", "series", "show", "episode"};
+const wchar_t* kProfileLabels[] = {L"Your name", L"Twitch", L"YouTube", L"Instagram", L"TikTok", L"Website", L"Schedule (e.g. Saturdays 8pm)",
+                                   L"Book (its title)", L"Series (e.g. Book One of The Alvora Chronicles)", L"Radio show", L"Episode"};
+constexpr int kProfileCount = (int)(sizeof kProfileKeys / sizeof kProfileKeys[0]);
 
 }  // namespace
 
@@ -173,14 +175,14 @@ void CaptureWindow::loadProfile() {
 
 void CaptureWindow::editProfile() {
     std::vector<MenuItem> items;
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < kProfileCount; ++i) {
         const std::string now = i < (int)profile_.size() ? profile_[(size_t)i].second : std::string();
         items.push_back(MenuItem::item(kProfileLabels[i], 100 + (UINT)i, now.empty() ? L"not set" : widen(now)));
     }
     POINT pt;
     GetCursorPos(&pt);
     const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
-    if (cmd < 100 || cmd >= 107) return;
+    if (cmd < 100 || cmd >= 100 + (UINT)kProfileCount) return;
     const int i = (int)cmd - 100;
     askText(std::wstring(kProfileLabels[i]) + L" ({" + widen(kProfileKeys[i]) + L"} in designs)",
             i < (int)profile_.size() ? widen(profile_[(size_t)i].second) : L"", [this, i](const std::wstring& v) {

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.81.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.21: scene templates for gaming, chatting, art, reading and writing, and radio shows."
+      ]
+    },
+    {
       "version": "0.80.0",
       "date": "2026-11-16",
       "notes": [

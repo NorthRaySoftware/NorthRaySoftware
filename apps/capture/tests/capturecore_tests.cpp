@@ -23,6 +23,7 @@
 #include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
 #include "ncap/hotkeys.hpp"
+#include "ncap/scene_templates.hpp"
 #include "ncap/routing.hpp"
 
 #include <cmath>
@@ -1679,6 +1680,55 @@ static void testBrandVideos() {
     CHECK(design::brandFromJson(R"({"stingerCutMs":-5})").stingerCutMs == 0);
 }
 
+static void testSceneTemplates() {
+    std::printf("scene templates\n");
+    namespace st = ncap::scene_templates;
+    CHECK(st::all().size() == 5);
+    auto doc = [](const std::string& id) -> const design::Document* {
+        for (auto& t : design::templates())
+            if (id == t.id) return &t.doc;
+        return nullptr;
+    };
+    CHECK(doc("book-card") && doc("show-title"));
+    const float cw = 1920, ch = 1080;
+    for (auto& t : st::all()) {
+        std::vector<st::Rect> placed;
+        bool ok = true;
+        for (std::size_t i = 0; i < t.parts.size(); ++i) {
+            const st::Part& p = t.parts[i];
+            const design::Document* d = p.kind == st::PartKind::Design ? doc(p.design) : nullptr;
+            if (p.kind == st::PartKind::Design && !d) ok = false;
+            st::Rect r;
+            if (p.follows >= 0) {
+                // Follows an earlier camera; a facecam frame's opening goes over it.
+                ok &= p.follows < (int)i && t.parts[(size_t)p.follows].kind == st::PartKind::Camera && d;
+                const design::Element* hole = d ? d->find(d->elements.empty() ? "" : d->elements[0].id) : nullptr;
+                ok &= hole && hole->name == "Frame";
+                r = hole ? st::frameAround(placed[(size_t)p.follows], (float)d->width, (float)d->height, {hole->x, hole->y, hole->w, hole->h}) : placed[0];
+            } else {
+                r = st::place(p, cw, ch, d ? (float)d->width : 0, d ? (float)d->height : 0);
+            }
+            // Everything on the canvas (a pixel or two of slack).
+            ok &= r.x >= -2 && r.y >= -2 && r.x + r.w <= cw + 2 && r.y + r.h <= ch + 2 && r.w > 50 && r.h > 20;
+            if (!ok) std::printf("  %s part %zu: %.0f,%.0f %.0fx%.0f\n", t.id, i, r.x, r.y, r.w, r.h);
+            placed.push_back(r);
+        }
+        CHECK(ok);
+    }
+    // Shapes kept: a design's page shape, the camera 16:9, the screen the canvas.
+    const st::Rect cam = st::place({st::PartKind::Camera, "", 0.1f, 0.1f, 0.5f}, cw, ch);
+    CHECK(std::fabs(cam.w / cam.h - 16.0f / 9) < 1e-3f && std::fabs(cam.x - 192) < 1e-3f);
+    const st::Rect bc = st::place({st::PartKind::Design, "book-card", 0, 0, 0.5f}, cw, ch, 900, 320);
+    CHECK(std::fabs(bc.w / bc.h - 900.0f / 320) < 1e-3f);
+    const st::Rect scr = st::place({st::PartKind::Display, "", 0, 0, 1}, 1280, 720);
+    CHECK(scr.w == 1280 && scr.h == 720);
+    // A frame's opening lands exactly on the camera.
+    const st::Rect f = st::frameAround({100, 200, 640, 360}, 680, 420, {20, 20, 640, 360});
+    CHECK(f.x == 80 && f.y == 180 && f.w == 680 && f.h == 420);
+    const st::Rect f2 = st::frameAround({100, 200, 320, 180}, 680, 420, {20, 20, 640, 360});
+    CHECK(f2.x == 90 && f2.y == 190 && f2.w == 340 && f2.h == 210);
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2553,6 +2603,7 @@ int main() {
     testAuroraSky();
     testFollow();
     testBrandVideos();
+    testSceneTemplates();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

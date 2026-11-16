@@ -1048,7 +1048,7 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
         gfx_.line(b.x + 9, b.y + 14, b.x + 21, b.y + 14, c, 1.5f);
         if (focused(id)) focusRing(b);
     };
-    if (panel == Layout::Scenes) plus("scenes:add", [this] { newScene(); });
+    if (panel == Layout::Scenes) plus("scenes:add", [this] { newSceneMenu(); });
     if (panel == Layout::Sources)
         plus("sources:add", [this] {
             POINT pt;
