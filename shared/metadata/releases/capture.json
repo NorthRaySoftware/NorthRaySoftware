@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.16",
+      "date": "2026-11-16",
+      "notes": [
+        "Automation (Settings › Automation): rules that switch the scene when a program opens or closes, such as \"When Krita opens, switch to Art\" or \"When the game closes, switch to Just chatting\". Pick a program with a window open, Writing Studio, or type a file name. A rule can apply only while you're live or recording. Programs already open when Capture starts don't count as opening; in studio mode it changes the program scene."
+      ]
+    },
+    {
       "version": "0.10.15",
       "date": "2026-11-16",
       "notes": [

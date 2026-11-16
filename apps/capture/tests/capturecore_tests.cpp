@@ -18,6 +18,7 @@
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
+#include "ncap/automation.hpp"
 #include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
 #include "ncap/routing.hpp"
@@ -1429,6 +1430,55 @@ static void testChecklist() {
 }
 
 
+static void testAutomation() {
+    std::printf("automation\n");
+    namespace au = ncap::automation;
+    CHECK(au::normaliseExe("C:\\Program Files\\Krita\\bin\\Krita.EXE") == "krita.exe");
+    CHECK(au::normaliseExe(" krita ") == "krita.exe");
+    CHECK(au::normaliseExe("\"WritingStudio.exe\"") == "writingstudio.exe");
+    CHECK(au::normaliseExe("/usr/bin/") == "" && au::normaliseExe("   ") == "" && au::normaliseExe(".exe") == "");
+    au::Rule krita{"krita.exe", "Krita", au::When::Opens, "Art"};
+    au::Rule game{"eldenring.exe", "", au::When::Closes, "Just chatting"};
+    CHECK(au::describe(krita) == "When Krita opens, switch to Art");
+    game.onlyLive = true;
+    CHECK(au::describe(game) == "When eldenring.exe closes, switch to Just chatting, while live or recording");
+    // JSON round trip, and bad entries skipped.
+    const std::vector<au::Rule> rules = {krita, game};
+    CHECK(au::fromJson(au::toJson(rules)) == rules);
+    const auto bad = au::fromJson(R"([{"exe":"","when":"opens","scene":"A"},{"exe":"a","when":"later","scene":"A"},{"exe":"a","when":"opens"},5,
+                                       {"exe":"Paint.exe","when":"closes","scene":"B","on":false}])");
+    CHECK(bad.size() == 1 && bad[0].exe == "paint.exe" && bad[0].when == au::When::Closes && !bad[0].on);
+    CHECK(au::fromJson("not json").empty() && au::fromJson("{}").empty());
+    std::string many = "[";
+    for (int i = 0; i < 30; ++i) many += std::string(i ? "," : "") + R"({"exe":"a.exe","when":"opens","scene":"S"})";
+    CHECK(au::fromJson(many + "]").size() == au::kMaxRules);
+    // The watcher: nothing on the first look, then changes only.
+    au::Watcher w;
+    std::vector<au::Rule> rs = {krita, game};
+    rs[1].onlyLive = false;
+    CHECK(w.update({"explorer.exe", "krita.exe", "eldenring.exe"}, rs, false) == -1);   // already open at start
+    CHECK(w.update({"explorer.exe", "krita.exe", "eldenring.exe"}, rs, false) == -1);   // nothing changed
+    CHECK(w.update({"explorer.exe", "krita.exe"}, rs, false) == 1);                     // the game closed
+    CHECK(w.update({"explorer.exe"}, rs, false) == -1);                                 // Krita closing has no rule
+    CHECK(w.update({"explorer.exe", "krita.exe"}, rs, false) == 0);                     // Krita opened
+    CHECK(w.update({"explorer.exe", "krita.exe"}, rs, false) == -1);                    // still open: once only
+    // Both at once: the last in the list wins.
+    CHECK(w.update({"eldenring.exe"}, rs, false) == -1);   // Krita closed, the game opened: no rule for either
+    CHECK(w.update({"krita.exe"}, rs, false) == 1);        // the game closed and Krita opened together
+    // Off, and only while live.
+    rs[0].on = false;
+    w.update({}, rs, false);
+    CHECK(w.update({"krita.exe"}, rs, false) == -1);
+    rs[0].on = true;
+    rs[0].onlyLive = true;
+    w.update({}, rs, false);
+    CHECK(w.update({"krita.exe"}, rs, false) == -1);
+    w.update({}, rs, true);
+    CHECK(w.update({"krita.exe"}, rs, true) == 0);
+    w.reset();
+    CHECK(w.update({}, rs, true) == -1);   // after a reset, the first look only notes what's running
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2298,6 +2348,7 @@ int main() {
     testAuroraSweep();
     testGif();
     testChecklist();
+    testAutomation();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

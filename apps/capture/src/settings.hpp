@@ -3,9 +3,10 @@
 // its default, and a file from a newer version is never overwritten with less.
 #pragma once
 
-#include <map>
+#include "ncap/automation.hpp"
 #include "ncap/transition.hpp"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,7 +35,8 @@ struct Settings {
     unsigned recordTracks = 0x0F;     // bit n-1 = recording track n (1-4 by default)
     bool recordMp4 = true;
     bool preLiveChecklist = false;           // Start streaming shows the pre-live checklist first
-    std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)            // an MP4 copy when a recording ends (the MKV is kept)
+    std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
+    std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)            // an MP4 copy when a recording ends (the MKV is kept)
     int audioKbps = 160;
     // Where streams go (several at once). Each one's key is in Credential Manager as "stream/<id>".
     struct StreamDestination {

@@ -67,6 +67,8 @@ bool Settings::load(const std::wstring& path) {
     if (!recordTracks) recordTracks = 1;
     recordMp4 = cj::valueOr(j, "recordMp4", true);
     preLiveChecklist = cj::valueOr(j, "preLiveChecklist", false);
+    automationRules.clear();
+    if (auto it = j.find("automation"); it != j.end() && it->is_array()) automationRules = automation::fromJson(it->dump());
     checklistItems.clear();
     if (auto it = j.find("checklistItems"); it != j.end() && it->is_array()) {
         for (auto& v : *it)
@@ -127,7 +129,7 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"audioKbps", audioKbps},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";

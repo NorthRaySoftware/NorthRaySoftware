@@ -716,6 +716,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         chatTick();
         wizardTick();
         keyPickTick();
+        automationTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -1457,6 +1458,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
 
     section(L"STREAMING");
     y += drawStreamingSettings(x, y, colW) + 8;
+
+    section(L"AUTOMATION");
+    y += drawAutomationSettings(x, y, colW) + 8;
 
     section(L"PLUGINS");
     y += drawPluginSettings(x, y, colW) + 8;

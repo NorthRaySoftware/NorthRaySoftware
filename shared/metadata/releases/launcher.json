@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.76.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.16: automation, switching scenes when a program opens or closes."
+      ]
+    },
+    {
       "version": "0.75.0",
       "date": "2026-11-16",
       "notes": [

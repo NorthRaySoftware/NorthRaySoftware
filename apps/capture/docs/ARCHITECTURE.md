@@ -1196,3 +1196,24 @@ the same):
   same reason the stream start gave; Wine's unavailable inputs; no encoder); ticking, adding and removing (saved to
   settings.json); Not yet; Go live anyway handed over to the stream start; the setting toggles and saves. The mic
   turning green needs a working microphone (Wine's inputs are unavailable): to try on Windows.
+
+## 40. Automation: scenes that follow your programs (status: built, 16 Nov 2026; released as 0.10.16)
+
+- core/automation (tested): a Rule is a program's file name (normaliseExe: lower case, no folder, ".exe" added),
+  a label, Opens or Closes, a scene by name, on, and onlyLive (only while streaming or recording). Saved in
+  settings.json "automation" (at most 20; bad entries skipped). Scenes are kept by name, so a rule works in every
+  scene collection with a scene of that name; a missing one is shown in red under the rule and named in a notice
+  if it fires.
+- Watcher.update(running, rules, live) gives the rule to act on or -1. Its first look only notes what's running
+  (programs already open don't count as opening), and it's reset whenever the rules change; it fires on the change
+  only; when several fire at once, the last in the list wins.
+- The window (capture_automation.cpp), from the stats timer every 2 s while there are rules: a Toolhelp process
+  snapshot (file names only), then the scene switch as a timer reaching zero does it (programScene_ in studio
+  mode, else the current scene), a short notice ("Notepad opened: switched to Scene 2.") and a log line.
+- Settings › Automation: each rule as a sentence with an on/off switch and More… (only while live or recording,
+  move up/down, remove). Add a rule…: programs with a window open now (from listWindows, by file name with a window
+  title as the hint), NorthRay Writing Studio (writingstudio.exe), or a typed file name; then "When <it> opens /
+  closes, switch to" a scene.
+- Tested in Wine: rules for notepad.exe (opens: Scene 2; closes: Just chatting); starting Notepad switched to Scene
+  2 within the 2-second look and closing it switched back, with the notices and log lines; only-while-live,
+  moving and removing saved to settings.json.

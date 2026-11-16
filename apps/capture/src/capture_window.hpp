@@ -274,6 +274,13 @@ private:
     // The setup wizard (capture_wizard.cpp).
     void openWizard();
     void openChecklist();
+    void automationTick();
+    void automationChanged();
+    void addAutomationRule();
+    void addAutomationRuleFor(const std::string& exe, const std::string& label);
+    float drawAutomationSettings(float x, float y0, float colW);
+    automation::Watcher autoWatch_;
+    ULONGLONG autoLastCheck_ = 0;
     void drawChecklist(const cjui::Rect& area);
     bool checklistOpen_ = false;
     std::vector<bool> checkTicks_;   // your own list, ticked this time
