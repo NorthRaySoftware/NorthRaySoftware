@@ -9,7 +9,7 @@
 
 namespace ncap::scene_templates {
 
-enum class PartKind { Display, Camera, AuroraSky, Design };
+enum class PartKind { Display, Camera, AuroraSky, AuroraPulse, Design };
 
 struct Part {
     PartKind kind;

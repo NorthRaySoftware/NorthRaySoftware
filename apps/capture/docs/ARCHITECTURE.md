@@ -1333,3 +1333,26 @@ the same):
 - Tested in Wine: Writing Studio with the test library, opening The Envoy of Telvana in Writing (the editor itself
   needs WebView2, which Wine lacks), wrote the book, "Book One of The Alvora Chronicles" and the cover's library
   file; Capture's Reading and writing template then showed that cover, title and series on the book card.
+
+## 47. The aurora pulse: a sound visualiser (status: built, 16 Nov 2026; released as 0.10.23)
+
+- core/visualiser (tested): Analyser takes mono samples, and every 1024 samples runs a Hann-windowed 2048-point FFT;
+  32 bands (4-64) spaced logarithmically from 40 Hz to 16 kHz each take their strongest bin in dB against a
+  full-scale sine, mapped from -70 dB to 0 dB onto 0..1, rising with a 30 ms and falling with a 350 ms time constant;
+  the loudness (RMS) the same way. Tests: the FFT, silence, a low tone in a low band and a high in a high one, a loud
+  tone near full and a -40 dB one lower, the slow fall and fast rise, junk samples and settings clamped.
+- core/aurora_sky gains the pulse: `bandAt` reads the bands as a clamped linear n×1 texture would; with a Pulse,
+  each curtain's lower edge sits 0.12 lower and rises 0.3 with the band under it, its light scales by 0.25 + 1.4 ×
+  band, and the light overall by 0.75 + 0.5 × loudness. `shader(s, true)` reads t0 (red the band, green the
+  loudness). Tests: the band reading, loud lifts and brightens, bass lights the left, no pulse is the plain sky.
+- SourceKind::AuroraPulse ("aurora-pulse"): the aurora sky's source with a band texture (kMaxBands×1, 8-bit RGBA,
+  dynamic, written each frame from setSoundBands; 32-bit float textures were tried first and aren't filtered
+  everywhere). Same item menu and brand following as the sky; Add a source › Aurora pulse; the Radio show template
+  uses it.
+- The window (visualiserTick, from the meter timer): while any aurora pulse exists it holds a mixer Tap on the Stream
+  mix (bus 0), reads what has arrived, mixes it to mono for the analyser and hands the bands to the video thread;
+  with none it removes the tap.
+- Tested in Wine: with the bands silent the sky stays low and dim (mean brightness 13.6); with the low bands full
+  (a test-only switch, removed) the left of the sky lit and the curtains rose (left 53.6, right 16.6). The analyser
+  received the Stream mix (loudness up to 0.79 with the soundboard), but Wine runs the window's timers every few
+  seconds instead of 30 times a second there, so the live response needs checking on Windows.

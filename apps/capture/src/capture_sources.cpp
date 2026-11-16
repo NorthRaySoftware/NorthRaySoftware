@@ -38,7 +38,7 @@ bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 bool isCapture(SourceKind k) {
     return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour || k == SourceKind::Image ||
            k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media || k == SourceKind::Design ||
-           k == SourceKind::AuroraSky;
+           k == SourceKind::AuroraSky || k == SourceKind::AuroraPulse;
 }
 
 std::string shortTitle(std::string t) {
@@ -287,6 +287,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
     items.push_back(MenuItem::item(L"Colour\u2026", 8));
     items.push_back(MenuItem::item(L"Aurora sky", 14, L"a live animated background"));
+    items.push_back(MenuItem::item(L"Aurora pulse", 17, L"moves with your music"));
     {
         const design::Brand kit = video::designBrand();
         items.push_back(MenuItem::item(L"Your intro video", 15, kit.intro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.intro.empty()));
@@ -310,6 +311,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 14: addAuroraSky(); return;
         case 15: addBrandVideo(true); return;
         case 16: addBrandVideo(false); return;
+        case 17: addAuroraPulse(); return;
         default: break;
     }
     if (cmd == 10) {

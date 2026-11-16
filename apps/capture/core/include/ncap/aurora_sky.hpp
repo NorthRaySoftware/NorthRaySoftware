@@ -30,9 +30,21 @@ Settings fromJson(const std::string& json);   // missing or bad values take the 
 struct Rgb {
     float r, g, b;   // 0..1
 };
+// The aurora pulse (the sound visualiser): the curtains rise and brighten with the music, each across
+// the screen following its own frequency band (low on the left, high on the right), and the whole sky
+// brightens with the loudness. `bands` are 0..1 (core/visualiser), read between neighbours the way the
+// graphics card's linear sampling of an n×1 texture does.
+struct Pulse {
+    const float* bands = nullptr;
+    int count = 0;
+    float level = 0;
+};
+float bandAt(const Pulse& p, float u);
+
 // The colour at (u, v) (0..1, v down) after `seconds`, for a `w`×`h` picture (stars are per pixel).
-Rgb sample(const Settings& s, float u, float v, float seconds, int w, int h);
+Rgb sample(const Settings& s, float u, float v, float seconds, int w, int h, const Pulse* pulse = nullptr);
 // The pixel shader (HLSL, "ps"): `flags.w` is the time in seconds, `colour.xy` the size (Gpu::drawWith).
-std::string shader(const Settings& s);
+// With `pulse`, it reads the bands from t0 (an n×1 8-bit texture: red the band, green the loudness).
+std::string shader(const Settings& s, bool pulse = false);
 
 }  // namespace ncap::aurora_sky

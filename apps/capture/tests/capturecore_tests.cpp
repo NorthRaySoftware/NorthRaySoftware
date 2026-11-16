@@ -24,6 +24,7 @@
 #include "ncap/gif.hpp"
 #include "ncap/hotkeys.hpp"
 #include "ncap/scene_templates.hpp"
+#include "ncap/visualiser.hpp"
 #include "ncap/routing.hpp"
 
 #include <cmath>
@@ -1736,6 +1737,97 @@ static void testSceneTemplates() {
     CHECK(f2.x == 90 && f2.y == 190 && f2.w == 340 && f2.h == 210);
 }
 
+static void testVisualiser() {
+    std::printf("sound visualiser\n");
+    namespace vz = ncap::visualiser;
+    // The FFT: a pure tone lands in its bin.
+    std::vector<std::complex<float>> a(64);
+    for (int i = 0; i < 64; ++i) a[(size_t)i] = {std::cos(2 * 3.14159265f * 5 * i / 64), 0};
+    vz::fft(a);
+    CHECK(std::abs(a[5]) > 31 && std::abs(a[5]) < 33 && std::abs(a[6]) < 1e-3f && std::abs(a[0]) < 1e-3f);
+    auto feed = [](vz::Analyser& an, float hz, float amp, float seconds) {
+        std::vector<float> s((size_t)(an.sampleRate() * seconds));
+        for (std::size_t i = 0; i < s.size(); ++i) s[i] = amp * std::sin(2 * 3.14159265f * hz * (float)i / an.sampleRate());
+        an.push(s.data(), s.size());
+    };
+    auto loudest = [](const vz::Analyser& an) {
+        return (int)(std::max_element(an.bands().begin(), an.bands().end()) - an.bands().begin());
+    };
+    // Silence: nothing.
+    vz::Analyser q;
+    std::vector<float> zeros(48000, 0.0f);
+    q.push(zeros.data(), zeros.size());
+    CHECK(*std::max_element(q.bands().begin(), q.bands().end()) == 0 && q.level() == 0);
+    // A low tone lights a low band, a high tone a high one; a loud one near full, a quiet one less.
+    vz::Analyser lo, hi;
+    feed(lo, 100, 0.5f, 0.5f);
+    feed(hi, 5000, 0.5f, 0.5f);
+    CHECK(lo.bands().size() == 32 && loudest(lo) < 8 && loudest(hi) > 20);
+    CHECK(lo.bands()[(size_t)loudest(lo)] > 0.85f && lo.level() > 0.8f);
+    vz::Analyser quiet;
+    feed(quiet, 100, 0.01f, 0.5f);   // -40 dB
+    CHECK(quiet.bands()[(size_t)loudest(quiet)] > 0.3f && quiet.bands()[(size_t)loudest(quiet)] < lo.bands()[(size_t)loudest(lo)] - 0.3f);
+    // Falls away slowly after the sound stops: still there after 100 ms, nearly gone after 2 s.
+    const float before = lo.bands()[(size_t)loudest(lo)];
+    lo.push(zeros.data(), 4800);
+    const float after100 = lo.bands()[(size_t)loudest(lo)];
+    CHECK(after100 < before && after100 > before * 0.5f);
+    lo.push(zeros.data(), zeros.size());
+    lo.push(zeros.data(), zeros.size());
+    CHECK(lo.bands()[2] < 0.05f && lo.level() < 0.05f);
+    // Rises fast: within about 50 ms.
+    vz::Analyser up;
+    feed(up, 1000, 0.5f, 0.06f);
+    CHECK(*std::max_element(up.bands().begin(), up.bands().end()) > 0.6f);
+    // Bad samples are ignored; settings are kept in range.
+    vz::Analyser bad(44100, {200, 1, 100000, -70, 30, 350});
+    const float junk[4] = {NAN, INFINITY, 5.0f, -5.0f};
+    bad.push(junk, 4);
+    CHECK(bad.bands().size() == (size_t)vz::kMaxBands);
+    bool finite = true;
+    for (float v : bad.bands()) finite &= std::isfinite(v) && v >= 0 && v <= 1;
+    CHECK(finite);
+}
+
+static void testAuroraPulse() {
+    std::printf("aurora pulse\n");
+    namespace as = ncap::aurora_sky;
+    // Reading between bands like a clamped linear texture.
+    const float b4[4] = {0, 1, 0.5f, 0.5f};
+    as::Pulse p{b4, 4, 0.5f};
+    CHECK(as::bandAt(p, 0.0f) == 0 && std::fabs(as::bandAt(p, 0.375f) - 1) < 1e-5f && std::fabs(as::bandAt(p, 0.25f) - 0.5f) < 1e-5f);
+    CHECK(std::fabs(as::bandAt(p, 1.0f) - 0.5f) < 1e-5f && as::bandAt(as::Pulse{}, 0.5f) == 0);
+    // Loud music lifts and brightens the curtains; silence leaves them low and dim.
+    as::Settings s;
+    s.stars = false;
+    std::vector<float> loud(32, 0.9f), quiet(32, 0.0f);
+    as::Pulse L{loud.data(), 32, 0.9f}, Q{quiet.data(), 32, 0.0f};
+    auto lum = [&](const as::Pulse& pp, float v) {
+        float sum = 0;
+        for (int x = 0; x < 40; ++x) {
+            const auto c = as::sample(s, x / 40.0f, v, 3, 1920, 1080, &pp);
+            sum += 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        }
+        return sum / 40;
+    };
+    CHECK(lum(L, 0.35f) > lum(Q, 0.35f) * 2);   // higher up, there's light only when it's loud
+    CHECK(lum(L, 0.45f) > lum(Q, 0.45f));
+    // Bass on the left: the left lights, the right stays dimmer.
+    std::vector<float> bass(32, 0.0f);
+    for (int i = 0; i < 6; ++i) bass[(size_t)i] = 1;
+    as::Pulse B{bass.data(), 32, 0.6f};
+    float left = 0, right = 0;
+    for (int y = 0; y < 20; ++y) {
+        left += as::sample(s, 0.05f, 0.2f + y / 40.0f, 3, 1920, 1080, &B).g;
+        right += as::sample(s, 0.9f, 0.2f + y / 40.0f, 3, 1920, 1080, &B).g;
+    }
+    CHECK(left > right * 1.5f);
+    // Without a pulse it's the plain sky; the pulse shader reads its texture.
+    const auto plain = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080), plain2 = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080, nullptr);
+    CHECK(plain.r == plain2.r && plain.g == plain2.g);
+    CHECK(as::shader(s, true).find("static const int PULSE = 1;") != std::string::npos && as::shader(s).find("static const int PULSE = 0;") != std::string::npos);
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2611,6 +2703,8 @@ int main() {
     testFollow();
     testBrandVideos();
     testSceneTemplates();
+    testVisualiser();
+    testAuroraPulse();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

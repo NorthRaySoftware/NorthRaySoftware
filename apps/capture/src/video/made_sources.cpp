@@ -16,6 +16,7 @@
 #include "video/design_render.hpp"
 
 #include "ncap/aurora_sky.hpp"
+#include "ncap/visualiser.hpp"
 #include "ncap/sourceutil.hpp"
 
 #include "nlohmann/json.hpp"
@@ -25,6 +26,7 @@
 #include <wincodec.h>
 
 #include <algorithm>
+#include <mutex>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -719,9 +721,21 @@ private:
 // Drawn by a pixel shader into its own picture every frame it's shown (the engine only updates sources in
 // the scenes being composed). The shader is made from the settings (core/aurora_sky) and compiled again
 // when they change; the time keeps running from when the source was made.
+namespace {
+std::mutex gBandsM;
+std::vector<float> gBands;
+float gLevel = 0;
+}  // namespace
+
+void setSoundBands(const std::vector<float>& bands, float level) {
+    std::lock_guard<std::mutex> l(gBandsM);
+    gBands = bands;
+    gLevel = level;
+}
+
 class AuroraSkySource : public VideoSource {
 public:
-    explicit AuroraSkySource(const std::string& settings) {
+    explicit AuroraSkySource(const std::string& settings, bool pulse = false) : pulse_(pulse) {
         setSettings(settings);
         LARGE_INTEGER f, c;
         QueryPerformanceFrequency(&f);
@@ -740,13 +754,14 @@ public:
         }
         if (!ps_ && !failed_) {
             std::string err;
-            ps_ = gpu.compilePixelShader(aurora_sky::shader(cfg_), err);
+            ps_ = gpu.compilePixelShader(aurora_sky::shader(cfg_, pulse_), err);
             if (!ps_) {
                 failed_ = true;
                 setStatus(L"The aurora couldn't be drawn: " + widen(err.substr(0, 200)), true);
                 return;
             }
-            setStatus(L"Aurora sky \u00B7 drawn on the graphics card \u00B7 " + sizeText(cfg_.width, cfg_.height));
+            setStatus(pulse_ ? L"Aurora pulse \u00B7 moves with the Stream mix \u00B7 " + sizeText(cfg_.width, cfg_.height)
+                             : L"Aurora sky \u00B7 drawn on the graphics card \u00B7 " + sizeText(cfg_.width, cfg_.height));
         }
         if (!ps_ || !out_.ensure(gpu.device(), cfg_.width, cfg_.height)) return;
         LARGE_INTEGER c;
@@ -754,12 +769,61 @@ public:
         const double seconds = std::fmod((double)(c.QuadPart - start_) / freq_, 86400.0);
         const float W = (float)cfg_.width, H = (float)cfg_.height;
         const Pt corners[4] = {{0, 0}, {W, 0}, {W, H}, {0, H}};
+        ID3D11ShaderResourceView* bands = pulse_ ? updateBands(gpu) : nullptr;
         gpu.begin(out_.rtv.Get(), cfg_.width, cfg_.height);
-        gpu.drawWith(ps_.Get(), nullptr, nullptr, corners, (float)seconds, W, H);
+        gpu.drawWith(ps_.Get(), bands, nullptr, corners, (float)seconds, W, H);
         hasPicture_ = true;
     }
 
 private:
+    // The bands as a kMaxBands×1 texture (red the band, green the loudness), written each frame.
+    ID3D11ShaderResourceView* updateBands(Gpu& gpu) {
+        std::vector<float> b;
+        float level;
+        {
+            std::lock_guard<std::mutex> l(gBandsM);
+            b = gBands;
+            level = gLevel;
+        }
+        const int n = std::clamp((int)b.size(), 1, visualiser::kMaxBands);
+        if (!bandsTex_ || bandsW_ != n) {
+            D3D11_TEXTURE2D_DESC d{};
+            d.Width = (UINT)n;
+            d.Height = 1;
+            d.MipLevels = d.ArraySize = 1;
+            d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;   // every card filters this (32-bit floats it may not)
+            d.SampleDesc.Count = 1;
+            d.Usage = D3D11_USAGE_DYNAMIC;
+            d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            d.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            bandsTex_.Reset();
+            bandsSrv_.Reset();
+            if (FAILED(gpu.device()->CreateTexture2D(&d, nullptr, &bandsTex_)) ||
+                FAILED(gpu.device()->CreateShaderResourceView(bandsTex_.Get(), nullptr, &bandsSrv_))) {
+                setStatus(L"The aurora pulse couldn't make its sound texture", true);
+                return nullptr;
+            }
+            bandsW_ = n;
+        }
+        ComPtr<ID3D11DeviceContext> ctx;
+        gpu.device()->GetImmediateContext(&ctx);
+        D3D11_MAPPED_SUBRESOURCE m{};
+        if (FAILED(ctx->Map(bandsTex_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return nullptr;
+        std::uint8_t* p = static_cast<std::uint8_t*>(m.pData);
+        auto byte = [](float v) { return (std::uint8_t)std::lround(std::clamp(v, 0.0f, 1.0f) * 255); };
+        for (int i = 0; i < n; ++i) {
+            p[4 * i] = byte(i < (int)b.size() ? b[(size_t)i] : 0.0f);   // red: the band
+            p[4 * i + 1] = byte(level);                                    // green: the loudness
+            p[4 * i + 2] = 0;
+            p[4 * i + 3] = 255;
+        }
+        ctx->Unmap(bandsTex_.Get(), 0);
+        return bandsSrv_.Get();
+    }
+    bool pulse_;
+    ComPtr<ID3D11Texture2D> bandsTex_;
+    ComPtr<ID3D11ShaderResourceView> bandsSrv_;
+    int bandsW_ = 0;
     aurora_sky::Settings cfg_;
     ComPtr<ID3D11PixelShader> ps_;
     bool failed_ = false;
@@ -777,6 +841,7 @@ std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string
         case SourceKind::Media: return createMediaSource(settings);
         case SourceKind::Design: return std::make_shared<DesignSource>(settings);
         case SourceKind::AuroraSky: return std::make_shared<AuroraSkySource>(settings);
+        case SourceKind::AuroraPulse: return std::make_shared<AuroraSkySource>(settings, true);
         default: return nullptr;
     }
 }

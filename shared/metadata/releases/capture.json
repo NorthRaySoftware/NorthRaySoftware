@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.23",
+      "date": "2026-11-16",
+      "notes": [
+        "The aurora pulse (Add a source › Aurora pulse): the aurora sky moving with your Stream mix. The curtains rise and brighten with the music, bass on the left and treble on the right, and the whole sky glows with the loudness. It's drawn on the graphics card in your brand colours, with the same speed, brightness, stars and colour options as the aurora sky.",
+        "The Radio show scene template now uses the aurora pulse."
+      ]
+    },
+    {
       "version": "0.10.22",
       "date": "2026-11-16",
       "notes": [

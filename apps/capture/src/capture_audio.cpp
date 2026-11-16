@@ -276,6 +276,7 @@ void CaptureWindow::syncAudio() {
 }
 
 void CaptureWindow::meterTick() {
+    visualiserTick();
     const double now = seconds();
     for (auto& [id, lv] : mixer_.takeLevels()) {
         if (id == audio::Mixer::busKey(0)) {

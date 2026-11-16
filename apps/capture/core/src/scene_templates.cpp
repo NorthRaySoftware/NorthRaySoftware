@@ -47,9 +47,9 @@ const std::vector<SceneTemplate>& all() {
          }},
         {"radio",
          "Radio show",
-         "the show's title, now playing, camera, the aurora behind",
+         "the show's title, now playing, camera, an aurora that moves with the music",
          {
-             {K::AuroraSky, "", 0, 0, 1},
+             {K::AuroraPulse, "", 0, 0, 1},
              {K::Camera, "", 0.58f, 0.1f, 0.38f},
              {K::Design, "facecam-frame", 0, 0, 0, 1},
              {K::Design, "show-title", 0.04f, 0.12f, 0.5f},
@@ -64,7 +64,8 @@ Rect place(const Part& p, float cw, float ch, float dw, float dh) {
     const float x = p.x * cw, y = p.y * ch, w = p.w * cw;
     switch (p.kind) {
         case PartKind::Display:
-        case PartKind::AuroraSky: return {x, y, w, w * ch / cw};
+        case PartKind::AuroraSky:
+        case PartKind::AuroraPulse: return {x, y, w, w * ch / cw};
         case PartKind::Camera: return {x, y, w, w * 9 / 16};
         case PartKind::Design: return {x, y, w, dw > 0 ? w * dh / dw : w * 9 / 16};
     }

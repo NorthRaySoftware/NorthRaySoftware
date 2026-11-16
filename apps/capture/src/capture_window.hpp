@@ -8,6 +8,7 @@
 #include "system.hpp"
 
 #include "ncap/aurora_sky.hpp"
+#include "ncap/visualiser.hpp"
 #include "ncap/scene_templates.hpp"
 #include "ncap/design.hpp"
 #include "ncap/diag.hpp"
@@ -281,6 +282,10 @@ private:
     void openChecklist();
     void automationTick();
     void addAuroraSky();
+    void addAuroraPulse();
+    void visualiserTick();
+    std::shared_ptr<audio::Tap> visTap_;
+    std::unique_ptr<visualiser::Analyser> visAnalyser_;
     void writingTick();
     std::vector<std::pair<std::string, std::string>> writingValues_;   // from Writing Studio's summary
     ULONGLONG writingChecked_ = 0;

@@ -86,12 +86,14 @@ void CaptureWindow::sceneFromTemplate(const st::SceneTemplate& t) {
                 }
                 break;
             }
-            case st::PartKind::AuroraSky: {
+            case st::PartKind::AuroraSky:
+            case st::PartKind::AuroraPulse: {
                 aurora_sky::Settings a;
                 brandSky(a);
                 a.width = (int)cw;
                 a.height = (int)ch;
-                source = scenes_.addSource(SourceKind::AuroraSky, "Aurora sky", aurora_sky::toJson(a));
+                const bool pulse = p.kind == st::PartKind::AuroraPulse;
+                source = scenes_.addSource(pulse ? SourceKind::AuroraPulse : SourceKind::AuroraSky, pulse ? "Aurora pulse" : "Aurora sky", aurora_sky::toJson(a));
                 break;
             }
             case st::PartKind::Design:

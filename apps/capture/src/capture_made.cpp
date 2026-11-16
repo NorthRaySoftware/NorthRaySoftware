@@ -357,7 +357,7 @@ void CaptureWindow::brandSky(aurora_sky::Settings& a) const {
 void CaptureWindow::brandSkies() {
     bool changed = false;
     for (auto& s : scenes_.sources()) {
-        if (s.kind != SourceKind::AuroraSky) continue;
+        if (s.kind != SourceKind::AuroraSky && s.kind != SourceKind::AuroraPulse) continue;
         aurora_sky::Settings a = aurora_sky::fromJson(s.settings);
         if (!a.followBrand) continue;
         const aurora_sky::Settings before = a;
@@ -416,6 +416,46 @@ void CaptureWindow::addAuroraSky() {
     a.height = scenes_.canvasHeight;
     addCapture(SourceKind::AuroraSky, "Aurora sky", aurora_sky::toJson(a));
     flash(L"An aurora sky, in your brand colours. Right-click it for speed, brightness and colours; put it at the bottom of the scene.", 7);
+}
+
+void CaptureWindow::addAuroraPulse() {
+    aurora_sky::Settings a;
+    brandSky(a);
+    a.width = scenes_.canvasWidth;
+    a.height = scenes_.canvasHeight;
+    addCapture(SourceKind::AuroraPulse, "Aurora pulse", aurora_sky::toJson(a));
+    flash(L"An aurora that moves with your Stream mix: bass on the left, treble on the right. Put it at the bottom of the scene.", 7);
+}
+
+// The sound visualiser: while any aurora pulse exists, the Stream mix is read through a tap (as recordings
+// do), analysed (core/visualiser) and its bands handed to the video thread. From the meter timer.
+void CaptureWindow::visualiserTick() {
+    bool wanted = false;
+    for (auto& s : scenes_.sources()) wanted |= s.kind == SourceKind::AuroraPulse;
+    if (!wanted) {
+        if (visTap_) {
+            mixer_.removeTap(visTap_);
+            visTap_.reset();
+            visAnalyser_.reset();
+            video::setSoundBands({}, 0);
+        }
+        return;
+    }
+    if (!visTap_) {
+        visTap_ = std::make_shared<audio::Tap>(0);   // the Stream mix
+        visAnalyser_ = std::make_unique<visualiser::Analyser>(audio::kRate);
+        mixer_.addTap(visTap_);
+    }
+    float frames[512 * audio::kChannels];
+    float mono[512];
+    for (;;) {
+        const std::size_t n = visTap_->ring.read(frames, 512);
+        if (n == 0) break;
+        for (std::size_t i = 0; i < n; ++i) mono[i] = 0.5f * (frames[2 * i] + frames[2 * i + 1]);
+        visAnalyser_->push(mono, n);
+        if (n < 512) break;
+    }
+    video::setSoundBands(visAnalyser_->bands(), visAnalyser_->level());
 }
 
 void CaptureWindow::addColour() {
@@ -580,7 +620,8 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
             break;
         }
         case SourceKind::Design: menu.push_back(MenuItem::item(L"Edit the design…", CmdDesignEdit, L"the overlay designer")); break;
-        case SourceKind::AuroraSky: {
+        case SourceKind::AuroraSky:
+        case SourceKind::AuroraPulse: {
             const aurora_sky::Settings a = aurora_sky::fromJson(src.settings);
             const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};
             const wchar_t* speedNames[] = {L"Very slow", L"Slow", L"Normal", L"Lively", L"Fast"};
@@ -601,7 +642,7 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
                 MenuItem::item(L"Sky colour…", CmdSkyNight, widen(su::colourText(a.night))),
                 MenuItem::item(L"Its own size…", CmdBoxSize, std::to_wstring(a.width) + L"×" + std::to_wstring(a.height)),
             };
-            menu.push_back(MenuItem::sub(L"Aurora sky", sky));
+            menu.push_back(MenuItem::sub(src.kind == SourceKind::AuroraPulse ? L"Aurora pulse" : L"Aurora sky", sky));
             break;
         }
         default: break;
@@ -622,7 +663,7 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
             changeSourceSetting(source, key, su::colourText(c));
         });
     };
-    if (cmd >= CmdSkySpeed0 && cmd <= CmdSkyNight && src->kind == SourceKind::AuroraSky) {
+    if (cmd >= CmdSkySpeed0 && cmd <= CmdSkyNight && (src->kind == SourceKind::AuroraSky || src->kind == SourceKind::AuroraPulse)) {
         aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
         const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};
         if (cmd >= CmdSkySpeed0 && cmd < CmdSkySpeed0 + 5) a.speed = speeds[cmd - CmdSkySpeed0];

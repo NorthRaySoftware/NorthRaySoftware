@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.83.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.23: the aurora pulse, a background that moves with your music."
+      ]
+    },
+    {
       "version": "0.82.0",
       "date": "2026-11-16",
       "notes": [
