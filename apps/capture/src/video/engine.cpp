@@ -348,9 +348,9 @@ void Engine::composeItems(const Items& items, Target& into, int w, int h, int de
         Pt uv[4];
         itemUv(it.transform, sw, sh, uv);
         const float op = std::clamp(it.transform.opacity, 0.0f, 1.0f);
-        if (it.border.on) {
+        if (it.border.on || it.key.on) {
             const float bw = std::hypot(c[1].x - c[0].x, c[1].y - c[0].y), bh = std::hypot(c[3].x - c[0].x, c[3].y - c[0].y);
-            gpu_.drawFramed(v, corners, uv, op, opaque, it.border, bw, bh);
+            gpu_.drawFramed(v, corners, uv, op, opaque, it.border, bw, bh, it.key);
         } else {
             gpu_.drawTexture(v, corners, uv, op, opaque);
         }

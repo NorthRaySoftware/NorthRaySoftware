@@ -1123,3 +1123,22 @@ the same):
   to under 5% and stays finite under four seconds of loud input; the radio cuts 100 Hz and 9 kHz by more than 15 dB
   against 1 kHz; static adds noise to silence; JSON round trip and descriptions. In Wine: the three in Add a filter,
   a pitch shift's card with its sliders and the chain's delay.
+
+## 36. Green screen (status: built, 16 Nov 2026; released as 0.10.12)
+
+- core/keying (tested): `Key` (on, colour, similarity, smoothness, spill; JSON with defaults and clamping) and the
+  per-pixel sums the shader repeats: BT.709 Cb/Cr distance to the key colour (so brightness, i.e. shadows, doesn't
+  matter), alpha = smoothstep(similarity, similarity + smoothness, distance), and spill: pixels near the key colour
+  pulled towards their own grey by the spill amount. Tested on a green screen in light and shadow, skin, hair, red,
+  white, black and blue, a greenish edge, a blue screen, and round trips.
+- SceneItem.key (saved only when set); the engine's DrawItem carries it; the frame shader (video/gpu.cpp) gains
+  `keyed()` before the corner mask, and drawFramed runs with no ring, corners or glow when only the key is on, so
+  border and key combine.
+- The item menu's Green screen submenu: off, green (#00B140) and blue (#0047BB) presets, "Pick the colour from the
+  preview" (an eyedropper), a typed colour, and presets for how much is cleared, edge softness and spill.
+- The eyedropper (capture_key.cpp): the next click in the preview gives a canvas pixel; the item's key is switched
+  off, and a one-off engine frame sink (on the engine thread, after skipping 4 frames so the canvas is drawn without
+  the key) copies that pixel into a 1x1 staging texture and reads it; the stats timer then turns the key on with that
+  colour (or says it couldn't, after 8 ticks). Esc stops picking.
+- Tested in Wine: a picture of a figure on #00B140 with a darker shadow band; the eyedropper read #00B140 exactly
+  and the green and the shadow went, the face and shirt stayed.

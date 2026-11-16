@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.72.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.12: green screen with a colour picker."
+      ]
+    },
+    {
       "version": "0.71.0",
       "date": "2026-11-15",
       "notes": [

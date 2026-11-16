@@ -8,6 +8,7 @@
 #pragma once
 
 #include "ncap/border.hpp"
+#include "ncap/keying.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -64,6 +65,7 @@ struct SceneItem {
     bool visible = true;
     bool locked = false;
     border::Style border;   // rounded corners, a ring and a glow (off unless set)
+    keying::Key key;        // green screen (off unless set)
 };
 
 struct Scene {
@@ -127,6 +129,7 @@ public:
     bool setItemVisible(const Id& scene, const Id& item, bool visible);
     bool setItemLocked(const Id& scene, const Id& item, bool locked);
     bool setItemBorder(const Id& scene, const Id& item, const border::Style& b);
+    bool setItemKey(const Id& scene, const Id& item, const keying::Key& k);
     // Towards the top of the scene (+1, drawn later) or the bottom (-1); +100 / -100 to the very top / bottom.
     bool moveItem(const Id& scene, const Id& item, int delta);
 

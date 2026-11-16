@@ -13,6 +13,7 @@
 #include "ncap/profiles.hpp"
 #include "ncap/wizard.hpp"
 #include "ncap/soundboard.hpp"
+#include "ncap/keying.hpp"
 #include "ncap/design.hpp"
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
@@ -1194,6 +1195,40 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testKeying() {
+    std::printf("green screen\n");
+    namespace kk = ncap::keying;
+    kk::Key k;
+    k.on = true;
+    const kk::Params p = kk::params(k);
+    auto px = [&](int r, int g, int b) { return kk::apply(r / 255.0f, g / 255.0f, b / 255.0f, p); };
+    // The screen itself, lit brightly and in shadow: clear.
+    CHECK(px(0, 177, 64).a < 0.01f && px(20, 210, 90).a < 0.01f && px(0, 110, 40).a < 0.05f);
+    // Skin, hair, a red shirt, white, black, a blue jumper: kept.
+    CHECK(px(224, 172, 140).a > 0.99f && px(60, 40, 30).a > 0.99f && px(200, 30, 40).a > 0.99f);
+    CHECK(px(255, 255, 255).a > 0.99f && px(0, 0, 0).a > 0.99f && px(40, 60, 170).a > 0.99f);
+    // Spill: a greenish edge keeps more of itself but loses green.
+    const kk::Out edge = px(150, 200, 120);
+    CHECK(edge.a > 0.5f && edge.g < 200 / 255.0f && edge.g - edge.r < (200 - 150) / 255.0f);
+    // Similarity 0 keeps nearly everything; 100 takes more.
+    kk::Key tight = k;
+    tight.similarity = 0;
+    tight.smoothness = 0;
+    CHECK(kk::apply(20 / 255.0f, 210 / 255.0f, 90 / 255.0f, kk::params(tight)).a > 0.5f);
+    // A blue screen.
+    kk::Key blue = k;
+    blue.colour = kk::kBlue;
+    const kk::Params pb = kk::params(blue);
+    CHECK(kk::apply(0, 71 / 255.0f, 187 / 255.0f, pb).a < 0.01f && kk::apply(0, 177 / 255.0f, 64 / 255.0f, pb).a > 0.99f);
+    // Saved and read back; junk takes defaults; values clamped.
+    k.similarity = 55;
+    k.colour = {10, 200, 30, 255};
+    CHECK(kk::fromJson(kk::toJson(k)) == k);
+    CHECK(kk::fromJson("nope") == kk::Key{});
+    const kk::Key c = kk::fromJson(R"({"on":true,"similarity":500,"colour":"#00FF0080"})");
+    CHECK(c.on && c.similarity == 100 && c.colour == ncap::sourceutil::Rgba(0, 255, 0, 255));
+}
+
 static void testVoiceEffects() {
     std::printf("voice effects\n");
     using namespace ncap::dsp;
@@ -1982,6 +2017,7 @@ int main() {
     testWizard();
     testSoundboard();
     testVoiceEffects();
+    testKeying();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

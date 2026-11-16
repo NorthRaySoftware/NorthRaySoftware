@@ -50,7 +50,7 @@ float4 ps(V i) : SV_Target {
 // uv.zw the pixel's place in the item (0..w, 0..h).
 const char kFrameShader[] = R"(
 cbuffer C : register(b0) { float4 pos[4]; float4 uv[4]; float4 colour; float4 flags; };
-cbuffer F : register(b1) { float4 size; float4 c1; float4 c2; float4 glowCol; float4 g; float4 o; };
+cbuffer F : register(b1) { float4 size; float4 c1; float4 c2; float4 glowCol; float4 g; float4 o; float4 k1; float4 k2; };
 Texture2D tex : register(t0);
 SamplerState smp : register(s0);
 struct V { float4 p : SV_Position; float4 t : TEXCOORD0; };
@@ -74,6 +74,18 @@ float4 ring(float2 L, float2 sz) {
     float t = half_ > 0 ? saturate(dot(L - sz * 0.5, dir) / (2 * half_) + 0.5) : 0;
     return lerp(c1, c2, t);
 }
+// Green screen (core/keying's sums): k1 = key Cb, Cr, similarity, smoothness; k2.x = spill, k2.y = on.
+float4 keyed(float4 s) {
+    if (k2.y < 0.5) return s;
+    float3 c = s.rgb;
+    float y = dot(c, float3(0.2126, 0.7152, 0.0722));
+    float2 cc = float2((c.b - y) / 1.8556, (c.r - y) / 1.5748);
+    float d = distance(cc, k1.xy);
+    float a = smoothstep(k1.z, k1.z + k1.w, d);
+    float nearK = 1 - smoothstep(k1.z, k1.z * 2 + k1.w + 0.05, d);
+    c = lerp(c, y.xxx, nearK * k2.x);
+    return float4(c, s.a * a);
+}
 float4 ps(V i) : SV_Target {
     float2 L = i.t.zw, sz = size.xy;
     float r = size.z, w = size.w;
@@ -90,6 +102,7 @@ float4 ps(V i) : SV_Target {
     }
     float4 s = tex.Sample(smp, i.t.xy);
     if (o.w > 0.5) s.a = 1;
+    s = keyed(s);
     s.a *= inside;
     float ra = 0;
     float4 rc = c1;
@@ -301,10 +314,16 @@ void Gpu::drawTexture(ID3D11ShaderResourceView* srv, const Pt corners[4], const 
     draw(c, srv);
 }
 
-void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque, const border::Style& b,
-                     float w, float h) {
+void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque, const border::Style& bIn,
+                     float w, float h, const keying::Key& key) {
     if (!srv) return;
-    if (!framePs_ || !b.on || w <= 0 || h <= 0) {
+    // No border but a key: the same shader with no ring, no corners and no glow.
+    border::Style b = bIn;
+    if (!b.on) {
+        b = border::Style{};
+        b.width = 0, b.roundness = 0, b.glow = 0;
+    }
+    if (!framePs_ || (!bIn.on && !key.on) || w <= 0 || h <= 0) {
         drawTexture(srv, corners, uv, opacity, opaque);
         return;
     }
@@ -319,6 +338,11 @@ void Gpu::drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const P
     f.glowCol[3] *= b.glowOpacity / 100.0f;
     f.g[0] = b.glow, f.g[1] = b.angle * 3.14159265f / 180.0f, f.g[2] = b.gradient ? 1.0f : 0.0f;
     f.o[0] = b.offsetX, f.o[1] = b.offsetY, f.o[2] = opacity, f.o[3] = opaque ? 1.0f : 0.0f;
+    if (key.on) {
+        const keying::Params kp = keying::params(key);
+        f.k1[0] = kp.cb, f.k1[1] = kp.cr, f.k1[2] = kp.sim, f.k1[3] = kp.smooth;
+        f.k2[0] = kp.spill, f.k2[1] = 1;
+    }
     // A point of the item's own rectangle, in the target: corners[0] + across + down.
     auto at = [&](float u, float v) {
         return Pt{corners[0].x + (corners[1].x - corners[0].x) * (u / w) + (corners[3].x - corners[0].x) * (v / h),

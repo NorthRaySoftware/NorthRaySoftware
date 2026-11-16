@@ -36,6 +36,7 @@ struct DrawItem {
     Transform transform;
     bool visible = true;
     border::Style border;
+    keying::Key key;
     // A scene shown inside this one: its id and items (composed at canvas size, then placed like a source).
     Id nested;
     std::shared_ptr<const Items> nestedItems;

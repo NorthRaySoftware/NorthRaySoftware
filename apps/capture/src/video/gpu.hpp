@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 
 #include "ncap/border.hpp"
+#include "ncap/keying.hpp"
 
 #include <cstdint>
 #include <string>
@@ -53,7 +54,7 @@ public:
     // drawTexture with a border (rounded corners, a ring, a glow), for an item of w×h canvas pixels
     // whose own rectangle is `corners`; the glow reaches outside it. Plain drawTexture if `b` is off.
     void drawFramed(ID3D11ShaderResourceView* srv, const Pt corners[4], const Pt uv[4], float opacity, bool opaque, const border::Style& b, float w,
-                    float h);
+                    float h, const keying::Key& key = {});
     // A luma wipe: `srv` (the new scene's canvas) shown where `mask` (one byte per pixel, stretched
     // over the corners) is below the progress, with a soft edge.
     void drawLumaWipe(ID3D11ShaderResourceView* srv, ID3D11ShaderResourceView* mask, const Pt corners[4], float progress, float softness, bool invert);
@@ -73,7 +74,7 @@ private:
         float flags[4];   // x: textured, y: opaque
     };
     struct FrameConstants {
-        float size[4], c1[4], c2[4], glowCol[4], g[4], o[4];
+        float size[4], c1[4], c2[4], glowCol[4], g[4], o[4], k1[4], k2[4];
     };
     void draw(const Constants& c, ID3D11ShaderResourceView* srv);
     ComPtr<ID3D11VertexShader> frameVs_;

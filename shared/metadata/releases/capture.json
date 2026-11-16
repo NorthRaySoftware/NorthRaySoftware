@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.12",
+      "date": "2026-11-16",
+      "notes": [
+        "Green screen on any item (right-click it › Green screen): green or blue presets, or Pick the colour from the preview, which reads your actual screen's colour where you click.",
+        "It compares colour, not brightness, so shadows on the screen go too; soft edges for hair; and the green tint that bounces onto you is taken out. How much is cleared, the edge softness and the tint removal can be adjusted.",
+        "It runs on the graphics card along with borders, so the two work together."
+      ]
+    },
+    {
       "version": "0.10.11",
       "date": "2026-11-15",
       "notes": [

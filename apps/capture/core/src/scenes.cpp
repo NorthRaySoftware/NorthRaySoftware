@@ -475,6 +475,16 @@ bool SceneCollection::setItemBorder(const Id& sceneId, const Id& itemId, const b
     return true;
 }
 
+bool SceneCollection::setItemKey(const Id& sceneId, const Id& itemId, const keying::Key& k) {
+    SceneItem* it = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!it) return false;
+    if (!(it->key == k)) {
+        it->key = k;
+        ++changes_;
+    }
+    return true;
+}
+
 bool SceneCollection::moveItem(const Id& sceneId, const Id& itemId, int delta) {
     Scene* s = sceneMut(sceneId);
     if (!s) return false;
@@ -610,6 +620,7 @@ std::string SceneCollection::toJson() const {
                              {"transform", {{"x", t.x}, {"y", t.y}, {"width", t.width}, {"height", t.height}, {"rotation", t.rotation},
                                             {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}, {"flipH", t.flipH}, {"flipV", t.flipV}}}});
             if (i.border.on) items.back()["border"] = json::parse(border::toJson(i.border));
+            if (!(i.key == keying::Key{})) items.back()["key"] = json::parse(keying::toJson(i.key));
         }
         json sc = {{"id", s.id}, {"name", s.name}, {"items", items}};
         if (!s.folder.empty()) sc["folder"] = s.folder;
@@ -673,6 +684,7 @@ bool SceneCollection::fromJson(const std::string& text) {
                     }
                 }
                 if (i.contains("border") && i["border"].is_object()) it.border = border::fromJson(i["border"].dump());
+                if (i.contains("key") && i["key"].is_object()) it.key = keying::fromJson(i["key"].dump());
                 sc.items.push_back(it);
             }
         c.scenes_.push_back(sc);

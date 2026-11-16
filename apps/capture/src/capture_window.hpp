@@ -290,6 +290,15 @@ private:
     void addSoundboard();
     void drawSoundboardPanel(const cjui::Rect& body);
     void soundboardMenu(const Id& source, std::size_t i);
+    // Green screen (capture_key.cpp).
+    std::vector<cjui::MenuItem> keyMenuItems(const SceneItem& item);
+    bool keyCommand(UINT cmd, const Id& item);
+    bool keyPickClick(float x, float y);
+    void keyPickTick();
+    Id keyPickItem_, keyPickScene_;
+    keying::Key keyPickWas_;
+    bool keyPickWaiting_ = false;
+    int keyPickTicks_ = 0;
     void chatTick();                          // joins Twitch chat while a design shows it
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only

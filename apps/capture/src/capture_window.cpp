@@ -474,6 +474,7 @@ bool CaptureWindow::preTranslate(MSG& msg) {
 }
 
 bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
+    if (vk == VK_ESCAPE && !keyPickItem_.empty() && !keyPickWaiting_) { keyPickItem_.clear(); flash(L"Stopped picking.", 2); return true; }
     if (vk == VK_ESCAPE && settingsOpen_) { openSettings(false); return true; }
     if (vk == VK_ESCAPE && !borderFor_.empty()) { borderFor_.clear(); invalidate(); return true; }
     if (ctrl && vk == VK_OEM_COMMA) { openSettings(!settingsOpen_); return true; }
@@ -510,6 +511,7 @@ bool CaptureWindow::onMouseDown(float x, float y) {
         return true;
     }
     if (settingsOpen_) return designerMouseDown(x, y);
+    if (keyPickClick(x, y)) return true;   // the green screen eyedropper
     // Dividers: between the preview and the panels, and between panels.
     if (hSplit_.contains(x, y)) {
         drag_ = Drag::Horizontal;
@@ -712,6 +714,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         timerTick();
         chatTick();
         wizardTick();
+        keyPickTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
