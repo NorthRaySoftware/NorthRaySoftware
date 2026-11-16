@@ -15,6 +15,7 @@
 #include "video/devices.hpp"
 #include "video/design_render.hpp"
 
+#include "ncap/aurora_sky.hpp"
 #include "ncap/sourceutil.hpp"
 
 #include "nlohmann/json.hpp"
@@ -713,6 +714,59 @@ private:
     bool lastPulse_ = false;
 };
 
+// ------------------------------------------------------------------ the aurora sky
+
+// Drawn by a pixel shader into its own picture every frame it's shown (the engine only updates sources in
+// the scenes being composed). The shader is made from the settings (core/aurora_sky) and compiled again
+// when they change; the time keeps running from when the source was made.
+class AuroraSkySource : public VideoSource {
+public:
+    explicit AuroraSkySource(const std::string& settings) {
+        setSettings(settings);
+        LARGE_INTEGER f, c;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&c);
+        freq_ = (double)f.QuadPart;
+        start_ = c.QuadPart;
+    }
+    void update(Gpu& gpu) override {
+        std::string j;
+        if (takeSettings(j)) {
+            cfg_ = aurora_sky::fromJson(j);
+            ps_.Reset();
+            failed_ = false;
+            w_ = cfg_.width;
+            h_ = cfg_.height;
+        }
+        if (!ps_ && !failed_) {
+            std::string err;
+            ps_ = gpu.compilePixelShader(aurora_sky::shader(cfg_), err);
+            if (!ps_) {
+                failed_ = true;
+                setStatus(L"The aurora couldn't be drawn: " + widen(err.substr(0, 200)), true);
+                return;
+            }
+            setStatus(L"Aurora sky \u00B7 drawn on the graphics card \u00B7 " + sizeText(cfg_.width, cfg_.height));
+        }
+        if (!ps_ || !out_.ensure(gpu.device(), cfg_.width, cfg_.height)) return;
+        LARGE_INTEGER c;
+        QueryPerformanceCounter(&c);
+        const double seconds = std::fmod((double)(c.QuadPart - start_) / freq_, 86400.0);
+        const float W = (float)cfg_.width, H = (float)cfg_.height;
+        const Pt corners[4] = {{0, 0}, {W, 0}, {W, H}, {0, H}};
+        gpu.begin(out_.rtv.Get(), cfg_.width, cfg_.height);
+        gpu.drawWith(ps_.Get(), nullptr, nullptr, corners, (float)seconds, W, H);
+        hasPicture_ = true;
+    }
+
+private:
+    aurora_sky::Settings cfg_;
+    ComPtr<ID3D11PixelShader> ps_;
+    bool failed_ = false;
+    double freq_ = 1;
+    LONGLONG start_ = 0;
+};
+
 std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings) {
     switch (kind) {
         case SourceKind::Image: return std::make_shared<ImageSource>(settings);
@@ -722,6 +776,7 @@ std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string
         case SourceKind::Region: return std::make_shared<RegionSource>(settings);
         case SourceKind::Media: return createMediaSource(settings);
         case SourceKind::Design: return std::make_shared<DesignSource>(settings);
+        case SourceKind::AuroraSky: return std::make_shared<AuroraSkySource>(settings);
         default: return nullptr;
     }
 }

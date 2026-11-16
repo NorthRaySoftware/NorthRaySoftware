@@ -1239,3 +1239,25 @@ the same):
 - Tested in Wine: adding "Switch to Scene 2" (plain G refused with the reason; F7 taken), F7 switching scenes via
   WM_HOTKEY, re-assigning to Ctrl+Alt+2 and that switching from Just chatting; saved to settings.json. Pressing a
   hotkey with a game focused needs Windows (the test display has no window manager to confirm focus).
+
+## 42. The aurora sky: a live background on the GPU (status: built, 16 Nov 2026; released as 0.10.18)
+
+- SourceKind::AuroraSky ("aurora-sky"). core/aurora_sky (tested): Settings (main, second and night colours,
+  speed 0.25-3, brightness 0.3-1.5, stars, followBrand, size) as JSON; `sample(u, v, seconds)` is the picture in
+  C++ and `shader()` the same sums as an HLSL pixel shader with the colours, speed and brightness written in. The
+  sky is the night colour, darker towards the top; three curtains each have a rippling lower edge (two sines),
+  fall off sharply below it and fade upwards above it, carry fine rays (a sine across, bent by another), and blend
+  between the two colours along their length; stars are one in about 600 2×2-pixel cells in the upper part,
+  twinkling, hidden where the light is bright. Tests: every value in range over hours, the band brighter than the
+  top and bottom, it moves, brightness scales only the light, the night colour shows below, speed doubles time,
+  stars only up top and only when on, and the shader carries the settings.
+- The source (made_sources.cpp AuroraSkySource) compiles the shader when its settings change and draws it into its
+  own picture with Gpu::drawWith (which now accepts no textures) every frame it's being composed, with the seconds
+  since it was made (wrapped daily). It's opaque, at the canvas size.
+- The window: Add a source › Aurora sky (in the brand kit's primary, secondary and night colours, at the canvas
+  size); its item menu has Aurora sky › Speed, Brightness, Stars, Colours from the brand kit, Main/Second/Sky
+  colour… (a colour of its own stops it following the kit) and Its own size…. Saving the brand kit updates every sky
+  that follows it. Settings reach the running source through syncSources.
+- Tested in Wine (wined3d): added to an empty scene it draws and animates (frames 4 s apart differ by a mean of 14
+  levels); changing a colour updates it live; switching back to the brand kit's colours restores them. Wine renders
+  shaders in software, so its frame rate there says nothing about a real graphics card.

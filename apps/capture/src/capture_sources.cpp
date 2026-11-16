@@ -37,7 +37,8 @@ bool keyDown(int vk) { return (GetKeyState(vk) & 0x8000) != 0; }
 // Kinds with a picture source of their own (scenes inside scenes are composed from their items instead).
 bool isCapture(SourceKind k) {
     return k == SourceKind::Display || k == SourceKind::Window || k == SourceKind::Camera || k == SourceKind::Colour || k == SourceKind::Image ||
-           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media || k == SourceKind::Design;
+           k == SourceKind::Text || k == SourceKind::Slideshow || k == SourceKind::Region || k == SourceKind::Media || k == SourceKind::Design ||
+           k == SourceKind::AuroraSky;
 }
 
 std::string shortTitle(std::string t) {
@@ -279,6 +280,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::item(L"Text\u2026", 6));
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
     items.push_back(MenuItem::item(L"Colour\u2026", 8));
+    items.push_back(MenuItem::item(L"Aurora sky", 14, L"a live animated background"));
     items.push_back(MenuItem::item(L"Part of the screen\u2026", 9, L"drag a rectangle"));
     items.push_back(MenuItem::sep());
     const AudioChoices sound = audioChoices();
@@ -294,6 +296,7 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 11: addMedia(); return;
         case 12: addDesign(); return;
         case 13: addMusic(); return;
+        case 14: addAuroraSky(); return;
         default: break;
     }
     if (cmd == 10) {

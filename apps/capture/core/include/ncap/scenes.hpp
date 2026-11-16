@@ -36,6 +36,7 @@ enum class SourceKind {
     ApplicationAudio, // one application's sound (process loopback)
     Design,           // an overlay design (core/design), made in the designer
     Soundboard,       // buttons that play short sounds (core/soundboard); sound only
+    AuroraSky,        // the live aurora background, drawn on the graphics card (core/aurora_sky)
 };
 const char* kindKey(SourceKind k);                       // "display", "app-audio"...
 std::optional<SourceKind> kindFromKey(const std::string& key);

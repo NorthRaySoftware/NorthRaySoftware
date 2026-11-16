@@ -20,6 +20,7 @@ const KindName kKinds[] = {
     {SourceKind::ApplicationAudio, "app-audio"},
     {SourceKind::Design, "design"},
     {SourceKind::Soundboard, "soundboard"},
+    {SourceKind::AuroraSky, "aurora-sky"},
 };
 
 std::string lower(std::string s) {

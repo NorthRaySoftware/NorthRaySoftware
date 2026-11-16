@@ -5,6 +5,9 @@
 
 #include "log.hpp"
 
+#include "video/design_render.hpp"
+
+#include "ncap/aurora_sky.hpp"
 #include "ncap/sourceutil.hpp"
 
 #include <dwrite.h>
@@ -34,6 +37,7 @@ enum : UINT {
     CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
+    CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight,
     CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
     CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500,
 };
@@ -341,6 +345,42 @@ void CaptureWindow::addText() {
     });
 }
 
+// The aurora sky's colours from the brand kit: its main, second and night colours.
+void CaptureWindow::brandSky(aurora_sky::Settings& a) const {
+    const design::Brand b = video::designBrand();
+    if (const auto* c = design::brandColour(b, "primary")) a.colour1 = {c->colour.r, c->colour.g, c->colour.b, 255};
+    if (const auto* c = design::brandColour(b, "secondary")) a.colour2 = {c->colour.r, c->colour.g, c->colour.b, 255};
+    if (const auto* c = design::brandColour(b, "night")) a.night = {c->colour.r, c->colour.g, c->colour.b, 255};
+}
+
+// After the brand kit changes: every aurora sky that follows it takes the new colours.
+void CaptureWindow::brandSkies() {
+    bool changed = false;
+    for (auto& s : scenes_.sources()) {
+        if (s.kind != SourceKind::AuroraSky) continue;
+        aurora_sky::Settings a = aurora_sky::fromJson(s.settings);
+        if (!a.followBrand) continue;
+        const aurora_sky::Settings before = a;
+        brandSky(a);
+        if (a == before) continue;
+        scenes_.setSourceSettings(s.id, aurora_sky::toJson(a));
+        changed = true;
+    }
+    if (changed) {
+        syncSources();
+        scenesChanged();
+    }
+}
+
+void CaptureWindow::addAuroraSky() {
+    aurora_sky::Settings a;
+    brandSky(a);
+    a.width = scenes_.canvasWidth;
+    a.height = scenes_.canvasHeight;
+    addCapture(SourceKind::AuroraSky, "Aurora sky", aurora_sky::toJson(a));
+    flash(L"An aurora sky, in your brand colours. Right-click it for speed, brightness and colours; put it at the bottom of the scene.", 7);
+}
+
 void CaptureWindow::addColour() {
     askText(L"The colour, as #RRGGBB (or #RRGGBBAA to see through it)", L"#1E2A44", [this](const std::wstring& v) {
         su::Rgba c;
@@ -484,6 +524,30 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
         }
         case SourceKind::Region: menu.push_back(MenuItem::item(L"Pick the region again…", CmdRegionAgain)); break;
         case SourceKind::Design: menu.push_back(MenuItem::item(L"Edit the design…", CmdDesignEdit, L"the overlay designer")); break;
+        case SourceKind::AuroraSky: {
+            const aurora_sky::Settings a = aurora_sky::fromJson(src.settings);
+            const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};
+            const wchar_t* speedNames[] = {L"Very slow", L"Slow", L"Normal", L"Lively", L"Fast"};
+            const wchar_t* brightNames[] = {L"Faint", L"Soft", L"Normal", L"Bright", L"Brightest"};
+            std::vector<MenuItem> sp, br;
+            for (int i = 0; i < 5; ++i) {
+                sp.push_back(MenuItem::item(speedNames[i], CmdSkySpeed0 + (UINT)i, {}, true, std::fabs(a.speed - speeds[i]) < 0.01f));
+                br.push_back(MenuItem::item(brightNames[i], CmdSkyBright0 + (UINT)i, {}, true, std::fabs(a.brightness - brights[i]) < 0.01f));
+            }
+            std::vector<MenuItem> sky = {
+                MenuItem::sub(L"Speed", sp),
+                MenuItem::sub(L"Brightness", br),
+                MenuItem::item(L"Stars", CmdSkyStars, {}, true, a.stars),
+                MenuItem::sep(),
+                MenuItem::item(L"Colours from the brand kit", CmdSkyBrand, L"main, second and night", true, a.followBrand),
+                MenuItem::item(L"Main colour…", CmdSkyC1, widen(su::colourText(a.colour1))),
+                MenuItem::item(L"Second colour…", CmdSkyC2, widen(su::colourText(a.colour2))),
+                MenuItem::item(L"Sky colour…", CmdSkyNight, widen(su::colourText(a.night))),
+                MenuItem::item(L"Its own size…", CmdBoxSize, std::to_wstring(a.width) + L"×" + std::to_wstring(a.height)),
+            };
+            menu.push_back(MenuItem::sub(L"Aurora sky", sky));
+            break;
+        }
         default: break;
     }
 }
@@ -502,6 +566,41 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
             changeSourceSetting(source, key, su::colourText(c));
         });
     };
+    if (cmd >= CmdSkySpeed0 && cmd <= CmdSkyNight && src->kind == SourceKind::AuroraSky) {
+        aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
+        const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};
+        if (cmd >= CmdSkySpeed0 && cmd < CmdSkySpeed0 + 5) a.speed = speeds[cmd - CmdSkySpeed0];
+        else if (cmd >= CmdSkyBright0 && cmd < CmdSkyBright0 + 5) a.brightness = brights[cmd - CmdSkyBright0];
+        else if (cmd == CmdSkyStars) a.stars = !a.stars;
+        else if (cmd == CmdSkyBrand) {
+            a.followBrand = !a.followBrand;
+            if (a.followBrand) brandSky(a);
+        } else {
+            const char* which = cmd == CmdSkyC1 ? "colour1" : cmd == CmdSkyC2 ? "colour2" : "night";
+            const su::Rgba now = cmd == CmdSkyC1 ? a.colour1 : cmd == CmdSkyC2 ? a.colour2 : a.night;
+            askText(L"The colour, as #RRGGBB", widen(su::colourText(now)), [this, source, which](const std::wstring& v) {
+                su::Rgba c;
+                const Source* s2 = scenes_.source(source);
+                if (!s2) return;
+                if (!su::parseColour(narrow(v), c)) {
+                    flash(L"That isn't a colour: try #3FCF8E.", 5);
+                    return;
+                }
+                aurora_sky::Settings b = aurora_sky::fromJson(s2->settings);
+                c.a = 255;
+                (std::string(which) == "colour1" ? b.colour1 : std::string(which) == "colour2" ? b.colour2 : b.night) = c;
+                b.followBrand = false;   // a colour of its own
+                scenes_.setSourceSettings(source, aurora_sky::toJson(b));
+                syncSources();
+                scenesChanged();
+            });
+            return true;
+        }
+        scenes_.setSourceSettings(source, aurora_sky::toJson(a));
+        syncSources();
+        scenesChanged();
+        return true;
+    }
     if (cmd == CmdDesignEdit) {
         openDesigner(source);
         return true;

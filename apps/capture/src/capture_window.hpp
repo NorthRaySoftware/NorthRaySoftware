@@ -7,6 +7,7 @@
 #include "settings.hpp"
 #include "system.hpp"
 
+#include "ncap/aurora_sky.hpp"
 #include "ncap/design.hpp"
 #include "ncap/diag.hpp"
 #include "ncap/placement.hpp"
@@ -275,6 +276,9 @@ private:
     void openWizard();
     void openChecklist();
     void automationTick();
+    void addAuroraSky();
+    void brandSky(aurora_sky::Settings& a) const;
+    void brandSkies();
     void registerHotkeys();
     void unregisterHotkeys();
     bool hotkeyMessage(WPARAM id);

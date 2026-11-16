@@ -18,6 +18,7 @@
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
+#include "ncap/aurora_sky.hpp"
 #include "ncap/automation.hpp"
 #include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
@@ -1521,6 +1522,71 @@ static void testHotkeys() {
     CHECK(hk::fromJson("nope").empty());
 }
 
+static void testAuroraSky() {
+    std::printf("aurora sky\n");
+    namespace as = ncap::aurora_sky;
+    as::Settings s;
+    CHECK(as::fromJson(as::toJson(s)) == s);
+    const auto bad = as::fromJson(R"({"speed":99,"brightness":-4,"colour1":"nope","night":"#102030","width":5,"stars":false})");
+    CHECK(bad.speed == 3.0f && bad.brightness == 0.3f && bad.colour1 == s.colour1 && bad.night == (as::Rgba{16, 32, 48, 255}) && bad.width == 16 && !bad.stars);
+    CHECK(as::fromJson("[]") == s);
+    // Every value stays in range, over hours.
+    bool inRange = true;
+    for (float sec : {0.0f, 12.5f, 3600.0f, 36000.0f})
+        for (int y = 0; y <= 20; ++y)
+            for (int x = 0; x <= 20; ++x) {
+                const auto c = as::sample(s, x / 20.0f, y / 20.0f, sec, 1920, 1080);
+                inRange &= c.r >= 0 && c.r <= 1 && c.g >= 0 && c.g <= 1 && c.b >= 0 && c.b <= 1 && std::isfinite(c.r + c.g + c.b);
+            }
+    CHECK(inRange);
+    // The aurora: brighter in the middle band than at the very top or bottom; it moves.
+    auto lum = [&](float u, float v, float t) {
+        const auto c = as::sample(s, u, v, t, 1920, 1080);
+        return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+    };
+    float mid = 0, top = 0, bottom = 0;
+    for (int x = 0; x < 50; ++x) {
+        const float u = x / 50.0f;
+        mid += lum(u, 0.45f, 3), bottom += lum(u, 0.97f, 3), top += lum(u, 0.02f, 3);
+    }
+    CHECK(mid > bottom * 1.5f && mid > top);
+    float change = 0;
+    for (int x = 0; x < 50; ++x) change += std::fabs(lum(x / 50.0f, 0.45f, 0) - lum(x / 50.0f, 0.45f, 8));
+    CHECK(change > 0.5f);
+    // Brightness scales the light, not the sky; the night colour shows where there's no aurora.
+    as::Settings dim = s;
+    dim.brightness = 0.3f;
+    CHECK(lum(0.5f, 0.45f, 3) > as::sample(dim, 0.5f, 0.45f, 3, 1920, 1080).g * 0.7152f);
+    as::Settings red = s;
+    red.night = {200, 0, 0, 255};
+    red.stars = false;
+    const auto low = as::sample(red, 0.5f, 0.99f, 0, 1920, 1080);
+    CHECK(low.r > 0.7f && low.r > low.b);
+    // Speed: twice as fast at t is the same as normal at 2t.
+    as::Settings fast = s;
+    fast.speed = 2;
+    fast.stars = s.stars = false;
+    const auto a = as::sample(fast, 0.3f, 0.5f, 5, 1920, 1080), b = as::sample(s, 0.3f, 0.5f, 10, 1920, 1080);
+    CHECK(std::fabs(a.r - b.r) < 1e-4f && std::fabs(a.g - b.g) < 1e-4f);
+    // Stars: a few, only in the upper sky, none when switched off.
+    s.stars = true;
+    as::Settings plain = s;
+    plain.stars = false;
+    int starsUp = 0, starsDown = 0;
+    for (int y = 0; y < 540; y += 2)
+        for (int x = 0; x < 1920; x += 2) {
+            const float u = (x + 1) / 1920.0f, v = (y + 1) / 1080.0f;
+            const float d = as::sample(s, u, v, 1, 1920, 1080).r - as::sample(plain, u, v, 1, 1920, 1080).r;
+            if (d > 0.05f) (v < 0.35f ? starsUp : starsDown)++;
+        }
+    CHECK(starsUp > 20 && starsUp < 2000);
+    CHECK(starsDown < starsUp);
+    // The shader carries the colours, speed and brightness.
+    const std::string hl = as::shader(s);
+    CHECK(hl.find("float4 ps(V_ i) : SV_Target") != std::string::npos && hl.find("0.2471, 0.8118, 0.5569") != std::string::npos);
+    CHECK(hl.find("flags_.w * 1.0000") != std::string::npos && hl.find("if (1)") != std::string::npos);
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2392,6 +2458,7 @@ int main() {
     testChecklist();
     testAutomation();
     testHotkeys();
+    testAuroraSky();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

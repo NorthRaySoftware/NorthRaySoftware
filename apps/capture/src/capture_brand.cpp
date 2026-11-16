@@ -101,6 +101,7 @@ void CaptureWindow::saveBrand(const dz::Brand& b) {
         if (!out) flash(L"The brand kit couldn't be saved.", 5);
     }
     video::setDesignBrand(b);
+    brandSkies();
     designRendered_.clear();
     invalidate();
 }

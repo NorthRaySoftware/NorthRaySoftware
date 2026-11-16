@@ -447,7 +447,7 @@ ComPtr<ID3D11PixelShader> Gpu::compilePixelShader(const std::string& source, std
 
 void Gpu::drawWith(ID3D11PixelShader* ps, ID3D11ShaderResourceView* a, ID3D11ShaderResourceView* b, const Pt corners[4], float progress, float w,
                    float h) {
-    if (!ps || !a || !b) return;
+    if (!ps) return;   // a and b may be null for shaders that draw without textures (the aurora sky)
     Constants c{};
     toClip(corners, (float)targetW_, (float)targetH_, c.pos);
     const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};

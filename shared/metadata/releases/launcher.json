@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.78.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.18: the aurora sky, a live animated background."
+      ]
+    },
+    {
       "version": "0.77.0",
       "date": "2026-11-16",
       "notes": [

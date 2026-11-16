@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.18",
+      "date": "2026-11-16",
+      "notes": [
+        "The aurora sky (Add a source › Aurora sky): a live, animated aurora background drawn on the graphics card, for holding scenes like Starting Soon. Curtains of light drift and ripple over a night sky with a few twinkling stars, in your brand kit's colours (following it when you change the kit). Right-click it for speed, brightness, stars and colours of its own."
+      ]
+    },
+    {
       "version": "0.10.17",
       "date": "2026-11-16",
       "notes": [
