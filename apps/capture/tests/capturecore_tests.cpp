@@ -1195,6 +1195,49 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+static void testAuroraSweep() {
+    std::printf("aurora sweep\n");
+    namespace tr = ncap::transition;
+    tr::Kind k;
+    CHECK(tr::parse("aurora", k) && k == tr::Kind::Aurora && std::string(tr::key(tr::Kind::Aurora)) == "aurora");
+    tr::Settings st;
+    st.kind = tr::Kind::Aurora;
+    st.direction = tr::Direction::Right;
+    CHECK(tr::fromJson(tr::toJson(st)).kind == tr::Kind::Aurora);
+    for (auto d : {tr::Direction::Left, tr::Direction::Right, tr::Direction::Up, tr::Direction::Down}) {
+        // At the start the old scene everywhere and no light; at the end the new scene and no light.
+        float maxStartTo = 0, maxStartLight = 0, minEndTo = 1, maxEndLight = 0;
+        for (float u = 0; u <= 1.0001f; u += 0.05f)
+            for (float v = 0; v <= 1.0001f; v += 0.05f) {
+                const auto a = tr::aurora(u, v, 0, d), b = tr::aurora(u, v, 1, d);
+                maxStartTo = std::max(maxStartTo, a.to), maxStartLight = std::max(maxStartLight, a.light);
+                minEndTo = std::min(minEndTo, b.to), maxEndLight = std::max(maxEndLight, b.light);
+            }
+        CHECK(maxStartTo < 0.001f && maxStartLight < 0.02f && minEndTo > 0.999f && maxEndLight < 0.02f);
+        // Halfway: a band of light crossing the middle, the new scene on the side it came from.
+        float mid = 0;
+        for (float t = 0; t <= 1.0001f; t += 0.01f) mid = std::max(mid, tr::aurora(t, t, 0.5f, d).light);
+        CHECK(mid > 0.5f);
+    }
+    // Moving right: the left side turns over first.
+    CHECK(tr::aurora(0.1f, 0.5f, 0.45f, tr::Direction::Right).to > 0.9f && tr::aurora(0.9f, 0.5f, 0.45f, tr::Direction::Right).to < 0.1f);
+    CHECK(tr::aurora(0.9f, 0.5f, 0.45f, tr::Direction::Left).to > 0.9f && tr::aurora(0.1f, 0.5f, 0.45f, tr::Direction::Left).to < 0.1f);
+    // Over time each point only goes from old to new.
+    bool monotonic = true;
+    float prev = 0;
+    for (float p = 0; p <= 1.0001f; p += 0.01f) {
+        const float to = tr::aurora(0.3f, 0.7f, p, tr::Direction::Down).to;
+        monotonic = monotonic && to >= prev - 1e-4f;
+        prev = to;
+    }
+    CHECK(monotonic);
+    // The shader: a transition() with the brand's colours in it.
+    const std::string h = tr::auroraShader(tr::Direction::Up, "#FF0000", "#0000FF");
+    CHECK(h.find("float4 transition(float2 uv, float progress)") != std::string::npos && h.find("1.0000, 0.0000, 0.0000") != std::string::npos &&
+          h.find("1 - uv.y, uv.x") != std::string::npos);
+    CHECK(tr::auroraShader(tr::Direction::Left, "junk", "#12").find("0.2470") != std::string::npos);   // bad colours: the defaults
+}
+
 static void testKeying() {
     std::printf("green screen\n");
     namespace kk = ncap::keying;
@@ -2018,6 +2061,7 @@ int main() {
     testSoundboard();
     testVoiceEffects();
     testKeying();
+    testAuroraSweep();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

@@ -4,11 +4,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace ncap::transition {
 
 namespace {
-const char* kKinds[] = {"cut", "fade", "slide", "swipe", "luma", "stinger", "shader"};
+const char* kKinds[] = {"cut", "fade", "slide", "swipe", "luma", "stinger", "shader", "aurora"};
 const char* kEasings[] = {"linear", "ease-in-out", "ease-out"};
 const char* kDirections[] = {"left", "right", "up", "down"};
 const char* kPatterns[] = {"horizontal", "vertical", "diagonal", "circle", "clock", "blinds"};
@@ -57,6 +59,70 @@ Settings fromJson(const std::string& text) {
     s.shaderFile = str("shaderFile");
     if (j.contains("cutMs") && j["cutMs"].is_number_integer()) s.cutMs = std::clamp(j["cutMs"].get<int>(), 0, 60000);
     return s;
+}
+
+namespace {
+// Along the sweep (0 where it starts, 1 where it ends) and across it (0..1), for a point.
+void sweepAxes(float u, float v, Direction d, float& along, float& across) {
+    switch (d) {
+    case Direction::Left: along = 1 - u, across = v; break;
+    case Direction::Right: along = u, across = v; break;
+    case Direction::Up: along = 1 - v, across = u; break;
+    case Direction::Down: along = v, across = u; break;
+    }
+}
+float smooth(float e0, float e1, float x) {
+    const float t = std::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
+    return t * t * (3 - 2 * t);
+}
+bool hexRgb(const std::string& h, float out[3]) {
+    if (h.size() != 7 || h[0] != '#') return false;
+    for (int i = 0; i < 3; ++i) {
+        const std::string part = h.substr(1 + i * 2, 2);
+        char* end = nullptr;
+        const long v = std::strtol(part.c_str(), &end, 16);
+        if (!end || *end) return false;
+        out[i] = (float)v / 255.0f;
+    }
+    return true;
+}
+}  // namespace
+
+AuroraPixel aurora(float u, float v, float p, Direction d) {
+    float along, across;
+    sweepAxes(u, v, d, along, across);
+    // A slanted, gently waving front: tilted across the picture, rippling as it goes.
+    const float s = along * 0.8f + 0.1f + 0.12f * (across - 0.5f) + 0.025f * std::sin(across * 11.0f + p * 7.0f);
+    const float c = -0.3f + p * 1.6f;   // the band's centre: off one edge at 0, off the other at 1
+    AuroraPixel px;
+    px.to = 1 - smooth(c - 0.06f, c + 0.02f, s);
+    const float k = (s - c) / 0.09f;
+    px.light = std::exp(-k * k) * (0.75f + 0.25f * std::sin(across * 37.0f + p * 23.0f));
+    return px;
+}
+
+std::string auroraShader(Direction d, const std::string& colour1, const std::string& colour2) {
+    float a[3] = {0.247f, 0.812f, 0.557f}, b[3] = {0.478f, 0.361f, 1.0f};
+    hexRgb(colour1, a);
+    hexRgb(colour2, b);
+    const char* axes = d == Direction::Left ? "1 - uv.x, uv.y" : d == Direction::Right ? "uv.x, uv.y" : d == Direction::Up ? "1 - uv.y, uv.x" : "uv.y, uv.x";
+    char buf[1800];
+    std::snprintf(buf, sizeof buf, R"(// NorthRay's aurora sweep (built in; the same sums as transition::aurora).
+float4 transition(float2 uv, float progress)
+{
+    float2 ax = float2(%s);   // along the sweep, across it
+    float s = ax.x * 0.8 + 0.1 + 0.12 * (ax.y - 0.5) + 0.025 * sin(ax.y * 11.0 + progress * 7.0);
+    float c = -0.3 + progress * 1.6;
+    float toAmount = 1 - smoothstep(c - 0.06, c + 0.02, s);
+    float k = (s - c) / 0.09;
+    float light = exp(-k * k) * (0.75 + 0.25 * sin(ax.y * 37.0 + progress * 23.0));
+    float3 col = lerp(float3(%.4f, %.4f, %.4f), float3(%.4f, %.4f, %.4f), saturate(ax.y + 0.3 * sin(progress * 3.0)));
+    float4 scene = lerp(sampleFrom(uv), sampleTo(uv), toAmount);
+    return float4(saturate(scene.rgb + col * light * 0.9), 1);
+}
+)",
+                  axes, a[0], a[1], a[2], b[0], b[1], b[2]);
+    return buf;
 }
 
 std::string shaderSource(const std::string& code) {

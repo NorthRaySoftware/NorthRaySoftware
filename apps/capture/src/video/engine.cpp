@@ -418,6 +418,7 @@ void Engine::compose(const Snapshot& s) {
             break;
         }
         case transition::Kind::Shader:
+        case transition::Kind::Aurora:
             if (custom_) gpu_.drawWith(custom_.Get(), from_.srv.Get(), to_.srv.Get(), full, p, W, H);
             else {   // it didn't compile: a fade instead
                 gpu_.drawTexture(from_.srv.Get(), full, uv, 1, true);

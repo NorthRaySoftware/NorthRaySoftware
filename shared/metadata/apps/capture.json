@@ -26,6 +26,7 @@
     "A soundboard with 12 starter sounds made by NorthRay (free to use) and your own files",
     "Voice effects: reverb, pitch shift and a radio voice, as filters on any sound",
     "Green screen on any item, with a colour picker that reads your screen from the preview",
+    "The aurora sweep transition, in your brand colours",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -50,7 +51,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.12",
+  "version": "0.10.13",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

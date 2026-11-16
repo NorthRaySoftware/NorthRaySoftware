@@ -1,5 +1,6 @@
 // NorthRay Capture's window: sources, the live preview, and moving and resizing items on it.
 #include "capture_window.hpp"
+#include "video/design_render.hpp"
 
 #include "log.hpp"
 
@@ -180,7 +181,15 @@ void CaptureWindow::pushSnapshot() {
     s.items = buildItems(s.programScene, 0);
     s.transition = settings_.transition;
     s.stinger = stinger_;
-    s.shaderCode = settings_.transition.kind == transition::Kind::Shader ? shaderCode_ : std::string();
+    if (settings_.transition.kind == transition::Kind::Aurora) {   // NorthRay's own, in the brand kit's colours
+        const design::Brand b = video::designBrand();
+        const design::BrandColour* c1 = design::brandColour(b, "primary");
+        const design::BrandColour* c2 = design::brandColour(b, "secondary");
+        s.shaderCode = transition::auroraShader(settings_.transition.direction, c1 ? sourceutil::colourText(c1->colour).substr(0, 7) : "#3FCF8E",
+                                                c2 ? sourceutil::colourText(c2->colour).substr(0, 7) : "#7A5CFF");
+    } else {
+        s.shaderCode = settings_.transition.kind == transition::Kind::Shader ? shaderCode_ : std::string();
+    }
     s.studio = settings_.studioMode;
     if (s.studio) s.previewItems = buildItems(scenes_.current(), 0);
     s.selected = selected_;

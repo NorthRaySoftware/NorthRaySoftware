@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.13",
+      "date": "2026-11-16",
+      "notes": [
+        "The aurora sweep transition: a shimmering, gently waving band of aurora light crosses the picture and the new scene is behind it. It's in your brand kit's main and second colours, and goes left, right, up or down (Transition › Aurora sweep)."
+      ]
+    },
+    {
       "version": "0.10.12",
       "date": "2026-11-16",
       "notes": [

@@ -1142,3 +1142,17 @@ the same):
   colour (or says it couldn't, after 8 ticks). Esc stops picking.
 - Tested in Wine: a picture of a figure on #00B140 with a darker shadow band; the eyedropper read #00B140 exactly
   and the green and the shadow went, the face and shirt stayed.
+
+## 37. The aurora sweep transition (status: built, 16 Nov 2026; released as 0.10.13)
+
+- transition::Kind::Aurora ("aurora"). core/transition `aurora(u, v, progress, direction)` (tested) and
+  `auroraShader(direction, colour1, colour2)`, the same sums as a person's transition() function: a front slanted
+  12% across the picture and rippling (a sine across it that moves with the progress), its centre running from off one
+  edge (-0.3) to off the other (1.3); the new scene shows behind it with a short soft edge, and a Gaussian band of light
+  (shimmering across) is added in a blend of the two colours. Tested: only the old scene and no light at the start, only
+  the new one and no light at the end (every direction), a bright band halfway, the right side turning first for each
+  direction, each point only ever going from old to new, the generated HLSL (and default colours for bad ones).
+- The window generates the shader in the brand kit's main and second colours and the transition's direction; the
+  engine runs it through the custom-shader path (compiled when the code changes; a fade if it doesn't compile).
+  Transition menu: "Aurora sweep" with Direction, Duration and Easing.
+- Tested in Wine: a 2-second sweep to the right, frames show the band crossing and the new scene behind it.

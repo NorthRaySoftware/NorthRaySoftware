@@ -10,8 +10,9 @@
 namespace ncap::transition {
 
 // Stinger: a video played over the switch, which happens at its cut point. Shader: a pixel shader
-// written by the person (HLSL), given both scenes and the progress.
-enum class Kind { Cut, Fade, Slide, Swipe, LumaWipe, Stinger, Shader };
+// written by the person (HLSL), given both scenes and the progress. Aurora: NorthRay's own sweep, a band
+// of aurora light crossing the picture with the new scene behind it (a built-in shader).
+enum class Kind { Cut, Fade, Slide, Swipe, LumaWipe, Stinger, Shader, Aurora };
 enum class Easing { Linear, EaseInOut, EaseOut };
 enum class Direction { Left, Right, Up, Down };   // where the new scene moves towards
 enum class Pattern { Horizontal, Vertical, Diagonal, Circle, Clock, Blinds };
@@ -35,6 +36,16 @@ struct Settings {
 std::string shaderSource(const std::string& personsCode);
 // A starting point for writing one.
 std::string exampleShader();
+
+// The aurora sweep: travelling in direction `d`, in two colours (#RRGGBB; the brand kit's main and
+// second colours by default). Its HLSL is a transition() like a person's own; `aurora` is the same sums
+// on the CPU for the tests: how much of the new scene shows at a point (uv 0..1), and how bright the
+// band's light is there (0..1).
+std::string auroraShader(Direction d, const std::string& colour1 = "#3FCF8E", const std::string& colour2 = "#7A5CFF");
+struct AuroraPixel {
+    float to = 0, light = 0;
+};
+AuroraPixel aurora(float u, float v, float progress, Direction d);
 
 const char* key(Kind k);
 const char* key(Easing e);

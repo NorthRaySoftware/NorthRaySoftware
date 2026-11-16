@@ -41,8 +41,8 @@ enum : UINT {
 };
 const int kDurations[] = {150, 300, 500, 750, 1000, 2000};
 const float kSoftness[] = {0.0f, 0.05f, 0.12f, 0.25f};
-const wchar_t* kKindNames[] = {L"Cut", L"Fade", L"Slide", L"Swipe", L"Luma wipe", L"Stinger", L"Custom shader"};
-constexpr int kKinds = 7;
+const wchar_t* kKindNames[] = {L"Cut", L"Fade", L"Slide", L"Swipe", L"Luma wipe", L"Stinger", L"Custom shader", L"Aurora sweep"};
+constexpr int kKinds = 8;
 const wchar_t* kEaseNames[] = {L"Steady", L"Smooth (ease in and out)", L"Quick start, gentle stop"};
 const wchar_t* kDirNames[] = {L"To the left", L"To the right", L"Upwards", L"Downwards"};
 const wchar_t* kPatternNames[] = {L"Left to right", L"Top to bottom", L"Diagonal", L"Circle from the centre", L"Clock", L"Blinds"};
@@ -174,7 +174,8 @@ void CaptureWindow::transitionMenu(POINT screen) {
     items.back().enabled = timed;
     items.push_back(MenuItem::sub(L"Easing", ease));
     items.back().enabled = timed;
-    if (t.kind == tr::Kind::Slide || t.kind == tr::Kind::Swipe) items.push_back(MenuItem::sub(L"Direction", dir));
+    if (t.kind == tr::Kind::Slide || t.kind == tr::Kind::Swipe || t.kind == tr::Kind::Aurora) items.push_back(MenuItem::sub(L"Direction", dir));
+    if (t.kind == tr::Kind::Aurora) items.push_back(MenuItem::item(L"In your brand kit's main and second colours", 1, {}, false));
     if (t.kind == tr::Kind::LumaWipe) {
         items.push_back(MenuItem::sub(L"Pattern", pat));
         items.push_back(MenuItem::sub(L"Edge", soft));
