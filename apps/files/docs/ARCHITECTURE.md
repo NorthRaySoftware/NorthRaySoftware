@@ -250,7 +250,24 @@ The sidebar above the tree is clipped at the status line and scrolls with the wh
 fit (short windows, 150% scaling); the tree keeps at least 40 DIPs. Question boxes respond to clicks at any scaling
 (cjui fix, see the Studio notes).
 
-## 7h. Next
+## 7h. 0.7.0, batch rename
+
+- `nrf::batch` (core/batchrename, portable, unit-tested): `plan(files, rules, folderName, others)` makes each new name
+  from the pattern (`{name}` `{n}` `{n:3}` `{date}` `{folder}` `{ext}`; unknown braces are kept as typed), then find and
+  replace (case-insensitive unless asked), then the case change; the extension is kept unless `changeExtension`.
+  Problems: `renameProblem` against the folder's other names, a name given twice in the batch, and a name an
+  unchanged batch file keeps. `order()` turns the changes into moves that never land on a name still in use: chains
+  from the end, cycles through a temporary `~nr-rename-N.tmp`.
+- The window (src/batch_rename.cpp): a card over the window like the name card, five EDIT fields (pattern, find,
+  replace, start, digits) plus Case and two toggles, and a live preview with problems listed first. Selection from one
+  folder only (search results can span folders). Moves are `MoveFileExW` without replacing on `extendedPath`s; a
+  failure puts back what was done, last first. Labels follow each name (`labels_.moved`). The last batch is kept
+  backwards for Ctrl+Z while its folder is shown. While the card is open it has the keys (Tab between fields, Enter,
+  Escape), so Delete etc. can't reach the list.
+- Tested in Wine: pattern with find and replace and `{n:2}`, the rename and Ctrl+Z on disk, a chain (1->2, 2->3) in
+  the right order, and conflicts shown and blocking. The swap cycle is covered by the unit tests.
+
+## 7i. Next
 
 Column resizing, UI Automation for screen readers, labels that follow moves made by other programs (NTFS file ids),
 File Explorer replacement as an optional setting (roadmap: later).

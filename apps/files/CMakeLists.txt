@@ -7,7 +7,7 @@ string(STRIP "${NRF_VERSION}" NRF_VERSION)
 string(REPLACE "." "," NRF_VERSION_COMMAS "${NRF_VERSION}.0")
 
 # The portable core: paths, sorting, hidden items, selection. Tested everywhere.
-add_library(filescore STATIC core/src/paths.cpp core/src/listing.cpp core/src/exif.cpp core/src/operations.cpp core/src/search.cpp core/src/art.cpp core/src/labels.cpp)
+add_library(filescore STATIC core/src/paths.cpp core/src/listing.cpp core/src/exif.cpp core/src/operations.cpp core/src/search.cpp core/src/art.cpp core/src/labels.cpp core/src/batchrename.cpp)
 target_include_directories(filescore PUBLIC core/include)
 target_include_directories(filescore PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
@@ -35,6 +35,7 @@ configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc 
 add_executable(NorthRayFiles WIN32
   src/main.cpp
   src/files_window.cpp
+  src/batch_rename.cpp
   src/shell.cpp
   src/settings.cpp
   src/thumbnails.cpp

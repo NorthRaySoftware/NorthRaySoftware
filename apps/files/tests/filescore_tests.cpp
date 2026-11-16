@@ -1,5 +1,9 @@
 // Unit tests for NorthRay Files' portable core. Dependency-free like the other
 // suites: run it, it prints each group and exits non-zero on failure.
+#include "nrf/batchrename.hpp"
+
+#include <algorithm>
+#include <cwctype>
 #include "nrf/art.hpp"
 #include "nrf/exif.hpp"
 #include "nrf/labels.hpp"
@@ -543,6 +547,104 @@ static void testLabels() {
     CHECK_EQ(fromUtf8(std::string("ab\xE2\x82")), L"ab\uFFFD");
 }
 
+static void testBatchRename() {
+    using namespace nrf::batch;
+    auto names = [](const std::vector<Change>& cs) {
+        std::vector<std::wstring> v;
+        for (auto& c : cs) v.push_back(c.to);
+        return v;
+    };
+    const std::vector<File> art = {{L"IMG_0412.jpg", L"2026-11-14"}, {L"IMG_0413.JPG", L"2026-11-15"}, {L"sketch.png", L"2026-11-16"}};
+    // The pattern: a counter padded to 3, the original name, the date, the folder; extensions kept as they were.
+    Rules r;
+    r.pattern = L"Alvora sketch {n:3}";
+    CHECK(names(plan(art, r, L"Art", {})) == (std::vector<std::wstring>{L"Alvora sketch 001.jpg", L"Alvora sketch 002.JPG", L"Alvora sketch 003.png"}));
+    r.pattern = L"{folder} {date} - {name}";
+    r.start = 10, r.step = 5;
+    CHECK(plan(art, r, L"Art", {})[2].to == L"Art 2026-11-16 - sketch.png");
+    r.pattern = L"{n}_{name}";
+    r.digits = 2;
+    CHECK(names(plan(art, r, L"Art", {})) == (std::vector<std::wstring>{L"10_IMG_0412.jpg", L"15_IMG_0413.JPG", L"20_sketch.png"}));
+    r = {};
+    r.pattern = L"{name} {unknown}";   // unknown tokens are left as written
+    CHECK(plan({{L"a.txt"}}, r, L"F", {})[0].to == L"a {unknown}.txt" && plan({{L"a.txt"}}, r, L"F", {})[0].problem.empty());
+    r.pattern = L"{n:x}";   // not a counter, and Windows doesn't allow the colon
+    CHECK(plan({{L"a.txt"}}, r, L"F", {})[0].problem.find(L"can't contain") != std::wstring::npos);
+    // Find and replace (case ignored unless asked), then case.
+    r = {};
+    r.find = L"img_", r.replace = L"Envoy ";
+    CHECK(plan(art, r, L"", {})[0].to == L"Envoy 0412.jpg");
+    r.matchCase = true;
+    CHECK(plan(art, r, L"", {})[0].same);
+    r = {};
+    r.caseChange = Case::Lower;
+    CHECK(plan(art, r, L"", {})[0].to == L"img_0412.jpg");   // the extension stays as it was
+    r.changeExtension = true;
+    CHECK(plan(art, r, L"", {})[1].to == L"img_0413.jpg");   // ...unless asked
+    r = {};
+    r.caseChange = Case::Title;
+    CHECK(plan({{L"the grey wanderer's 3rd sketch.png"}}, r, L"", {})[0].to == L"The Grey Wanderer's 3rd Sketch.png");
+    CHECK(plan({{L"Notes"}}, r, L"", {})[0].same);
+    // Folders have no extension; a leading dot isn't one.
+    r = {};
+    r.pattern = L"{name} old";
+    CHECK(plan({{L"v1.2", L"", true}}, r, L"", {})[0].to == L"v1.2 old" && plan({{L".gitignore"}}, r, L"", {})[0].to == L".gitignore old");
+    // Problems: the same name twice, a name already in the folder, bad characters, a device name, a kept name.
+    r = {};
+    r.pattern = L"cover";
+    auto cs = plan(art, r, L"", {});
+    CHECK(!cs[0].problem.empty() && !canDo(cs));   // cover.jpg and cover.JPG are the same name to Windows
+    r.pattern = L"{name}";
+    r.find = L"sketch", r.replace = L"readme";
+    cs = plan(art, r, L"", {L"README.png"});
+    CHECK(cs[2].problem.find(L"already") != std::wstring::npos);
+    r.replace = L"what?";
+    CHECK(plan(art, r, L"", {})[2].problem.find(L"can't contain") != std::wstring::npos);
+    r.replace = L"CON";
+    CHECK(!plan(art, r, L"", {})[2].problem.empty());
+    r = {};
+    r.find = L"IMG_0413", r.replace = L"IMG_0412";
+    cs = plan(art, r, L"", {});
+    CHECK(!cs[1].problem.empty() && cs[0].same && !canDo(cs));   // IMG_0412.jpg keeps the name IMG_0412.JPG wants
+    r = {};
+    CHECK(!canDo(plan(art, r, L"", {})));   // nothing changes
+    // Order: swaps and chains never land on a name in use.
+    auto simulate = [](std::vector<std::wstring> folder, const std::vector<Step>& steps) {
+        for (auto& s : steps) {
+            auto low = [](std::wstring x) {
+                for (auto& c : x) c = (wchar_t)towlower(c);
+                return x;
+            };
+            auto it = std::find_if(folder.begin(), folder.end(), [&](const std::wstring& n) { return low(n) == low(s.from); });
+            if (it == folder.end()) return std::vector<std::wstring>{L"MISSING " + s.from};
+            const bool caseOnly = low(s.from) == low(s.to);
+            if (!caseOnly && std::any_of(folder.begin(), folder.end(), [&](const std::wstring& n) { return low(n) == low(s.to); }))
+                return std::vector<std::wstring>{L"OVERWRITE " + s.to};
+            *it = s.to;
+        }
+        std::sort(folder.begin(), folder.end());
+        return folder;
+    };
+    std::vector<Change> swap = {{L"a.png", L"b.png"}, {L"b.png", L"a.png"}};
+    auto steps = order(swap, {L"a.png", L"b.png", L"~nr-rename-1.tmp"});
+    CHECK(steps.size() == 3 && steps[0].to == L"~nr-rename-2.tmp");   // a temporary name not already there
+    CHECK(simulate({L"a.png", L"b.png", L"~nr-rename-1.tmp"}, steps) == (std::vector<std::wstring>{L"a.png", L"b.png", L"~nr-rename-1.tmp"}));
+    std::vector<Change> chain = {{L"1.png", L"2.png"}, {L"2.png", L"3.png"}, {L"3.png", L"4.png"}};
+    steps = order(chain, {L"1.png", L"2.png", L"3.png"});
+    CHECK(steps.size() == 3 && simulate({L"1.png", L"2.png", L"3.png"}, steps) == (std::vector<std::wstring>{L"2.png", L"3.png", L"4.png"}));
+    std::vector<Change> rot = {{L"a", L"b"}, {L"b", L"c"}, {L"c", L"a"}, {L"x", L"X"}};
+    steps = order(rot, {L"a", L"b", L"c", L"x"});
+    CHECK(steps.size() == 5 && simulate({L"a", L"b", L"c", L"x"}, steps) == (std::vector<std::wstring>{L"X", L"a", L"b", L"c"}));
+    // A whole plan: numbered in order, where the new names are the old ones shifted along.
+    const std::vector<File> shots = {{L"2.png"}, {L"3.png"}, {L"1.png"}};
+    r = {};
+    r.pattern = L"{n}";
+    cs = plan(shots, r, L"", {});
+    CHECK(canDo(cs));
+    CHECK(simulate({L"1.png", L"2.png", L"3.png"}, order(cs, {L"1.png", L"2.png", L"3.png"})) == (std::vector<std::wstring>{L"1.png", L"2.png", L"3.png"}));
+    CHECK(cs[0].to == L"1.png" && cs[2].to == L"3.png");
+}
+
 int main() {
     testNormalize();
     testPathParts();
@@ -554,6 +656,7 @@ int main() {
     testSearch();
     testArt();
     testLabels();
+    testBatchRename();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

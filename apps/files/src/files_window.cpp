@@ -72,7 +72,7 @@ enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTile
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
-    CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
+    CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdBatchRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
     CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
 };
 
@@ -163,6 +163,11 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     ask_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(ask_, quietEditProc, 4, 0);
     SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
+    for (auto& f : batch_.fields) {
+        f = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
+        SetWindowSubclass(f, quietEditProc, 5, 0);
+        SendMessageW(f, EM_SETLIMITTEXT, 200, 0);
+    }
     loadLabels();
     {
         // Files dragged in from other programs.
@@ -643,6 +648,24 @@ bool FilesWindow::preTranslate(MSG& msg) {
         if (msg.wParam == VK_RETURN) { endAsk(true); return true; }
         if (msg.wParam == VK_ESCAPE) { endAsk(false); return true; }
     }
+    if (batch_.open && msg.message == WM_KEYDOWN) {
+        for (int i = 0; i < 5; ++i) {
+            if (msg.hwnd != batch_.fields[i]) continue;
+            if (msg.wParam == VK_ESCAPE) { closeBatchRename(); return true; }
+            if (msg.wParam == VK_RETURN) {
+                if (batch::canDo(batchPlan())) doBatchRename();
+                return true;
+            }
+            if (msg.wParam == VK_TAB) {
+                const bool back = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                HWND next = batch_.fields[(i + (back ? 4 : 1)) % 5];
+                SetFocus(next);
+                SendMessageW(next, EM_SETSEL, 0, -1);
+                invalidate();
+                return true;
+            }
+        }
+    }
     if (msg.hwnd == search_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) {
             KillTimer(hwnd(), kSearchTimer);
@@ -700,6 +723,10 @@ void FilesWindow::typeAhead(wchar_t c) {
 }
 
 bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
+    if (batch_.open) {   // the card has the keys
+        if (vk == VK_ESCAPE) closeBatchRename();
+        return true;
+    }
     const std::size_t n = here_.thisPC ? 0 : shown_.size();
     const bool icons = settings_.view != ViewMode::Details;
     const int cols = icons ? std::max(1, columns_) : 1;
@@ -726,6 +753,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
             case 'F': focusSearch(); return true;
             case 'E': focusSearch(); return true;
             case 'R': refresh(); return true;
+            case 'Z': if (!undoBatchRename()) flash(L"Nothing to undo here.", 4); return true;
             case VK_SPACE: sel_.toggleFocused(); return true;
             default: break;
         }
@@ -734,6 +762,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         switch (vk) {
             case 'C': copyPaths(); return true;
             case 'N': newFolder(); return true;
+            case VK_F2: openBatchRename(); return true;
             case VK_TAB: activate(pane_, (activeTab_[pane_] + (int)tabs_[pane_].size() - 1) % (int)tabs_[pane_].size()); return true;
             case '6': setView(ViewMode::Details); return true;
             case '2': setView(ViewMode::Icons); return true;
@@ -780,6 +809,11 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 }
 
 bool FilesWindow::onMouseDown(float x, float y) {
+    if (batch_.open) {
+        if (batchCard_.contains(x, y)) return false;   // its buttons
+        closeBatchRename();
+        return true;
+    }
     if (asking_) {
         if (askCard_.contains(x, y)) return false;   // its buttons
         endAsk(false);
@@ -985,6 +1019,11 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 handled = true;
                 return 0;
             }
+            if (batch_.open && std::find(std::begin(batch_.fields), std::end(batch_.fields), (HWND)lp) != std::end(batch_.fields)) {
+                if (HIWORD(wp) == EN_CHANGE || HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS) invalidate();
+                handled = true;
+                return 0;
+            }
             if ((HWND)lp == search_ && HIWORD(wp) == EN_CHANGE) {
                 if (!settingSearch_) searchTyped();
                 handled = true;
@@ -1002,7 +1041,8 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             break;
         case WM_CTLCOLOREDIT:
-            if ((HWND)lp == address_ || (HWND)lp == rename_ || (HWND)lp == search_ || (HWND)lp == ask_) {
+            if ((HWND)lp == address_ || (HWND)lp == rename_ || (HWND)lp == search_ || (HWND)lp == ask_ ||
+                std::find(std::begin(batch_.fields), std::end(batch_.fields), (HWND)lp) != std::end(batch_.fields)) {
                 HDC dc = (HDC)wp;
                 SetTextColor(dc, toColorRef(pal_.ink));
                 SetBkColor(dc, toColorRef(pal_.sunken));
@@ -1202,6 +1242,7 @@ void FilesWindow::showItemMenu(POINT screen) {
         items.push_back(MenuItem::item(L"Copy", CmdCopy, L"Ctrl+C"));
         if (oneFolder) items.push_back(MenuItem::item(L"Paste into this folder", CmdPasteInto, {}, canPaste));
         items.push_back(MenuItem::item(L"Rename", CmdRename, L"F2", n == 1));
+        if (n >= 2) items.push_back(MenuItem::item(L"Rename these together\u2026", CmdBatchRename, L"Ctrl+Shift+F2", !here_.bin));
         items.push_back(MenuItem::item(L"Delete", CmdDelete, L"Delete"));
         items.push_back(MenuItem::sep());
         items.push_back(MenuItem::item(n > 1 ? L"Copy paths" : L"Copy path", CmdCopyPath, L"Ctrl+Shift+C"));
@@ -1282,6 +1323,7 @@ void FilesWindow::showItemMenu(POINT screen) {
         case CmdPaste: paste(); break;
         case CmdPasteInto: { const auto rows = sel_.indices(); if (rows.size() == 1) paste(rowPath(rows[0])); break; }
         case CmdRename: beginRename(); break;
+        case CmdBatchRename: openBatchRename(); break;
         case CmdDelete: deleteSelection(false); break;
         case CmdNewFolder: newFolder(); break;
         case CmdCopyPath: copyPaths(); break;
@@ -2826,6 +2868,7 @@ void FilesWindow::drawFrame(float W, float H) {
     }
     drawToast({side, kToolbarH, W - side, H - kToolbarH});
     if (asking_) drawAsk(W, H);
+    if (batch_.open) drawBatchRename(W, H);
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
         const float s = gfx_.dpiScale();

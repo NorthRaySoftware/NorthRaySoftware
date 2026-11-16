@@ -11,6 +11,7 @@
 #include "shell.hpp"
 #include "thumbnails.hpp"
 
+#include "nrf/batchrename.hpp"
 #include "nrf/labels.hpp"
 #include "nrf/listing.hpp"
 
@@ -206,6 +207,25 @@ private:
     std::wstring askTitle_;
     std::function<void(const std::wstring&)> askDone_;
     cjui::Rect askCard_{};
+    // Batch rename (0.7): rules for many names at once, previewed (batch_rename.cpp).
+    void openBatchRename();
+    void closeBatchRename();
+    std::vector<batch::Change> batchPlan();
+    void doBatchRename();
+    bool undoBatchRename();
+    void drawBatchRename(float W, float H);
+    struct BatchRename {
+        bool open = false;
+        std::wstring folder;
+        std::vector<batch::File> files;
+        batch::Rules rules;
+        HWND fields[5]{};   // pattern, find, replace, start, digits
+        int focus = 0;
+    } batch_;
+    std::vector<std::wstring> batchOthers_;
+    std::vector<batch::Step> undoBatch_;   // the last batch, backwards
+    std::wstring undoBatchFolder_;
+    cjui::Rect batchCard_{};
 
     // The preview pane (0.4)
     void togglePreview();

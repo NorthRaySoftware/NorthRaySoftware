@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.7.0",
+      "date": "2026-11-16",
+      "notes": [
+        "Rename many files at once: select them, right-click and choose “Rename these together” (or Ctrl+Shift+F2). Build the new names from {name} (the name now), {n} (a number, with a start and a number of digits), {date} (the day it was last changed) and {folder} (the folder's name), find and replace within them, and change them to lower case, UPPER CASE or Title Case. Extensions are kept unless you choose to change them too.",
+        "Every new name is previewed before anything happens, and names that can't be used (already taken, given twice, or not allowed by Windows) are shown in red and stop the rename. Renames that depend on each other, such as 1 to 2 and 2 to 3, or two names swapped, are done in an order that never overwrites anything.",
+        "Ctrl+Z puts the old names back after a batch rename, and colour labels, tags and collections follow the new names. If a rename fails part-way, the names already changed are put back."
+      ]
+    },
+    {
       "version": "0.6.1",
       "date": "2026-11-14",
       "notes": [

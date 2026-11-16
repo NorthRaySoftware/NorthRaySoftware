@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.86.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Files 0.7.0: rename many files at once, with a preview."
+      ]
+    },
+    {
       "version": "0.85.0",
       "date": "2026-11-16",
       "notes": [
