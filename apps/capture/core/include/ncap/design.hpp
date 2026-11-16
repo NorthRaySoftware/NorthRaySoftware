@@ -128,6 +128,10 @@ struct Brand {
     std::string headingFont = "Segoe UI", bodyFont = "Segoe UI";
     std::vector<std::string> fontFiles;        // font files (.ttf, .otf) the designs can use, up to 16
     std::string logo;                          // a picture
+    // Videos: a transition stinger (the scene switches `stingerCutMs` in) and an intro and outro to play
+    // when their scenes go live. Files copied into the kit's folder; "" = not set.
+    std::string stinger, intro, outro;
+    int stingerCutMs = 500;                    // 0-10000
     bool operator==(const Brand&) const = default;
 };
 const std::vector<std::string>& brandKeys();   // primary, secondary, text, soft, panel, night

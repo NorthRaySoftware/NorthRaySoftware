@@ -915,7 +915,8 @@ std::string toJson(const Brand& b) {
     json f = json::array();
     for (auto& x : b.fontFiles) f.push_back(x);
     return json{{"format", "northray-brand"}, {"version", 1}, {"colours", c}, {"headingFont", b.headingFont},
-                {"bodyFont", b.bodyFont}, {"fontFiles", f}, {"logo", b.logo}}
+                {"bodyFont", b.bodyFont}, {"fontFiles", f}, {"logo", b.logo},
+                {"stinger", b.stinger}, {"stingerCutMs", b.stingerCutMs}, {"intro", b.intro}, {"outro", b.outro}}
         .dump(2);
 }
 
@@ -944,6 +945,13 @@ Brand brandFromJson(const std::string& text) {
             if (x.is_string() && b.fontFiles.size() < 16 && !x.get<std::string>().empty() && x.get<std::string>().size() <= 1024)
                 b.fontFiles.push_back(x.get<std::string>());
     if (j.contains("logo") && j["logo"].is_string() && j["logo"].get<std::string>().size() <= 1024) b.logo = j["logo"].get<std::string>();
+    auto path = [&](const char* k, std::string& out) {
+        if (j.contains(k) && j[k].is_string() && j[k].get<std::string>().size() <= 1024) out = j[k].get<std::string>();
+    };
+    path("stinger", b.stinger);
+    path("intro", b.intro);
+    path("outro", b.outro);
+    if (j.contains("stingerCutMs") && j["stingerCutMs"].is_number_integer()) b.stingerCutMs = std::clamp(j["stingerCutMs"].get<int>(), 0, 10000);
     return b;
 }
 

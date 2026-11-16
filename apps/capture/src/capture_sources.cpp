@@ -173,14 +173,20 @@ void CaptureWindow::pushSnapshot() {
         enteredScene_ = s.programScene;
         if (const Scene* sc = scenes_.scene(s.programScene))
             for (auto& it : sc->items)
-                if (const Source* src = scenes_.source(it.source); src && src->kind == SourceKind::Design)
+                if (const Source* src = scenes_.source(it.source); src && src->kind == SourceKind::Design) {
                     if (auto l = live_.find(src->id); l != live_.end() && l->second.capture) {
                         l->second.capture->command("enter");
                         designEntered_[src->id] = GetTickCount64();   // its timers count from here (timerTick)
                     }
+                } else if (src && src->kind == SourceKind::Media && src->settings.find("\"fromStartWhenShown\":true") != std::string::npos) {
+                    // Intros and outros: from the start, playing, each time the scene goes live.
+                    if (auto l = live_.find(src->id); l != live_.end() && l->second.capture) l->second.capture->command("start");
+                }
     }
     s.items = buildItems(s.programScene, 0);
     s.transition = settings_.transition;
+    if (s.transition.kind == transition::Kind::Stinger && s.transition.stingerFile == kBrandStinger)
+        s.transition.cutMs = video::designBrand().stingerCutMs;   // the brand kit's stinger and its cut point
     s.stinger = stinger_;
     if (settings_.transition.kind == transition::Kind::Aurora) {   // NorthRay's own, in the brand kit's colours
         const design::Brand b = video::designBrand();
@@ -281,6 +287,11 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
     items.push_back(MenuItem::item(L"Colour\u2026", 8));
     items.push_back(MenuItem::item(L"Aurora sky", 14, L"a live animated background"));
+    {
+        const design::Brand kit = video::designBrand();
+        items.push_back(MenuItem::item(L"Your intro video", 15, kit.intro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.intro.empty()));
+        items.push_back(MenuItem::item(L"Your outro video", 16, kit.outro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.outro.empty()));
+    }
     items.push_back(MenuItem::item(L"Part of the screen\u2026", 9, L"drag a rectangle"));
     items.push_back(MenuItem::sep());
     const AudioChoices sound = audioChoices();
@@ -297,6 +308,8 @@ void CaptureWindow::addSourceMenu(POINT screen) {
         case 12: addDesign(); return;
         case 13: addMusic(); return;
         case 14: addAuroraSky(); return;
+        case 15: addBrandVideo(true); return;
+        case 16: addBrandVideo(false); return;
         default: break;
     }
     if (cmd == 10) {

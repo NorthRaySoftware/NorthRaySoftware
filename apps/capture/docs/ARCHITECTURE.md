@@ -1277,3 +1277,22 @@ the same):
   marked) and Stop following; an item at its source's own size gets that size written down first (pinSize).
 - Tested in Wine: a text following a picture; Position and size… on the picture (800×600 at 560,240 to 400×300 at
   100,100) moved and halved the text to the same place on it (842,494.5 to 241,227.25), saved with the link.
+
+## 44. Videos in the brand kit: stinger, intro, outro (status: built, 16 Nov 2026; released as 0.10.20)
+
+- design::Brand gains `stinger`, `intro`, `outro` (paths, copied into %LOCALAPPDATA%\NorthRay\Brand\Videos) and
+  `stingerCutMs` (0-10000), saved in brand.json (tested: round trip, bad types and long paths ignored, the cut
+  clamped). Brand kit… › Videos sets and removes them and sets the stinger's cut point.
+- Transitions: Stinger › "Your brand kit's stinger" stores stingerFile "brand:stinger" (kBrandStinger);
+  applyTransitionFiles resolves it to the kit's file, pushSnapshot gives the engine the kit's cut point, and editing
+  "When the scene switches…" while it's linked writes the kit. Saving the kit reloads the stinger (brandVideos).
+- Media sources: "fromStartWhenShown" sends "start" (from the beginning, playing) when their scene goes live, from
+  the same place designs get "enter" (pushSnapshot, top-level items of the program scene). Add a source › Your
+  intro/outro video makes a once-through media source with it and "brandVideo": "intro"/"outro", which saving the
+  kit points at the kit's current video.
+- Fixed: media sources' menu. Their commands (pause, play, from the start, next, loop, shuffle, files) were added in
+  0.8.3 without any menu offering them; right-click › Video or sound now has them, plus the new option.
+- Tested in Wine with a 3-second H.264 clip in the kit: the intro played once and stopped ("Finished"), and
+  restarted from the start each time its scene was switched to (frames 13, 22, 29; status 0:00 to 0:03); the
+  transition set to the kit's stinger showed "Stinger · brand kit" and the kit's 1.5 s cut, played full-screen over
+  the switch and ended on the new scene; changing the cut there saved 800 ms to brand.json.

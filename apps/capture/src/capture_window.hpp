@@ -40,6 +40,9 @@
 
 namespace ncap {
 
+// The transition's stinger file when it's the brand kit's (Settings.transition.stingerFile).
+inline constexpr const char* kBrandStinger = "brand:stinger";
+
 
 class CaptureWindow : public cjui::AppWindow {
 public:
@@ -277,6 +280,8 @@ private:
     void openChecklist();
     void automationTick();
     void addAuroraSky();
+    void addBrandVideo(bool intro);
+    void brandVideos();
     void brandSky(aurora_sky::Settings& a) const;
     void brandSkies();
     void registerHotkeys();

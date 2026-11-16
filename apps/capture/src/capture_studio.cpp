@@ -7,6 +7,7 @@
 #include "capture_window.hpp"
 
 #include "log.hpp"
+#include "video/design_render.hpp"
 
 #include "cjui/menu.hpp"
 
@@ -37,7 +38,7 @@ enum : UINT {
     CmdPattern0 = 500,     // + Pattern
     CmdSoft0 = 600,        // + index into kSoftness
     CmdInvert = 700,
-    CmdStingerFile, CmdStingerCut, CmdShaderFile, CmdShaderExample, CmdShaderReload,
+    CmdStingerFile, CmdStingerCut, CmdStingerBrand, CmdShaderFile, CmdShaderExample, CmdShaderReload,
 };
 const int kDurations[] = {150, 300, 500, 750, 1000, 2000};
 const float kSoftness[] = {0.0f, 0.05f, 0.12f, 0.25f};
@@ -83,9 +84,10 @@ std::wstring shortName(const std::string& path) {
 
 void CaptureWindow::applyTransitionFiles(bool reload) {
     const tr::Settings& t = settings_.transition;
-    // The stinger: a media source of its own, kept paused at its start.
-    if (t.stingerFile != stingerFile_ || reload) {
-        stingerFile_ = t.stingerFile;
+    // The stinger: a media source of its own, kept paused at its start ("brand:stinger": the brand kit's).
+    const std::string file = t.stingerFile == kBrandStinger ? video::designBrand().stinger : t.stingerFile;
+    if (file != stingerFile_ || reload) {
+        stingerFile_ = file;
         stinger_.reset();
         if (!stingerFile_.empty())
             stinger_ = video::createVideoSource(SourceKind::Media,
@@ -118,6 +120,7 @@ std::wstring CaptureWindow::transitionLabel() const {
     const tr::Settings& t = settings_.transition;
     std::wstring s = kKindNames[(int)t.kind];
     if (t.kind == tr::Kind::Stinger) {
+        if (t.stingerFile == kBrandStinger) return s + L" \u00B7 brand kit";
         wchar_t b[48];
         swprintf(b, 48, L" \u00B7 cut at %.2g s", t.cutMs / 1000.0);
         return s + b;
@@ -182,9 +185,14 @@ void CaptureWindow::transitionMenu(POINT screen) {
         items.push_back(MenuItem::item(L"Run it the other way", CmdInvert, {}, true, t.invert));
     }
     if (t.kind == tr::Kind::Stinger) {
-        items.push_back(MenuItem::item(L"Choose the video\u2026", CmdStingerFile, t.stingerFile.empty() ? L"none yet" : shortName(t.stingerFile)));
+        const bool brand = t.stingerFile == kBrandStinger;
+        const design::Brand kit = video::designBrand();
+        items.push_back(MenuItem::item(L"Your brand kit's stinger", CmdStingerBrand, kit.stinger.empty() ? L"none in the kit yet" : shortName(kit.stinger),
+                                       true, brand));
+        items.push_back(MenuItem::item(L"Choose the video\u2026", CmdStingerFile, t.stingerFile.empty() || brand ? L"none yet" : shortName(t.stingerFile), true,
+                                       !brand && !t.stingerFile.empty()));
         wchar_t cut[32];
-        swprintf(cut, 32, L"%.2g s", t.cutMs / 1000.0);
+        swprintf(cut, 32, L"%.2g s", (brand ? kit.stingerCutMs : t.cutMs) / 1000.0);
         items.push_back(MenuItem::item(L"When the scene switches\u2026", CmdStingerCut, cut));
     }
     if (t.kind == tr::Kind::Shader) {
@@ -200,15 +208,28 @@ void CaptureWindow::transitionMenu(POINT screen) {
     const COMDLG_FILTERSPEC shaders[] = {{L"HLSL shaders", L"*.hlsl;*.fx;*.txt"}, {L"All files", L"*.*"}};
     std::wstring path;
     if (cmd >= CmdKind0 && cmd < CmdKind0 + kKinds) t.kind = (tr::Kind)(cmd - CmdKind0);
-    else if (cmd == CmdStingerFile) {
+    else if (cmd == CmdStingerBrand) {
+        if (video::designBrand().stinger.empty()) {
+            flash(L"Add a stinger video to the brand kit first (Brand kit… in the overlay designer › Transition stinger).", 7);
+            return;
+        }
+        t.stingerFile = kBrandStinger;
+    } else if (cmd == CmdStingerFile) {
         if (!fileDialog(hwnd(), false, L"Choose the stinger video", videos, 2, nullptr, {}, path)) return;
         t.stingerFile = narrow(path);
     } else if (cmd == CmdStingerCut) {
         wchar_t now[32];
-        swprintf(now, 32, L"%.2g", t.cutMs / 1000.0);
-        askText(L"Seconds into the video when the scene switches (when it covers the screen)", now, [this](const std::wstring& v) {
+        const bool brand = t.stingerFile == kBrandStinger;
+        swprintf(now, 32, L"%.2g", (brand ? video::designBrand().stingerCutMs : t.cutMs) / 1000.0);
+        askText(L"Seconds into the video when the scene switches (when it covers the screen)", now, [this, brand](const std::wstring& v) {
             const double secs = _wtof(v.c_str());
-            if (secs < 0 || secs > 60) return;
+            if (secs < 0 || secs > (brand ? 10 : 60)) return;
+            if (brand) {   // the kit's own cut point
+                design::Brand k = video::designBrand();
+                k.stingerCutMs = (int)(secs * 1000 + 0.5);
+                saveBrand(k);
+                return;
+            }
             settings_.transition.cutMs = (int)(secs * 1000 + 0.5);
             settings_.save(settingsPath_);
             invalidate();

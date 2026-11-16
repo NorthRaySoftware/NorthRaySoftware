@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.20",
+      "date": "2026-11-16",
+      "notes": [
+        "The brand kit now holds videos (Brand kit… › Videos): a transition stinger with the point where the scene switches, and an intro and an outro. Transition › Stinger › Your brand kit's stinger uses the kit's, so changing the kit changes it.",
+        "Add a source › Your intro video / Your outro video: plays once from the start each time its scene goes live, and follows the kit.",
+        "Video and sound sources finally have their menu (right-click › Video or sound): pause, play, from the start, next file, loop, shuffle, choose other files, and the new Play from the start when its scene goes live. The controls were built in 0.8.3, but no menu offered them."
+      ]
+    },
+    {
       "version": "0.10.19",
       "date": "2026-11-16",
       "notes": [

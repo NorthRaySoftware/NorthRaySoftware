@@ -102,6 +102,7 @@ void CaptureWindow::saveBrand(const dz::Brand& b) {
     }
     video::setDesignBrand(b);
     brandSkies();
+    brandVideos();
     designRendered_.clear();
     invalidate();
 }
@@ -167,6 +168,20 @@ void CaptureWindow::editBrand() {
     items.push_back(MenuItem::item(L"LOGO", 0, {}, false));
     items.push_back(MenuItem::item(L"Logo picture…", 13, b.logo.empty() ? L"not set" : fs::path(widen(b.logo)).filename().wstring()));
     items.push_back(MenuItem::item(L"Remove the logo", 14, {}, !b.logo.empty()));
+    items.push_back(MenuItem::sep());
+    items.push_back(MenuItem::item(L"VIDEOS", 0, {}, false));
+    auto fileName = [](const std::string& p) { return p.empty() ? std::wstring(L"not set") : fs::path(widen(p)).filename().wstring(); };
+    wchar_t cut[32];
+    swprintf(cut, 32, L"%.2g s", b.stingerCutMs / 1000.0);
+    items.push_back(MenuItem::item(L"Transition stinger…", 20, fileName(b.stinger)));
+    items.push_back(MenuItem::item(L"When the stinger switches scenes…", 21, cut, !b.stinger.empty()));
+    items.push_back(MenuItem::item(L"Intro video…", 23, fileName(b.intro)));
+    items.push_back(MenuItem::item(L"Outro video…", 25, fileName(b.outro)));
+    std::vector<MenuItem> rmv;
+    if (!b.stinger.empty()) rmv.push_back(MenuItem::item(L"The stinger", 22));
+    if (!b.intro.empty()) rmv.push_back(MenuItem::item(L"The intro", 24));
+    if (!b.outro.empty()) rmv.push_back(MenuItem::item(L"The outro", 26));
+    if (!rmv.empty()) items.push_back(MenuItem::sub(L"Remove a video", rmv));
     POINT pt;
     GetCursorPos(&pt);
     const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
@@ -232,6 +247,38 @@ void CaptureWindow::editBrand() {
         flash(L"Logo set. Templates' Logo watermark and pictures set to Your brand logo show it.", 6);
     } else if (cmd == 14) {
         b.logo.clear();
+        saveBrand(b);
+    } else if (cmd == 20 || cmd == 23 || cmd == 25) {
+        std::wstring path;
+        const wchar_t* title = cmd == 20 ? L"The brand kit's transition stinger" : cmd == 23 ? L"The brand kit's intro video" : L"The brand kit's outro video";
+        if (!pickFile(hwnd(), title, L"Videos", L"*.mp4;*.mov;*.mkv;*.avi;*.wmv;*.webm;*.m4v", path)) return;
+        std::wstring err;
+        const std::wstring copy = copyIntoKit(path, L"Videos", err);
+        if (copy.empty()) {
+            flash(err, 6);
+            return;
+        }
+        (cmd == 20 ? b.stinger : cmd == 23 ? b.intro : b.outro) = narrow(copy);
+        saveBrand(b);
+        flash(cmd == 20 ? L"Stinger set. In Transition › Stinger, choose Your brand kit's stinger."
+                        : L"Set. Add it with Add a source › Your intro/outro video: it plays from the start each time its scene goes live.",
+              7);
+        log::info(std::string("brand: ") + (cmd == 20 ? "stinger" : cmd == 23 ? "intro" : "outro") + " video set");
+    } else if (cmd == 21) {
+        wchar_t now[32];
+        swprintf(now, 32, L"%.2g", b.stingerCutMs / 1000.0);
+        askText(L"Seconds into the stinger when the scene switches (when it covers the screen)", now, [this](const std::wstring& v) {
+            const double secs = _wtof(v.c_str());
+            if (secs < 0 || secs > 10) {
+                flash(L"Type a number of seconds from 0 to 10.", 5);
+                return;
+            }
+            dz::Brand k = video::designBrand();
+            k.stingerCutMs = (int)(secs * 1000 + 0.5);
+            saveBrand(k);
+        });
+    } else if (cmd == 22 || cmd == 24 || cmd == 26) {
+        (cmd == 22 ? b.stinger : cmd == 24 ? b.intro : b.outro).clear();
         saveBrand(b);
     }
 }

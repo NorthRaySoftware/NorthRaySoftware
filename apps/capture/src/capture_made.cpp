@@ -34,7 +34,7 @@ enum : UINT {
     CmdImageFile = 6000,
     CmdTextEdit, CmdTextBold, CmdTextItalic, CmdTextFontOther, CmdTextSizeOther, CmdTextColourOther, CmdTextOutlineColourOther, CmdTextWrap,
     CmdColourOther, CmdBoxSize, CmdSlideFolder, CmdSlideShuffle, CmdRegionAgain,
-    CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit,
+    CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit, CmdMediaFromStart,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
     CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight,
@@ -372,6 +372,43 @@ void CaptureWindow::brandSkies() {
     }
 }
 
+// The brand kit's intro or outro as a video source: once through, from the start each time its scene goes
+// live, and following the kit (a new video in the kit replaces it here too).
+void CaptureWindow::addBrandVideo(bool intro) {
+    const design::Brand b = video::designBrand();
+    const std::string& file = intro ? b.intro : b.outro;
+    if (file.empty()) {
+        flash(L"Add an intro or outro video to the brand kit first (Brand kit… in the overlay designer › Videos).", 7);
+        return;
+    }
+    addCapture(SourceKind::Media, intro ? "Intro" : "Outro",
+               json{{"files", {file}}, {"loop", false}, {"shuffle", false}, {"volume", 1.0}, {"muted", false}, {"fromStartWhenShown", true},
+                    {"brandVideo", intro ? "intro" : "outro"}}
+                   .dump());
+}
+
+// After the brand kit changes: intro and outro sources take its videos, and the stinger is reloaded.
+void CaptureWindow::brandVideos() {
+    const design::Brand b = video::designBrand();
+    bool changed = false;
+    for (auto& s : scenes_.sources()) {
+        if (s.kind != SourceKind::Media || s.settings.find("brandVideo") == std::string::npos) continue;
+        json j = json::parse(s.settings, nullptr, false);
+        if (!j.is_object() || !j.contains("brandVideo") || !j["brandVideo"].is_string()) continue;
+        const std::string& want = j["brandVideo"].get<std::string>() == "intro" ? b.intro : b.outro;
+        if (want.empty()) continue;   // removed from the kit: keep the last one rather than show nothing
+        if (j.contains("files") && j["files"].is_array() && j["files"].size() == 1 && j["files"][0] == want) continue;
+        j["files"] = json::array({want});
+        scenes_.setSourceSettings(s.id, j.dump());
+        changed = true;
+    }
+    if (changed) {
+        syncSources();
+        scenesChanged();
+    }
+    if (settings_.transition.stingerFile == kBrandStinger) applyTransitionFiles(false);
+}
+
 void CaptureWindow::addAuroraSky() {
     aurora_sky::Settings a;
     brandSky(a);
@@ -523,6 +560,25 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
             break;
         }
         case SourceKind::Region: menu.push_back(MenuItem::item(L"Pick the region again…", CmdRegionAgain)); break;
+        case SourceKind::Media: {
+            std::size_t files = 0;
+            if (s.is_object() && s.contains("files") && s["files"].is_array()) files = s["files"].size();
+            std::vector<MenuItem> media = {
+                MenuItem::item(L"Pause", CmdMediaPause),
+                MenuItem::item(L"Play", CmdMediaPlay),
+                MenuItem::item(L"From the start", CmdMediaRestart),
+                MenuItem::item(L"Next file", CmdMediaNext, {}, files > 1),
+                MenuItem::sep(),
+                MenuItem::item(L"Loop", CmdMediaLoop, {}, true, flag(s, "loop", true)),
+                MenuItem::item(L"Shuffle", CmdMediaShuffle, {}, files > 1, flag(s, "shuffle", false)),
+                MenuItem::item(L"Play from the start when its scene goes live", CmdMediaFromStart, L"intros, outros", true,
+                               flag(s, "fromStartWhenShown", false)),
+                MenuItem::sep(),
+                MenuItem::item(L"Choose other files…", CmdMediaFiles, std::to_wstring(files) + (files == 1 ? L" file" : L" files")),
+            };
+            menu.push_back(MenuItem::sub(L"Video or sound", media));
+            break;
+        }
         case SourceKind::Design: menu.push_back(MenuItem::item(L"Edit the design…", CmdDesignEdit, L"the overlay designer")); break;
         case SourceKind::AuroraSky: {
             const aurora_sky::Settings a = aurora_sky::fromJson(src.settings);
@@ -670,6 +726,7 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
             it->second.capture->command(cmd == CmdMediaPause ? "pause" : cmd == CmdMediaPlay ? "play" : cmd == CmdMediaRestart ? "restart" : "next");
     } else if (cmd == CmdMediaLoop) changeSourceSetting(source, "loop", !flag(s, "loop", true));
     else if (cmd == CmdMediaShuffle) changeSourceSetting(source, "shuffle", !flag(s, "shuffle", false));
+    else if (cmd == CmdMediaFromStart) changeSourceSetting(source, "fromStartWhenShown", !flag(s, "fromStartWhenShown", false));
     else if (cmd == CmdMediaFiles) {
         std::vector<std::wstring> files;
         if (pickMany(hwnd(), L"Choose video or sound files", files)) {

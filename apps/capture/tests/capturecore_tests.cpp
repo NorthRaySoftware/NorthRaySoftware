@@ -1665,6 +1665,20 @@ static void testFollow() {
     CHECK(e.fromJson(j.dump()) && e.item(sc, frame) && e.item(sc, frame)->follow.item.empty());
 }
 
+static void testBrandVideos() {
+    std::printf("brand kit videos\n");
+    design::Brand b = design::defaultBrand();
+    CHECK(b.stinger.empty() && b.stingerCutMs == 500 && b.intro.empty() && b.outro.empty());
+    b.stinger = "C:\\Users\\cj\\AppData\\Local\\NorthRay\\Brand\\Videos\\swoosh.webm";
+    b.stingerCutMs = 1200;
+    b.intro = "C:\\kit\\intro.mp4";
+    b.outro = "C:\\kit\\outro.mp4";
+    CHECK(design::brandFromJson(design::toJson(b)) == b);
+    const auto bad = design::brandFromJson(R"({"stinger":5,"stingerCutMs":99999,"intro":"","outro":")" + std::string(2000, 'x') + "\"}");
+    CHECK(bad.stinger.empty() && bad.stingerCutMs == 10000 && bad.intro.empty() && bad.outro.empty());
+    CHECK(design::brandFromJson(R"({"stingerCutMs":-5})").stingerCutMs == 0);
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2538,6 +2552,7 @@ int main() {
     testHotkeys();
     testAuroraSky();
     testFollow();
+    testBrandVideos();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
