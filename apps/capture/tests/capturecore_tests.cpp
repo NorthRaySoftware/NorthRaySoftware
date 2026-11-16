@@ -28,6 +28,8 @@
 #include <cmath>
 #include "ncap/scenes.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -1587,6 +1589,82 @@ static void testAuroraSky() {
     CHECK(hl.find("flags_.w * 1.0000") != std::string::npos && hl.find("if (1)") != std::string::npos);
 }
 
+static void testFollow() {
+    std::printf("items following items\n");
+    SceneCollection c;
+    const Id sc = c.current();
+    const Id cam = c.addItem(sc, c.addSource(SourceKind::Camera, "Camera"), {100, 200, 400, 300});
+    const Id frame = c.addItem(sc, c.addSource(SourceKind::Design, "Frame"), {90, 190, 420, 320});
+    const Id tag = c.addItem(sc, c.addSource(SourceKind::Text, "Name"), {100, 500, 200, 40});
+    const Id loose = c.addItem(sc, c.addSource(SourceKind::Image, "Logo"));   // no size set
+    std::string err;
+    CHECK(!c.followItem(sc, frame, frame, err));
+    CHECK(!c.followItem(sc, frame, loose, err) && err.find("size") != std::string::npos);
+    CHECK(c.followItem(sc, frame, cam, err));
+    CHECK(c.followItem(sc, tag, frame, err));   // a chain: the name under the frame
+    CHECK(!c.followItem(sc, cam, tag, err) && err == "That one already follows this one.");   // no circles
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.01f; };
+    // Moving the camera moves the frame and, through it, the name.
+    Transform t = c.item(sc, cam)->transform;
+    t.x += 50, t.y -= 20;
+    c.setTransform(sc, cam, t);
+    const Transform* f = &c.item(sc, frame)->transform;
+    CHECK(near(f->x, 140) && near(f->y, 170) && near(f->width, 420) && near(f->height, 320));
+    CHECK(near(c.item(sc, tag)->transform.x, 150) && near(c.item(sc, tag)->transform.y, 480));
+    // Resizing it to double: the frame doubles about it, keeping its margins in proportion.
+    t = c.item(sc, cam)->transform;
+    t.width = 800, t.height = 600;
+    c.setTransform(sc, cam, t);
+    f = &c.item(sc, frame)->transform;
+    CHECK(near(f->x, 130) && near(f->y, 160) && near(f->width, 840) && near(f->height, 640));
+    // Turning it: the frame turns with it, about the camera's centre.
+    t = c.item(sc, cam)->transform;
+    t.rotation = 90;
+    c.setTransform(sc, cam, t);
+    f = &c.item(sc, frame)->transform;
+    const float ccx = t.x + t.width / 2, ccy = t.y + t.height / 2;
+    CHECK(near(f->rotation, 90) && near(f->x + f->width / 2, ccx) && near(f->y + f->height / 2, ccy));   // centred on it, so still centred
+    // An item moved itself while following keeps following from its new place.
+    t.rotation = 0;
+    c.setTransform(sc, cam, t);
+    Transform ft = c.item(sc, frame)->transform;
+    ft.x += 10;
+    c.setTransform(sc, frame, ft);
+    t = c.item(sc, cam)->transform;
+    t.x += 100;
+    c.setTransform(sc, cam, t);
+    CHECK(near(c.item(sc, frame)->transform.x, ft.x + 100));
+    // Saved and loaded; duplicated scenes follow their own copies.
+    SceneCollection d;
+    CHECK(d.fromJson(c.toJson()));
+    CHECK(d.item(sc, frame)->follow == c.item(sc, frame)->follow);
+    const Id dup = c.duplicateScene(sc);
+    const Scene* ds = c.scene(dup);
+    Id dupCam, dupFrame;
+    for (auto& i : ds->items) {
+        if (i.source == c.item(sc, cam)->source) dupCam = i.id;
+        if (i.source == c.item(sc, frame)->source) dupFrame = i.id;
+    }
+    CHECK(c.item(dup, dupFrame)->follow.item == dupCam);
+    t = c.item(dup, dupCam)->transform;
+    t.y += 33;
+    const float before = c.item(sc, frame)->transform.y;
+    c.setTransform(dup, dupCam, t);
+    CHECK(near(c.item(sc, frame)->transform.y, before));   // the original scene's frame didn't move
+    // Removing the camera: the frame stays where it is and follows nothing.
+    const Transform keep = c.item(sc, frame)->transform;
+    CHECK(c.removeItem(sc, cam));
+    CHECK(c.item(sc, frame)->follow.item.empty() && near(c.item(sc, frame)->transform.x, keep.x));
+    CHECK(c.unfollow(sc, tag) && !c.unfollow(sc, tag));
+    // A file whose item follows one that isn't there: loaded not following.
+    std::string text = c.toJson();
+    nlohmann::json j = nlohmann::json::parse(text);
+    for (auto& s : j["scenes"])
+        for (auto& i : s["items"]) i["follow"] = {{"item", "i999999"}, {"x", 0}, {"y", 0}, {"w", 1}, {"h", 1}};
+    SceneCollection e;
+    CHECK(e.fromJson(j.dump()) && e.item(sc, frame) && e.item(sc, frame)->follow.item.empty());
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2459,6 +2537,7 @@ int main() {
     testAutomation();
     testHotkeys();
     testAuroraSky();
+    testFollow();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

@@ -39,7 +39,7 @@ enum : UINT {
     // Any item (itemExtraCommand).
     CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight,
     CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
-    CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500,
+    CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500, CmdFollow0 = 8000, CmdUnfollow = 8400,
 };
 
 const wchar_t* kFonts[] = {L"Segoe UI", L"Segoe UI Black", L"Bahnschrift", L"Arial", L"Arial Black", L"Calibri", L"Cambria", L"Georgia",
@@ -705,9 +705,28 @@ void CaptureWindow::itemExtraItems(const SceneItem& item, std::vector<MenuItem>&
     menu.push_back(MenuItem::item(L"Border…", CmdBorder, item.border.on ? L"on" : L"rounded corners, a ring, a glow"));
     menu.push_back(MenuItem::sub(L"Green screen", keyMenuItems(item)));
     menu.push_back(MenuItem::item(L"Duplicate", CmdDuplicate, L"the same source"));
-    // Groups.
     const Scene* sc = scenes_.scene(scenes_.current());
     if (!sc) return;
+    // Following another item (a facecam frame with its camera).
+    {
+        std::vector<MenuItem> targets;
+        for (std::size_t k = 0; k < sc->items.size() && k < 400; ++k) {
+            const SceneItem& o = sc->items[k];
+            if (o.id == item.id) continue;
+            const Source* os = scenes_.source(o.source);
+            const bool isCamera = os && os->kind == SourceKind::Camera;
+            targets.push_back(MenuItem::item(os ? widen(os->name) : L"?", CmdFollow0 + (UINT)k, isCamera ? L"camera" : L"", true, item.follow.item == o.id));
+        }
+        if (!item.follow.item.empty()) {
+            targets.push_back(MenuItem::sep());
+            targets.push_back(MenuItem::item(L"Stop following", CmdUnfollow, L"stays where it is"));
+        }
+        const SceneItem* f = item.follow.item.empty() ? nullptr : scenes_.item(sc->id, item.follow.item);
+        const Source* fs = f ? scenes_.source(f->source) : nullptr;
+        if (!targets.empty())
+            menu.push_back(MenuItem::sub(fs ? L"Follows " + widen(fs->name) : std::wstring(L"Follow another item"), targets));
+    }
+    // Groups.
     const bool isGroup = scenes_.isGroupItem(sc->id, item.id);
     std::vector<MenuItem> others;
     for (std::size_t k = 0; k < sc->items.size() && k < 400; ++k) {
@@ -791,6 +810,27 @@ bool CaptureWindow::itemExtraCommand(UINT cmd, const Id& itemId) {
             t.rotation = d;
             setTransform(itemId, t);
         });
+    } else if (cmd >= CmdFollow0 && cmd < CmdFollow0 + 400) {
+        const Scene* sc = scenes_.scene(scene);
+        const std::size_t k = cmd - CmdFollow0;
+        if (!sc || k >= sc->items.size()) return true;
+        const SceneItem target = sc->items[k];
+        // Both need a size written down (one shown at its source's own size gets that size).
+        const ItemSize a = sizeOf(item->source), b = sizeOf(target.source);
+        pinSize(scenes_, scene, *item, a.w, a.h);
+        pinSize(scenes_, scene, target, b.w, b.h);
+        std::string err;
+        const Source* ts = scenes_.source(target.source);
+        const Source* is = scenes_.source(item->source);
+        if (!scenes_.followItem(scene, itemId, target.id, err)) flash(widen(err), 5);
+        else {
+            flash((is ? widen(is->name) : L"It") + L" now moves and resizes with " + (ts ? widen(ts->name) : L"that") + L".", 5);
+            log::info("Item follows another: " + (is ? is->name : "?") + " follows " + (ts ? ts->name : "?"));
+        }
+        scenesChanged();
+    } else if (cmd == CmdUnfollow) {
+        scenes_.unfollow(scene, itemId);
+        scenesChanged();
     } else if (cmd >= CmdGroupWith0 && cmd < CmdGroupWith0 + 400) {
         const Scene* sc = scenes_.scene(scene);
         const std::size_t k = cmd - CmdGroupWith0;

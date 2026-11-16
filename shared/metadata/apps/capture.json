@@ -32,6 +32,7 @@
     "Automation: switch scenes when a program opens or closes",
     "Global hotkeys for scenes, streaming, recording, markers, mute and the soundboard",
     "The aurora sky: a live animated background drawn on the graphics card, in your brand colours",
+    "Facecam frames that move and resize with the camera (any item can follow another)",
     "Routing: send each sound source to the stream, recording tracks 1 to 6 and the monitor (your headphones) independently; anything not sent to the stream is absent from it",
     "Warnings when a program kept off the stream would still be heard through desktop audio (with a one-click fix: leave it out of desktop audio, on Windows 11), when something would feed back, or when a microphone could pick up the monitor",
     "Save a 10-second test clip of the stream mix, any track or the monitor, to hear exactly what it carries",
@@ -56,7 +57,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.10.18",
+  "version": "0.10.19",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",

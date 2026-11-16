@@ -1261,3 +1261,19 @@ the same):
 - Tested in Wine (wined3d): added to an empty scene it draws and animates (frames 4 s apart differ by a mean of 14
   levels); changing a colour updates it live; switching back to the brand kit's colours restores them. Wine renders
   shaders in software, so its frame rate there says nothing about a real graphics card.
+
+## 43. Items that follow items: facecam frames with the camera (status: built, 16 Nov 2026; released as 0.10.19)
+
+- SceneItem.follow (core/scenes, tested): the item it follows (same scene) and its rectangle in that item's own
+  frame as fractions of its size (x, y, w, h), plus a rotation added to the other's. Saved as "follow" on the item;
+  a link to an item not in the scene is dropped when loading.
+- SceneCollection::followItem works it out from where both are now (both need a size; no circles, checked along the
+  chain). setTransform on an item moves everything following it (placeFollowers: size scaled, centre turned about
+  the target's centre with its rotation, chains up to 8 deep); setTransform on a follower itself re-works out where
+  it sits, so moving a frame by hand adjusts it. Removing the target leaves followers where they are, not
+  following. duplicateScene and importScene point the links at the new items (a bug where the id map was keyed by
+  the new ids, from assignment order, was caught by the test).
+- The window: the item menu's "Follow another item" (or "Follows <name>") lists the scene's other items (cameras
+  marked) and Stop following; an item at its source's own size gets that size written down first (pinSize).
+- Tested in Wine: a text following a picture; Position and size… on the picture (800×600 at 560,240 to 400×300 at
+  100,100) moved and halved the text to the same place on it (842,494.5 to 241,227.25), saved with the link.

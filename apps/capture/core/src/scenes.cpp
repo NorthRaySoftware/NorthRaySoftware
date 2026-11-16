@@ -129,7 +129,14 @@ Id SceneCollection::duplicateScene(const Id& id) {
     Scene copy = *s;
     copy.id = newId('c');
     copy.name = uniqueSceneName(s->name + " (copy)");
-    for (auto& it : copy.items) it.id = newId('i');   // the same sources: nothing is captured twice
+    std::map<Id, Id> ids;
+    for (auto& it : copy.items) {   // the same sources: nothing is captured twice
+        const Id old = it.id;
+        it.id = newId('i');
+        ids[old] = it.id;
+    }
+    for (auto& it : copy.items)
+        if (!it.follow.item.empty()) it.follow.item = ids.count(it.follow.item) ? ids[it.follow.item] : Id();
     // Next to the original.
     const auto at = std::find_if(scenes_.begin(), scenes_.end(), [&](const Scene& x) { return x.id == id; });
     scenes_.insert(at + 1, copy);
@@ -200,6 +207,8 @@ bool SceneCollection::removeItem(const Id& sceneId, const Id& item) {
     const auto n = s->items.size();
     s->items.erase(std::remove_if(s->items.begin(), s->items.end(), [&](const SceneItem& i) { return i.id == item; }), s->items.end());
     if (s->items.size() == n) return false;
+    for (auto& i : s->items)
+        if (i.follow.item == item) i.follow = {};   // what followed it stays where it is
     ++changes_;
     return true;
 }
@@ -442,7 +451,102 @@ bool SceneCollection::setTransform(const Id& sceneId, const Id& itemId, const Tr
     if (!sameTransform(it->transform, t)) {
         it->transform = t;
         ++changes_;
+        Scene* sc = sceneMut(sceneId);
+        // Moved itself while following: it now sits there relative to what it follows.
+        if (!it->follow.item.empty()) {
+            const SceneItem* target = item(sceneId, it->follow.item);
+            if (target && target->transform.width > 0 && target->transform.height > 0 && t.width > 0 && t.height > 0) remember(*it, *target);
+            else it->follow = {};
+        }
+        if (sc) placeFollowers(*sc, itemId, 0);
     }
+    return true;
+}
+
+namespace {
+constexpr float kPi = 3.14159265358979f;
+}
+
+void SceneCollection::remember(SceneItem& f, const SceneItem& t) {
+    const Transform& a = t.transform;
+    const Transform& b = f.transform;
+    // The follower's centre, turned back by the target's rotation about the target's centre.
+    const float acx = a.x + a.width / 2, acy = a.y + a.height / 2;
+    const float r = -a.rotation * kPi / 180;
+    const float dx = b.x + b.width / 2 - acx, dy = b.y + b.height / 2 - acy;
+    const float ux = dx * std::cos(r) - dy * std::sin(r), uy = dx * std::sin(r) + dy * std::cos(r);
+    f.follow.w = b.width / a.width;
+    f.follow.h = b.height / a.height;
+    f.follow.x = (ux + a.width / 2) / a.width - f.follow.w / 2;
+    f.follow.y = (uy + a.height / 2) / a.height - f.follow.h / 2;
+    f.follow.rotation = b.rotation - a.rotation;
+}
+
+void SceneCollection::placeFollowers(Scene& sc, const Id& target, int depth) {
+    if (depth > 8) return;
+    const auto t = std::find_if(sc.items.begin(), sc.items.end(), [&](const SceneItem& i) { return i.id == target; });
+    if (t == sc.items.end()) return;
+    const Transform a = t->transform;
+    if (a.width <= 0 || a.height <= 0) return;
+    std::vector<Id> moved;
+    for (auto& f : sc.items) {
+        if (f.follow.item != target || f.id == target) continue;
+        Transform b = f.transform;
+        b.width = f.follow.w * a.width;
+        b.height = f.follow.h * a.height;
+        // Its centre in the target's own (unturned) frame, then turned with it.
+        const float ux = (f.follow.x + f.follow.w / 2) * a.width - a.width / 2, uy = (f.follow.y + f.follow.h / 2) * a.height - a.height / 2;
+        const float r = a.rotation * kPi / 180;
+        const float cx = a.x + a.width / 2 + ux * std::cos(r) - uy * std::sin(r), cy = a.y + a.height / 2 + ux * std::sin(r) + uy * std::cos(r);
+        b.x = cx - b.width / 2;
+        b.y = cy - b.height / 2;
+        b.rotation = std::fmod(a.rotation + f.follow.rotation + 360.0f, 360.0f);
+        if (!sameTransform(b, f.transform)) {
+            f.transform = b;
+            ++changes_;
+            moved.push_back(f.id);
+        }
+    }
+    for (auto& m : moved) placeFollowers(sc, m, depth + 1);   // anything following those
+}
+
+bool SceneCollection::followItem(const Id& sceneId, const Id& itemId, const Id& targetId, std::string& error) {
+    Scene* sc = sceneMut(sceneId);
+    SceneItem* f = const_cast<SceneItem*>(item(sceneId, itemId));
+    const SceneItem* t = item(sceneId, targetId);
+    if (!sc || !f || !t) {
+        error = "Both have to be in this scene.";
+        return false;
+    }
+    if (itemId == targetId) {
+        error = "An item can't follow itself.";
+        return false;
+    }
+    // Not round in a circle: the target mustn't (through others) follow this item.
+    Id walk = t->follow.item;
+    for (int guard = 0; !walk.empty() && guard < 64; ++guard) {
+        if (walk == itemId) {
+            error = "That one already follows this one.";
+            return false;
+        }
+        const SceneItem* w = item(sceneId, walk);
+        walk = w ? w->follow.item : Id();
+    }
+    if (t->transform.width <= 0 || t->transform.height <= 0 || f->transform.width <= 0 || f->transform.height <= 0) {
+        error = "Both need a size set (move or resize them once).";
+        return false;
+    }
+    f->follow.item = targetId;
+    remember(*f, *t);
+    ++changes_;
+    return true;
+}
+
+bool SceneCollection::unfollow(const Id& sceneId, const Id& itemId) {
+    SceneItem* f = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!f || f->follow.item.empty()) return false;
+    f->follow = {};
+    ++changes_;
     return true;
 }
 
@@ -568,7 +672,7 @@ Id SceneCollection::importScene(const std::string& text, std::string& error, boo
     const float sx = (float)canvasWidth / (float)in.canvasWidth, sy = (float)canvasHeight / (float)in.canvasHeight;
     const bool scale = std::fabs(sx - 1) > 0.001f || std::fabs(sy - 1) > 0.001f;
     if (scaled) *scaled = scale;
-    std::map<Id, Id> sceneIds, sourceIds;
+    std::map<Id, Id> sceneIds, sourceIds, itemIds;
     for (auto& sc : in.scenes_) sceneIds[sc.id] = addScene(sc.name);   // unique names
     for (auto& src : in.sources_) {
         std::string settings = src.settings;
@@ -583,6 +687,7 @@ Id SceneCollection::importScene(const std::string& text, std::string& error, boo
         for (auto& item : sc.items) {
             SceneItem copy = item;
             copy.id = newId('i');
+            itemIds[item.id] = copy.id;
             copy.source = sourceIds[item.source];
             if (scale) {
                 copy.transform.x *= sx;
@@ -593,6 +698,9 @@ Id SceneCollection::importScene(const std::string& text, std::string& error, boo
             mine->items.push_back(copy);
         }
     }
+    for (auto& sc : in.scenes_)   // follow links point at the new items
+        for (auto& it : sceneMut(sceneIds[sc.id])->items)
+            if (!it.follow.item.empty()) it.follow.item = itemIds.count(it.follow.item) ? itemIds[it.follow.item] : Id();
     // Scene sources showing a scene that wasn't in the file show nothing: remove them.
     for (auto& [old, made] : sourceIds)
         if (const Source* s = source(made); s && s->kind == SourceKind::Scene && nestedScene(*s).empty()) removeSource(made);
@@ -622,6 +730,9 @@ std::string SceneCollection::toJson() const {
                                             {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}, {"flipH", t.flipH}, {"flipV", t.flipV}}}});
             if (i.border.on) items.back()["border"] = json::parse(border::toJson(i.border));
             if (!(i.key == keying::Key{})) items.back()["key"] = json::parse(keying::toJson(i.key));
+            if (!i.follow.item.empty())
+                items.back()["follow"] = {{"item", i.follow.item}, {"x", i.follow.x}, {"y", i.follow.y}, {"w", i.follow.w}, {"h", i.follow.h},
+                                          {"rotation", i.follow.rotation}};
         }
         json sc = {{"id", s.id}, {"name", s.name}, {"items", items}};
         if (!s.folder.empty()) sc["folder"] = s.folder;
@@ -686,8 +797,26 @@ bool SceneCollection::fromJson(const std::string& text) {
                 }
                 if (i.contains("border") && i["border"].is_object()) it.border = border::fromJson(i["border"].dump());
                 if (i.contains("key") && i["key"].is_object()) it.key = keying::fromJson(i["key"].dump());
+                if (i.contains("follow") && i["follow"].is_object()) {
+                    const json& f = i["follow"];
+                    auto num = [&](const char* k, float lo, float hi, float d) {
+                        return f.contains(k) && f[k].is_number() && std::isfinite(f[k].get<double>()) ? std::clamp(f[k].get<float>(), lo, hi) : d;
+                    };
+                    if (f.contains("item") && f["item"].is_string()) {
+                        it.follow.item = f["item"].get<std::string>();
+                        it.follow.x = num("x", -100, 100, 0);
+                        it.follow.y = num("y", -100, 100, 0);
+                        it.follow.w = num("w", 0.001f, 100, 1);
+                        it.follow.h = num("h", 0.001f, 100, 1);
+                        it.follow.rotation = num("rotation", -360, 360, 0);
+                    }
+                }
                 sc.items.push_back(it);
             }
+        for (auto& it : sc.items) {   // following something not in this scene (or itself): not following
+            const bool there = std::any_of(sc.items.begin(), sc.items.end(), [&](const SceneItem& o) { return o.id == it.follow.item && o.id != it.id; });
+            if (!there) it.follow = {};
+        }
         c.scenes_.push_back(sc);
     }
     if (c.scenes_.empty()) return false;

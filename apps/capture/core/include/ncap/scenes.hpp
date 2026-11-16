@@ -67,6 +67,14 @@ struct SceneItem {
     bool locked = false;
     border::Style border;   // rounded corners, a ring and a glow (off unless set)
     keying::Key key;        // green screen (off unless set)
+    // Following another item in the same scene (a facecam frame around its camera): kept at the same place
+    // relative to it, as fractions of its size, and turned with it.
+    struct Follow {
+        Id item;                         // "" = not following
+        float x = 0, y = 0, w = 1, h = 1;   // this item's rectangle in the other's (0..1 is its own rectangle)
+        float rotation = 0;              // degrees, added to the other's
+        bool operator==(const Follow&) const = default;
+    } follow;
 };
 
 struct Scene {
@@ -131,6 +139,11 @@ public:
     bool setItemLocked(const Id& scene, const Id& item, bool locked);
     bool setItemBorder(const Id& scene, const Id& item, const border::Style& b);
     bool setItemKey(const Id& scene, const Id& item, const keying::Key& k);
+    // `item` keeps its place relative to `target` (both in `scene`, both with a size set, not following each
+    // other round in a circle): moving or resizing the target moves it; moving it itself updates where it
+    // sits. False with `error` if it can't.
+    bool followItem(const Id& scene, const Id& item, const Id& target, std::string& error);
+    bool unfollow(const Id& scene, const Id& item);
     // Towards the top of the scene (+1, drawn later) or the bottom (-1); +100 / -100 to the very top / bottom.
     bool moveItem(const Id& scene, const Id& item, int delta);
 
@@ -159,6 +172,8 @@ private:
     std::uint64_t changes_ = 0;
     Id newId(char prefix);
     Scene* sceneMut(const Id& id);
+    void placeFollowers(Scene& sc, const Id& target, int depth);   // items following `target` take their places
+    static void remember(SceneItem& follower, const SceneItem& target);   // where it sits relative to the target now
 };
 
 }  // namespace ncap

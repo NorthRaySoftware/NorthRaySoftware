@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.19",
+      "date": "2026-11-16",
+      "notes": [
+        "Items can follow another item: right-click a facecam frame › Follow another item › your camera, and moving, resizing or turning the camera takes the frame with it, in the same place around it. Moving the frame itself changes where it sits. Works in chains (a name tag following the frame) and is kept when scenes are duplicated, exported or imported."
+      ]
+    },
+    {
       "version": "0.10.18",
       "date": "2026-11-16",
       "notes": [
