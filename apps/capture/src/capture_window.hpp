@@ -273,6 +273,10 @@ private:
     void collectionMenu(POINT pt);
     // The setup wizard (capture_wizard.cpp).
     void openWizard();
+    void openChecklist();
+    void drawChecklist(const cjui::Rect& area);
+    bool checklistOpen_ = false;
+    std::vector<bool> checkTicks_;   // your own list, ticked this time
     void drawWizard(const cjui::Rect& area);
     void wizardTick();
     int wizardTwitch() const;
@@ -341,6 +345,7 @@ private:
         std::string key;                      // the device or program it was started with
         audio::Meter left, right;
         float duckDb = 0;                     // auto-duck: how far it's turned down now
+        double heardAt = -1;                  // when it last had sound (the pre-live checklist's mic check)
     };
     std::map<Id, AudioLive> audio_;           // by source id
     audio::Meter mixLeft_, mixRight_, monLeft_, monRight_;

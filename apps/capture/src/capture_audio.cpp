@@ -293,6 +293,7 @@ void CaptureWindow::meterTick() {
         it->second.left.feed(lv.left, now);
         it->second.right.feed(lv.right, now);
         it->second.duckDb = lv.duckDb;
+        if (std::max(lv.left, lv.right) > 0.003f) it->second.heardAt = now;   // about -50 dB
     }
     bool ok = false;
     const std::wstring clip = mixer_.takeFinishedClip(&ok);
@@ -306,7 +307,7 @@ void CaptureWindow::meterTick() {
         }
     }
     // Only the meters change: repaint (the whole window is cheap to draw, and nothing else moves).
-    if (!settingsOpen_) invalidate();
+    if (!settingsOpen_ || checklistOpen_) invalidate();
 }
 
 void CaptureWindow::setAudioSetting(const Id& source, const char* key, const json& value) {

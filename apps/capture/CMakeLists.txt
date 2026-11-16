@@ -6,7 +6,7 @@ string(STRIP "${NCAP_VERSION}" NCAP_VERSION)
 string(REPLACE "." "," NCAP_VERSION_COMMAS "${NCAP_VERSION}.0")
 
 # The portable core: scenes, routing and leak checks, log redaction, layouts. Tested everywhere.
-add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/transition.cpp core/src/sourceutil.cpp core/src/border.cpp core/src/design.cpp core/src/chat.cpp core/src/mp4.cpp core/src/profiles.cpp core/src/wizard.cpp core/src/soundboard.cpp core/src/keying.cpp core/src/gif.cpp ${CMAKE_SOURCE_DIR}/libs/third_party/qrcodegen/qrcodegen.cpp core/src/dsp.cpp core/src/plugins.cpp core/src/routing.cpp core/src/diag.cpp)
+add_library(capturecore STATIC core/src/scenes.cpp core/src/placement.cpp core/src/audio.cpp core/src/media.cpp core/src/mkv.cpp core/src/rtmp.cpp core/src/oauth.cpp core/src/transition.cpp core/src/sourceutil.cpp core/src/border.cpp core/src/design.cpp core/src/chat.cpp core/src/mp4.cpp core/src/profiles.cpp core/src/wizard.cpp core/src/soundboard.cpp core/src/keying.cpp core/src/gif.cpp core/src/checklist.cpp ${CMAKE_SOURCE_DIR}/libs/third_party/qrcodegen/qrcodegen.cpp core/src/dsp.cpp core/src/plugins.cpp core/src/routing.cpp core/src/diag.cpp)
 target_include_directories(capturecore PUBLIC core/include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 if(MSVC)
   target_compile_options(capturecore PRIVATE /W4 /utf-8)
@@ -47,7 +47,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/capture_studio.cpp
   src/capture_made.cpp
-  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
+  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_checklist.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
   src/output/twitch_chat.cpp
   src/output/mp4_copy.cpp

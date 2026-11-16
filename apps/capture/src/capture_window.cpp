@@ -432,6 +432,7 @@ void CaptureWindow::openSettings(bool on) {
         wizTesting_ = false;
     }
     wizardOpen_ = false;
+    checklistOpen_ = false;
     ddrag_ = 0;
     resetScroll();
     invalidate();
@@ -810,6 +811,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         if (!designFor_.empty() && scenes_.source(designFor_)) drawDesigner(body);
         else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
         else if (wizardOpen_) drawWizard(body);
+        else if (checklistOpen_) drawChecklist(body);
         else drawSettings(body);
         gfx_.popClip();
     } else {

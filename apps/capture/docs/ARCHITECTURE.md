@@ -1175,3 +1175,24 @@ the same):
 - WebM is not included: Windows has no VP8/VP9 encoder, so it would mean bundling libvpx (a separate decision).
 - Tested in Wine: Starting Soon (pop, fade, wipe) gave 23 frames at 800x450, 40 ms each and a 1540 ms last frame,
   looping; the frames show the entrance building up.
+
+## 39. The pre-live checklist (status: built, 16 Nov 2026; released as 0.10.15)
+
+- Optional (Settings › Streaming › Pre-live checklist; settings.json `preLiveChecklist`, off by default, and
+  `checklistItems`, your list, starting with four suggestions). When it's on, the Start streaming button opens
+  "Before you go live" (capture_checklist.cpp, drawn in the settings area like the wizard) instead of starting.
+- core/checklist (tested): `run(Snapshot)` gives checks marked Ok, Waiting, Warn or Problem from: the destinations
+  switched on and not already live (name, whether a key is in Credential Manager, whether a server address is set,
+  the bus it carries); the current scene and whether it's empty; each microphone (InputAudio sources, not Capture's
+  own like "#synctone": muted, its buses, whether its capture is working, seconds since it last had sound); whether
+  there's a hardware H.264 encoder; whether recording is on. `tidy` cleans your list (trimmed, no blanks or
+  repeats, at most 12 of at most 80 bytes, not cut inside a character).
+- The mic check is live: meterTick notes when each source's level was last above about -50 dB (AudioLive.heardAt),
+  and the meters repaint the checklist, so "Say something to check <mic>…" turns into "<mic> is picking you up" when
+  you speak (Waiting after 20 s of quiet; Waiting isn't counted as a problem).
+- Your list ticks for this time only; add (askText) and remove (×) are saved. "Go live" (or "Go live anyway" with
+  warnings or unticked items) closes it and calls startStreaming, so every real error is still reported the usual way.
+- Tested in Wine: the checks matched reality (Twitch with a key; YouTube with none; Kick with no server address, the
+  same reason the stream start gave; Wine's unavailable inputs; no encoder); ticking, adding and removing (saved to
+  settings.json); Not yet; Go live anyway handed over to the stream start; the setting toggles and saves. The mic
+  turning green needs a working microphone (Wine's inputs are unavailable): to try on Windows.

@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "ncap/checklist.hpp"
 
 #include "cj/json_safe.hpp"
 
@@ -65,6 +66,15 @@ bool Settings::load(const std::wstring& path) {
     recordTracks = (unsigned)cj::valueOr(j, "recordTracks", 0x0F) & 0x3Fu;
     if (!recordTracks) recordTracks = 1;
     recordMp4 = cj::valueOr(j, "recordMp4", true);
+    preLiveChecklist = cj::valueOr(j, "preLiveChecklist", false);
+    checklistItems.clear();
+    if (auto it = j.find("checklistItems"); it != j.end() && it->is_array()) {
+        for (auto& v : *it)
+            if (v.is_string()) checklistItems.push_back(v.get<std::string>());
+        checklistItems = checklist::tidy(checklistItems);
+    } else {
+        checklistItems = checklist::defaultItems();
+    }
     const int ak = cj::valueOr(j, "audioKbps", 160);
     audioKbps = ak == 96 || ak == 128 || ak == 160 || ak == 192 ? ak : 160;
     auto validService = [](const std::string& v) { return v == "twitch" || v == "youtube" || v == "kick" || v == "custom"; };
@@ -117,7 +127,7 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"audioKbps", audioKbps},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";

@@ -251,7 +251,7 @@ float CaptureWindow::drawRecordingSettings(float x, float y0, float colW) {
         y += std::max(h, 34.0f) + 14;
     }
     y += gfx_.text(L"Recordings are MKV files, which keep everything written so far if the PC crashes. Most editors and players open them; "
-                   L"saving a copy as MP4 is planned.",
+                   L"switch on MP4 copy above for the ones that don't.",
                    {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 8;
     if (busy) y += gfx_.text(L"These can't change while recording.", {x, y, colW, 20}, Font::Small, cjui::hexColor("#E0566A")) + 6;
     return y - y0;

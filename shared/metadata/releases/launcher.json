@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.75.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.15: an optional pre-live checklist."
+      ]
+    },
+    {
       "version": "0.74.0",
       "date": "2026-11-16",
       "notes": [

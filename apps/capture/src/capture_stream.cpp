@@ -77,6 +77,9 @@ std::wstring destName(const Settings& s, std::size_t i) {
 
 }  // namespace
 
+// A destination's name as shown everywhere ("Twitch", "YouTube 2"), for other parts of the window.
+std::wstring streamDestName(const Settings& s, std::size_t i) { return destName(s, i); }
+
 // --- starting and stopping ---
 
 bool CaptureWindow::startDestination(const std::string& id, bool quiet) {
@@ -236,6 +239,7 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
         const Rect r{x, y, w, 40};
         addHit("ctl:stream", r, [this, on] {
             if (on) stopStreaming();
+            else if (settings_.preLiveChecklist) openChecklist();
             else startStreaming();
         });
         const float hv = hoverAmount("ctl:stream");
@@ -551,6 +555,17 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
         segmented("str:retry", {x + colW - 330, y - 2, 330, 32}, {L"15 s", L"30 s", L"1 min", L"2 min"}, sel, [this](int i) {
             const int vv[] = {15, 30, 60, 120};
             settings_.streamRetryMax = vv[i];
+            settings_.save(settingsPath_);
+        });
+        y += std::max(h, 34.0f) + 12;
+    }
+    {
+        gfx_.text(L"Pre-live checklist", {x, y, colW - 80, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        const float h = 24 + gfx_.text(L"Start streaming first shows what Capture can check (destinations, keys, your mic, the scene) and your "
+                                       L"own list to tick. It never stops you going live.",
+                                       {x, y + 24, colW - 80, 80}, Font::Small, pal_.inkMuted);
+        toggle("str:checklist", x + colW - 52, y + 4, settings_.preLiveChecklist, [this] {
+            settings_.preLiveChecklist = !settings_.preLiveChecklist;
             settings_.save(settingsPath_);
         });
         y += std::max(h, 34.0f) + 12;

@@ -18,6 +18,7 @@
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
+#include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
 #include "ncap/routing.hpp"
 
@@ -1359,6 +1360,75 @@ static void testGif() {
 }
 
 
+static void testChecklist() {
+    std::printf("pre-live checklist\n");
+    namespace cl = ncap::checklist;
+    CHECK(cl::defaultItems().size() == 4);
+    const auto t = cl::tidy({"  Phone on silent ", "", "   ", "Phone on silent", "Water", std::string(100, 'x'), std::string(79, 'y') + "\xC3\xA9z"});
+    CHECK(t.size() == 4 && t[0] == "Phone on silent" && t[1] == "Water");
+    CHECK(t[2].size() == cl::kMaxChars);
+    CHECK(t[3] == std::string(79, 'y'));   // not cut inside the é
+    std::vector<std::string> many;
+    for (int i = 0; i < 20; ++i) many.push_back("item " + std::to_string(i));
+    CHECK(cl::tidy(many).size() == cl::kMaxItems);
+    auto has = [](const std::vector<cl::Check>& c, cl::State st, const std::string& part) {
+        for (auto& x : c)
+            if (x.state == st && x.text.find(part) != std::string::npos) return true;
+        return false;
+    };
+    // All good.
+    cl::Snapshot s;
+    s.destinations = {{"Twitch", true, 0}, {"YouTube", true, 0}};
+    s.scene = "Starting Soon";
+    s.mics = {{"Shure MV7", false, 1, 2.0, true}};
+    auto c = cl::run(s);
+    CHECK(has(c, cl::State::Ok, "Going live on Twitch and YouTube."));
+    CHECK(has(c, cl::State::Ok, "Viewers will see Starting Soon first"));
+    CHECK(has(c, cl::State::Ok, "Shure MV7 is picking you up"));
+    CHECK(!cl::anyProblem(c));
+    // The mic: quiet, never heard, muted, not routed, not working, none.
+    s.mics[0].silentFor = 30;
+    CHECK(has(cl::run(s), cl::State::Waiting, "Say something to check Shure MV7"));
+    CHECK(!cl::anyProblem(cl::run(s)));   // waiting isn't a problem
+    s.mics[0].silentFor = -1;
+    CHECK(has(cl::run(s), cl::State::Waiting, "Say something"));
+    s.mics[0].muted = true;
+    CHECK(has(cl::run(s), cl::State::Warn, "is muted") && cl::anyProblem(cl::run(s)));
+    s.mics[0].muted = false;
+    s.mics[0].buses = 1u << 3;   // only Track 3
+    CHECK(has(cl::run(s), cl::State::Warn, "isn't in the sound your stream carries"));
+    s.destinations[1].bus = 3;   // YouTube carries Track 3
+    CHECK(!has(cl::run(s), cl::State::Warn, "isn't in the sound"));
+    s.mics[0].working = false;
+    CHECK(has(cl::run(s), cl::State::Problem, "isn't working"));
+    s.mics.clear();
+    CHECK(has(cl::run(s), cl::State::Warn, "no microphone"));
+    // Destinations: a missing key, none at all.
+    s.destinations = {{"Twitch", true, 0}, {"Kick", false, 0}};
+    c = cl::run(s);
+    CHECK(has(c, cl::State::Ok, "Going live on Twitch.") && has(c, cl::State::Problem, "Kick has no stream key, so it won't start"));
+    s.destinations = {{"Kick", false, 0}, {"Custom", false, 0}};
+    CHECK(has(cl::run(s), cl::State::Problem, "Kick and Custom have no stream key, so they won't start"));
+    cl::Destination kick{"Kick", false, 0};
+    kick.hasServer = false;
+    s.destinations = {{"Twitch", true, 0}, kick};
+    c = cl::run(s);
+    CHECK(has(c, cl::State::Problem, "Kick has no server address yet") && !has(c, cl::State::Problem, "stream key"));
+    s.destinations.clear();
+    CHECK(has(cl::run(s), cl::State::Problem, "No destination is switched on"));
+    // The scene and the encoder.
+    s.sceneEmpty = true;
+    CHECK(has(cl::run(s), cl::State::Warn, "Starting Soon, is empty"));
+    s.encodersKnown = false;
+    CHECK(has(cl::run(s), cl::State::Waiting, "Checking this PC's video encoders"));
+    s.encodersKnown = true;
+    s.hardwareEncoder = false;
+    CHECK(has(cl::run(s), cl::State::Warn, "No hardware video encoder"));
+    s.recording = true;
+    CHECK(has(cl::run(s), cl::State::Ok, "Recording is already on"));
+}
+
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2227,6 +2297,7 @@ int main() {
     testKeying();
     testAuroraSweep();
     testGif();
+    testChecklist();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

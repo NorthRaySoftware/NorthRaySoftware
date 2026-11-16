@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.15",
+      "date": "2026-11-16",
+      "notes": [
+        "An optional pre-live checklist (Settings › Streaming): Start streaming first shows what Capture checked for itself (where you're going live, missing stream keys or server addresses, an empty scene, a mic that's muted, unplugged or not in the stream's sound, a \"say something\" mic check that turns green when it hears you, and whether there's a hardware encoder) next to your own list to tick, which you can add to. It never stops you going live.",
+        "Settings › Recording no longer says an MP4 copy is planned (it's been there since 0.10.7)."
+      ]
+    },
+    {
       "version": "0.10.14",
       "date": "2026-11-16",
       "notes": [
