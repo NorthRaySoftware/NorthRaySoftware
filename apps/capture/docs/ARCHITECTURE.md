@@ -1217,3 +1217,25 @@ the same):
 - Tested in Wine: rules for notepad.exe (opens: Scene 2; closes: Just chatting); starting Notepad switched to Scene
   2 within the 2-second look and closing it switched back, with the notices and log lines; only-while-live,
   moving and removing saved to settings.json.
+
+## 41. Global hotkeys (status: built, 16 Nov 2026; released as 0.10.17)
+
+- core/hotkeys (tested): a Binding is a Combo (RegisterHotKey's modifier bits and a virtual-key code) and an
+  Action: Scene (by name), ToggleStream, ToggleRecord, ToggleMute (a sound source by name), PlaySound (a soundboard
+  sound by name), StopSounds, Marker, Transition. `allowed` refuses modifier keys alone, keys with no name (Print
+  Screen, Caps Lock), typing keys (letters, digits, punctuation, Space, Enter, arrows, Home/End...) without Ctrl, Alt
+  or Win, any Win combination (Windows keeps most), and Ctrl+Alt+Delete, Alt+Tab, Alt+F4 and Alt+Esc. F-keys, the
+  keypad, media keys, Pause and Scroll Lock may be used alone. Saved in settings.json "hotkeys" (at most 60;
+  unusable, repeated and target-less ones skipped).
+- The window (capture_hotkeys.cpp) registers each with RegisterHotKey(MOD_NOREPEAT) at start and on every change;
+  one another program holds is logged and shown in red. WM_HOTKEY runs the action: scenes switch the current scene
+  (the preview in studio mode, where Transition sends it live); streaming starts straight away without the pre-live
+  checklist (often pressed inside a game); a marker needs a recording running.
+- Assigning: "Press the keys…" takes the next WM_KEYDOWN/WM_SYSKEYDOWN in preTranslate with the modifiers held
+  (GetKeyState), ignoring modifier keys alone; Esc cancels; refused or already-used combinations say why. The
+  registered hotkeys are released while assigning so they don't catch the keys.
+- Stream Deck: its built-in Hotkey action presses these. A dedicated plugin (Elgato SDK) isn't included: there's
+  no device to test one with yet.
+- Tested in Wine: adding "Switch to Scene 2" (plain G refused with the reason; F7 taken), F7 switching scenes via
+  WM_HOTKEY, re-assigning to Ctrl+Alt+2 and that switching from Just chatting; saved to settings.json. Pressing a
+  hotkey with a game focused needs Windows (the test display has no window manager to confirm focus).

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ncap/automation.hpp"
+#include "ncap/hotkeys.hpp"
 #include "ncap/transition.hpp"
 
 #include <map>
@@ -36,7 +37,8 @@ struct Settings {
     bool recordMp4 = true;
     bool preLiveChecklist = false;           // Start streaming shows the pre-live checklist first
     std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
-    std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)            // an MP4 copy when a recording ends (the MKV is kept)
+    std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)
+    std::vector<hotkeys::Binding> hotkeys;           // Settings › Hotkeys (core/hotkeys)            // an MP4 copy when a recording ends (the MKV is kept)
     int audioKbps = 160;
     // Where streams go (several at once). Each one's key is in Credential Manager as "stream/<id>".
     struct StreamDestination {

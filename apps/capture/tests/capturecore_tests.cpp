@@ -21,6 +21,7 @@
 #include "ncap/automation.hpp"
 #include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
+#include "ncap/hotkeys.hpp"
 #include "ncap/routing.hpp"
 
 #include <cmath>
@@ -1479,6 +1480,47 @@ static void testAutomation() {
     CHECK(w.update({}, rs, true) == -1);   // after a reset, the first look only notes what's running
 }
 
+static void testHotkeys() {
+    std::printf("hotkeys\n");
+    namespace hk = ncap::hotkeys;
+    using hk::Combo;
+    std::string why;
+    CHECK(hk::text({hk::Ctrl | hk::Shift, 0x74}) == "Ctrl+Shift+F5");
+    CHECK(hk::text({hk::Alt, 'G'}) == "Alt+G" && hk::text({0, 0x67}) == "Num 7" && hk::text({0, 0x21}) == "Page Up");
+    CHECK(hk::allowed({0, 0x74}, why));                       // F5 alone
+    CHECK(hk::allowed({hk::Shift, 0x80}, why));               // Shift+F17
+    CHECK(hk::allowed({0, 0x61}, why));                       // Num 1 alone
+    CHECK(hk::allowed({hk::Ctrl, 'G'}, why) && hk::allowed({hk::Ctrl | hk::Alt, '1'}, why));
+    CHECK(!hk::allowed({0, 'G'}, why) && why.find("need Ctrl, Alt or Win") != std::string::npos);
+    CHECK(!hk::allowed({hk::Shift, 'G'}, why));               // Shift+G is a capital G
+    CHECK(!hk::allowed({0, 0x20}, why) && !hk::allowed({hk::Shift, 0x28}, why));   // Space, Shift+Down
+    CHECK(!hk::allowed({hk::Ctrl, 0x11}, why) && why == "Add a key to go with it.");
+    CHECK(!hk::allowed({0, 0x2C}, why) && why == "Print Screen belongs to Windows.");
+    CHECK(!hk::allowed({hk::Win, 'D'}, why));
+    CHECK(!hk::allowed({hk::Ctrl | hk::Alt, 0x2E}, why) && !hk::allowed({hk::Alt, 0x09}, why) && !hk::allowed({hk::Alt, 0x73}, why));
+    CHECK(!hk::allowed({0x10, 0x74}, why));                   // MOD_NOREPEAT and other bits
+    CHECK(!hk::allowed({0, 0x14}, why));                      // Caps Lock
+    CHECK(hk::describe(hk::Action::Scene, "Gameplay") == "Switch to Gameplay" && hk::describe(hk::Action::Marker, "") == "Add a marker to the recording");
+    for (int i = 0; i < hk::kActions; ++i) {
+        hk::Action a;
+        CHECK(hk::actionFromKey(hk::actionKey((hk::Action)i), a) && a == (hk::Action)i);
+    }
+    // JSON: a round trip; bad, unusable, repeated and target-less ones skipped; stray targets dropped.
+    std::vector<hk::Binding> bs = {{{0, 0x74}, hk::Action::Scene, "Gameplay"}, {{hk::Ctrl, 'R'}, hk::Action::ToggleRecord, ""},
+                                   {{hk::Ctrl | hk::Shift, 'M'}, hk::Action::ToggleMute, "Mic"}};
+    CHECK(hk::fromJson(hk::toJson(bs)) == bs);
+    const auto got = hk::fromJson(R"([{"mods":0,"vk":71,"action":"scene","target":"A"},
+        {"mods":0,"vk":116,"action":"marker","target":"junk"},
+        {"mods":0,"vk":116,"action":"stop-sounds"},
+        {"mods":2,"vk":77,"action":"toggle-mute"},
+        {"mods":2,"vk":78,"action":"dance"},
+        {"mods":-1,"vk":78,"action":"marker"}, 7,
+        {"mods":2,"vk":79,"action":"play-sound","target":"Applause"}])");
+    CHECK(got.size() == 2);
+    CHECK(got.size() == 2 && got[0].action == hk::Action::Marker && got[0].target.empty() && got[1].target == "Applause");
+    CHECK(hk::fromJson("nope").empty());
+}
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2349,6 +2391,7 @@ int main() {
     testGif();
     testChecklist();
     testAutomation();
+    testHotkeys();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

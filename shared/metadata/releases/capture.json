@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.17",
+      "date": "2026-11-16",
+      "notes": [
+        "Global hotkeys (Settings › Hotkeys) that work even while a game has the focus: switch to a scene, start or stop streaming or recording, add a marker, mute or unmute a sound source, play or stop soundboard sounds, and studio mode's send-the-preview-live. Press the keys to assign them. Letters and numbers need Ctrl or Alt, so typing elsewhere isn't affected, and a combination another program already holds is shown in red. A Stream Deck's built-in Hotkey action can press them; a dedicated Stream Deck plugin isn't included."
+      ]
+    },
+    {
       "version": "0.10.16",
       "date": "2026-11-16",
       "notes": [

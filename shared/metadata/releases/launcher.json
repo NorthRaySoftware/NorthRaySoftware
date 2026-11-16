@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.77.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.17: global hotkeys."
+      ]
+    },
+    {
       "version": "0.76.0",
       "date": "2026-11-16",
       "notes": [

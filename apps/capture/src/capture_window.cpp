@@ -118,6 +118,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     loadBrand();                           // {name}, {twitch}... for overlay designs
     PluginHost::get().init(stateFolder_);   // before the audio: chains with plugins need them loaded
     startAudio();
+    registerHotkeys();
     for (auto& m : PluginHost::get().takeMessages()) {
         log::warn("Plugin: " + m);
         flash(L"Plugin switched off: " + widen(m), 10);
@@ -433,6 +434,10 @@ void CaptureWindow::openSettings(bool on) {
     }
     wizardOpen_ = false;
     checklistOpen_ = false;
+    if (hkListening_) {
+        hkListening_ = false;
+        registerHotkeys();
+    }
     ddrag_ = 0;
     resetScroll();
     invalidate();
@@ -467,6 +472,7 @@ void CaptureWindow::copyDiagnostics() {
 // ---------------------------------------------------------------- input
 
 bool CaptureWindow::preTranslate(MSG& msg) {
+    if (hotkeyCapture(msg)) return true;
     if (msg.hwnd == ask_ && msg.message == WM_KEYDOWN) {
         if (msg.wParam == VK_RETURN) { endAsk(true); return true; }
         if (msg.wParam == VK_ESCAPE) { endAsk(false); return true; }
@@ -684,6 +690,10 @@ bool CaptureWindow::onWheel(float x, float y, float lines) {
 }
 
 LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
+    if (msg == WM_HOTKEY) {
+        handled = hotkeyMessage(wp);
+        return 0;
+    }
     if (msg == WM_APP_ENCODERS) {
         auto* list = reinterpret_cast<std::vector<sys::Encoder>*>(lp);
         encoders_ = std::move(*list);
@@ -1461,6 +1471,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
 
     section(L"AUTOMATION");
     y += drawAutomationSettings(x, y, colW) + 8;
+
+    section(L"HOTKEYS");
+    y += drawHotkeySettings(x, y, colW) + 8;
 
     section(L"PLUGINS");
     y += drawPluginSettings(x, y, colW) + 8;
