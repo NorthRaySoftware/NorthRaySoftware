@@ -447,6 +447,13 @@ bool animating(const Document& d, float t) {
     return false;
 }
 
+int entranceMs(const Document& d) {
+    int ms = 0;
+    for (auto& e : d.elements)
+        if (e.visible && e.anim != Anim::None) ms = std::max(ms, e.animMs);
+    return ms;
+}
+
 std::string fillPlaceholders(const std::string& text, const std::vector<std::pair<std::string, std::string>>& values, bool showMissing) {
     auto fill = [&](std::string part, bool& emptied) {
         bool hadTag = false, allEmpty = true;

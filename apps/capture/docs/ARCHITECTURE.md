@@ -1156,3 +1156,22 @@ the same):
   engine runs it through the custom-shader path (compiled when the code changes; a fade if it doesn't compile).
   Transition menu: "Aurora sweep" with Direction, Duration and Easing.
 - Tested in Wine: a 2-second sweep to the right, frames show the band crossing and the new scene behind it.
+
+## 38. Animated GIF export of designs (status: built, 16 Nov 2026; released as 0.10.14)
+
+- core/gif (tested): `encode(w, h, frames, dither)` from straight-alpha BGRA frames. One global palette by median
+  cut over a sample of every frame's opaque pixels (up to 255 colours plus a see-through entry when any pixel's alpha
+  is under 128, else 256); nearest colour (weighted RGB distance, cached per 15-bit colour) with a light 4x4 ordered
+  dither that stays still from frame to frame; LZW with variable code size and a clear code when the table fills;
+  graphic-control blocks with the delay in hundredths (at least 2), disposal "restore to background" when there's a
+  see-through entry; NETSCAPE2.0 loop-forever when there's more than one frame. A frame identical to the one before
+  just adds its delay to it. Tests decode it with a small decoder in the test file (sizes, loop, delays, flat colours
+  exact, see-through pixels, a 256-colour noise frame long enough to restart the LZW table, bad sizes); Pillow decodes
+  it too.
+- design::entranceMs(doc): the longest entrance among visible elements.
+- Designer: "Save as GIF" renders the design at 25 fps (renderDesign at t = 0, 40, … ms) until the entrances end, then
+  the finished look held for 1.5 s; scaled to at most 800 wide. Saved as "<name> <w>x<h> - <stamp>.gif" in
+  Pictures\NorthRay Capture. A design with no entrances says so and points to Save as PNG.
+- WebM is not included: Windows has no VP8/VP9 encoder, so it would mean bundling libvpx (a separate decision).
+- Tested in Wine: Starting Soon (pop, fade, wipe) gave 23 frames at 800x450, 40 ms each and a 1540 ms last frame,
+  looping; the frames show the entrance building up.

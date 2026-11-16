@@ -8,6 +8,7 @@
 #include "video/design_render.hpp"
 
 #include "ncap/design.hpp"
+#include "ncap/gif.hpp"
 #include "ncap/sourceutil.hpp"
 
 #include "cjui/dialog.hpp"
@@ -288,6 +289,65 @@ void CaptureWindow::exportDesign() {
     flash(L"Saved " + std::to_wstring(p.w) + L"×" + std::to_wstring(p.h) + L" PNG in Pictures › NorthRay Capture.", 8);
 }
 
+// The design's entrance as a looping animated GIF (to post or share): 25 frames a second from the start
+// of the entrances until they've finished, then the finished look held for a moment. At most 800 wide,
+// as GIFs get large quickly.
+void CaptureWindow::exportDesignGif() {
+    const int entrance = dz::entranceMs(designDoc_);
+    if (entrance <= 0) {
+        flash(L"Nothing in this design moves yet. Give an element an Entrance (its menu), or use Save as PNG for a still picture.", 8);
+        return;
+    }
+    PWSTR pics = nullptr;
+    std::wstring folder;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pics))) folder = std::wstring(pics) + L"\\NorthRay Capture";
+    CoTaskMemFree(pics);
+    if (folder.empty()) return;
+    SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
+    const float scale = std::min(1.0f, 800.0f / (float)std::max(1, designDoc_.width));
+    constexpr int kStepMs = 40, kHoldMs = 1500;
+    std::vector<gif::Frame> frames;
+    int w = 0, h = 0;
+    for (int t = 0;; t += kStepMs) {
+        const bool last = t >= entrance;
+        video::DesignPicture p;
+        std::wstring err;
+        if (!video::renderDesign(designDoc_, last ? 1e9f : (float)t, scale, profile_, p, err)) {
+            flash(L"The design couldn't be drawn: " + err, 6);
+            return;
+        }
+        if (frames.empty()) w = p.w, h = p.h;
+        if (p.w != w || p.h != h) return;
+        frames.push_back({std::move(p.bgra), last ? kHoldMs : kStepMs});
+        if (last) break;
+    }
+    const std::vector<std::uint8_t> bytes = gif::encode(w, h, frames);
+    if (bytes.empty()) {
+        flash(L"The GIF couldn't be made.", 6);
+        return;
+    }
+    std::wstring name = widen(designDoc_.name);
+    for (auto& ch : name)
+        if (wcschr(L"\\/:*?\"<>|", ch)) ch = L'-';
+    wchar_t stamp[32];
+    const std::time_t now = std::time(nullptr);
+    std::tm tmv{};
+    localtime_s(&tmv, &now);
+    wcsftime(stamp, 32, L"%Y-%m-%d %H.%M.%S", &tmv);
+    const std::wstring path = folder + L"\\" + name + L" " + std::to_wstring(w) + L"x" + std::to_wstring(h) + L" - " + stamp + L".gif";
+    FILE* f = _wfopen(path.c_str(), L"wb");
+    const bool ok = f && std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    if (f) std::fclose(f);
+    if (!ok) {
+        DeleteFileW(path.c_str());
+        flash(L"The GIF couldn't be written to your Pictures folder.", 6);
+        return;
+    }
+    log::info("Design saved as an animated GIF: " + narrow(path) + " (" + std::to_string(frames.size()) + " frames)");
+    flash(L"Saved a " + std::to_wstring(w) + L"×" + std::to_wstring(h) + L" animated GIF (" + std::to_wstring((bytes.size() + 1023) / 1024) +
+              L" KB) in Pictures › NorthRay Capture.", 8);
+}
+
 // ---------------------------------------------------------------- the canvas: mouse and keys
 
 bool CaptureWindow::designerMouseDown(float x, float y) {
@@ -414,6 +474,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
         };
         topButton("dz:done", L"Done", 100, [this] { openSettings(false); }, true);
         topButton("dz:png", L"Save as PNG", 130, [this] { exportDesign(); });
+        topButton("dz:gif", L"Save as GIF", 120, [this] { exportDesignGif(); });
         topButton("dz:profile", L"Your details…", 140, [this] { editProfile(); });
         topButton("dz:brand", L"Brand kit…", 120, [this] { editBrand(); });
         topButton("dz:page", L"Page…", 90, [this] {

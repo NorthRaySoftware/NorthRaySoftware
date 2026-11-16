@@ -178,6 +178,7 @@ struct Pose {
 };
 Pose pose(const Element& e, float tMs, int pageW, int pageH);
 bool animating(const Document& d, float tMs);   // any element still coming in
+int entranceMs(const Document& d);               // how long the visible elements take to come in (0: none)
 
 // What a timer shows now. `elapsedMs`: since its scene went live (countdown, stopwatch); `localSeconds`:
 // seconds since local midnight; `dateText`: today ("Sun 15 Nov"); `liveMs`: since streaming began (-1 if not).

@@ -18,11 +18,13 @@
 #include "ncap/plugins.hpp"
 #include "ncap/rtmp.hpp"
 #include "ncap/placement.hpp"
+#include "ncap/gif.hpp"
 #include "ncap/routing.hpp"
 
 #include <cmath>
 #include "ncap/scenes.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -1195,6 +1197,168 @@ static void testTrackNames() {
     CHECK(dz::fillPlaceholders("{song} \u00B7 {artist}", {{"song", "Snowfall"}, {"artist", ""}}) == "Snowfall");
 }
 
+
+// A minimal GIF decoder for the test: the global palette, each frame's delay, transparency and pixels.
+namespace {
+struct GifOut {
+    int w = 0, h = 0, frames = 0, loop = -1;
+    std::vector<int> delays;
+    std::vector<std::vector<int>> idx;
+    std::vector<std::array<int, 3>> pal;
+    int clear = -1;
+};
+bool gifDecode(const std::vector<std::uint8_t>& g, GifOut& o) {
+    if (g.size() < 13 || std::memcmp(g.data(), "GIF89a", 6) != 0) return false;
+    std::size_t p = 6;
+    auto u16 = [&](std::size_t at) { return g[at] | (g[at + 1] << 8); };
+    o.w = u16(p), o.h = u16(p + 2);
+    const int flags = g[p + 4];
+    p += 7;
+    const int n = 1 << ((flags & 7) + 1);
+    for (int i = 0; i < n; ++i, p += 3) o.pal.push_back({g[p], g[p + 1], g[p + 2]});
+    int delay = 0;
+    while (p < g.size()) {
+        const int b = g[p++];
+        if (b == 0x3B) return true;
+        if (b == 0x21) {
+            const int label = g[p++];
+            if (label == 0xF9) {
+                delay = u16(p + 2);
+                if (g[p + 1] & 1) o.clear = g[p + 4];
+            } else if (label == 0xFF && std::memcmp(&g[p + 1], "NETSCAPE2.0", 11) == 0) o.loop = u16(p + 14);
+            while (g[p]) p += g[p] + 1;
+            ++p;
+            continue;
+        }
+        if (b != 0x2C) return false;
+        const int fw = u16(p + 4), fh = u16(p + 6);
+        p += 9;
+        const int minCode = g[p++];
+        std::vector<std::uint8_t> data;
+        while (g[p]) {
+            data.insert(data.end(), g.begin() + (long)p + 1, g.begin() + (long)p + 1 + g[p]);
+            p += g[p] + 1;
+        }
+        ++p;
+        // LZW
+        std::vector<std::vector<int>> dict;
+        const int clearCode = 1 << minCode, end = clearCode + 1;
+        int size = minCode + 1;
+        auto resetDict = [&] {
+            dict.clear();
+            for (int i = 0; i < clearCode + 2; ++i) dict.push_back({i});
+            size = minCode + 1;
+        };
+        resetDict();
+        std::vector<int> out, prev;
+        std::size_t bit = 0;
+        for (;;) {
+            if (bit + size > data.size() * 8) break;
+            int code = 0;
+            for (int i = 0; i < size; ++i, ++bit) code |= ((data[bit / 8] >> (bit % 8)) & 1) << i;
+            if (code == clearCode) {
+                resetDict();
+                prev.clear();
+                continue;
+            }
+            if (code == end) break;
+            std::vector<int> entry;
+            if (code < (int)dict.size()) entry = dict[(size_t)code];
+            else if (code == (int)dict.size() && !prev.empty()) entry = prev, entry.push_back(prev[0]);
+            else return false;
+            out.insert(out.end(), entry.begin(), entry.end());
+            if (!prev.empty() && dict.size() < 4096) {
+                auto ne = prev;
+                ne.push_back(entry[0]);
+                dict.push_back(ne);
+                if ((int)dict.size() == (1 << size) && size < 12) ++size;
+            }
+            prev = entry;
+        }
+        if ((int)out.size() != fw * fh) return false;
+        o.idx.push_back(out);
+        o.delays.push_back(delay);
+        ++o.frames;
+    }
+    return false;
+}
+}  // namespace
+
+static void testGif() {
+    std::printf("animated GIFs\n");
+    const int w = 37, h = 23;   // odd sizes
+    std::vector<gif::Frame> frames;
+    for (int f = 0; f < 5; ++f) {
+        gif::Frame fr;
+        fr.bgra.resize((size_t)w * h * 4);
+        fr.delayMs = 40;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                std::uint8_t* px = &fr.bgra[((size_t)y * w + x) * 4];
+                // Four flat colours (exactly representable) and a see-through stripe that moves.
+                const int q = (x < w / 2 ? 0 : 1) + (y < h / 2 ? 0 : 2);
+                const std::uint8_t cols[4][3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {240, 240, 240}};
+                px[2] = cols[q][0], px[1] = cols[q][1], px[0] = cols[q][2];
+                px[3] = (x == f * 3) ? 0 : 255;
+            }
+        frames.push_back(fr);
+    }
+    frames.push_back(frames.back());   // repeats merge into one longer frame
+    frames.back().delayMs = 1000;
+    const auto g = gif::encode(w, h, frames, false);
+    GifOut o;
+    CHECK(gifDecode(g, o));
+    CHECK(o.w == w && o.h == h);
+    CHECK(o.frames == 5);
+    CHECK(o.loop == 0);
+    CHECK(o.delays.size() == 5 && o.delays[0] == 4 && o.delays[4] == 104);
+    CHECK(o.clear >= 0);
+    bool exact = true, seeThrough = true;
+    for (int f = 0; f < o.frames && f < 5; ++f)
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const int i = o.idx[(size_t)f][(size_t)(y * w + x)];
+                const std::uint8_t* px = &frames[(size_t)f].bgra[((size_t)y * w + x) * 4];
+                if (px[3] == 0) {
+                    seeThrough &= i == o.clear;
+                    continue;
+                }
+                auto c = o.pal[(size_t)i];
+                exact &= c[0] == px[2] && c[1] == px[1] && c[2] == px[0];
+            }
+    CHECK(exact);
+    CHECK(seeThrough);
+    // Many colours (more than 256, and long enough for the LZW table to fill and restart).
+    gif::Frame big;
+    const int bw = 300, bh = 200;
+    big.bgra.resize((size_t)bw * bh * 4);
+    std::uint32_t seed = 7;
+    for (std::size_t i = 0; i < (size_t)bw * bh; ++i) {
+        seed = seed * 1664525u + 1013904223u;
+        big.bgra[i * 4] = (std::uint8_t)(seed >> 24), big.bgra[i * 4 + 1] = (std::uint8_t)(seed >> 16), big.bgra[i * 4 + 2] = (std::uint8_t)(seed >> 8);
+        big.bgra[i * 4 + 3] = 255;
+    }
+    GifOut ob;
+    CHECK(gifDecode(gif::encode(bw, bh, {big}), ob) && ob.frames == 1 && ob.loop == -1 && ob.clear == -1);
+    CHECK(ob.pal.size() == 256);
+    CHECK(gif::encode(0, 5, {big}).empty() && gif::encode(bw, bh, {}).empty());
+    gif::Frame wrong;
+    wrong.bgra.resize(10);
+    CHECK(gif::encode(bw, bh, {wrong}).empty());
+    // How long a design's entrance takes.
+    design::Document d;
+    CHECK(design::entranceMs(d) == 0);
+    design::Element e;
+    e.anim = design::Anim::Fade;
+    e.animMs = 700;
+    d.elements.push_back(e);
+    e.animMs = 1200;
+    e.visible = false;
+    d.elements.push_back(e);
+    CHECK(design::entranceMs(d) == 700);
+}
+
+
 static void testAuroraSweep() {
     std::printf("aurora sweep\n");
     namespace tr = ncap::transition;
@@ -2062,6 +2226,7 @@ int main() {
     testVoiceEffects();
     testKeying();
     testAuroraSweep();
+    testGif();
     testPlugins();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;

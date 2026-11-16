@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.14",
+      "date": "2026-11-16",
+      "notes": [
+        "Save a design as an animated GIF (Save as GIF in the designer): its entrances at 25 frames a second, then the finished look held for a moment, looping, at most 800 wide, in Pictures › NorthRay Capture. Parts that are see-through stay see-through. (WebM isn't included: Windows has no WebM encoder, so it would mean bundling one.)"
+      ]
+    },
+    {
       "version": "0.10.13",
       "date": "2026-11-16",
       "notes": [

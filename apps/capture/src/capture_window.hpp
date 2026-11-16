@@ -161,6 +161,7 @@ private:
     void designChanged(bool keepUndo = true);
     void designUndo();
     void exportDesign();
+    void exportDesignGif();
     bool designerMouseDown(float x, float y);
     bool designerMouseMove(float x, float y, bool leftDown);
     bool designerMouseUp();
