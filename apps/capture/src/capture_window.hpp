@@ -7,6 +7,7 @@
 #include "settings.hpp"
 #include "system.hpp"
 
+#include "cj/medialib.hpp"
 #include "ncap/aurora_sky.hpp"
 #include "ncap/visualiser.hpp"
 #include "ncap/scene_templates.hpp"
@@ -282,6 +283,22 @@ private:
     void openChecklist();
     void automationTick();
     void addAuroraSky();
+    // The media library (capture_library.cpp).
+    void openLibrary();
+    void loadLibrary(bool force);
+    bool saveLibrary();
+    void libraryAddFiles();
+    void libraryUse(const std::string& id);
+    void librarySaveDesign();
+    void libraryItemMenu(const std::string& id);
+    void drawLibrary(const cjui::Rect& area);
+    bool libraryRightClick(float x, float y);
+    cj::medialib::Library library_;
+    long long libStamp_ = -1;
+    bool libBroken_ = false, libraryOpen_ = false;
+    int libKind_ = -1;
+    std::string libFolder_, libTag_, libQuery_;
+    std::vector<std::pair<std::string, cjui::Rect>> libRows_;
     void addAuroraPulse();
     void visualiserTick();
     std::shared_ptr<audio::Tap> visTap_;

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.84.0",
+      "date": "2026-11-16",
+      "notes": [
+        "NorthRay Capture 0.10.24: the NorthRay library, one media library for the suite."
+      ]
+    },
+    {
       "version": "0.83.0",
       "date": "2026-11-16",
       "notes": [

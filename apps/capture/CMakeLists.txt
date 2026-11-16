@@ -48,7 +48,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/capture_studio.cpp
   src/capture_made.cpp
-  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_checklist.cpp src/capture_automation.cpp src/capture_hotkeys.cpp src/capture_scene_templates.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
+  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_checklist.cpp src/capture_automation.cpp src/capture_hotkeys.cpp src/capture_scene_templates.cpp src/capture_library.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
   src/output/twitch_chat.cpp
   src/output/mp4_copy.cpp

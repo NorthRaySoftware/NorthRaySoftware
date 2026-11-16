@@ -434,6 +434,7 @@ void CaptureWindow::openSettings(bool on) {
     }
     wizardOpen_ = false;
     checklistOpen_ = false;
+    libraryOpen_ = false;
     if (hkListening_) {
         hkListening_ = false;
         registerHotkeys();
@@ -444,7 +445,7 @@ void CaptureWindow::openSettings(bool on) {
 }
 
 void CaptureWindow::showAbout() {
-    std::wstring text = L"NorthRay Capture " CJ_VERSION_WSTR L" (in development: Milestone 2, video capture)\n\n"
+    std::wstring text = L"NorthRay Capture " CJ_VERSION_WSTR L" (in development)\n\n"
                         L"Livestreaming and recording for Windows.\n\n"
                         L"Developed by " CJ_DEVELOPER_WSTR L".\nNorthRaySoftware@protonmail.com\n\n"
                         L"Licences: the licences folder next to NorthRay Capture.";
@@ -639,6 +640,7 @@ bool CaptureWindow::onMouseUp(float, float) {
 }
 
 bool CaptureWindow::onRightClick(float x, float y) {
+    if (!asking_ && libraryRightClick(x, y)) return true;
     if (settingsOpen_ || asking_) return false;
     const float s = gfx_.dpiScale();
     POINT pt{(LONG)(x * s), (LONG)(y * s)};
@@ -824,6 +826,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
         else if (wizardOpen_) drawWizard(body);
         else if (checklistOpen_) drawChecklist(body);
+        else if (libraryOpen_) drawLibrary(body);
         else drawSettings(body);
         gfx_.popClip();
     } else {
@@ -941,7 +944,11 @@ void CaptureWindow::drawTopBar(const Rect& r) {
         bx -= 4;
     };
     topButton("top:help", L"About", [this] { showAbout(); });
-    topButton("top:settings", L"Settings", [this] { openSettings(!settingsOpen_); }, settingsOpen_);
+    topButton("top:settings", L"Settings", [this] { openSettings(!settingsOpen_ || libraryOpen_); }, settingsOpen_ && !libraryOpen_);
+    topButton("top:library", L"Library", [this] {
+        if (libraryOpen_) openSettings(false);
+        else openLibrary();
+    }, libraryOpen_);
     topButton("top:layout", L"Layout", [this] {
         POINT pt;
         GetCursorPos(&pt);
@@ -1519,7 +1526,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
 
     section(L"ABOUT");
     {
-        const std::wstring t = L"NorthRay Capture " CJ_VERSION_WSTR L", in development (Milestone 2: video capture). "
+        const std::wstring t = L"NorthRay Capture " CJ_VERSION_WSTR L", in development. "
                                L"Developed by " CJ_DEVELOPER_WSTR L" · NorthRaySoftware@protonmail.com";
         y += gfx_.text(t, {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 30;
     }

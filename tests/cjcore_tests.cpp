@@ -1,5 +1,6 @@
 // Unit tests for cjcore. Deliberately dependency-free: run the binary, it
 // prints each check and exits non-zero on any failure.
+#include "cj/medialib.hpp"
 #include "cj/radio.hpp"
 #include "cj/registry.hpp"
 #include "cj/station.hpp"
@@ -9,6 +10,7 @@
 #include "cj/time.hpp"
 #include "cj/ical.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -395,6 +397,58 @@ static void testGithubRecordings() {
     CHECK(cfg.recordingsGithub == "calebjphilip08-sudo/The-CJ-Philip-Show" && cw.empty());
 }
 
+static void testMediaLibrary() {
+    namespace ml = cj::medialib;
+    using ml::Kind;
+    CHECK(ml::kindOf("Cover.PNG") == Kind::Picture && ml::kindOf("intro.mp4") == Kind::Video && ml::kindOf("song.mp3") == Kind::Music);
+    CHECK(ml::kindOf("Starting soon.nrdesign") == Kind::Design && ml::kindOf("notes.txt") == Kind::Other && ml::kindOf("folder.v2/README") == Kind::Other);
+    ml::Library lib;
+    CHECK(lib.storedName("C:\\Pics\\cover.png") == "cover.png" && lib.storedName("a:b?.png") == "a_b_.png" && lib.storedName("") == "file");
+    const std::string a = lib.add("cover.png", "Envoy cover", Kind::Picture, "Books/Alvora", "2026-11-15");
+    CHECK(!a.empty() && lib.storedName("Cover.png") == "Cover (2).png");   // names are case-insensitive on Windows
+    CHECK(lib.add("cover.png", "again", Kind::Picture, "", "2026-11-16").empty());   // the stored name is taken
+    const std::string b = lib.add("Cover (2).png", "Grey Wanderer cover", Kind::Picture, "Books\\Alvora\\", "2026-11-16");
+    const std::string c = lib.add("rain.wav", "Rain", Kind::Sound, "Sounds", "2026-11-16");
+    const std::string d = lib.add("Starting soon.nrdesign", "Starting soon", Kind::Design, " Overlays / Holding ", "2026-11-14");
+    CHECK(lib.item(b)->folder == "Books/Alvora" && lib.item(d)->folder == "Overlays/Holding");
+    // Tags: clean, sorted, no repeats.
+    CHECK(lib.addTag(a, " Alvora ") && lib.addTag(a, "COVER") && !lib.addTag(a, "alvora") && !lib.addTag(a, "  "));
+    CHECK(lib.item(a)->tags == (std::vector<std::string>{"alvora", "cover"}));
+    lib.addTag(b, "alvora");
+    CHECK(lib.tags().at("alvora") == 2 && lib.removeTag(a, "Cover") && !lib.removeTag(a, "cover"));
+    // Search: every word somewhere; kind, folder (and inside it) and tag filters; newest first.
+    auto names = [](const std::vector<const ml::Item*>& v) {
+        std::vector<std::string> n;
+        for (auto* i : v) n.push_back(i->name);
+        return n;
+    };
+    CHECK(names(lib.search({"cover"})) == (std::vector<std::string>{"Grey Wanderer cover", "Envoy cover"}));
+    CHECK(names(lib.search({"alvora grey"})) == (std::vector<std::string>{"Grey Wanderer cover"}));
+    CHECK(names(lib.search({"", (int)Kind::Sound})) == (std::vector<std::string>{"Rain"}));
+    CHECK(lib.search({"", -1, "Books"}).size() == 2 && lib.search({"", -1, "Book"}).empty());
+    CHECK(lib.search({"", -1, "", "ALVORA"}).size() == 2 && lib.search({}).size() == 4);
+    // Folders: listed with their parents; rename moves what's inside; remove moves it up.
+    lib.addFolder("Empty/Inner");
+    const auto fs = lib.folders();
+    CHECK(std::find(fs.begin(), fs.end(), "Books") != fs.end() && std::find(fs.begin(), fs.end(), "Empty/Inner") != fs.end() &&
+          std::find(fs.begin(), fs.end(), "Empty") != fs.end());
+    CHECK(lib.renameFolder("Books", "Writing/Books") && lib.item(a)->folder == "Writing/Books/Alvora");
+    CHECK(!lib.renameFolder("Writing", "Writing/Inside") && !lib.renameFolder("Nowhere", "X"));
+    CHECK(lib.removeFolder("Writing/Books") && lib.item(a)->folder == "Writing/Alvora");
+    CHECK(lib.removeFolder("Sounds") && lib.item(c)->folder.empty());
+    // Saved and read back; junk entries skipped; ids carry on after the highest.
+    ml::Library back;
+    CHECK(ml::Library::fromJson(lib.toJson(), back) && back.items() == lib.items() && back.folders() == lib.folders());
+    ml::Library junk;
+    CHECK(ml::Library::fromJson(R"({"format":"northray-media-library","items":[{"id":"m9","file":"x.png","kind":"picture"},{"id":"m9","file":"y.png"},
+        {"id":"bad","file":"z.png"},{"id":"m3","file":"x.png"},{"id":"m4","file":"song.mp3","kind":"nope","tags":["A","a",3]}]})",
+                                  junk));
+    CHECK(junk.items().size() == 2 && junk.item("m4")->kind == Kind::Music && junk.item("m4")->tags == (std::vector<std::string>{"a"}));
+    CHECK(junk.add("new.png", "New", Kind::Picture, "", "2026-11-16") == "m10");
+    CHECK(!ml::Library::fromJson("{}", junk) && !ml::Library::fromJson("nope", junk));
+    CHECK(lib.remove(c) && !lib.remove(c) && lib.items().size() == 3);
+}
+
 int main() {
     testGithubRecordings();
     testIcal();
@@ -403,6 +457,7 @@ int main() {
     testTime();
     testRadioStatus();
     testRegistry();
+    testMediaLibrary();
     std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

@@ -1356,3 +1356,27 @@ the same):
   (a test-only switch, removed) the left of the sky lit and the curtains rose (left 53.6, right 16.6). The analyser
   received the Stream mix (loudness up to 0.79 with the soundboard), but Wine runs the window's timers every few
   seconds instead of 30 times a second there, so the live response needs checking on Windows.
+
+## 48. The NorthRay library (status: built, 16 Nov 2026; released as 0.10.24)
+
+- cj/medialib (libs/cjcore, so every NorthRay app can use it; tested in cjcore_tests): the library in
+  %LOCALAPPDATA%\NorthRay\Library: files\ (copies) and library.json ("northray-media-library"): items with an id,
+  the stored file name (unique ignoring case; `storedName` makes "photo (2).png" and replaces characters Windows
+  forbids), a name, a kind (picture, video, music, sound, overlay design, other; `kindOf` from the extension,
+  ".nrdesign" for designs), a folder ('/'-separated, cleaned), tags (trimmed, lower case, sorted, no repeats, at
+  most 30) and the day added; folders kept even when empty, listed with their parents; renaming a folder moves what's
+  inside (not into itself), removing one moves its contents up. Search: every word in the name, folder, file or
+  tags, filtered by kind, folder (and those inside) and tag, newest first. Reading skips bad or repeated items and
+  carries the ids on after the highest.
+- Capture (capture_library.cpp): top bar › Library opens the page: kinds, folders (indented) and tags (with counts) at
+  the side; search (typed in), Add files… (several at once; copied with CopyFile, kind from the extension, into the
+  folder being shown); cards with the picture itself (whole, not cropped) or the kind in words. Click: into the scene
+  (Image, Media looping for videos and music and once for sounds, or a Design from the file); right-click: add to the
+  scene, rename, kind, move to (or a new folder), add or remove a tag, show the file, remove (the file to the
+  Recycle Bin). The designer's "To the library" saves the design as .nrdesign in "Overlay designs". library.json is
+  read again when its time stamp changes (another app may have added to it) and written through a temporary file;
+  if it can't be read it's left alone and nothing is changed.
+- Also: About and Settings › About no longer say Capture is at Milestone 2.
+- Tested in Wine with a cover, a video, a sound and a design in the library: kinds, nested folders and tags shown;
+  the #alvora tag showed only the cover; searching "soon" found the design; clicking it put it in the scene; adding
+  the tag "telvana" from the right-click menu was saved in library.json.

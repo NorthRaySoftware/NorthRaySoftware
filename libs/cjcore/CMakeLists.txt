@@ -5,6 +5,7 @@ add_library(cjcore STATIC
   src/station.cpp
   src/skillswap.cpp
   src/ical.cpp
+  src/medialib.cpp
 )
 target_include_directories(cjcore
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include

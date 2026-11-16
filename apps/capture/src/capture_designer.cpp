@@ -531,6 +531,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
         topButton("dz:done", L"Done", 100, [this] { openSettings(false); }, true);
         topButton("dz:png", L"Save as PNG", 130, [this] { exportDesign(); });
         topButton("dz:gif", L"Save as GIF", 120, [this] { exportDesignGif(); });
+        topButton("dz:lib", L"To the library", 140, [this] { librarySaveDesign(); });
         topButton("dz:profile", L"Your details…", 140, [this] { editProfile(); });
         topButton("dz:brand", L"Brand kit…", 120, [this] { editBrand(); });
         topButton("dz:page", L"Page…", 90, [this] {

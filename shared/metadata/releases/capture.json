@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.24",
+      "date": "2026-11-16",
+      "notes": [
+        "The NorthRay library (top bar › Library): one media library for all the NorthRay apps. Add pictures, videos, music and sounds (they're copied in, so they stay put), and save overlay designs into it from the designer (To the library). Sort them into folders, tag them, and search. Click one to add it to the scene as the right kind of source.",
+        "About no longer says Capture is at Milestone 2."
+      ]
+    },
+    {
       "version": "0.10.23",
       "date": "2026-11-16",
       "notes": [
