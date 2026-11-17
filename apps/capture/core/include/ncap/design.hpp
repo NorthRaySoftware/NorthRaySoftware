@@ -95,6 +95,9 @@ struct Element {
     Rgba chatBubble{11, 26, 46, 210};        // the cards' colour
     std::string chatBubbleBrand = "panel";   // the cards linked to a brand colour, or ""
     bool chatNameColours = true;             // names in each viewer's own colour (else the main colour)
+    // Where the messages sit: "left", "right", or "mine" (your own on the right, viewers' on the left, like a phone's
+    // messages), each sized to its message with the text starting at its left. "": as the Align setting (before 0.10.27).
+    std::string chatSide;
     // Entrance (when its scene is shown).
     Anim anim = Anim::None;
     int animMs = 500;

@@ -197,7 +197,7 @@ std::string toJson(const Document& d) {
         if (e.kind == Kind::Icon) j["icon"] = e.icon;
         if (e.kind == Kind::Chat) {
             j["chat"] = {{"count", e.chatCount}, {"fade", e.chatFade}, {"bubbles", e.chatBubbles}, {"bubble", colourJson(e.chatBubble)},
-                         {"bubbleBrand", e.chatBubbleBrand}, {"nameColours", e.chatNameColours}};
+                         {"bubbleBrand", e.chatBubbleBrand}, {"nameColours", e.chatNameColours}, {"side", e.chatSide}};
         }
         if (e.kind == Kind::Text || e.kind == Kind::Timer || e.kind == Kind::Chat) {
             j["text"] = e.text;
@@ -298,6 +298,8 @@ Document fromJson(const std::string& text) {
                 e.chatBubble = colourFrom(c.contains("bubble") ? c["bubble"] : json(), {11, 26, 46, 210});
                 e.chatBubbleBrand = str(c, "bubbleBrand", "panel", 16);
                 e.chatNameColours = flag(c, "nameColours", true);
+                e.chatSide = str(c, "side", "", 8);
+                if (e.chatSide != "left" && e.chatSide != "right" && e.chatSide != "mine") e.chatSide.clear();
             }
             e.cover = flag(o, "cover", true);
             d.elements.push_back(e);
@@ -808,6 +810,7 @@ const std::vector<Template>& templates() {
             e.fill = Fill::solid(hex("#F4F7FB"));
             e.size = 28;
             e.chatCount = 8;
+            e.chatSide = "left";
             add(d, e);
             v.push_back({"chat-box", "Chat box (your Twitch chat, live)", "On stream", d});
         }

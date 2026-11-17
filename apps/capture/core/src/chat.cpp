@@ -251,6 +251,7 @@ std::vector<Message> samples(std::int64_t nowMs) {
     };
     return {m("SampleViewer", {0x3F, 0xCF, 0x8E, 255}, "hello! first time here", {}),
             m("SampleMod", {0x7A, 0x5C, 0xFF, 255}, "welcome in, grab a seat", {"moderator"}),
+            m("SampleStreamer", {0xF4, 0xB9, 0x42, 255}, "thanks for being here, everyone!", {"broadcaster"}),
             m("SampleFriend", {0xFF, 0x69, 0xB4, 255}, "this overlay looks great", {"subscriber"}),
             m("SampleReader", {0x1E, 0x90, 0xFF, 255}, "can't wait for the next chapter", {})};
 }

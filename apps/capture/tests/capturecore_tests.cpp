@@ -2358,6 +2358,20 @@ static void testChat() {
     dz::Brand k = dz::defaultBrand();
     k.colours[4].colour = {1, 2, 3, 255};
     CHECK(dz::applyBrand(back, k).find(id)->chatBubble == ncap::sourceutil::Rgba(1, 2, 3, 210));
+    // Where the bubbles sit: kept, a wrong one dropped (as the Align setting), old designs without it unchanged.
+    CHECK(b->chatSide.empty());
+    for (const char* side : {"left", "right", "mine"}) {
+        dz::Document d2 = d;
+        d2.find(id)->chatSide = side;
+        CHECK(dz::fromJson(dz::toJson(d2)).find(id)->chatSide == side);
+    }
+    {
+        std::string j = dz::toJson(d);
+        const auto at = j.find("\"side\":\"\"");
+        CHECK(at != std::string::npos);
+        if (at != std::string::npos) j.replace(at, 9, "\"side\":\"middle\"");
+        CHECK(dz::fromJson(j).find(id)->chatSide.empty());
+    }
     bool tpl = false;
     for (auto& tp : dz::templates()) tpl = tpl || dz::usesChat(tp.doc);
     CHECK(tpl);

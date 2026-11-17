@@ -252,18 +252,76 @@ static void reportCrash(const std::string& what) {
     cjui::messageBox(nullptr, msg.c_str(), g_crashName.c_str(), MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
 }
 
-static LONG WINAPI unhandled(EXCEPTION_POINTERS* ep) {
+// "NorthRayCapture.exe+0x1a2b3c" for an address (the module's file name and the offset in it).
+static std::string where(DWORD64 addr) {
+    HMODULE m = nullptr;
+    char b[300];
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)addr, &m) && m) {
+        wchar_t path[MAX_PATH] = {};
+        GetModuleFileNameW(m, path, MAX_PATH);
+        const wchar_t* name = wcsrchr(path, L'\\');
+        std::snprintf(b, sizeof b, "%s+0x%llx", toUtf8(name ? name + 1 : path).c_str(), (unsigned long long)(addr - (DWORD64)m));
+    } else {
+        std::snprintf(b, sizeof b, "0x%llx", (unsigned long long)addr);
+    }
+    return b;
+}
+
+// The error, where it happened, and the calls that led there (module and offset only: no paths or data), so a
+// report can be traced to the line of code.
+static std::string describe(EXCEPTION_POINTERS* ep) {
     char b[96];
     std::snprintf(b, sizeof b, "Windows error 0x%08lX at %p", ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0UL,
                   ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionAddress : nullptr);
-    reportCrash(b);
+    std::string out = b;
+#if defined(_M_X64) || defined(__x86_64__)
+    if (ep && ep->ContextRecord) {
+        out += "\r\n  in " + where(ep->ContextRecord->Rip);
+        CONTEXT ctx = *ep->ContextRecord;
+        for (int i = 0; i < 24; ++i) {
+            DWORD64 base = 0;
+            PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(ctx.Rip, &base, nullptr);
+            if (fe) {
+                void* data = nullptr;
+                DWORD64 frame = 0;
+                RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fe, &ctx, &data, &frame, nullptr);
+            } else {   // a leaf function: the return address is on top of the stack
+                if (IsBadReadPtr((const void*)ctx.Rsp, 8)) break;
+                ctx.Rip = *(const DWORD64*)ctx.Rsp;
+                ctx.Rsp += 8;
+            }
+            if (!ctx.Rip) break;
+            out += "\r\n  from " + where(ctx.Rip);
+        }
+    }
+#endif
+    return out;
+}
+
+static LONG WINAPI unhandled(EXCEPTION_POINTERS* ep) {
+    reportCrash(describe(ep));
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+// For tracing a fault that Wine's message dispatch swallows (NORTHRAY_TRACE_FAULTS=1): logged as it happens.
+static LONG WINAPI traceFault(EXCEPTION_POINTERS* ep) {
+    if (ep && ep->ExceptionRecord && ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+        static int n = 0;
+        if (n++ < 3) {
+            const std::wstring dir = northRayDataDir() + L"\\" + g_crashFolder;
+            CreateDirectoryW(dir.c_str(), nullptr);
+            std::ofstream f((dir + L"\\fault-trace.log").c_str(), std::ios::app | std::ios::binary);
+            f << describe(ep) << "\r\n\r\n";
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 void installCrashReport(const std::wstring& appName, const std::wstring& stateFolder) {
     g_crashName = appName;
     g_crashFolder = stateFolder;
     SetUnhandledExceptionFilter(unhandled);
+    if (_wgetenv(L"NORTHRAY_TRACE_FAULTS")) AddVectoredExceptionHandler(1, traceFault);
     std::set_terminate([] {
         std::string what = "An unexpected error.";
         if (auto e = std::current_exception()) {

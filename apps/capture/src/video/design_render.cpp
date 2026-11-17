@@ -194,9 +194,16 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
             for (auto it = msgs.rbegin(); it != msgs.rend(); ++it) {
                 const std::wstring name = widen(it->name), body = widen(it->text);
                 const std::wstring t = name + (it->action ? L" " : L": ") + body;
+                // Which side: the chosen one, or (mine) yours on the right and viewers' on the left; none chosen
+                // follows Align, as before. Placed bubbles are as wide as their message (at most 80% of the box when
+                // they alternate), the text starting at the bubble's left.
+                const bool placed = !e.chatSide.empty();
+                const bool mine = std::find(it->badges.begin(), it->badges.end(), "broadcaster") != it->badges.end();
+                const bool onRight = e.chatSide == "right" || (e.chatSide == "mine" && mine);
                 Element lay = e;
-                lay.w = std::max(10.f, e.w - 2 * pad);
+                lay.w = std::max(10.f, (e.chatSide == "mine" ? e.w * 0.8f : e.w) - 2 * pad);
                 lay.h = 100000;
+                if (placed) lay.align = "left";
                 ComPtr<IDWriteTextLayout> L = layoutFor(c, lay, t);
                 if (!L) break;
                 // The name: bold, in the viewer's colour (made lighter if it would be hard to read).
@@ -214,16 +221,12 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
                 const float h = m.height + 2 * padY;
                 const float top = bottom - h;
                 if (top < e.y && it != msgs.rbegin()) break;   // no room for this one (the newest always shows)
-                if (card) {
-                    float left = e.x, right = e.x + std::min(e.w, m.widthIncludingTrailingWhitespace + 2 * pad + 1);
-                    if (e.align == "right") left = e.x + e.w - (right - e.x), right = e.x + e.w;
-                    else if (e.align == "centre") {
-                        const float wd = right - e.x;
-                        left = e.x + (e.w - wd) / 2, right = left + wd;
-                    }
-                    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, top, right, bottom), radius, radius), card.Get());
-                }
-                if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F(e.x + pad, top + padY), L.Get(), fill.Get());
+                const float bw = std::min(e.w, m.widthIncludingTrailingWhitespace + 2 * pad + 1);
+                float left = e.x;
+                if (placed ? onRight : e.align == "right") left = e.x + e.w - bw;
+                else if (!placed && e.align == "centre") left = e.x + (e.w - bw) / 2;
+                if (card) rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left, top, left + bw, bottom), radius, radius), card.Get());
+                if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F((placed ? left : e.x) + pad, top + padY), L.Get(), fill.Get());
                 bottom = top - gap;
             }
             rt->PopAxisAlignedClip();

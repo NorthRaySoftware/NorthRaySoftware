@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.88.0",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture 0.10.27: a fix for clicking a chat element in the designer, and chat bubbles on the left, the right or split."
+      ]
+    },
+    {
       "version": "0.87.0",
       "date": "2026-11-17",
       "notes": [

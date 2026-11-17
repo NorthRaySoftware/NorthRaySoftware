@@ -1414,3 +1414,20 @@ the same):
   seconds; Capture's Writing progress showed "Chapter 1", "0 of 1,000 words today"; changing the summary by hand
   (chapter, 1,240 words, 48,312 in the book, streak 4) showed on the overlay within a few seconds with no action.
   Live typing needs Writing Studio's editor (WebView2), so it's for checking on Windows.
+
+## 51. Chat bubble sides, and the chat element crash (status: built, 17 Nov 2026; released as 0.10.27)
+
+- The crash CJ hit (0xC0000005 when selecting a chat element in the designer, on real Windows since 0.10.3):
+  drawDesignerProperties named the element's kind from a 7-entry array, and Kind::Chat is the 8th, so it read past
+  the array and built a std::wstring from a bad pointer. Wine swallows exceptions in window callbacks
+  ("dispatch_callback ignoring exception"), so it never showed in testing. Fixed with the CHAT name, a static_assert
+  that the array covers every kind, and a bounds check.
+- cjui's crash report (every app) now writes the faulting module+offset and an unwound stack (RtlLookupFunctionEntry /
+  RtlVirtualUnwind, 24 frames, module+offset only). NORTHRAY_TRACE_FAULTS=1 adds a vectored handler logging the first
+  three access violations to fault-trace.log, for faults Wine swallows; that's how this one was found (offsets mapped
+  with nm against the exe).
+- Element.chatSide ("left", "right", "mine"; JSON chat.side; anything else is ""): placed bubbles are sized to the
+  message with left-aligned text inside; "mine" puts messages with the broadcaster badge on the right and others on
+  the left, at most 80% of the box wide. "" keeps the old behaviour (Align). Designer: Bubbles Left / Right / Split;
+  Align is hidden while Bubbles is set. A SampleStreamer sample message shows the split in the designer. Tested
+  (core: round trip and invalid values; Wine: all three sides, no faults with tracing on).

@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.27",
+      "date": "2026-11-17",
+      "notes": [
+        "Fixed: clicking a chat element in the overlay designer closed NorthRay Capture with “Windows error 0xC0000005”. The panel's heading had no name for the chat kind of element.",
+        "Chat bubbles: choose Left, Right or Split (your own messages on the right and viewers' on the left, like messages on a phone) under Bubbles in the chat element's settings. Each bubble is as wide as its message, with the text starting at the bubble's left. The Chat box overlay starts on Left; chat boxes made before keep following Align until you choose.",
+        "If NorthRay Capture (or another NorthRay app) ever has to close, its crash report now says where it happened, so the problem can be found and fixed. It records program locations only, never your files or data."
+      ]
+    },
+    {
       "version": "0.10.26",
       "date": "2026-11-17",
       "notes": [

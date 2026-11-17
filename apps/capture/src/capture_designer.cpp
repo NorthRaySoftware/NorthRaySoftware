@@ -958,8 +958,9 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     };
 
     // Name and kind.
-    static const wchar_t* kKindNames[] = {L"TEXT", L"RECTANGLE", L"ELLIPSE", L"PICTURE", L"TIMER", L"QR CODE", L"ICON"};
-    gfx_.text(kKindNames[(int)e->kind],
+    static const wchar_t* kKindNames[] = {L"TEXT", L"RECTANGLE", L"ELLIPSE", L"PICTURE", L"TIMER", L"QR CODE", L"ICON", L"CHAT"};
+    static_assert(sizeof kKindNames / sizeof kKindNames[0] == (std::size_t)dz::Kind::Chat + 1, "a name for every kind of element");
+    gfx_.text((std::size_t)e->kind < std::size(kKindNames) ? kKindNames[(int)e->kind] : L"ELEMENT",
               {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 22;
     {
@@ -1262,6 +1263,17 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                 }, false);
             });
         y += 36;
+        label(L"Bubbles");
+        {
+            // Unset (designs from before 0.10.27): shown as what Align does, Left or Right.
+            const int now = e->chatSide == "mine" ? 2 : e->chatSide == "right" ? 1 : e->chatSide == "left" ? 0 : e->align == "right" ? 1 : e->align == "centre" ? -1 : 0;
+            segmented("dz:p:chside", {r.x + 112, y - 2, r.w - 112, 30}, {L"Left", L"Right", L"Split"}, now,
+                      [edit](int i) { edit([i](dz::Element& z) { z.chatSide = i == 2 ? "mine" : i == 1 ? "right" : "left"; }); });
+        }
+        y += 36;
+        if (e->chatSide == "mine")
+            y += gfx_.text(L"Split: your own messages (from your channel) sit on the right, everyone else's on the left, like messages on a phone.",
+                           {r.x, y - 4, r.w, 36}, Font::Small, pal_.inkFaint, {Align::Left, true}) + 6;
         label(L"Names");
         segmented("dz:p:chnc", {r.x + 112, y - 2, r.w - 112, 30}, {L"Viewers' colours", L"Brand colour"}, e->chatNameColours ? 0 : 1,
                   [edit](int i) { edit([i](dz::Element& z) { z.chatNameColours = i == 0; }); });
@@ -1304,12 +1316,14 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             });
         }
         y += 36;
-        segmented("dz:p:align", {r.x + 112, y - 2, r.w - 112, 30}, {L"Left", L"Centre", L"Right"},
-                  e->align == "centre" ? 1 : e->align == "right" ? 2 : 0, [edit](int i) {
-                      edit([i](dz::Element& z) { z.align = i == 1 ? "centre" : i == 2 ? "right" : "left"; });
-                  });
-        label(L"Align");
-        y += 36;
+        if (e->kind == dz::Kind::Text || e->chatSide.empty()) {   // chat placed by Bubbles (above) has no Align
+            segmented("dz:p:align", {r.x + 112, y - 2, r.w - 112, 30}, {L"Left", L"Centre", L"Right"},
+                      e->align == "centre" ? 1 : e->align == "right" ? 2 : 0, [edit](int i) {
+                          edit([i](dz::Element& z) { z.align = i == 1 ? "centre" : i == 2 ? "right" : "left"; });
+                      });
+            label(L"Align");
+            y += 36;
+        }
     }
     if (e->kind == dz::Kind::Image) {
         button("dz:p:file", {r.x, y, r.w - 120, 30}, e->file == dz::kBrandLogo ? L"Brand logo" : L"Another picture…", [this, edit, eid] {
