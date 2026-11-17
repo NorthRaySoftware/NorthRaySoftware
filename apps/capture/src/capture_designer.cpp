@@ -176,6 +176,9 @@ void CaptureWindow::loadProfile() {
         if (it != v.end()) it->second = val;
         else v.push_back({k, val});
     }
+    // Writing Studio's own values are there even when it isn't, empty, so a design never shows "{chapter}".
+    for (const char* k : {"chapter", "words", "goal", "today", "bookwords", "bookline", "streak", "streakline"})
+        if (std::none_of(v.begin(), v.end(), [&](const auto& p) { return p.first == k; })) v.push_back({k, ""});
     v.push_back({"cover", ""});   // stays "" without Writing Studio's cover
     for (auto& [k, val] : writingValues_)
         if (k == "cover" && !val.empty()) v.back().second = val;
@@ -211,12 +214,14 @@ void CaptureWindow::editProfile() {
             });
 }
 
-// Writing Studio's summary (%LOCALAPPDATA%\NorthRay\Writing Studio\summary.json): the book being written,
-// its series line and cover, today's words and the streak, as {book} {series} {cover} {words} {streak}. Looked
-// at every few seconds; read when it changes. Today's words count only if it's today's summary.
+// Writing Studio's summary (%LOCALAPPDATA%\NorthRay\Writing Studio\summary.json), kept in step automatically:
+// the book and chapter being written, its series line and cover, today's words (typing not yet saved included),
+// the daily goal, the streak and the book's words, as {book} {series} {cover} {chapter} {words} {goal} {today}
+// {streak} {bookwords}, and {bookline} and {streakline} as phrases. Writing Studio rewrites it within two seconds of a change; Capture looks every two seconds
+// and reads it when it has changed. Today's words count only if it's today's summary.
 void CaptureWindow::writingTick() {
     const ULONGLONG now = GetTickCount64();
-    if (now - writingChecked_ < 4000) return;
+    if (now - writingChecked_ < 1900) return;
     writingChecked_ = now;
     std::error_code ec;
     const std::filesystem::path p = std::filesystem::path(profilePath()).parent_path() / L"Writing Studio" / L"summary.json";
@@ -241,8 +246,25 @@ void CaptureWindow::writingTick() {
             std::snprintf(today, sizeof today, "%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
             const bool isToday = str("day") == today;
             const long long words = isToday && j.contains("wordsToday") && j["wordsToday"].is_number_integer() ? j["wordsToday"].get<long long>() : 0;
-            vals.push_back({"words", std::to_string(words)});
-            if (j.contains("streak") && j["streak"].is_number_integer()) vals.push_back({"streak", std::to_string(j["streak"].get<long long>())});
+            auto grouped = [](long long n) {   // 12,480
+                std::string d = std::to_string(n < 0 ? -n : n), out;
+                for (std::size_t i = 0; i < d.size(); ++i) {
+                    if (i && (d.size() - i) % 3 == 0) out += ',';
+                    out += d[i];
+                }
+                return (n < 0 ? "-" : "") + out;
+            };
+            auto integer = [&](const char* k) { return j.contains(k) && j[k].is_number_integer() ? j[k].get<long long>() : 0LL; };
+            const long long goal = std::max(0LL, integer("dailyGoal"));
+            vals.push_back({"chapter", str("chapter")});
+            vals.push_back({"words", grouped(words)});
+            vals.push_back({"goal", goal ? grouped(goal) : std::string()});
+            vals.push_back({"today", grouped(words) + (goal ? " of " + grouped(goal) : std::string()) + (words == 1 && !goal ? " word today" : " words today")});
+            const long long book = integer("bookWords"), streak = integer("streak");
+            vals.push_back({"bookwords", j.contains("bookWords") ? grouped(book) : std::string()});
+            vals.push_back({"bookline", j.contains("bookWords") ? grouped(book) + (book == 1 ? " word in the book" : " words in the book") : std::string()});
+            vals.push_back({"streak", j.contains("streak") ? std::to_string(streak) : std::string()});
+            vals.push_back({"streakline", streak > 0 ? std::to_string(streak) + "-day streak" : std::string()});
         }
     }
     if (vals == writingValues_) return;

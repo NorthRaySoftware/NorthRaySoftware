@@ -172,7 +172,7 @@ bool StudioApp::create(HINSTANCE inst, int show) {
     else if (folder != defaultLibraryFolder()) openLibrary(defaultLibraryFolder(), false);
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
-    SetTimer(hwnd(), kTickTimer, 30000, nullptr);
+    SetTimer(hwnd(), kTickTimer, 2000, nullptr);   // the summary for Launcher and Capture (written only when it changes)
     writeSummary();
     SetTimer(hwnd(), kBackupTimer, 30 * 60 * 1000, nullptr);
     return true;
@@ -1049,7 +1049,11 @@ void StudioApp::onTimer(UINT_PTR id) {
         return;
     }
     if (id == kBackupTimer) { backupTick(); return; }
-    if (id == kTickTimer) writeSummary();   // for NorthRay Launcher's home (every 30 s, only when it changed)
+    if (id == kTickTimer) {   // the summary for NorthRay Launcher and Capture (every 2 s, written only when it changed)
+        writeSummary();
+        static int ticks = 0;
+        if (++ticks % 15) return;   // the page itself as before, every 30 s
+    }
     if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
         commitFields();

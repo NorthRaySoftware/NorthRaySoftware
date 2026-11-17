@@ -910,6 +910,33 @@ const std::vector<Template>& templates() {
             add(d, s);
             v.push_back({"book-card", "Book card (your book's title and series)", "On stream", d});
         }
+        {   // Writing live: the chapter, today's words against the goal, the streak and the book so far, from Writing Studio.
+            Document d;
+            d.name = "Writing progress";
+            d.width = 1100;
+            d.height = 300;
+            Element card = rectEl("Card", 10, 10, 1080, 280, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#7A5CFF55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideUp;
+            add(d, card);
+            Element k = textEl("Label", "CHAPTER", 50, 40, 1000, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::SlideUp;
+            add(d, k);
+            Element c = textEl("Chapter", "{chapter}", 50, 74, 1000, 70, 50, "#F4F7FB", true, "left");
+            c.anim = Anim::SlideUp;
+            add(d, c);
+            Element t = textEl("Today", "{today}", 50, 158, 1000, 46, 34, "#F4F7FB", false, "left");
+            t.anim = Anim::SlideUp;
+            t.animMs = 650;
+            add(d, t);
+            Element b = textEl("Book and streak", "{bookline}  \u00B7  {streakline}", 50, 214, 1000, 40, 26,
+                               "#9FB3C8", false, "left");
+            b.anim = Anim::SlideUp;
+            b.animMs = 750;
+            add(d, b);
+            v.push_back({"writing-progress", "Writing progress (chapter and today's words)", "On stream", d});
+        }
         {   // A radio show's title and episode, with an on-air badge.
             Document d;
             d.name = "Show title";

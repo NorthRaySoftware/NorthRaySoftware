@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.87.0",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture 0.10.26 and Writing Studio 0.34.5: Capture keeps in step with Writing Studio automatically, with a Writing progress overlay."
+      ]
+    },
+    {
       "version": "0.86.0",
       "date": "2026-11-16",
       "notes": [

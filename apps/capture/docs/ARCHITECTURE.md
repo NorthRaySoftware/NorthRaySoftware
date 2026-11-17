@@ -1397,3 +1397,20 @@ the same):
 - Tested in Wine: the design thumbnail showed; Export all saved kit.nrpack (4 files and pack.json; Python's zipfile
   reads it); importing it added the 4 items under Packs/My NorthRay library with Books/Alvora and Overlays inside,
   fresh names ("Envoy cover (2).png") and their tags.
+
+## 50. Keeping in step with Writing Studio (status: built, 17 Nov 2026; released as 0.10.26)
+
+- Writing Studio writes summary.json every 2 s (was 30 s), still only when its text changed, so a chapter switch,
+  a book change or new words reach Capture within about two seconds. It adds "chapter" (the open chapter's label),
+  "bookWords" (the book's words) and counts unsaved typing: today's words and the book's words add the editor's live
+  count less the chapter's saved count (never below 0). Its page still repaints every 30 s as before.
+- Capture's writingTick looks every ~2 s (the stats timer) and gives designs {chapter}, {words} and {goal} (grouped,
+  "1,240"), {today} ("1,240 of 2,000 words today", or "1,240 words today" without a goal), {bookwords}, {bookline}
+  ("48,312 words in the book"), {streak} and {streakline} ("4-day streak", empty at 0). loadProfile always defines
+  these (empty without Writing Studio), so designs never show the braces; empty phrases drop out of "·" lines.
+- The Writing progress design (1100 × 300, "On stream") and the Reading and writing scene template (placed under
+  the chat).
+- Tested in Wine: Writing Studio opening The Envoy of Telvana wrote "chapter": "Chapter 1" and "bookWords" within
+  seconds; Capture's Writing progress showed "Chapter 1", "0 of 1,000 words today"; changing the summary by hand
+  (chapter, 1,240 words, 48,312 in the book, streak 4) showed on the overlay within a few seconds with no action.
+  Live typing needs Writing Studio's editor (WebView2), so it's for checking on Windows.

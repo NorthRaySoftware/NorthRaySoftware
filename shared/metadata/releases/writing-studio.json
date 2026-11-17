@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.34.5",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture now follows your writing as it happens: the chapter you're on, today's words (counting what you've just typed, before it's saved) and the book's word count are shared within two seconds, instead of every 30 seconds, through the same small file on this PC."
+      ]
+    },
+    {
       "version": "0.34.4",
       "date": "2026-11-16",
       "notes": [

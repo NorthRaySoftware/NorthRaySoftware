@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.10.26",
+      "date": "2026-11-17",
+      "notes": [
+        "Capture keeps in step with Writing Studio by itself: the book, chapter and words on your overlays change within a few seconds of you switching chapter, changing book or writing, with nothing to set up.",
+        "A new overlay, Writing progress (Overlay design… › On stream): the chapter you're on, today's words against your daily goal, the words in the book so far and your writing streak. New Reading and writing scenes include it.",
+        "Overlay text can use {chapter}, {today} (\u201C1,240 of 2,000 words today\u201D), {goal}, {bookwords}, {bookline} and {streakline}, alongside {book}, {series}, {words} and {streak}. When Writing Studio isn't there, they're empty rather than showing the braces."
+      ]
+    },
+    {
       "version": "0.10.25",
       "date": "2026-11-16",
       "notes": [

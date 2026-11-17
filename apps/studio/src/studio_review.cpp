@@ -73,14 +73,23 @@ void StudioApp::writeSummary() {
     if (!lib_) return;
     const std::string today = Library::localDay(now());
     const auto days = lib_->wordsWritten({}, today);
+    std::int64_t wordsToday = days.count(today) ? days.at(today) : 0;
+    const ManuscriptNode* n = lib_->node(currentNode_);
+    // Typing not saved yet counts too, so NorthRay Capture's count moves as you write.
+    if (n && liveWords_ >= 0) wordsToday = std::max<std::int64_t>(0, wordsToday + liveWords_ - n->wordCount);
     nlohmann::json j = {{"format", "northray-writing-summary"}, {"day", today},
-                        {"wordsToday", days.count(today) ? days.at(today) : 0}, {"dailyGoal", dailyGoal()}, {"streak", writingStreak()}};
-    // The book being written (the chapter in the editor), for NorthRay Capture's book card.
-    if (const ManuscriptNode* n = lib_->node(currentNode_))
+                        {"wordsToday", wordsToday}, {"dailyGoal", dailyGoal()}, {"streak", writingStreak()}};
+    // The book and chapter being written (the one in the editor), for NorthRay Capture's book card and writing scenes.
+    if (n)
         if (const Book* b = lib_->book(n->bookId)) {
             j["book"] = b->title;
             j["series"] = seriesLine(b->id);
             j["cover"] = b->coverBlob.empty() ? std::string() : lib_->blobPath(b->coverBlob);
+            j["chapter"] = narrow(nodeLabel(*n));
+            std::int64_t total = 0;
+            for (auto* top : lib_->childrenOf(b->id, {})) total += nodeTotalWords(top->id);
+            if (liveWords_ >= 0) total += liveWords_ - n->wordCount;
+            j["bookWords"] = std::max<std::int64_t>(0, total);
         }
     const std::string text = j.dump(1);
     if (text == lastSummary_) return;
