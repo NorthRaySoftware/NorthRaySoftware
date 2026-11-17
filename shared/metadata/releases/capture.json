@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.30",
+      "date": "2026-11-17",
+      "notes": [
+        "Fixed: music and other sound played from files skipped and crackled, especially FLAC and WAV files. Sound was handed to the mixer in large blocks, and the mixer, keeping the delay down, cut most of each block away. It now goes in a little at a time, just ahead of when it plays. In a test with a steady tone, the dropouts went from about 19 a second to none.",
+        "Music and video files are now heard in your headphones as well as on stream: the monitor is switched on for them, including the ones you already have. You can still turn it off for any of them from its row in the audio mixer, and that choice is kept."
+      ]
+    },
+    {
       "version": "0.10.29",
       "date": "2026-11-17",
       "notes": [

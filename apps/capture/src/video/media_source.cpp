@@ -508,10 +508,15 @@ private:
                     buf->Unlock();
                     pendingTs = ts;
                 }
-                // Hand it over a little ahead of its time (the mixer keeps the delay small).
+                // Hand it over a little at a time, up to kLead ahead of its moment, so the mixer always has
+                // some waiting but never more than kMost. (Before 0.10.30 a whole decoded block went in at once:
+                // FLAC, WAV and resampled sound come in blocks of 100 ms or more, the mixer cut anything over
+                // 100 ms back to 20 ms to keep the delay down, and the music skipped many times a second.)
+                constexpr LONGLONG kLead = 500000;                            // 50 ms, in 100 ns units
+                constexpr std::size_t kMost = (std::size_t)audio::kBlock * 8;   // 80 ms (the mixer trims past 100)
                 bool paused = false;
                 const LONGLONG pos = position(paused);
-                if (paused || pendingTs - pos > 400000) {   // more than 40 ms early, or paused
+                if (paused) {
                     Sleep(5);
                     continue;
                 }
@@ -520,10 +525,17 @@ private:
                     pending.clear();
                     continue;
                 }
-                const std::size_t wrote = sound_->write(pending.data(), frames);
+                const LONGLONG ahead = pos + kLead - pendingTs;   // how much of it may go now
+                const std::size_t have = sound_->available();
+                if (ahead <= 0 || have >= kMost) {
+                    Sleep(2);
+                    continue;
+                }
+                const std::size_t allowed = std::min({frames, (std::size_t)(ahead * audio::kRate / 10000000) + 1, kMost - have});
+                const std::size_t wrote = sound_->write(pending.data(), allowed);
                 pending.erase(pending.begin(), pending.begin() + (long)(wrote * audio::kChannels));
                 pendingTs += (LONGLONG)wrote * 10000000 / audio::kRate;
-                if (wrote < frames) Sleep(5);
+                if (wrote < frames) Sleep(2);
             }
             soundDone = true;
             CoUninitialize();

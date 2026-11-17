@@ -185,6 +185,16 @@ void CaptureWindow::loadScenes() {
         design::Document d = design::fromJson(src.settings);
         if (design::addChapterWords(d)) upgraded.push_back({src.id, design::toJson(d)});
     }
+    // Music and video files made before 0.10.30 weren't heard in headphones: they're sent to the monitor once,
+    // unless their routing was changed since then (and from now on, any change of routing is kept as it is).
+    for (const Source& src : scenes_.sources()) {
+        if (src.kind != SourceKind::Media) continue;
+        nlohmann::json j = nlohmann::json::parse(src.settings, nullptr, false);
+        if (!j.is_object() || !j.contains("buses") || !j["buses"].is_number_unsigned() || j.value("monitorChosen", false)) continue;
+        j["buses"] = j["buses"].get<std::uint32_t>() | (std::uint32_t)routing::Monitor;
+        j["monitorChosen"] = true;
+        upgraded.push_back({src.id, j.dump()});
+    }
     for (auto& [id, json] : upgraded) scenes_.setSourceSettings(id, json);
     savedChanges_ = upgraded.empty() ? scenes_.changes() : savedChanges_;
     if (!upgraded.empty()) scenesChanged();

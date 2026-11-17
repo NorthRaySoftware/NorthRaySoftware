@@ -1461,3 +1461,18 @@ the same):
   shaderSource) must be clean, and each aurora shader must end whole (not truncated by its snprintf buffer).
 - Gpu::compilePixelShader's source name is "capture-shader" (was "transition", which made aurora errors look like
   transition errors). Lesson: Wine's shader compiler is more lenient than Windows'; shader text needs its own checks.
+
+## 54. Clean sound from files, and monitoring them (released as 0.10.30, 17 Nov 2026)
+
+- The cause: MediaSource's audio thread wrote a whole decoded (and resampled) block to its Ring once the block's
+  timestamp was within 40 ms. FLAC (4096 frames), WAV and Media Foundation's resampled output arrive in blocks of
+  ~90 ms to hundreds of ms, so the Ring often held over 100 ms, and Mixer::block() trims any source past 10 blocks
+  back to 2, dropping the rest. Measured in Wine on a 10 s Stream mix clip of a 440 Hz tone (44.1 kHz FLAC):
+  18.9 discontinuities a second and 95 silent gaps up to 90 ms.
+- Now: writes are limited to the frames due within kLead (50 ms) of the playback position and to kMost (80 ms)
+  in the Ring, polling every 2 ms (the mixer's timeBeginPeriod(1) makes Sleep(2) about 2 ms). Same test: 1 event
+  per clip for FLAC, WAV and MP3, at the file's loop point (a restarting sine), no silent gaps over 1 ms.
+  The analysis predicts each sample from the previous two (x[n] = 2cos(w)x[n-1] - x[n-2]) and counts misses.
+- Monitoring: a Media source's default buses add Monitor (a file can't feed back). Media sources with saved
+  buses are given Monitor once at load (marked "monitorChosen"); any later change of buses sets monitorChosen,
+  so a choice to turn it off stays off.

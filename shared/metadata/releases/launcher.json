@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.91.0",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture 0.10.30: music from files plays cleanly, and you hear it in your headphones."
+      ]
+    },
+    {
       "version": "0.90.0",
       "date": "2026-11-17",
       "notes": [

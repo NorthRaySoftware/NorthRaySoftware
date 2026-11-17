@@ -80,7 +80,9 @@ std::uint32_t CaptureWindow::audioBuses(const Source& s) const {
     if (j.contains("buses") && j["buses"].is_number_unsigned()) return j["buses"].get<std::uint32_t>() & 0xFFu;
     const routing::Kind k = s.kind == SourceKind::InputAudio || s.kind == SourceKind::Media ? routing::Kind::Input
                           : s.kind == SourceKind::DesktopAudio ? routing::Kind::Desktop : routing::Kind::Application;
-    return routing::defaultBuses(k);
+    // A music or video file is also heard in your headphones (the monitor): it's a file, so playing it back can't
+    // feed back into anything being captured.
+    return routing::defaultBuses(k) | (s.kind == SourceKind::Media ? (std::uint32_t)routing::Monitor : 0u);
 }
 
 routing::AudioSource CaptureWindow::routingOf(const Source& s) const {
@@ -316,6 +318,7 @@ void CaptureWindow::setAudioSetting(const Id& source, const char* key, const jso
     if (!s) return;
     json j = settingsOf(*s);
     j[key] = value;
+    if (std::string(key) == "buses") j["monitorChosen"] = true;   // their choice: kept (see loadScenes)
     scenes_.setSourceSettings(source, j.dump());
     syncAudio();
     scenesChanged();
