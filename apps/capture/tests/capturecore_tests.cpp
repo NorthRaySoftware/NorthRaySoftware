@@ -1813,6 +1813,44 @@ static void testVisualiser() {
     CHECK(finite);
 }
 
+
+// Words Windows' shader compiler (fxc/D3DCompile) reserves, which other compilers (Wine's) may let through as
+// names: a shader using one compiles here and fails on Windows (0.10.28's "float line" did). Comments are skipped.
+static std::string hlslReservedWordIn(const std::string& src) {
+    static const char* reserved[] = {"line", "lineadj", "point", "triangle", "triangleadj", "sample", "centroid", "linear",
+                                     "nointerpolation", "noperspective", "precise", "shared", "groupshared", "snorm", "unorm",
+                                     "row_major", "column_major", "packoffset", "technique", "technique10", "pass", "compile",
+                                     "string", "texture", "sampler", "vector", "matrix", "inline", "uniform", "volatile",
+                                     "extern", "export", "half", "double", "dword", "pixelfragment", "vertexfragment",
+                                     "stateblock", "stateblock_state", "compile_fragment", "asm", "decl", "globallycoherent",
+                                     "interface", "namespace", "cbuffer_", "auto", "case", "catch", "char", "class", "const_cast",
+                                     "delete", "dynamic_cast", "enum", "explicit", "friend", "goto", "long", "mutable", "new",
+                                     "operator", "private", "protected", "public", "reinterpret_cast", "short", "signed",
+                                     "sizeof", "static_cast", "template", "this", "throw", "try", "typename", "union",
+                                     "unsigned", "using", "virtual"};
+    std::string code;
+    for (std::size_t i = 0; i < src.size(); ++i) {   // without // comments and # lines (#line 1 "transition")
+        const bool lineStart = i == 0 || src[i - 1] == '\n';
+        if ((src[i] == '/' && i + 1 < src.size() && src[i + 1] == '/') || (lineStart && src[i] == '#')) {
+            while (i < src.size() && src[i] != '\n') ++i;
+        }
+        if (i < src.size()) code += src[i];
+    }
+    std::string word;
+    for (std::size_t i = 0; i <= code.size(); ++i) {
+        const char c = i < code.size() ? code[i] : ' ';
+        if (std::isalnum((unsigned char)c) || c == '_') {
+            word += c;
+            continue;
+        }
+        if (!word.empty())
+            for (const char* r : reserved)
+                if (word == r) return word;
+        word.clear();
+    }
+    return "";
+}
+
 static void testAuroraPulse() {
     std::printf("aurora pulse\n");
     namespace as = ncap::aurora_sky;
@@ -1879,6 +1917,17 @@ static void testAuroraPulse() {
         waveLoud += a.g, waveQuiet += b.g;
     }
     CHECK(waveLoud > waveQuiet * 1.5f);
+    // Every aurora shader: no word Windows' compiler reserves, and written out whole (not cut off by its buffer).
+    for (bool p2 : {false, true})
+        for (bool wv : {false, true})
+            for (bool stars : {false, true}) {
+                as::Settings z = s;
+                z.wave = wv;
+                z.stars = stars;
+                const std::string src = as::shader(z, p2);
+                CHECK(hlslReservedWordIn(src).empty());
+                CHECK(src.size() > 200 && src.substr(src.size() - 2) == "}\n");
+            }
     // Not a pulse: the wave setting changes nothing.
     const auto skyW = as::sample(w, 0.4f, 0.5f, 3, 1920, 1080), skyP = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080);
     CHECK(skyW.r == skyP.r && skyW.g == skyP.g && skyW.b == skyP.b);
@@ -1925,6 +1974,11 @@ static void testAuroraSweep() {
     CHECK(h.find("float4 transition(float2 uv, float progress)") != std::string::npos && h.find("1.0000, 0.0000, 0.0000") != std::string::npos &&
           h.find("1 - uv.y, uv.x") != std::string::npos);
     CHECK(tr::auroraShader(tr::Direction::Left, "junk", "#12").find("0.2470") != std::string::npos);   // bad colours: the defaults
+    // Built-in transition shaders, wrapped as they're compiled: no word Windows' compiler reserves.
+    for (auto d : {tr::Direction::Left, tr::Direction::Right, tr::Direction::Up, tr::Direction::Down})
+        CHECK(hlslReservedWordIn(tr::shaderSource(tr::auroraShader(d))).empty());
+    CHECK(hlslReservedWordIn(tr::shaderSource(tr::exampleShader())).empty());
+    CHECK(hlslReservedWordIn("float line = 1;") == "line" && hlslReservedWordIn("// a line\nfloat edge = 1;").empty());
 }
 
 static void testKeying() {

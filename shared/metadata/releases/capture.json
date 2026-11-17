@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.10.29",
+      "date": "2026-11-17",
+      "notes": [
+        "Fixed: in 0.10.28 the aurora sky, Aurora pulse and Aurora wave showed “The aurora couldn't be drawn … syntax error: unexpected token 'line'” instead of the aurora. A name in the new wave's graphics-card code is a reserved word for Windows' shader compiler; it's renamed, and every shader Capture makes is now checked for those words before release."
+      ]
+    },
+    {
       "version": "0.10.28",
       "date": "2026-11-17",
       "notes": [

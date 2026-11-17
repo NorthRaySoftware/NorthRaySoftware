@@ -1450,3 +1450,14 @@ the same):
   than quiet; a sky ignores wave; addChapterWords adds once, keeps the label's style, leaves other or changed designs
   alone). Wine: Writing Studio wrote chapterWords; the 0.10.26 overlay in the test scenes gained "3,214 words"; the
   wave drew and swelled with the soundboard's Fanfare; switching to Pulse and back.
+
+## 53. The reserved-word fix (released as 0.10.29, 17 Nov 2026)
+
+- 0.10.28's wave HLSL declared `float line`; `line` is a geometry-shader primitive keyword in fxc/D3DCompile, so
+  every aurora shader (the text is shared, WAVE or not) failed on Windows with X3000 at (25,19-22). Wine's compiler
+  accepted it, so the Wine test passed. Renamed to `centre`.
+- Tests: hlslReservedWordIn() tokenises a shader (skipping // comments and # directives) against fxc's reserved
+  words; every aurora_sky::shader combination (pulse, wave, stars) and every built-in transition (wrapped by
+  shaderSource) must be clean, and each aurora shader must end whole (not truncated by its snprintf buffer).
+- Gpu::compilePixelShader's source name is "capture-shader" (was "transition", which made aurora errors look like
+  transition errors). Lesson: Wine's shader compiler is more lenient than Windows'; shader text needs its own checks.

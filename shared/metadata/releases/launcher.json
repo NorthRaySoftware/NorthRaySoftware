@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.90.0",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture 0.10.29: the aurora backgrounds draw again."
+      ]
+    },
+    {
       "version": "0.89.0",
       "date": "2026-11-17",
       "notes": [

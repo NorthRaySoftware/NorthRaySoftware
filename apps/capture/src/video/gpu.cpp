@@ -436,7 +436,7 @@ ComPtr<ID3D11PixelShader> Gpu::compilePixelShader(const std::string& source, std
         return ps;
     }
     ComPtr<ID3DBlob> blob, err;
-    if (FAILED(compile(source.data(), source.size(), "transition", nullptr, nullptr, "ps", "ps_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err))) {
+    if (FAILED(compile(source.data(), source.size(), "capture-shader", nullptr, nullptr, "ps", "ps_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err))) {
         error = err ? std::string((const char*)err->GetBufferPointer(), err->GetBufferSize()) : "It didn't compile";
         while (!error.empty() && (error.back() == '\n' || error.back() == '\r' || error.back() == '\0')) error.pop_back();
         return ps;

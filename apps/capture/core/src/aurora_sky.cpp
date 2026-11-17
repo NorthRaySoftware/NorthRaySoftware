@@ -167,8 +167,8 @@ float4 ps(V_ i) : SV_Target
         [unroll] for (int k = 0; k < 3; ++k) {
             float ph = k * 2.1;
             float amp = 0.035 + 0.26 * wb;
-            float line = 0.56 + (k - 1) * 0.05 + amp * sin(u * (9.0 + 2.5 * k) - t * (1.1 + 0.35 * k) + ph) + 0.015 * sin(u * 23.0 + t * 0.8 + ph);
-            float d = line - v;
+            float centre = 0.56 + (k - 1) * 0.05 + amp * sin(u * (9.0 + 2.5 * k) - t * (1.1 + 0.35 * k) + ph) + 0.015 * sin(u * 23.0 + t * 0.8 + ph);
+            float d = centre - v;
             float thick = 0.007 + 0.016 * wb + 0.006 * loud;
             float core = exp(-(d * d) / (thick * thick));
             float halo = exp(-abs(d) * 12.0);
