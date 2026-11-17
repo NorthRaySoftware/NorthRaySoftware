@@ -37,7 +37,7 @@ enum : UINT {
     CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit, CmdMediaFromStart,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
-    CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight,
+    CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight, CmdSkyPulse = 6780, CmdSkyWave,
     CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
     CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500, CmdFollow0 = 8000, CmdUnfollow = 8400,
 };
@@ -418,13 +418,15 @@ void CaptureWindow::addAuroraSky() {
     flash(L"An aurora sky, in your brand colours. Right-click it for speed, brightness and colours; put it at the bottom of the scene.", 7);
 }
 
-void CaptureWindow::addAuroraPulse() {
+void CaptureWindow::addAuroraPulse(bool wave) {
     aurora_sky::Settings a;
     brandSky(a);
     a.width = scenes_.canvasWidth;
     a.height = scenes_.canvasHeight;
-    addCapture(SourceKind::AuroraPulse, "Aurora pulse", aurora_sky::toJson(a));
-    flash(L"An aurora that moves with your Stream mix: bass on the left, treble on the right. Put it at the bottom of the scene.", 7);
+    a.wave = wave;
+    addCapture(SourceKind::AuroraPulse, wave ? "Aurora wave" : "Aurora pulse", aurora_sky::toJson(a));
+    flash(wave ? L"Ribbons of aurora that flow with your Stream mix like a sound wave: bass on the left, treble on the right. Right-click it for Pulse or Wave."
+               : L"An aurora that moves with your Stream mix: bass on the left, treble on the right. Right-click it for Pulse or Wave.", 7);
 }
 
 // The sound visualiser: while any aurora pulse exists, the Stream mix is read through a tap (as recordings
@@ -631,7 +633,13 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
                 sp.push_back(MenuItem::item(speedNames[i], CmdSkySpeed0 + (UINT)i, {}, true, std::fabs(a.speed - speeds[i]) < 0.01f));
                 br.push_back(MenuItem::item(brightNames[i], CmdSkyBright0 + (UINT)i, {}, true, std::fabs(a.brightness - brights[i]) < 0.01f));
             }
-            std::vector<MenuItem> sky = {
+            std::vector<MenuItem> sky;
+            if (src.kind == SourceKind::AuroraPulse) {   // its style
+                sky.push_back(MenuItem::item(L"Pulse", CmdSkyPulse, L"the curtains rise with the music", true, !a.wave));
+                sky.push_back(MenuItem::item(L"Wave", CmdSkyWave, L"ribbons flow like a sound wave", true, a.wave));
+                sky.push_back(MenuItem::sep());
+            }
+            std::vector<MenuItem> rest = {
                 MenuItem::sub(L"Speed", sp),
                 MenuItem::sub(L"Brightness", br),
                 MenuItem::item(L"Stars", CmdSkyStars, {}, true, a.stars),
@@ -642,7 +650,8 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
                 MenuItem::item(L"Sky colour…", CmdSkyNight, widen(su::colourText(a.night))),
                 MenuItem::item(L"Its own size…", CmdBoxSize, std::to_wstring(a.width) + L"×" + std::to_wstring(a.height)),
             };
-            menu.push_back(MenuItem::sub(src.kind == SourceKind::AuroraPulse ? L"Aurora pulse" : L"Aurora sky", sky));
+            sky.insert(sky.end(), rest.begin(), rest.end());
+            menu.push_back(MenuItem::sub(src.kind == SourceKind::AuroraPulse ? (a.wave ? L"Aurora wave" : L"Aurora pulse") : L"Aurora sky", sky));
             break;
         }
         default: break;
@@ -663,6 +672,16 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
             changeSourceSetting(source, key, su::colourText(c));
         });
     };
+    if ((cmd == CmdSkyPulse || cmd == CmdSkyWave) && src->kind == SourceKind::AuroraPulse) {
+        aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
+        a.wave = cmd == CmdSkyWave;
+        // A name it was given by Capture follows the style; one you chose stays.
+        if (src->name == "Aurora pulse" || src->name == "Aurora wave") scenes_.renameSource(source, a.wave ? "Aurora wave" : "Aurora pulse");
+        scenes_.setSourceSettings(source, aurora_sky::toJson(a));
+        syncSources();
+        scenesChanged();
+        return true;
+    }
     if (cmd >= CmdSkySpeed0 && cmd <= CmdSkyNight && (src->kind == SourceKind::AuroraSky || src->kind == SourceKind::AuroraPulse)) {
         aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
         const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.34.6",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture can show the word count of the chapter you're writing, including what you've just typed."
+      ]
+    },
+    {
       "version": "0.34.5",
       "date": "2026-11-17",
       "notes": [

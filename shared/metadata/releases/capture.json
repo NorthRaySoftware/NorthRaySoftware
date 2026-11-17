@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.10.28",
+      "date": "2026-11-17",
+      "notes": [
+        "The Writing progress overlay shows the chapter's own word count, at the right of the CHAPTER line, kept up to date from Writing Studio as you write. Writing progress overlays you already have get it automatically, styled like their label. Your own designs can use {chapterwords} (3,214) or {chapterline} (3,214 words).",
+        "Aurora wave: three ribbons of aurora light flow across the screen like a sound wave, each swelling where its part of the music is loud (bass on the left, treble on the right), with a soft glow and faint rays rising from them. Add it from Sources (+ › Aurora wave), or switch any Aurora pulse between Pulse and Wave from its right-click menu."
+      ]
+    },
+    {
       "version": "0.10.27",
       "date": "2026-11-17",
       "notes": [

@@ -672,6 +672,12 @@ Element textEl(const char* name, const char* text, float x, float y, float w, fl
     e.fill = Fill::solid(hex(colour));
     return e;
 }
+// Writing progress: the chapter's own words, on the CHAPTER label's line at the right.
+Element chapterWordsElement() {
+    Element e = textEl("Chapter words", "{chapterline}", 50, 40, 1000, 30, 22, "#3FCF8E", true, "right");
+    e.anim = Anim::SlideUp;
+    return e;
+}
 Element rectEl(const char* name, float x, float y, float w, float h, Fill f, float radius = 0) {
     Element e;
     e.kind = Kind::Rect;
@@ -715,6 +721,27 @@ Document holding(const char* name, const char* title, const char* sub) {
     return d;
 }
 }  // namespace
+
+bool addChapterWords(Document& d) {
+    if (d.name != "Writing progress") return false;
+    const Element* label = nullptr;
+    for (const Element& e : d.elements) {
+        if (e.kind == Kind::Text && (e.text.find("{chapterline}") != std::string::npos || e.text.find("{chapterwords}") != std::string::npos))
+            return false;   // it has one (or they've put it somewhere of their own)
+        if (e.kind == Kind::Text && e.name == "Label" && e.text == "CHAPTER") label = &e;
+    }
+    if (!label) return false;   // changed past recognising: left alone
+    Element e = chapterWordsElement();
+    e.x = label->x, e.y = label->y, e.w = label->w, e.h = label->h;
+    e.size = label->size;
+    e.font = label->font;   // brand fonts are in the name ("brand:heading")
+    e.fill = label->fill;   // with its brand link
+    e.bold = label->bold;
+    e.italic = label->italic;
+    e.anim = label->anim;
+    e.animMs = label->animMs;
+    return !add(d, e).empty();
+}
 
 const std::vector<Template>& templates() {
     static const std::vector<Template> t = [] {
@@ -926,6 +953,7 @@ const std::vector<Template>& templates() {
             Element k = textEl("Label", "CHAPTER", 50, 40, 1000, 30, 22, "#3FCF8E", true, "left");
             k.anim = Anim::SlideUp;
             add(d, k);
+            add(d, chapterWordsElement());
             Element c = textEl("Chapter", "{chapter}", 50, 74, 1000, 70, 50, "#F4F7FB", true, "left");
             c.anim = Anim::SlideUp;
             add(d, c);

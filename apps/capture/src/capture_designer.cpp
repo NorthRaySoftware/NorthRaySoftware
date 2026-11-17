@@ -177,7 +177,7 @@ void CaptureWindow::loadProfile() {
         else v.push_back({k, val});
     }
     // Writing Studio's own values are there even when it isn't, empty, so a design never shows "{chapter}".
-    for (const char* k : {"chapter", "words", "goal", "today", "bookwords", "bookline", "streak", "streakline"})
+    for (const char* k : {"chapter", "chapterwords", "chapterline", "words", "goal", "today", "bookwords", "bookline", "streak", "streakline"})
         if (std::none_of(v.begin(), v.end(), [&](const auto& p) { return p.first == k; })) v.push_back({k, ""});
     v.push_back({"cover", ""});   // stays "" without Writing Studio's cover
     for (auto& [k, val] : writingValues_)
@@ -216,7 +216,7 @@ void CaptureWindow::editProfile() {
 
 // Writing Studio's summary (%LOCALAPPDATA%\NorthRay\Writing Studio\summary.json), kept in step automatically:
 // the book and chapter being written, its series line and cover, today's words (typing not yet saved included),
-// the daily goal, the streak and the book's words, as {book} {series} {cover} {chapter} {words} {goal} {today}
+// the daily goal, the streak and the book's words, as {book} {series} {cover} {chapter} {chapterwords} {chapterline} {words} {goal} {today}
 // {streak} {bookwords}, and {bookline} and {streakline} as phrases. Writing Studio rewrites it within two seconds of a change; Capture looks every two seconds
 // and reads it when it has changed. Today's words count only if it's today's summary.
 void CaptureWindow::writingTick() {
@@ -260,7 +260,9 @@ void CaptureWindow::writingTick() {
             vals.push_back({"words", grouped(words)});
             vals.push_back({"goal", goal ? grouped(goal) : std::string()});
             vals.push_back({"today", grouped(words) + (goal ? " of " + grouped(goal) : std::string()) + (words == 1 && !goal ? " word today" : " words today")});
-            const long long book = integer("bookWords"), streak = integer("streak");
+            const long long book = integer("bookWords"), streak = integer("streak"), chapterWords = integer("chapterWords");
+            vals.push_back({"chapterwords", j.contains("chapterWords") ? grouped(chapterWords) : std::string()});
+            vals.push_back({"chapterline", j.contains("chapterWords") ? grouped(chapterWords) + (chapterWords == 1 ? " word" : " words") : std::string()});
             vals.push_back({"bookwords", j.contains("bookWords") ? grouped(book) : std::string()});
             vals.push_back({"bookline", j.contains("bookWords") ? grouped(book) + (book == 1 ? " word in the book" : " words in the book") : std::string()});
             vals.push_back({"streak", j.contains("streak") ? std::to_string(streak) : std::string()});

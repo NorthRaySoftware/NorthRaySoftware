@@ -1431,3 +1431,22 @@ the same):
   the left, at most 80% of the box wide. "" keeps the old behaviour (Align). Designer: Bubbles Left / Right / Split;
   Align is hidden while Bubbles is set. A SampleStreamer sample message shows the split in the designer. Tested
   (core: round trip and invalid values; Wine: all three sides, no faults with tracing on).
+
+## 52. The chapter's word count, and the aurora wave (status: built, 17 Nov 2026; released as 0.10.28)
+
+- Writing Studio's summary adds "chapterWords": nodeTotalWords of the open chapter (with its scenes) plus the
+  editor's unsaved difference. Capture gives {chapterwords} ("3,214") and {chapterline} ("3,214 words"; empty without
+  Writing Studio). The Writing progress template has a "Chapter words" element, right-aligned on the CHAPTER line.
+  design::addChapterWords upgrades older Writing progress documents once (by document name, a Text element named
+  Label reading CHAPTER, and no {chapter...} element already), copying the label's place, size, font, fill and
+  entrance; loadScenes runs it over every Design source and saves if anything changed.
+- aurora_sky::Settings::wave (JSON "wave"; only used by the pulse): three ribbons, waveLine(k, u, t, band) =
+  0.56 + (k-1)·0.05 + (0.035 + 0.26·band)·sin(...) + a small ripple. Each ribbon is a Gaussian core (thickness grows
+  with the band and loudness), an exponential halo, and rays above it. The band is smoothed along u (5 taps, ±0.06,
+  weights 1-2-3-2-1) so narrow bands swell rather than kink. C++ sample() and the HLSL (WAVE static const; the curtain
+  loop runs 0 times when WAVE) are the same sums. Menu: Sources + › Aurora wave; the pulse's submenu has Pulse /
+  Wave (a source named "Aurora pulse"/"Aurora wave" is renamed to match when that name is free).
+- Tested: core (round trip; quiet swing < 0.06, loud > 0.2; bright on the line, dark far from it; loud brighter
+  than quiet; a sky ignores wave; addChapterWords adds once, keeps the label's style, leaves other or changed designs
+  alone). Wine: Writing Studio wrote chapterWords; the 0.10.26 overlay in the test scenes gained "3,214 words"; the
+  wave drew and swelled with the soundboard's Fanfare; switching to Pulse and back.

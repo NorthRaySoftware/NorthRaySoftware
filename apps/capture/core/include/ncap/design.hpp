@@ -229,6 +229,9 @@ struct Template {
     Document doc;
 };
 const std::vector<Template>& templates();
+// Writing progress overlays made before the chapter's word count (0.10.28): adds it on the CHAPTER label's line,
+// styled like the label. False (and unchanged) if it's another design, already has one, or has no such label.
+bool addChapterWords(Document& d);
 // Social handles and the like put into a template's text: "{name}" and "{twitch}" etc. On a line made of
 // parts between "·", parts left empty are dropped with their dots (no "  ·  ·" when one isn't set).
 // `showMissing` keeps an empty one as its "{tag}" instead (the designer, so it can be seen).

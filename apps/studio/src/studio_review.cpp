@@ -86,6 +86,8 @@ void StudioApp::writeSummary() {
             j["series"] = seriesLine(b->id);
             j["cover"] = b->coverBlob.empty() ? std::string() : lib_->blobPath(b->coverBlob);
             j["chapter"] = narrow(nodeLabel(*n));
+            // The chapter's own words (with any scenes inside it), typing not yet saved included.
+            j["chapterWords"] = std::max<std::int64_t>(0, nodeTotalWords(n->id) + (liveWords_ >= 0 ? liveWords_ - n->wordCount : 0));
             std::int64_t total = 0;
             for (auto* top : lib_->childrenOf(b->id, {})) total += nodeTotalWords(top->id);
             if (liveWords_ >= 0) total += liveWords_ - n->wordCount;

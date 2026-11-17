@@ -178,7 +178,16 @@ void CaptureWindow::loadScenes() {
             flash(L"Your scenes file couldn't be read, so it was kept aside (“.unreadable”) and a new one started.", 10);
         }
     }
-    savedChanges_ = scenes_.changes();
+    // Writing progress overlays from 0.10.26 gain the chapter's word count (once; their own changes kept).
+    std::vector<std::pair<Id, std::string>> upgraded;
+    for (const Source& src : scenes_.sources()) {
+        if (src.kind != SourceKind::Design) continue;
+        design::Document d = design::fromJson(src.settings);
+        if (design::addChapterWords(d)) upgraded.push_back({src.id, design::toJson(d)});
+    }
+    for (auto& [id, json] : upgraded) scenes_.setSourceSettings(id, json);
+    savedChanges_ = upgraded.empty() ? scenes_.changes() : savedChanges_;
+    if (!upgraded.empty()) scenesChanged();
 }
 
 void CaptureWindow::saveScenes() {

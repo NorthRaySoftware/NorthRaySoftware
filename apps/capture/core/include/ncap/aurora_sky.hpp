@@ -21,6 +21,9 @@ struct Settings {
     float brightness = 1.0f;            // 0.3 .. 1.5
     bool stars = true;
     bool followBrand = true;            // the colours follow the brand kit
+    // The aurora pulse's style: false the curtains rise with the music; true (the aurora wave) three ribbons of
+    // light flow across the screen like a sound wave, swelling where their frequency band is loud.
+    bool wave = false;
     int width = 1920, height = 1080;    // the picture's size
     bool operator==(const Settings&) const = default;
 };
@@ -41,6 +44,8 @@ struct Pulse {
 };
 float bandAt(const Pulse& p, float u);
 
+// The aurora wave (Settings::wave): ribbon k's middle line at u, 0..1 down the picture. Exposed for the tests.
+float waveLine(int k, float u, float t, float band);
 // The colour at (u, v) (0..1, v down) after `seconds`, for a `w`×`h` picture (stars are per pixel).
 Rgb sample(const Settings& s, float u, float v, float seconds, int w, int h, const Pulse* pulse = nullptr);
 // The pixel shader (HLSL, "ps"): `flags.w` is the time in seconds, `colour.xy` the size (Gpu::drawWith).

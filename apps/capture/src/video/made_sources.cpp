@@ -760,7 +760,7 @@ public:
                 setStatus(L"The aurora couldn't be drawn: " + widen(err.substr(0, 200)), true);
                 return;
             }
-            setStatus(pulse_ ? L"Aurora pulse \u00B7 moves with the Stream mix \u00B7 " + sizeText(cfg_.width, cfg_.height)
+            setStatus(pulse_ ? std::wstring(cfg_.wave ? L"Aurora wave" : L"Aurora pulse") + L" \u00B7 moves with the Stream mix \u00B7 " + sizeText(cfg_.width, cfg_.height)
                              : L"Aurora sky \u00B7 drawn on the graphics card \u00B7 " + sizeText(cfg_.width, cfg_.height));
         }
         if (!ps_ || !out_.ensure(gpu.device(), cfg_.width, cfg_.height)) return;

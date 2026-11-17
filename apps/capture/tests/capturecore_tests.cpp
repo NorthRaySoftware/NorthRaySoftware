@@ -1691,6 +1691,30 @@ static void testSceneTemplates() {
         return nullptr;
     };
     CHECK(doc("book-card") && doc("show-title"));
+    {   // Writing progress: the chapter's words on the label's line; older ones gain it once, others are left alone.
+        CHECK(doc("writing-progress"));
+        design::Document fresh = *doc("writing-progress");
+        CHECK(!design::addChapterWords(fresh));   // has it already
+        design::Document old = fresh;
+        old.elements.erase(std::remove_if(old.elements.begin(), old.elements.end(), [](const design::Element& e) { return e.name == "Chapter words"; }),
+                           old.elements.end());
+        for (auto& e : old.elements)
+            if (e.name == "Label") e.size = 30, e.y = 44;   // they'd changed the label
+        CHECK(design::addChapterWords(old));
+        bool found = false;
+        for (auto& e : old.elements)
+            if (e.text == "{chapterline}") found = e.size == 30 && e.y == 44 && e.align == "right";
+        CHECK(found);
+        CHECK(!design::addChapterWords(old));   // only once
+        design::Document other = *doc("book-card");
+        CHECK(!design::addChapterWords(other));
+        design::Document renamed = fresh;
+        for (auto& e : renamed.elements)
+            if (e.name == "Label") e.text = "NOW WRITING";
+        renamed.elements.erase(std::remove_if(renamed.elements.begin(), renamed.elements.end(), [](const design::Element& e) { return e.name == "Chapter words"; }),
+                               renamed.elements.end());
+        CHECK(!design::addChapterWords(renamed));   // changed past recognising
+    }
     {   // The book card's cover picture comes from {cover} (Writing Studio's book being written).
         bool coverPic = false;
         for (auto& e : doc("book-card")->elements) coverPic |= e.kind == design::Kind::Image && e.file == "{cover}";
@@ -1826,6 +1850,38 @@ static void testAuroraPulse() {
     const auto plain = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080), plain2 = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080, nullptr);
     CHECK(plain.r == plain2.r && plain.g == plain2.g);
     CHECK(as::shader(s, true).find("static const int PULSE = 1;") != std::string::npos && as::shader(s).find("static const int PULSE = 0;") != std::string::npos);
+
+    // The aurora wave: kept in its settings; the ribbons swell with their band and light their line.
+    as::Settings w = s;
+    w.wave = true;
+    CHECK(as::fromJson(as::toJson(w)).wave && !as::fromJson(as::toJson(s)).wave && !as::fromJson("{}").wave);
+    CHECK(as::shader(w, true).find("static const int WAVE = 1;") != std::string::npos);
+    CHECK(as::shader(w, false).find("static const int WAVE = 0;") != std::string::npos);   // a sky has no sound
+    CHECK(as::shader(s, true).find("static const int WAVE = 0;") != std::string::npos);
+    float swingQuiet = 0, swingLoud = 0;
+    for (int x = 0; x < 200; ++x) {
+        const float u = x / 200.0f;
+        swingQuiet = std::max(swingQuiet, std::fabs(as::waveLine(0, u, 3, 0.0f) - 0.51f));
+        swingLoud = std::max(swingLoud, std::fabs(as::waveLine(0, u, 3, 1.0f) - 0.51f));
+    }
+    CHECK(swingQuiet < 0.06f && swingLoud > 0.2f);
+    // On the line it's bright; far above and below it, the night sky.
+    const float onLine = as::waveLine(1, 0.3f, 3, 0.9f);
+    const auto lit = as::sample(w, 0.3f, onLine, 3, 1920, 1080, &L);
+    const auto dark = as::sample(w, 0.3f, 0.02f, 3, 1920, 1080, &L);
+    CHECK(lit.r + lit.g + lit.b > (dark.r + dark.g + dark.b) * 4);
+    // Loud is brighter than quiet along the line.
+    float waveLoud = 0, waveQuiet = 0;
+    for (int x = 0; x < 40; ++x) {
+        const float u = x / 40.0f;
+        const auto a = as::sample(w, u, as::waveLine(1, u, 3, 0.9f), 3, 1920, 1080, &L);
+        const auto b = as::sample(w, u, as::waveLine(1, u, 3, 0.0f), 3, 1920, 1080, &Q);
+        waveLoud += a.g, waveQuiet += b.g;
+    }
+    CHECK(waveLoud > waveQuiet * 1.5f);
+    // Not a pulse: the wave setting changes nothing.
+    const auto skyW = as::sample(w, 0.4f, 0.5f, 3, 1920, 1080), skyP = as::sample(s, 0.4f, 0.5f, 3, 1920, 1080);
+    CHECK(skyW.r == skyP.r && skyW.g == skyP.g && skyW.b == skyP.b);
 }
 
 static void testAuroraSweep() {

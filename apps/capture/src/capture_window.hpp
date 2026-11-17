@@ -303,7 +303,7 @@ private:
     int libKind_ = -1;
     std::string libFolder_, libTag_, libQuery_;
     std::vector<std::pair<std::string, cjui::Rect>> libRows_;
-    void addAuroraPulse();
+    void addAuroraPulse(bool wave = false);
     void visualiserTick();
     std::shared_ptr<audio::Tap> visTap_;
     std::unique_ptr<visualiser::Analyser> visAnalyser_;

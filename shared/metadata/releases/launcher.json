@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.89.0",
+      "date": "2026-11-17",
+      "notes": [
+        "NorthRay Capture 0.10.28: the chapter's word count on the Writing progress overlay, and the Aurora wave."
+      ]
+    },
+    {
       "version": "0.88.0",
       "date": "2026-11-17",
       "notes": [
