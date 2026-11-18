@@ -13,6 +13,7 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -176,6 +177,7 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 jobs_.forget(a.entry.id);
             }
         }
+        updateTrayState();
         invalidate();
         return 0;
     }
@@ -214,6 +216,7 @@ LRESULT Launcher::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 flash(err, 8);
             }
         }
+        updateTrayState();
         invalidate();
         return 0;
     }
@@ -339,6 +342,84 @@ void Launcher::addTrayIcon() {
     lstrcpynW(nid.szTip, L"NorthRay Launcher", ARRAYSIZE(nid.szTip));
     trayAdded_ = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     if (nid.hIcon) DestroyIcon(nid.hIcon);
+    trayTip_.clear();
+    trayProgress_ = -1;
+    updateTrayState();
+}
+
+// The tray icon (0.97): while an app downloads or installs, a progress bar along the icon's foot and the app and
+// percentage in its tooltip; otherwise the tooltip names the apps with updates ready.
+void Launcher::updateTrayState() {
+    if (!trayAdded_) return;
+    std::wstring tip = L"NorthRay Launcher";
+    int progress = -1;
+    std::vector<std::wstring> ready;
+    for (auto& a : model_.apps) {
+        if (a.entry.associatedCreator == "CJ Philip" && model_.hideCjPhilipApps) continue;
+        const JobState s = jobs_.state(a.entry.id);
+        if (jobs_.busy(a.entry.id) && progress < 0) {
+            const int pct = s.stage == JobState::Downloading && s.total ? (int)(s.done * 100 / s.total) : s.stage == JobState::Queued ? 0 : 100;
+            progress = std::clamp(pct, 0, 100);
+            tip = (s.update ? L"Updating " : L"Installing ") + w(a.entry.name) + L": " +
+                  (s.stage == JobState::Downloading ? std::to_wstring(progress) + L"%" : s.stage == JobState::Queued ? std::wstring(L"waiting") : std::wstring(L"finishing"));
+        } else if (a.updateAvailable()) {
+            ready.push_back(w(a.entry.name));
+        }
+    }
+    if (progress < 0 && !ready.empty()) {
+        tip = ready.size() == 1 ? L"Update ready: " + ready[0] : L"Updates ready: ";
+        if (ready.size() > 1)
+            for (size_t i = 0; i < ready.size(); ++i) tip += (i ? (i + 1 == ready.size() ? L" and " : L", ") : L"") + ready[i];
+    }
+    const int bucket = progress < 0 ? -1 : progress / 4 * 4;   // the icon is redrawn every few per cent, not every packet
+    if (tip == trayTip_ && bucket == trayProgress_) return;
+    trayTip_ = tip;
+    const bool redrawIcon = bucket != trayProgress_;
+    trayProgress_ = bucket;
+    NOTIFYICONDATAW nid{sizeof nid};
+    nid.hWnd = hwnd();
+    nid.uID = 1;
+    nid.uFlags = NIF_TIP | NIF_SHOWTIP;
+    lstrcpynW(nid.szTip, tip.c_str(), ARRAYSIZE(nid.szTip));
+    HICON made = nullptr, base = nullptr;
+    if (redrawIcon) {
+        LoadIconMetric(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP), LIM_SMALL, &base);
+        if (base && bucket >= 0) {
+            // The icon drawn into a 32-bit picture, with a bar along its foot: dark track, aurora-green fill.
+            const int sz = GetSystemMetrics(SM_CXSMICON);
+            BITMAPINFO bi{};
+            bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bi.bmiHeader.biWidth = sz;
+            bi.bmiHeader.biHeight = -sz;
+            bi.bmiHeader.biPlanes = 1;
+            bi.bmiHeader.biBitCount = 32;
+            bi.bmiHeader.biCompression = BI_RGB;
+            void* bits = nullptr;
+            HDC dc = CreateCompatibleDC(nullptr);
+            HBITMAP color = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+            if (color && bits) {
+                HGDIOBJ old = SelectObject(dc, color);
+                std::memset(bits, 0, (size_t)sz * sz * 4);
+                DrawIconEx(dc, 0, 0, base, sz, sz, 0, nullptr, DI_NORMAL);
+                SelectObject(dc, old);
+                auto* px = static_cast<std::uint32_t*>(bits);
+                const int barH = std::max(3, sz / 5), fill = sz * bucket / 100;
+                for (int yy = sz - barH; yy < sz; ++yy)
+                    for (int xx = 0; xx < sz; ++xx) px[yy * sz + xx] = xx < fill ? 0xFF3FCF8Eu : 0xFF1B2232u;
+                HBITMAP mask = CreateBitmap(sz, sz, 1, 1, nullptr);
+                ICONINFO ii{TRUE, 0, 0, mask, color};
+                made = CreateIconIndirect(&ii);
+                DeleteObject(mask);
+            }
+            if (color) DeleteObject(color);
+            DeleteDC(dc);
+        }
+        nid.uFlags |= NIF_ICON;
+        nid.hIcon = made ? made : base;
+    }
+    Shell_NotifyIconW(NIM_MODIFY, &nid);
+    if (made) DestroyIcon(made);
+    if (base) DestroyIcon(base);
 }
 
 void Launcher::removeTrayIcon() {
@@ -561,12 +642,88 @@ void Launcher::progressBar(const Rect& r, float f, const std::string& key) {
     }
 }
 
+// When the app's files were last put in place on this PC (its program's date): "Updated today", "Updated 18 Nov".
+// ---------------------------------------------------------------- dragging app cards (0.97)
+
+bool Launcher::onMouseDown(float x, float y) {
+    dragApp_.clear();
+    dragging_ = false;
+    if (page_ != Page::Library) return false;
+    const std::string hit = hitAt(x, y);
+    if (hit.rfind("app:", 0) != 0) return false;   // only the card itself, never its buttons
+    dragApp_ = hit.substr(4);
+    dragX_ = x;
+    dragY_ = y;
+    return false;   // a click still opens the app's page
+}
+
+void Launcher::onMouseMove(float x, float y, bool leftDown) {
+    if (dragApp_.empty() || !leftDown) return;
+    if (!dragging_ && std::hypot(x - dragX_, y - dragY_) > 8) {
+        dragging_ = true;
+        cancelPress();
+    }
+    if (dragging_) invalidate();
+}
+
+bool Launcher::onMouseUp(float x, float y) {
+    (void)x;
+    if (!dragging_) { dragApp_.clear(); return false; }
+    dragging_ = false;
+    const std::string moving = dragApp_;
+    dragApp_.clear();
+    std::vector<std::string> order;
+    for (auto& [id, cr] : cardRects_) order.push_back(id);
+    std::string target;
+    bool after = false;
+    for (auto& [id, cr] : cardRects_)
+        if (y >= cr.y - 7 && y < cr.bottom() + 7) { target = id; after = y >= cr.y + cr.h / 2; break; }
+    if (target.empty() || target == moving) { invalidate(); return true; }
+    order.erase(std::remove(order.begin(), order.end(), moving), order.end());
+    auto it = std::find(order.begin(), order.end(), target);
+    order.insert(after ? it + 1 : it, moving);
+    // Apps not shown just now (filtered out) keep their places after these.
+    for (const std::string& id : model_.settings.appOrder)
+        if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
+    model_.settings.appOrder = order;
+    model_.saveSettings();
+    invalidate();
+    return true;
+}
+
+std::wstring Launcher::lastAppUpdated(const AppItem& a) const {
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (a.inst.exe.empty() || !GetFileAttributesExW(a.inst.exe.c_str(), GetFileExInfoStandard, &fa)) return {};
+    FILETIME local;
+    SYSTEMTIME st, now;
+    if (!FileTimeToLocalFileTime(&fa.ftLastWriteTime, &local) || !FileTimeToSystemTime(&local, &st)) return {};
+    GetLocalTime(&now);
+    if (st.wYear == now.wYear && st.wMonth == now.wMonth && st.wDay == now.wDay) return L"updated today";
+    static const wchar_t* months[] = {L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec"};
+    std::wstring d = L"updated " + std::to_wstring(st.wDay) + L" " + months[(st.wMonth + 11) % 12];
+    if (st.wYear != now.wYear) d += L" " + std::to_wstring(st.wYear);
+    return d;
+}
+
 std::wstring Launcher::statusLine(const AppItem& a) const {
     const JobState s = jobs_.state(a.entry.id);
     switch (s.stage) {
         case JobState::Queued: return L"Waiting to start...";
-        case JobState::Downloading:
-            return L"Downloading  " + formatSize(s.done) + L" of " + formatSize(s.total);
+        case JobState::Downloading: {
+            if (!s.message.empty() && s.done == 0) return s.message;   // waiting to try again
+            std::wstring t = L"Downloading  " + formatSize(s.done) + L" of " + formatSize(s.total);
+            if (s.rate > 1024) {   // speed and time left (0.97)
+                t += L"  \u00B7  " + formatSize((unsigned long long)s.rate) + L"/s";
+                const double left = s.total > s.done ? (double)(s.total - s.done) / s.rate : 0;
+                if (left >= 1) {
+                    const int secs = (int)std::ceil(left);
+                    t += L"  \u00B7  about " + (secs < 60 ? std::to_wstring(secs) + (secs == 1 ? L" second" : L" seconds")
+                                                : std::to_wstring((secs + 30) / 60) + ((secs + 30) / 60 == 1 ? L" minute" : L" minutes")) + L" left";
+                }
+            }
+            if (s.attempt > 1) t += L"  \u00B7  try " + std::to_wstring(s.attempt) + L" of " + std::to_wstring(Jobs::kAttempts);
+            return t;
+        }
         case JobState::Verifying: return L"Checking the download...";
         case JobState::Installing: return s.update ? L"Updating..." : L"Installing...";
         case JobState::Failed: return s.message;
@@ -576,6 +733,7 @@ std::wstring Launcher::statusLine(const AppItem& a) const {
     if (a.updateAvailable()) return L"Update available: " + w(a.release->version) + L" (you have " + w(a.inst.version) + L")";
     if (a.inst.found) {
         std::wstring t = L"Installed" + (a.inst.version.empty() ? std::wstring() : L", version " + w(a.inst.version));
+        if (const std::wstring u = lastAppUpdated(a); !u.empty()) t += L"  ·  " + u;
         if (cjui::isAppRunning(a.entry.id)) t += L"  ·  running";
         return t;
     }
@@ -905,10 +1063,33 @@ float Launcher::pageLibrary(const Rect& r) {
     auto wanted = [this](const AppItem& a) { return !((filter_ == 1 && !a.inst.found) || (filter_ == 2 && a.inst.found)); };
     // NorthRay's own apps (CJ Philip's are in CJ Philip Community, a separate download).
     int shown = 0;
-    for (auto& a : model_.apps) {
+    // In the order they were dragged into (0.97); apps not placed yet keep the catalogue's order after them.
+    std::vector<AppItem*> ordered;
+    for (auto& a : model_.apps) ordered.push_back(&a);
+    auto rank = [this](const AppItem* a) {
+        const auto& o = model_.settings.appOrder;
+        const auto it = std::find(o.begin(), o.end(), a->entry.id);
+        return it == o.end() ? (int)o.size() : (int)(it - o.begin());
+    };
+    std::stable_sort(ordered.begin(), ordered.end(), [&](const AppItem* x, const AppItem* y2) { return rank(x) < rank(y2); });
+    cardRects_.clear();
+    for (AppItem* ap : ordered) {
+        AppItem& a = *ap;
         if (a.entry.associatedCreator == "CJ Philip" || !wanted(a)) continue;
         ++shown;
-        y += appCard(a, {r.x, y, r.w, 0}) + 14;
+        const float ch = appCard(a, {r.x, y, r.w, 0});
+        cardRects_.push_back({a.entry.id, {r.x, y, r.w, ch}});
+        y += ch + 14;
+    }
+    // Where a dragged card would go: a line in the gap.
+    if (dragging_ && !dragApp_.empty()) {
+        for (auto& [id, cr] : cardRects_)
+            if (mouseY() >= cr.y - 7 && mouseY() < cr.bottom() + 7) {
+                const float ly = mouseY() < cr.y + cr.h / 2 ? cr.y - 8 : cr.bottom() + 6;
+                gfx_.fillRounded({cr.x, ly, cr.w, 3}, 1.5f, pal_.ribbon);
+                gfx_.circle(cr.x + 4, ly + 1.5f, 4.5f, pal_.ribbon, true);
+                break;
+            }
     }
     if (!shown)
         y += gfx_.text(filter_ == 1 ? L"No NorthRay apps are installed yet." : L"Every NorthRay app is installed.", {r.x, y, r.w, 24},
@@ -930,10 +1111,11 @@ float Launcher::appCard(const AppItem& a, const Rect& at) {
     const bool narrow = at.w < 700;
     const float actW = narrow ? 0 : 300;
     // As tall as the tagline needs (long ones wrapped to three lines, not over the status).
-    const float tw0 = at.w - 134 - actW - 20;
+    const float art = 112, tx0 = 26 + art + 24;   // bigger art (0.97)
+    const float tw0 = at.w - tx0 - actW - 20;
     const float th = std::min(gfx_.measureHeight(w(a.entry.tagline), tw0, Font::Body), 66.0f);
     const float statusY = 52 + std::max(42.0f, th) + 6;
-    const float h = std::max(narrow ? 176.0f : 136.0f, statusY + 20 + (narrow ? 64 : 18));
+    const float h = std::max(narrow ? 200.0f : 164.0f, statusY + 20 + (narrow ? 64 : 18));
     const Rect row{at.x, at.y, at.w, h};
     const std::string id = "app:" + a.entry.id;
     // The card opens the app's page; the buttons on it act directly.
@@ -944,10 +1126,22 @@ float Launcher::appCard(const AppItem& a, const Rect& at) {
     gfx_.strokeRounded(row, 12, pal_.rule.mix(pal_.inkFaint, 0.6f * hv));
     // The app's own colour, as a soft light behind its icon.
     gfx_.pushClip(row);
-    gfx_.glow(row.x + 70, row.y + 68, 130, 100, hexColor(a.entry.accent, pal_.ribbon).withAlpha(pal_.dark ? 0.26f : 0.15f));
+    gfx_.glow(row.x + 26 + art / 2, row.y + 26 + art / 2, 160, 120, hexColor(a.entry.accent, pal_.ribbon).withAlpha(pal_.dark ? 0.26f : 0.15f));
     gfx_.popClip();
-    drawIcon(a, {row.x + 26, row.y + 26, 84, 84});
-    const float tx = row.x + 134, tw = row.w - 134 - actW - 20;
+    const Rect icon{row.x + 26, row.y + 26, art, art};
+    drawIcon(a, icon);
+    // An update waiting: a badge on the art's corner (0.97).
+    if (a.updateAvailable() && !jobs_.busy(a.entry.id)) {
+        const float bx = icon.right() - 6, by = icon.y + 6;
+        gfx_.circle(bx, by, 13, pal_.surface, true);
+        gfx_.circle(bx, by, 11, pal_.ribbon, true);
+        gfx_.line(bx, by - 5, bx, by + 4, pal_.surface, 2);
+        gfx_.line(bx - 4, by - 1, bx, by - 5.5f, pal_.surface, 2);
+        gfx_.line(bx + 4, by - 1, bx, by - 5.5f, pal_.surface, 2);
+        addHit("badge:" + a.entry.id, {bx - 13, by - 13, 26, 26}, nullptr, false);
+        tooltip("badge:" + a.entry.id, L"Update ready: version " + w(a.release->version));
+    }
+    const float tx = row.x + tx0, tw = row.w - tx0 - actW - 20;
     gfx_.text(w(a.entry.name), {tx, row.y + 22, tw, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
     gfx_.text(w(a.entry.tagline), {tx, row.y + 52, tw, std::max(42.0f, th)}, Font::Body, pal_.inkMuted);
     const JobState s = jobs_.state(a.entry.id);
@@ -1199,6 +1393,26 @@ float Launcher::pageSettings(const Rect& r) {
     y += sectionLabel(r.x, y, w2, L"About");
     y += gfx_.text(L"NorthRay Launcher " CJ_VERSION_WSTR L". Developed by the " CJ_DEVELOPER_WSTR L" project.", {r.x, y, w2, 40},
                    Font::Body, pal_.ink) + 8;
+    // The launcher's own changes (0.97): its newest releases, with what each brought.
+    if (!model_.launcherNotes.empty()) {
+        y += 6;
+        gfx_.text(L"What's new in the launcher", {r.x, y, w2, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});
+        y += 26;
+        const size_t shown = std::min<size_t>(model_.launcherNotes.size(), 4);
+        for (size_t i = 0; i < shown; ++i) {
+            const ReleaseNote& n = model_.launcherNotes[i];
+            std::wstring head = L"Version " + w(n.version);
+            if (n.date.size() == 10) head += L"  \u00B7  " + shortDate(n.date);
+            if (n.version == CJ_VERSION_STR) head += L"  \u00B7  this version";
+            gfx_.text(head, {r.x, y, w2, 18}, Font::Small, n.version == CJ_VERSION_STR ? pal_.ribbon : pal_.inkFaint, {Align::Left, false, true});
+            y += 20;
+            for (const std::string& line : n.notes) {
+                gfx_.circle(r.x + 5, y + 9, 2, pal_.inkFaint, true);
+                y += gfx_.text(w(line), {r.x + 16, y, w2 - 16, 200}, Font::Small, pal_.inkMuted) + 4;
+            }
+            y += 10;
+        }
+    }
     y += gfx_.text(L"Installs come from each app's own setup file, downloaded over HTTPS and checked against its published size and "
                    L"SHA-256 before anything runs. Nothing needs an account or subscription.",
                    {r.x, y, w2, 80}, Font::Small, pal_.inkMuted) + 10;

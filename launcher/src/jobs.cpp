@@ -102,17 +102,37 @@ void Jobs::run() {
         JobState s;
         s.update = r.update;
         s.total = r.release.size;
-        bool ok = download(r, path, err);
-        if (ok) {
-            s.stage = JobState::Verifying;
-            s.done = s.total;
-            setState(r.appId, s);
-            // The file must be exactly what the catalogue describes before it's run.
-            const std::string hash = cjui::sha256File(path);
-            if (hash != r.release.sha256) {
-                ok = false;
-                err = L"The download didn't match its published checksum, so it wasn't installed. Try again later.";
+        // A dropped connection or a damaged download is tried again by itself (0.97): after 3 s, then 10 s.
+        bool ok = false;
+        for (int attempt = 1; attempt <= kAttempts && !quit_ && !cancelCurrent_; ++attempt) {
+            attempt_ = attempt;
+            bool retryable = false;
+            ok = download(r, path, err, retryable);
+            if (ok) {
+                s.stage = JobState::Verifying;
+                s.done = s.total;
+                s.attempt = attempt;
+                setState(r.appId, s);
+                // The file must be exactly what the catalogue describes before it's run.
+                const std::string hash = cjui::sha256File(path);
+                if (hash != r.release.sha256) {
+                    ok = false;
+                    retryable = true;
+                    DeleteFileW(path.c_str());
+                    err = L"The download didn't match its published checksum, so it wasn't installed. Try again later.";
+                }
             }
+            if (ok || !retryable || attempt == kAttempts) break;
+            // Waiting to try again: shown as a download with a note.
+            JobState w;
+            w.stage = JobState::Downloading;
+            w.total = r.release.size;
+            w.update = r.update;
+            w.attempt = attempt + 1;
+            w.message = L"The download stopped; trying again (" + std::to_wstring(attempt + 1) + L" of " + std::to_wstring(kAttempts) + L")...";
+            setState(r.appId, w);
+            const DWORD until = GetTickCount() + (attempt == 1 ? 3000 : 10000);
+            while (GetTickCount() < until && !quit_ && !cancelCurrent_) Sleep(100);
         }
         if (ok) {
             s.stage = JobState::Installing;
@@ -131,7 +151,9 @@ void Jobs::run() {
     }
 }
 
-bool Jobs::download(const JobRequest& r, const std::wstring& path, std::wstring& err) {
+bool Jobs::download(const JobRequest& r, const std::wstring& path, std::wstring& err, bool& retryable) {
+    retryable = false;
+    err.clear();
     const std::wstring part = path + L".part";
     FILE* f = _wfopen(part.c_str(), L"wb");
     if (!f) { err = L"Couldn't save the download (is the disk full?)."; return false; }
@@ -139,8 +161,12 @@ bool Jobs::download(const JobRequest& r, const std::wstring& path, std::wstring&
     s.stage = JobState::Downloading;
     s.total = r.release.size;
     s.update = r.update;
+    s.attempt = attempt_;
     setState(r.appId, s);
     unsigned long long got = 0;
+    // Speed: bytes over each half second, smoothed, so "time left" doesn't jump about.
+    DWORD sampleAt = GetTickCount();
+    unsigned long long sampleGot = 0;
     bool tooBig = false, writeFailed = false;
     std::string contentType;
     const int status = cjui::httpStream(
@@ -150,6 +176,12 @@ bool Jobs::download(const JobRequest& r, const std::wstring& path, std::wstring&
             if (std::fwrite(data, 1, n, f) != n) { writeFailed = true; return false; }
             got += n;
             const DWORD t = GetTickCount();
+            if (t - sampleAt >= 500) {
+                const double now = (double)(got - sampleGot) * 1000.0 / (double)(t - sampleAt);
+                s.rate = s.rate <= 0 ? now : s.rate * 0.7 + now * 0.3;
+                sampleAt = t;
+                sampleGot = got;
+            }
             if (t - lastPost_ > 120) {
                 lastPost_ = t;
                 s.done = got;
@@ -164,9 +196,10 @@ bool Jobs::download(const JobRequest& r, const std::wstring& path, std::wstring&
     if (tooBig) { err = L"The download was larger than the catalogue says, so it was stopped."; return false; }
     if (status != 200) {
         if (err.empty()) err = status == 404 ? L"The installer wasn't found on the server." : L"The download didn't complete.";
+        retryable = status != 404 && status != 403 && status != 410;   // the network, or the server busy: worth another go
         return false;
     }
-    if (got != r.release.size) { err = L"The download was incomplete. Check your connection and try again."; return false; }
+    if (got != r.release.size) { err = L"The download was incomplete. Check your connection and try again."; retryable = true; return false; }
     DeleteFileW(path.c_str());
     if (!MoveFileW(part.c_str(), path.c_str())) { err = L"Couldn't prepare the downloaded installer."; return false; }
     return true;

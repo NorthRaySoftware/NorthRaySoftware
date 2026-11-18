@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.98.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Launcher: downloads show their speed and about how long is left, and a download that stops part-way tries again by itself (up to three times).",
+        "App cards have bigger art, a badge when an update is waiting, and say when each app was last updated. Drag the cards into the order you like.",
+        "The tray icon shows a progress bar while an app installs, and pointing at it names the apps with updates ready.",
+        "Settings › About shows the launcher's version and what changed in its latest releases."
+      ]
+    },
+    {
       "version": "0.97.0",
       "date": "2026-11-18",
       "notes": [

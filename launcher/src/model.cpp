@@ -261,6 +261,9 @@ void Model::loadSettings() {
     settings.keepInTray = cj::valueOr(j, "keepInTray", true);
     settings.startWithWindows = cj::valueOr(j, "startWithWindows", false);
     settings.showToday = cj::valueOr(j, "showToday", true);
+    settings.appOrder.clear();
+    if (j.contains("appOrder") && j["appOrder"].is_array())
+        for (auto& x : j["appOrder"]) if (x.is_string() && settings.appOrder.size() < 100) settings.appOrder.push_back(x.get<std::string>());
 }
 
 void Model::saveSettings() {
@@ -271,6 +274,7 @@ void Model::saveSettings() {
     j["keepInTray"] = settings.keepInTray;
     j["startWithWindows"] = settings.startWithWindows;
     j["showToday"] = settings.showToday;
+    j["appOrder"] = settings.appOrder;
     j["settingsVersion"] = 2;
     writeFileAtomic(stateDir + L"\\settings.json", j.dump(2));
 }

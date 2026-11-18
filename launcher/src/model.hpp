@@ -21,6 +21,7 @@ struct Settings {
     bool keepInTray = true;          // closing the window leaves the launcher in the notification area
     bool startWithWindows = false;   // starts in the notification area when you sign in
     bool showToday = true;           // the Today strip on the home page (writing, recent pictures)
+    std::vector<std::string> appOrder;   // the home page's apps in the order they were dragged into (0.97)
 };
 
 // The home page's Today strip: what the other NorthRay apps left for it on this PC.

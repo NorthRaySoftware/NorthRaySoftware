@@ -30,6 +30,9 @@ protected:
     void onSystemThemeChanged() override { applyTheme(); }
     LRESULT onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) override;
     void onDestroy() override;
+    bool onMouseDown(float x, float y) override;
+    void onMouseMove(float x, float y, bool leftDown) override;
+    bool onMouseUp(float x, float y) override;
 
 private:
     void applyTheme();
@@ -87,6 +90,16 @@ private:
     Today today_;              // read when the window is shown or activated
     std::map<std::string, unsigned long long> diskUse_;   // installed apps' folder sizes, worked out once per visit
     UINT taskbarCreated_ = 0;  // Explorer restarted: the tray icon has to be added again
+    // Dragging app cards into another order (0.97).
+    std::vector<std::pair<std::string, Rect>> cardRects_;
+    std::string dragApp_;
+    float dragX_ = 0, dragY_ = 0;
+    bool dragging_ = false;
+    std::wstring lastAppUpdated(const AppItem& a) const;   // "Updated 18 Nov" from the app's files
+    // The tray icon shows progress and which apps have updates (0.97).
+    void updateTrayState();
+    std::wstring trayTip_;
+    int trayProgress_ = -1;    // the percentage drawn on the icon, or -1 for the plain icon
 };
 
 }  // namespace nrl

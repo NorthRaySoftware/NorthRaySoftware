@@ -20,8 +20,10 @@ namespace nrl {
 struct JobState {
     enum Stage { Queued, Downloading, Verifying, Installing, Done, Failed, Cancelled } stage = Queued;
     unsigned long long done = 0, total = 0;
-    std::wstring message;    // failure reason, shown to the user
+    std::wstring message;    // failure reason, shown to the user (or, while retrying, why)
     bool update = false;
+    double rate = 0;         // bytes a second, smoothed (0 = not known yet)
+    int attempt = 1;         // which try this is (failed downloads try again by themselves, up to kAttempts)
 };
 
 struct JobRequest {
@@ -34,6 +36,7 @@ struct JobRequest {
 
 class Jobs {
 public:
+    static constexpr int kAttempts = 3;
     ~Jobs();
     void start(HWND notify, UINT message, const std::wstring& downloadDir);
     void stop();
@@ -47,7 +50,7 @@ public:
 private:
     void run();
     void setState(const std::string& id, const JobState& s, bool notify = true);
-    bool download(const JobRequest& r, const std::wstring& path, std::wstring& err);
+    bool download(const JobRequest& r, const std::wstring& path, std::wstring& err, bool& retryable);
     bool install(const JobRequest& r, const std::wstring& path, std::wstring& err);
 
     HWND notify_ = nullptr;
@@ -62,6 +65,7 @@ private:
     std::atomic<bool> quit_{false};
     std::atomic<bool> cancelCurrent_{false};
     DWORD lastPost_ = 0;
+    int attempt_ = 1;
 };
 
 }  // namespace nrl
