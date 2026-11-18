@@ -372,3 +372,45 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor: its title, its series line (`seriesLine`, shared with the cover designer: "Book Three of The Alvora
   Chronicles" when it's numbered in a series) and its cover's library file. NorthRay Capture's Book card shows them.
   Nothing leaves the PC.
+
+## 0.35.0: polish (18 Nov 2026)
+
+- **Editor** (`editor/src/editor.js`, bundled to `web/editor.js`):
+  - A gliding cursor: `#caret` inside the article, placed from `coordsAtPos` on every selection change, focus, resize
+    and view change, with a short transform transition and a breathing animation; `.smooth-caret` hides Windows' caret
+    only while it shows (not while selecting, during IME composition, or read-only). Reduced motion turns both off.
+  - Kept in the editor's own storage (localStorage; only conveniences): each chapter's scroll (`nr.scroll`, put back on
+    load), and earlier versions for undo after reopening (`nr.undo.<chapter>`: the text as opened, then at most every
+    90 s while writing and on leaving it; 12 kept, at most about 700 KB per chapter, least recently used chapters let go
+    when storage is full). `makeState` replays them oldest first as whole-document replacements, each its own undo step
+    (`closeHistory`), so Ctrl+Z steps back through them.
+  - "Saved just now / a moment ago / N minutes ago / at 14:05", kept current every 10 s.
+  - Style hints are worked out again only after typing pauses for 1.4 s (was 0.35 s).
+  - Warm night paper (`paper: "night"` in the view settings, Aa menu): its own palette in either theme.
+  - Review's "show it" (`selectComment`) centres the words and lights them up for 2 s (`cm-flash`), resolved or not.
+  - Ctrl+K and Ctrl+/ in the text go to the app (`appCommand`); Link is now Ctrl+Alt+K.
+- **App**:
+  - Ctrl+K (`quickJump`): a searchable cjui menu of the book's chapters and scenes (indented, with words), its bible
+    entries (with kinds) and the other books; choosing one opens it in Writing or Worldbuilding.
+  - Ctrl+/ (`showShortcuts`): a GDI popup with the shortcuts in three columns, from `shortcutGroups()`, the same list
+    the Settings page now draws.
+  - The goal bar: today's words against the daily goal, 3 px along the foot of the top bar while writing (gold when
+    reached, a tooltip with the numbers).
+  - Drop lines (`drawDropLine`, `drawDropInto`): a rounded line with a ring at its start and a soft glow, or the row
+    tinted and outlined for "inside"; outline, corkboard and library.
+  - Bible cards: 100 px portraits (were 72); the cards are taller.
+  - Family tree: Ctrl + wheel zooms about the pointer (`wb_.treeZoom`, 0.45 to 1.8; 0 = fit), and dragging the
+    background pans it (`wb_.treePan`).
+  - Planning: cards get a band and a wash in their viewpoint character's colour (`povColour`, ten colours chosen by a
+    hash of the entry's id); the timeline's lanes show the same colour.
+  - The text's right-click menu loses the browser's own items (back, reload, print, save, share, inspect, translate,
+    read aloud and the like) and doubled separators.
+- **Library**: `appearancesIn` keeps each chapter's result, read again only when its text's length, word count or
+  modified time changes or the bible's names do (`appearanceCache_`), so Planning opens a long book without reading
+  every chapter each time. Tested in `studiocore_tests` (994 checks).
+- Already there: the selection's word count while selecting, focus mode dimming other paragraphs, word counts in the
+  outline, and reopening the last book and chapter.
+- Tested: the editor in Chromium with Playwright (cursor, scroll per chapter, saved text, night paper, undo after a
+  reload); the app in Wine (Ctrl+K and choosing, the shortcuts sheet, the family tree's zoom and pan). Needs the real
+  editor on Windows: the right-click menu, and the editor's keys reaching the app.
+

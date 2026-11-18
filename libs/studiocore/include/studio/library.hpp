@@ -549,6 +549,10 @@ private:
     Artwork* artworkMut(const Id& id);
     bool registerArtworksInText();     // lists pictures used in text that aren't listed yet
     mutable std::string error_;
+    // appearancesIn, kept per chapter (0.35): a long book's Planning opens without reading every chapter again.
+    // A chapter is read again when its text's length, word count or modified time changes, or the bible's names do.
+    struct AppearanceCache { std::int64_t length = -1, words = -1; Time modified = 0; std::uint64_t names = 0; std::vector<std::pair<int, Id>> found; };
+    mutable std::map<Id, AppearanceCache> appearanceCache_;
 };
 
 // Helpers shared with the app.

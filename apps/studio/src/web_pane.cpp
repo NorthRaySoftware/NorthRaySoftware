@@ -197,7 +197,46 @@ bool WebPane::create(HWND parent, const std::wstring& exeDir, const std::wstring
                                         target->Release();
                                     }
                                     const auto mine = me->contextItems(sel);
-                                    if (!mine.empty() && SUCCEEDED(a->get_MenuItems(&items)) && items) {
+                                    if (SUCCEEDED(a->get_MenuItems(&items)) && items) {
+                                        // Tidier (0.35): the browser's own items that mean nothing in a manuscript go
+                                        // (going back, reloading, printing the page, saving it, sharing, inspecting...),
+                                        // and separators never double up. Editing, spelling and emoji stay.
+                                        static const wchar_t* noise[] = {L"back", L"forward", L"reload", L"saveAs", L"print", L"createQrCode",
+                                            L"inspectElement", L"share", L"webCapture", L"webSelect", L"readAloud", L"translate", L"copyLinkToHighlight",
+                                            L"openLinkInNewWindow", L"saveLinkAs", L"saveImageAs", L"copyImageLocation", L"saveMediaAs",
+                                            L"loop", L"showAllControls", L"pictureInPicture", L"other", L"addToCollections", L"visualSearch"};
+                                        UINT32 n = 0;
+                                        items->get_Count(&n);
+                                        bool lastSep = true;   // at the top: no separator first
+                                        for (UINT32 i = 0; i < n;) {
+                                            ICoreWebView2ContextMenuItem* it = nullptr;
+                                            if (FAILED(items->GetValueAtIndex(i, &it)) || !it) { ++i; continue; }
+                                            LPWSTR name = nullptr;
+                                            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND;
+                                            it->get_Kind(&kind);
+                                            bool drop = false;
+                                            if (SUCCEEDED(it->get_Name(&name)) && name) {
+                                                for (const wchar_t* x : noise) if (_wcsicmp(name, x) == 0) drop = true;
+                                                CoTaskMemFree(name);
+                                            }
+                                            const bool sepItem = kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR;
+                                            if (sepItem && lastSep) drop = true;
+                                            it->Release();
+                                            if (drop) { items->RemoveValueAtIndex(i); --n; continue; }
+                                            lastSep = sepItem;
+                                            ++i;
+                                        }
+                                        if (n > 0) {   // nor one at the end
+                                            ICoreWebView2ContextMenuItem* it = nullptr;
+                                            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND;
+                                            if (SUCCEEDED(items->GetValueAtIndex(n - 1, &it)) && it) {
+                                                it->get_Kind(&kind);
+                                                it->Release();
+                                                if (kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR) items->RemoveValueAtIndex(n - 1);
+                                            }
+                                        }
+                                    }
+                                    if (!mine.empty() && items) {
                                         UINT32 at = 0;
                                         for (const auto& [label, act] : mine) {
                                             ICoreWebView2ContextMenuItem* item = nullptr;
@@ -215,8 +254,8 @@ bool WebPane::create(HWND parent, const std::wstring& exeDir, const std::wstring
                                             items->InsertValueAtIndex(at, sep);
                                             sep->Release();
                                         }
-                                        items->Release();
                                     }
+                                    if (items) items->Release();
                                     env9->Release();
                                     return S_OK;
                                 });

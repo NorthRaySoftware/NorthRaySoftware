@@ -829,7 +829,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
 
             const float gap = 16;
             const int cols = std::max(1, (int)((cw + gap) / (240 + gap)));
-            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 96;
+            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 124;   // 0.35: bigger portraits
             const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
             for (auto& [g, items] : groups) {
             if (headings) {
@@ -920,11 +920,13 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
                 // The kind's colour: a band down the left edge, and the initials' circle.
                 gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
-                const Rect pic{cr.x + 14, cr.y + 12, 72, 72};
+                const Rect pic{cr.x + 14, cr.y + 12, 100, 100};
                 if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-                    gfx_.fillRounded(pic, 36, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-                    gfx_.strokeRounded(pic.inset(0.75f), 35.25f, kc.withAlpha(0.45f), 1.5f);
-                    gfx_.text(initials(x->name), pic, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                    gfx_.fillRounded(pic, 50, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+                    gfx_.strokeRounded(pic.inset(0.75f), 49.25f, kc.withAlpha(0.45f), 1.5f);
+                    gfx_.text(initials(x->name), pic, Font::Title, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                } else {
+                    gfx_.stroke({pic.x - 0.5f, pic.y - 0.5f, pic.w + 1, pic.h + 1}, pal_.rule, 1);
                 }
                 const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
                 {
@@ -947,7 +949,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                                       kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
                         }
                 gfx_.text(w(x->name), {tx, cr.y + 30, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-                if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 18 : 34}, Font::Small, pal_.inkMuted,
+                if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 36 : 54}, Font::Small, pal_.inkMuted,
                                                    {Align::Left, false, true});
                 if (focused(id)) focusRing(cr);
                 if (col == cols - 1 || i + 1 == subItems.size()) y += cardH + gap;
@@ -2012,7 +2014,7 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
     }
     const float gap = 16;
     const int cols = std::max(1, (int)((m.w + gap) / (240 + gap)));
-    const float cardW = (m.w - gap * (cols - 1)) / cols, cardH = 104;
+    const float cardW = (m.w - gap * (cols - 1)) / cols, cardH = 128;
     bool namedHeading = false;
     int col = 0;
     for (size_t i = 0; i < cards.size(); ++i) {
@@ -2042,11 +2044,11 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
         gfx_.fillRounded(cr, 4, pal_.surface);
         gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
         gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
-        const Rect pic{cr.x + 14, cr.y + 14, 72, 72};
+        const Rect pic{cr.x + 14, cr.y + 14, 100, 100};
         if (e->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), pic, true)) {
-            gfx_.fillRounded(pic, 36, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-            gfx_.strokeRounded(pic.inset(0.75f), 35.25f, kc.withAlpha(0.45f), 1.5f);
-            gfx_.text(initials(e->name), pic, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+            gfx_.fillRounded(pic, 50, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
+            gfx_.strokeRounded(pic.inset(0.75f), 49.25f, kc.withAlpha(0.45f), 1.5f);
+            gfx_.text(initials(e->name), pic, Font::Title, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
         }
         const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
         std::wstring label = isNamed ? upper(w(entryKindLabel(e->kind))) : here ? L"KIND OF " + upper(w(here->name)) : std::wstring(L"SPECIES");
@@ -2059,7 +2061,7 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
                 if (const std::wstring sg = genderSign(g); !sg.empty())
                     gfx_.text(sg, {cr.right() - 40, cr.y + 4, 36, 36}, Font::Title, genderColor(g, pal_), {Align::Center, false, false, true});
         gfx_.text(w(e->name), {tx, cr.y + 31, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-        if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 53, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        if (!e->summary.empty()) gfx_.text(w(e->summary), {tx, cr.y + 53, tw, 36}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         if (!isNamed) {
             std::wstring counts;
             if (nKinds) counts += std::to_wstring(nKinds) + (nKinds == 1 ? L" kind" : L" kinds");
@@ -2201,7 +2203,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     std::wstring sub = std::to_wstring(lay.people.size()) + (lay.people.size() == 1 ? L" person" : L" people") + L" across " +
                        std::to_wstring(gens) + (gens == 1 ? L" generation." : L" generations.");
     if (lay.cut) sub += L" Only the closest 150 are shown.";
-    sub += L" Click someone to open their page.";
+    sub += L" Click someone to open their page. Ctrl + wheel zooms; drag the background to move around.";
     y += pageHeader({r.x + pad, y, std::min(r.w - pad * 2, 900.0f), 0}, L"FAMILY TREE", title, sub);
     {
         float bx = r.x + pad;
@@ -2218,7 +2220,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     const float baseW = 176, baseH = 66, baseGapX = 22, baseGapY = 58;
     const float avail = r.w - pad * 2;
     const float natural = lay.width * (baseW + baseGapX) - baseGapX;
-    const float s = std::clamp(natural > 0 ? avail / natural : 1.0f, 0.66f, 1.0f);
+    const float s = wb_.treeZoom > 0 ? wb_.treeZoom : std::clamp(natural > 0 ? avail / natural : 1.0f, 0.66f, 1.0f);
     const float cardW = baseW * s, cardH = baseH * s, stepX = (baseW + baseGapX) * s, gapY = baseGapY * s;
     const float treeW = lay.width * stepX - baseGapX * s;
     wb_.treeW = treeW;

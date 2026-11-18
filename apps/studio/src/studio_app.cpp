@@ -42,7 +42,7 @@ enum Cmd {
     CmdNewWorld = 100, CmdNewSeries, CmdNewBook, CmdOpenLibrary, CmdShowFolder, CmdExport, CmdBackup, CmdExit,
     CmdRename, CmdTrash, CmdUndoTrash, CmdEmptyTrash,
     CmdGallery, CmdList, CmdPanel, CmdSide, CmdThemeSystem, CmdThemeLight, CmdThemeDark,
-    CmdAbout, CmdFormatDoc, CmdImport, CmdImportInto, CmdWriting, CmdSettings,
+    CmdAbout, CmdFormatDoc, CmdImport, CmdImportInto, CmdWriting, CmdSettings, CmdJump, CmdShortcuts,
     // Popup menus
     CmdMoveWorldBase = 1000,      // + index into liveWorlds, or CmdMoveIndependent
     CmdMoveIndependent = 1999,
@@ -433,12 +433,225 @@ void StudioApp::buildMenu() {
         {FCONTROL | FVIRTKEY, VK_UP, WPrev},
         {FCONTROL | FVIRTKEY, VK_DOWN, WNext},
         {FCONTROL | FVIRTKEY, VK_OEM_COMMA, CmdSettings},
+        {FCONTROL | FVIRTKEY, 'K', CmdJump},            // 0.35: go to any chapter, scene or bible entry
+        {FCONTROL | FVIRTKEY, VK_OEM_2, CmdShortcuts},  // Ctrl+/: the keyboard shortcuts
     };
     accel_ = CreateAcceleratorTableW(acc, (int)std::size(acc));
 }
 
+static std::wstring groupedNumber(std::int64_t n) {
+    std::wstring s = std::to_wstring(n < 0 ? -n : n), out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (i && (s.size() - i) % 3 == 0) out += L',';
+        out += s[i];
+    }
+    return (n < 0 ? L"-" : L"") + out;
+}
+
+// Ctrl+K (0.35): every chapter and scene of the book you're in, its bible's entries and the other books, in one
+// searchable list; type a few letters of a name and press Enter.
+void StudioApp::quickJump() {
+    if (!lib_) return;
+    using cjui::MenuItem;
+    Id bookId = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_ : focus_.kind == Focus::Book ? focus_.id
+              : view_ == View::Book ? viewId_ : settings_.lastBook;
+    const Book* book = lib_->book(bookId);
+    if (book && book->deleted) book = nullptr;
+    std::vector<MenuItem> items;
+    struct Target { int kind; Id id; };   // 0 chapter or scene, 1 entry, 2 book
+    std::vector<Target> targets;
+    auto add = [&](const std::wstring& label, const std::wstring& right, int kind, const Id& id) {
+        targets.push_back({kind, id});
+        items.push_back(MenuItem::item(label, (UINT)targets.size(), right));
+    };
+    if (book) {
+        items.push_back(MenuItem::heading(L"IN \u201C" + w(book->title) + L"\u201D"));
+        for (const ManuscriptNode* n : lib_->manuscriptOf(book->id)) {
+            int d = 0;
+            for (const ManuscriptNode* p = n->parentId.empty() ? nullptr : lib_->node(n->parentId); p && d < 4;
+                 p = p->parentId.empty() ? nullptr : lib_->node(p->parentId)) ++d;
+            const std::int64_t words = n->kind == NodeKind::Scene ? n->wordCount : nodeTotalWords(n->id);
+            add(std::wstring((size_t)d * 3, L' ') + nodeLabel(*n), words ? groupedNumber(words) + L" words" : L"", 0, n->id);
+        }
+        const auto entries = lib_->entriesOf(book->worldId, book->worldId.empty() ? book->id : Id{});
+        if (!entries.empty()) {
+            items.push_back(MenuItem::heading(L"THE BIBLE"));
+            for (const Entry* e : entries) {
+                std::wstring kind = w(e->kind);
+                if (!kind.empty()) kind[0] = (wchar_t)towupper(kind[0]);
+                add(w(e->name), kind, 1, e->id);
+            }
+        }
+    }
+    bool booksHeading = false;
+    for (const Book* b : lib_->liveBooks()) {
+        if (book && b->id == book->id) continue;
+        if (!booksHeading) { items.push_back(MenuItem::heading(L"OTHER BOOKS")); booksHeading = true; }
+        add(w(b->title), L"Open in Writing", 2, b->id);
+    }
+    if (targets.empty()) { flash(L"There's nothing to go to yet: add a book in the Library.", 5); return; }
+    RECT rc;
+    GetClientRect(hwnd(), &rc);
+    const float s = gfx_.dpiScale();
+    POINT pt{rc.right / 2 - (LONG)(220 * s), (LONG)(kTopH * s) + (LONG)(40 * s)};
+    ClientToScreen(hwnd(), &pt);
+    const UINT ch = cjui::showMenu(hwnd(), items, pt, pal_);
+    if (ch < 1 || ch > targets.size()) return;
+    const Target t = targets[ch - 1];
+    if (t.kind == 0) {
+        const ManuscriptNode* n = lib_->node(t.id);
+        if (!n) return;
+        if (ws_ != Workspace::Writing || writingBook_ != n->bookId) {
+            currentNode_ = n->id;
+            writingBook_ = n->bookId;
+            openWriting(n->bookId);
+        }
+        selectNode(n->id, true);
+    } else if (t.kind == 1) {
+        if (const Entry* e = lib_->entry(t.id); e && !e->deleted) {
+            const Id id = e->id;
+            openWorldbuilding(e->worldId, e->worldId.empty() ? e->bookId : Id{});
+            openEntry(id);
+        }
+    } else {
+        openWriting(t.id);
+    }
+    invalidate();
+}
+
+// Ctrl+/ (0.35): the keyboard shortcuts on one sheet (the same list as Settings), in a window of its own so it
+// shows over the text. Esc, a click or switching away closes it.
+namespace {
+struct SheetData {
+    std::vector<ShortcutGroup> groups;
+    COLORREF paper, ink, muted, rule, accent;
+    float scale = 1;
+};
+COLORREF toRef(const cjui::Color& c) {
+    auto b = [](float v) { return (BYTE)std::clamp((int)std::lround(v * 255), 0, 255); };
+    return RGB(b(c.r), b(c.g), b(c.b));
+}
+LRESULT CALLBACK sheetProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* d = reinterpret_cast<SheetData*>(GetWindowLongPtrW(h, GWLP_USERDATA));
+    switch (msg) {
+        case WM_KEYDOWN:
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN: DestroyWindow(h); return 0;
+        case WM_ACTIVATE: if (LOWORD(wp) == WA_INACTIVE) DestroyWindow(h); return 0;
+        case WM_NCDESTROY: delete d; SetWindowLongPtrW(h, GWLP_USERDATA, 0); break;
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(h, &ps);
+            RECT rc;
+            GetClientRect(h, &rc);
+            HDC mem = CreateCompatibleDC(dc);
+            HBITMAP bmp = CreateCompatibleBitmap(dc, rc.right, rc.bottom);
+            HGDIOBJ oldBmp = SelectObject(mem, bmp);
+            if (d) {
+                const float s = d->scale;
+                auto px = [&](float v) { return (int)std::lround(v * s); };
+                HBRUSH bg = CreateSolidBrush(d->paper);
+                FillRect(mem, &rc, bg);
+                DeleteObject(bg);
+                HBRUSH edge = CreateSolidBrush(d->rule);
+                FrameRect(mem, &rc, edge);
+                DeleteObject(edge);
+                auto font = [&](int size, int weight) {
+                    return CreateFontW(-px((float)size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                       CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+                };
+                HFONT title = font(20, FW_SEMIBOLD), head = font(13, FW_SEMIBOLD), body = font(12, FW_NORMAL), keyf = font(12, FW_SEMIBOLD);
+                SetBkMode(mem, TRANSPARENT);
+                HGDIOBJ oldFont = SelectObject(mem, title);
+                SetTextColor(mem, d->ink);
+                RECT tr{px(28), px(20), rc.right - px(28), px(52)};
+                DrawTextW(mem, L"Keyboard shortcuts", -1, &tr, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+                SelectObject(mem, body);
+                SetTextColor(mem, d->muted);
+                RECT hint{px(28), px(22), rc.right - px(28), px(50)};
+                DrawTextW(mem, L"Esc or a click closes this", -1, &hint, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+                // Three columns, groups flowing down them.
+                const int cols = 3, gap = px(28);
+                const int colW = (rc.right - px(56) - gap * (cols - 1)) / cols;
+                int col = 0, y = px(66);
+                const int bottom = rc.bottom - px(20), line = px(21);
+                for (const auto& [name, keys] : d->groups) {
+                    const int need = px(26) + (int)keys.size() * line;
+                    if (y + need > bottom && y > px(66) && col < cols - 1) { ++col; y = px(66); }
+                    const int x = px(28) + col * (colW + gap);
+                    SelectObject(mem, head);
+                    SetTextColor(mem, d->accent);
+                    RECT gr{x, y, x + colW, y + px(20)};
+                    DrawTextW(mem, name.c_str(), -1, &gr, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+                    y += px(26);
+                    for (const auto& [k, what] : keys) {
+                        SelectObject(mem, keyf);
+                        SetTextColor(mem, d->ink);
+                        const int kw = (int)(colW * 0.42f);
+                        RECT kr{x, y, x + kw - px(8), y + line};
+                        DrawTextW(mem, k.c_str(), -1, &kr, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                        SelectObject(mem, body);
+                        SetTextColor(mem, d->muted);
+                        RECT wr{x + kw, y, x + colW, y + line};
+                        DrawTextW(mem, what.c_str(), -1, &wr, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                        y += line;
+                    }
+                    y += px(14);
+                }
+                SelectObject(mem, oldFont);
+                for (HFONT f : {title, head, body, keyf}) DeleteObject(f);
+            }
+            BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
+            SelectObject(mem, oldBmp);
+            DeleteObject(bmp);
+            DeleteDC(mem);
+            EndPaint(h, &ps);
+            return 0;
+        }
+        default: break;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+}  // namespace
+
+void StudioApp::showShortcuts() {
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = sheetProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"NorthRayStudioShortcuts";
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        RegisterClassW(&wc);
+        registered = true;
+    }
+    auto* d = new SheetData;
+    d->groups = shortcutGroups();
+    d->paper = toRef(pal_.surface);
+    d->ink = toRef(pal_.ink);
+    d->muted = toRef(pal_.inkMuted);
+    d->rule = toRef(pal_.rule);
+    d->accent = toRef(pal_.ribbon);
+    d->scale = gfx_.dpiScale();
+    RECT wr;
+    GetWindowRect(hwnd(), &wr);
+    const int w = std::min((int)std::lround(980 * d->scale), (int)(wr.right - wr.left) - 40);
+    const int h = std::min((int)std::lround(560 * d->scale), (int)(wr.bottom - wr.top) - 40);
+    HWND sheet = CreateWindowExW(WS_EX_TOOLWINDOW, L"NorthRayStudioShortcuts", L"Keyboard shortcuts", WS_POPUP,
+                                 wr.left + (wr.right - wr.left - w) / 2, wr.top + (wr.bottom - wr.top - h) / 2, w, h, hwnd(), nullptr,
+                                 GetModuleHandleW(nullptr), nullptr);
+    if (!sheet) { delete d; return; }
+    SetWindowLongPtrW(sheet, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(d));
+    HRGN rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, (int)(18 * d->scale), (int)(18 * d->scale));
+    SetWindowRgn(sheet, rgn, TRUE);
+    ShowWindow(sheet, SW_SHOW);
+    SetForegroundWindow(sheet);
+    SetFocus(sheet);
+}
+
 void StudioApp::command(int id) {
-    if (!lib_ && id != CmdOpenLibrary && id != CmdExit && id != CmdAbout) return;
+    if (!lib_ && id != CmdOpenLibrary && id != CmdExit && id != CmdAbout && id != CmdShortcuts) return;
     if (id >= 5000 && id < 6000) {
         // From the menu while the Library is showing: Ctrl+Up / Ctrl+Down mean nothing there.
         if ((id == WPrev || id == WNext) && ws_ != Workspace::Writing) return;
@@ -491,6 +704,8 @@ void StudioApp::command(int id) {
         case CmdThemeDark: settings_.theme = 2; saveSettings(); applyTheme(); break;
         case CmdAbout: showAbout(); break;
         case CmdSettings: openSettings(); break;
+        case CmdJump: quickJump(); break;
+        case CmdShortcuts: showShortcuts(); break;
         case CmdFormatDoc: {
             const std::wstring t = L"Your library is a folder:\n\n" + (lib_ ? w(lib_->folder()) : std::wstring(L"(none open)")) +
                 L"\n\n- library.db holds your worlds, series and books (SQLite; every change is saved at once and can't be half-written).\n"
@@ -1156,6 +1371,13 @@ bool StudioApp::onMouseDown(float x, float y) {
         }
     }
     const std::string id = hitAt(x, y);
+    // The family tree's background: drag to move the tree about (0.35).
+    if (ws_ == Workspace::Worldbuilding && !wb_.familyRoot.empty() && pageRect_.contains(x, y) && id.empty()) {
+        wb_.treePan = true;
+        wb_.panX = x, wb_.panY = y, wb_.panTreeX = wb_.treeX, wb_.panScroll = wb_.scroll;
+        SetCapture(hwnd());
+        return true;
+    }
     auto take = [&](const char* prefix, DragState::Kind k) {
         if (id.rfind(prefix, 0) != 0) return false;
         std::string rest = id.substr(std::strlen(prefix));
@@ -1182,6 +1404,13 @@ bool StudioApp::onMouseDown(float x, float y) {
 }
 
 void StudioApp::onMouseMove(float x, float y, bool leftDown) {
+    if (wb_.treePan) {
+        if (!leftDown) { wb_.treePan = false; ReleaseCapture(); return; }
+        wb_.treeX = std::clamp(wb_.panTreeX - (x - wb_.panX), 0.0f, std::max(0.0f, wb_.treeW - pageRect_.w + 60));
+        wb_.scroll = std::clamp(wb_.panScroll - (y - wb_.panY), 0.0f, std::max(0.0f, wb_.content - pageRect_.h));
+        invalidate();
+        return;
+    }
     if (planMouseMove(x, y, leftDown)) return;
     if (boardMouseMove(x, y, leftDown)) return;
     if (crop_.mode && leftDown && cropBox_.w > 0) {
@@ -1230,6 +1459,11 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
 }
 
 bool StudioApp::onMouseUp(float x, float y) {
+    if (wb_.treePan) {
+        wb_.treePan = false;
+        ReleaseCapture();
+        return true;
+    }
     if (planMouseUp(x, y)) return true;
     if (boardMouseUp(x, y)) return true;
     if (crop_.mode) {
@@ -1353,6 +1587,15 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     if (ws_ == Workspace::Worldbuilding) {
         if (panelRect_.contains(x, y)) wb_.panelScroll = std::clamp(wb_.panelScroll + lines * 20, 0.0f, std::max(0.0f, wb_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) wb_.sideScroll = std::clamp(wb_.sideScroll + lines * 20, 0.0f, std::max(0.0f, wb_.sideContent - sideRect_.h));
+        else if (pageRect_.contains(x, y) && !wb_.familyRoot.empty() && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            // Zoom the family tree about the pointer (0.35).
+            const float avail = pageRect_.w - 64;
+            const float before = wb_.treeZoom > 0 ? wb_.treeZoom : std::clamp(wb_.treeW > 0 ? std::min(1.0f, avail / std::max(1.0f, wb_.treeW)) : 1.0f, 0.66f, 1.0f);
+            const float after = std::clamp(before * (lines > 0 ? 1 / 1.12f : 1.12f), 0.45f, 1.8f);
+            const float px = x - pageRect_.x + wb_.treeX;
+            wb_.treeX = std::max(0.0f, px * after / before - (x - pageRect_.x));
+            wb_.treeZoom = after;
+        }
         else if (pageRect_.contains(x, y) && !wb_.familyRoot.empty() && (GetKeyState(VK_SHIFT) & 0x8000))
             wb_.treeX = std::clamp(wb_.treeX + lines * 40, 0.0f, std::max(0.0f, wb_.treeW - pageRect_.w + 60));   // a wide tree, across
         else if (pageRect_.contains(x, y)) wb_.scroll = std::clamp(wb_.scroll + lines * 30, 0.0f, std::max(0.0f, wb_.content - pageRect_.h));

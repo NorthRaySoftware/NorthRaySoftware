@@ -171,6 +171,10 @@ void StudioApp::editorMessage(const std::string& text) {
         if (saveFailed_) flash(w("Couldn't save the text: " + lib_->lastError()), 15);
     } else if (type == "saved-state") {
         editorDirty_ = m.value("dirty", false);
+    } else if (type == "appCommand") {   // Ctrl+K, Ctrl+/ typed in the text
+        const std::string name = m.value("name", "");
+        if (name == "jump") quickJump();
+        else if (name == "shortcuts") showShortcuts();
     } else if (type == "navigate") {
         stepNode(m.value("delta", 0) < 0 ? -1 : 1, true, true);
     } else if (type == "flushed") {

@@ -58,6 +58,11 @@
     <button data-set="width" data-value="wide">Wide</button>
     <button data-set="width" data-value="fit">Fit</button>
   </div>
+  <div class="vm-label">Paper</div>
+  <div class="vm-row">
+    <button data-set="paper" data-value="usual">Usual</button>
+    <button data-set="paper" data-value="night" title="A warm, dim page for writing in the dark">Warm night</button>
+  </div>
   <div class="vm-rule"></div>
   <label class="vm-check"><input type="checkbox" name="focus"> Focus mode <span class="vm-key">Ctrl+Shift+F</span>
     <span class="vm-note">Hides the side panels and fades everything but the paragraph you're in.</span></label>
@@ -83,6 +88,7 @@
   <article>
     <h1 id="title"></h1>
     <div id="page"></div>
+    <div id="caret" aria-hidden="true" hidden></div>
   </article>
 </div>
 <script src="editor.js"></script>

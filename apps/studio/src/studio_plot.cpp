@@ -256,7 +256,8 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
             if (i % 2 == 0) gfx_.fill({m.x, a, cw, z - a}, pal_.surface.withAlpha(0.45f));
             const Entry* e = lanes[i].empty() ? nullptr : lib_->entry(lanes[i]);
             const std::wstring name = e && !e->deleted ? w(e->name) : L"No viewpoint";
-            gfx_.text(name, {m.x + 8, a + 10, labelW - 16, 40}, Font::BodyStrong, e ? pal_.ink : pal_.inkMuted, {Align::Left, true, true});
+            if (e && !e->deleted) gfx_.fill({m.x, a + 6, 4, z - a - 12}, povColour(e->id));   // the viewpoint's colour, as on the cards
+            gfx_.text(name, {m.x + 12, a + 10, labelW - 20, 40}, Font::BodyStrong, e ? pal_.ink : pal_.inkMuted, {Align::Left, true, true});
             gfx_.line(m.x, z - 0.5f, m.right(), z - 0.5f, pal_.rule);
         }
         // Ticks and day lines (clipped to the area right of the lane names).

@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "0.35.0",
+      "date": "2026-11-18",
+      "notes": [
+        "Ctrl+K takes you anywhere: type a few letters of a chapter, scene, bible entry or book and press Enter. Ctrl+/ shows every keyboard shortcut. (Link in the text is now Ctrl+Alt+K.)",
+        "A smooth typing cursor that glides to where you type, and a clearer save note: “Saved just now”, “Saved a moment ago”, “Saved 5 minutes ago”.",
+        "Each chapter remembers where you'd scrolled to, and Undo now works after closing and reopening a book, stepping back through earlier versions of the chapter.",
+        "Warm night paper for writing in the dark: choose it under Aa.",
+        "Style hints wait until you pause typing before they appear.",
+        "A thin bar under the top bar fills with today's words against your daily goal.",
+        "Planning cards and timeline lanes are coloured by their viewpoint character, and Planning opens long books faster.",
+        "The family tree zooms with Ctrl + mouse wheel and moves when you drag its background. Bible cards have bigger portraits.",
+        "Clicking a comment in Review brings its words to the middle of the page and lights them up for a moment.",
+        "A clearer line shows where a chapter or scene will land when you drag it in the outline, and the text's right-click menu has fewer, clearer items."
+      ]
+    },
+    {
       "version": "0.34.6",
       "date": "2026-11-17",
       "notes": [

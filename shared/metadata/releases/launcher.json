@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.97.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Writing Studio 0.35.0: Ctrl+K to go anywhere, a gliding cursor, undo after reopening, warm night paper, a goal bar and more polish."
+      ]
+    },
+    {
       "version": "0.96.0",
       "date": "2026-11-18",
       "notes": [

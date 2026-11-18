@@ -62,6 +62,16 @@ std::int64_t StudioApp::bookTarget(const Id& bookId) const {
     const json j = json::parse(lib_->setting("plan:" + bookId), nullptr, false);
     return j.is_object() ? std::max<std::int64_t>(0, j.value("targetWords", (std::int64_t)0)) : 0;
 }
+// A viewpoint character's colour (0.35), from their id so it never changes: one of ten that stay apart from each
+// other and from the status colours, a little lighter in the dark theme.
+Color StudioApp::povColour(const Id& id) const {
+    static const char* light[] = {"#3B7DD8", "#D2513A", "#2E9E6B", "#9B59B6", "#D48A1F", "#1F9CA8", "#C2417E", "#6C7A2E", "#5B5FD6", "#A0522D"};
+    static const char* dark[] = {"#6FA6F0", "#F07C64", "#5CC995", "#C08EDA", "#F0B252", "#52C6D2", "#E77CB0", "#A6B85A", "#8C90F2", "#D08A5E"};
+    std::uint32_t h = 2166136261u;
+    for (unsigned char c : id) h = (h ^ c) * 16777619u;
+    return cjui::hexColor((pal_.dark ? dark : light)[h % 10]);
+}
+
 void StudioApp::setBookTarget(const Id& bookId, std::int64_t words) {
     json j = json::parse(lib_->setting("plan:" + bookId), nullptr, false);
     if (!j.is_object()) j = json::object();
@@ -274,6 +284,13 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         const Color paperCard = pal_.dark ? (n->kind == NodeKind::Scene ? pal_.surface.mix(pal_.paper, 0.3f) : pal_.surface)
                                           : (n->kind == NodeKind::Scene ? cjui::hexColor("#FBF6E9") : cjui::hexColor("#FFFDF7"));
         gfx_.fillRounded(cr, 3, lifted ? paperCard.withAlpha(0.5f) : paperCard);
+        // Coloured by viewpoint character (0.35): a band along the top and a faint wash, the same colour every time.
+        const bool hasPov = entryName(n->povId) != nullptr;
+        const Color pc = hasPov ? povColour(n->povId) : Color{};
+        if (hasPov) {
+            gfx_.fillRounded(cr, 3, pc.withAlpha(pal_.dark ? 0.10f : 0.07f));
+            gfx_.fillRounded({cr.x, cr.y, cr.w, 5}, 2, pc);
+        }
         if (sel) gfx_.strokeRounded(cr, 3, pal_.ribbon, 2.0f);
         else if (hv > 0.01f) gfx_.strokeRounded(cr, 3, pal_.rule.mix(pal_.inkFaint, hv), 1.0f);
         gfx_.line(cr.x + 10, cr.y + 50.5f, cr.right() - 10, cr.y + 50.5f, cjui::hexColor("#D9534F").withAlpha(pal_.dark ? 0.45f : 0.55f), 1.0f);
@@ -316,7 +333,11 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (more) others += L" +" + std::to_wstring(more);
             if (!others.empty()) who += (who.empty() ? L"With " : L" · with ") + others;
         }
-        if (!who.empty()) gfx_.text(who, {ix, fy, iw, 18}, Font::Small, pal_.ink, {Align::Left, false, true});
+        if (!who.empty()) {
+            float wx = ix;
+            if (hasPov) { gfx_.circle(ix + 4, fy + 9, 4, pc, true); wx += 13; }
+            gfx_.text(who, {wx, fy, iw - (wx - ix), 18}, Font::Small, pal_.ink, {Align::Left, false, true});
+        }
         // Length against the target.
         fy = cr.bottom() - 22;
         std::int64_t words = n->wordCount;

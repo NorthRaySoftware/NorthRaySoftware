@@ -1788,6 +1788,23 @@ static void testWorldbuilding() {
         auto ap = lib->appearancesIn(book);
         CHECK(ap.count(ch) && ap[ch].size() == 3);                                 // Maren, Highcliff, the Wanderer
         CHECK(ap.count(ch) && (ap[ch][0] == ada || ap[ch][0] == grey));          // the most mentioned first (twice each)
+        // Kept per chapter (0.35): asked again it's the same; new text, or a renamed entry, is read again.
+        CHECK(lib->appearancesIn(book)[ch] == ap[ch]);
+        CHECK(lib->saveNodeContent(ch, para("Only Highcliff today.")));
+        ap = lib->appearancesIn(book);
+        CHECK(ap.count(ch) && ap[ch].size() == 1 && ap[ch][0] == town);
+        {
+            Entry t = *lib->entry(town);
+            t.name = "Lowcliff";
+            CHECK(lib->updateEntry(t));
+        }
+        ap = lib->appearancesIn(book);
+        CHECK(!ap.count(ch) || ap[ch].empty());
+        {
+            Entry t = *lib->entry(town);
+            t.name = "Highcliff";
+            CHECK(lib->updateEntry(t));
+        }
         CHECK(lib->schemaVersion() == studio::Library::kSchemaVersion);
     }
     {

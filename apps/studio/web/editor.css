@@ -68,6 +68,24 @@ img.ProseMirror-separator {
   --accent: #5BE3B4; --sel: rgba(91, 227, 180, .20); --bar: #111829;
   color-scheme: dark;
 }
+/* Warm night paper (0.35): low light, amber ink accents, easy on the eyes in a dark room. Either theme. */
+:root[data-paper="night"], :root[data-paper="night"][data-theme="dark"] {
+  --paper: #17120D; --page: #211A13; --ink: #EADCC3; --muted: #BBA98C; --faint: #857660; --rule: #3A2F23;
+  --accent: #E0A75A; --sel: rgba(224, 167, 90, .24); --bar: #1B150F;
+  color-scheme: dark;
+}
+/* The gliding cursor (0.35). */
+article { position: relative; }
+#caret { position: absolute; left: 0; top: 0; width: 2px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 3;
+  transition: transform .09s cubic-bezier(.2, .8, .3, 1), height .09s ease; will-change: transform; }
+#caret.no-glide { transition: none; }
+#caret.breathe { animation: caret-breathe 1.2s ease-in-out .45s infinite; }
+@keyframes caret-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+.smooth-caret .ProseMirror { caret-color: transparent; }
+@media (prefers-reduced-motion: reduce) { #caret { transition: none; } #caret.breathe { animation: none; } }
+/* A comment shown from Review lights up for a moment. */
+.cm-flash { animation: cm-flash 2s ease-out; }
+@keyframes cm-flash { 0%, 35% { background: color-mix(in srgb, var(--accent) 45%, transparent); } 100% { } }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
 body { display: flex; flex-direction: column; font: 14px/1.4 var(--ui); overflow: hidden; }

@@ -862,14 +862,29 @@ std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
     const auto entries = b->worldId.empty() ? entriesOf({}, bookId) : entriesOf(b->worldId);
     std::vector<std::vector<std::string>> names;
     for (const Entry* e : entries) names.push_back(searchNames(*e));
+    // The bible's names, as one number: a change to any of them means every chapter is looked at again.
+    std::uint64_t sig = 1469598103934665603ull;
+    auto mix = [&](const std::string& s) { for (unsigned char c : s) sig = (sig ^ c) * 1099511628211ull; sig = (sig ^ 0xff) * 1099511628211ull; };
+    for (size_t i = 0; i < entries.size(); ++i) { mix(entries[i]->id); for (const auto& nm : names[i]) mix(nm); }
     for (const ManuscriptNode* n : manuscriptOf(bookId)) {
-        const std::string text = doc::plainText(nodeContent(n->id));
-        std::vector<std::pair<int, Id>> found;
-        for (size_t i = 0; i < entries.size(); ++i)
-            if (!names[i].empty())
-                if (const int c = countNames(text, names[i]); c > 0) found.push_back({c, entries[i]->id});
-        std::stable_sort(found.begin(), found.end(), [](auto& x, auto& y) { return x.first > y.first; });
-        for (auto& f : found) out[n->id].push_back(f.second);
+        std::int64_t length = 0, words = 0;
+        Time modified = 0;
+        {
+            Stmt q(db_, "SELECT length(content), word_count, modified FROM nodes WHERE id = ?1");
+            q.bind(1, n->id);
+            if (q && q.row()) { length = q.i64(0); words = q.i64(1); modified = q.i64(2); }
+        }
+        AppearanceCache& c = appearanceCache_[n->id];
+        if (c.length != length || c.words != words || c.modified != modified || c.names != sig) {
+            const std::string text = doc::plainText(nodeContent(n->id));
+            std::vector<std::pair<int, Id>> found;
+            for (size_t i = 0; i < entries.size(); ++i)
+                if (!names[i].empty())
+                    if (const int k = countNames(text, names[i]); k > 0) found.push_back({k, entries[i]->id});
+            std::stable_sort(found.begin(), found.end(), [](auto& x, auto& y) { return x.first > y.first; });
+            c = {length, words, modified, sig, std::move(found)};
+        }
+        for (auto& f : c.found) out[n->id].push_back(f.second);
     }
     return out;
 }

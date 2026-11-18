@@ -27,7 +27,7 @@ import { EditorState, Plugin, TextSelection, NodeSelection } from "prosemirror-s
 import { EditorView, Decoration, DecorationSet } from "prosemirror-view";
 import { baseKeymap, toggleMark, setBlockType, wrapIn, chainCommands, exitCode, lift } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
-import { history, undo, redo } from "prosemirror-history";
+import { history, undo, redo, closeHistory } from "prosemirror-history";
 import { inputRules, InputRule, smartQuotes, ellipsis, emDash, wrappingInputRule, textblockTypeInputRule } from "prosemirror-inputrules";
 import { splitListItem, liftListItem, sinkListItem, wrapInList } from "prosemirror-schema-list";
 import { dropCursor } from "prosemirror-dropcursor";
@@ -392,14 +392,26 @@ function commentRange(doc, id) {
   return from < 0 ? null : { from, to };
 }
 
+// Review's "show it": the words are selected, brought to the middle of the window and lit up for a moment
+// (even when the comment is resolved).
+let flashComment = null, flashTimer = null;
 function selectComment(id) {
   if (!view) return;
   activeComment = id;
   const r = commentRange(view.state.doc, id);
   if (r) {
-    const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, r.from, r.to)).scrollIntoView();
+    flashComment = id;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flashComment = null; if (view) view.dispatch(view.state.tr.setMeta("comments", true)); }, 2200);
+    const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, r.from, r.to));
     tr.setMeta("comments", true);
     view.dispatch(tr);
+    requestAnimationFrame(() => {
+      const sc = document.getElementById("scroller");
+      let at;
+      try { at = view.coordsAtPos(r.from); } catch (e) { return; }
+      if (sc && at) sc.scrollTop += at.top - sc.getBoundingClientRect().top - sc.clientHeight * 0.4;
+    });
   } else view.dispatch(view.state.tr.setMeta("comments", true));
 }
 
@@ -427,6 +439,7 @@ const commentLook = new Plugin({
         if (!n.isText) return;
         for (const m of n.marks) {
           if (m.type !== M.comment) continue;
+          if (m.attrs.id === flashComment) { decos.push(Decoration.inline(pos, pos + n.nodeSize, { class: "cm-open cm-active cm-flash" })); continue; }
           if (resolvedComments.has(m.attrs.id)) continue;
           const cls = m.attrs.id === activeComment ? "cm-open cm-active" : "cm-open";
           decos.push(Decoration.inline(pos, pos + n.nodeSize, { class: cls }));
@@ -456,7 +469,10 @@ const keys = {
   "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
   "Mod-Backspace": deleteWord(-1), "Mod-Delete": deleteWord(1),
   "Mod-b": toggleMark(M.strong), "Mod-i": toggleMark(M.em), "Mod-u": toggleMark(M.underline),
-  "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-k": toggleLink, "Mod-Alt-m": addComment,
+  "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-Alt-k": toggleLink, "Mod-Alt-m": addComment,
+  // The app's own: go anywhere (Ctrl+K) and the shortcuts sheet (Ctrl+/) (0.35).
+  "Mod-k": () => { flush(); send({ type: "appCommand", name: "jump" }); return true; },
+  "Mod-/": () => { send({ type: "appCommand", name: "shortcuts" }); return true; },
   "Mod-Enter": insertSceneBreak, "Shift-Enter": hardBreak,
   "Mod-Alt-0": setStyle("body"), "Mod-Alt-1": setBlockType(S.heading, { level: 1 }),
   "Mod-Alt-2": setBlockType(S.heading, { level: 2 }), "Mod-Alt-3": setBlockType(S.heading, { level: 3 }),
@@ -501,7 +517,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 2, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "full", hintCats: {}, names: true };
+const VIEW_DEFAULTS = { v: 2, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "full", hintCats: {}, names: true, paper: "usual" };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -519,6 +535,7 @@ function applyView() {
   root.style.setProperty("--text-size", (SIZES[v.size] ?? SIZES[1]) + "rem");
   root.style.setProperty("--page-width", WIDTHS[v.width] || WIDTHS.normal);
   root.classList.toggle("focus-mode", !!v.focus);
+  root.dataset.paper = v.paper === "night" ? "night" : "usual";   // warm night paper for writing in the dark (0.35)
   root.classList.toggle("typewriter", !!v.typewriter);
   if (view) {
     // The Studio's own checker once its dictionary is loaded (it knows the bible's names); the browser's until then.
@@ -527,6 +544,7 @@ function applyView() {
     keepCaretCentred();
   }
   syncViewMenu();
+  requestAnimationFrame(() => placeCaret());
 }
 
 function changeView(patch) {
@@ -617,7 +635,8 @@ function hintDecorations(doc) {
 
 function rehintSoon() {
   clearTimeout(rehintTimer);
-  rehintTimer = setTimeout(() => { if (view) view.dispatch(view.state.tr.setMeta("rehint", true)); }, 350);
+  // Only once typing has paused for a moment (0.35): new hints never pop up mid-sentence.
+  rehintTimer = setTimeout(() => { if (view) view.dispatch(view.state.tr.setMeta("rehint", true)); }, 1400);
 }
 
 // A short message in the toolbar (the app has no status bar).
@@ -819,15 +838,35 @@ function flush() {
   if (!view || !currentId || !dirty) return;
   dirty = false;
   // "Saved" appears when the app confirms it has stored the text.
-  send({ type: "change", id: currentId, doc: view.state.doc.toJSON(), words: docWords(view.state.doc) });
+  const docJSON = view.state.doc.toJSON();
+  send({ type: "change", id: currentId, doc: docJSON, words: docWords(view.state.doc) });
+  rememberVersion(currentId, docJSON, false);
 }
 
 // "Saving..." while there are changes not yet stored, then "Saved".
-function setSaved(state) {
+// "Saved just now", then "Saved a moment ago", "Saved 5 minutes ago"... kept up to date (0.35).
+let savedAt = 0, savedState = "saved", savedTicker = null;
+function savedText() {
+  if (savedState === "saving") return "Saving\u2026";
+  if (savedState === "failed") return "Not saved";
+  if (!savedAt) return "Saved";
+  const s = (Date.now() - savedAt) / 1000;
+  if (s < 10) return "Saved just now";
+  if (s < 60) return "Saved a moment ago";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m === 1 ? "Saved a minute ago" : `Saved ${m} minutes ago`;
+  return "Saved at " + new Date(savedAt).toLocaleTimeString(document.documentElement.lang || undefined, { hour: "numeric", minute: "2-digit" });
+}
+function setSaved(state, fresh) {
   const el = document.getElementById("saved");
   if (!el) return;
-  el.textContent = state === "saving" ? "Saving..." : state === "failed" ? "Not saved" : "Saved";
+  savedState = state;
+  if (state === "saved" && fresh) savedAt = Date.now();
+  if (state === "saved" && fresh === false) savedAt = 0;
+  el.textContent = savedText();
   el.dataset.state = state;
+  el.title = savedAt ? "Saved at " + new Date(savedAt).toLocaleTimeString() : "";
+  if (!savedTicker) savedTicker = setInterval(() => { const x = document.getElementById("saved"); if (x) x.textContent = savedText(); }, 10000);
 }
 
 function stats() {
@@ -889,7 +928,7 @@ const watcher = new Plugin({
         timer = setTimeout(flush, 800);
       }
       if (!v.state.doc.eq(prev.doc) || !v.state.selection.eq(prev.selection)) {
-        stats(); updateToolbar(v.state); reportPicture(v.state); reportComment(v.state); keepCaretCentred();
+        stats(); updateToolbar(v.state); reportPicture(v.state); reportComment(v.state); keepCaretCentred(); placeCaret();
       }
     },
   }),
@@ -936,18 +975,86 @@ function removePicture(pos) {
   view.focus();
 }
 
-function makeState(docJSON) {
-  let doc;
-  try { doc = schema.nodeFromJSON(docJSON); doc.check(); }
-  catch (e) { doc = schema.node("doc", null, [schema.node("paragraph")]); }
-  return EditorState.create({
-    doc,
-    plugins: [rules, keymap(keys), keymap(baseKeymap), history(), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook, comicLook],
-  });
+// ------------------------------------------------- kept in this computer's editor storage (0.35)
+// Where each chapter was scrolled to, and earlier versions of it for undo after reopening the book. Both are
+// conveniences: if the storage is full or unavailable, the editor works as before.
+const store = {
+  get(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } },
+  set(key, value) {
+    const text = JSON.stringify(value);
+    for (let tries = 0; tries < 6; tries++) {
+      try { localStorage.setItem(key, text); return true; }
+      catch (e) {   // full: let go of the chapter histories used longest ago
+        const index = store.get(UNDO_INDEX, []);
+        const old = index.shift();
+        if (!old) return false;
+        try { localStorage.removeItem(UNDO_PREFIX + old); localStorage.setItem(UNDO_INDEX, JSON.stringify(index)); } catch (e2) { return false; }
+      }
+    }
+    return false;
+  },
+};
+const SCROLLS = "nr.scroll";
+function rememberScroll() {
+  const sc = document.getElementById("scroller");
+  if (!currentId || !sc) return;
+  const all = store.get(SCROLLS, {});
+  all[currentId] = Math.round(sc.scrollTop);
+  const keys = Object.keys(all);
+  if (keys.length > 3000) for (const k of keys.slice(0, keys.length - 3000)) delete all[k];
+  store.set(SCROLLS, all);
+}
+let scrollSaveTimer = null;
+document.getElementById("scroller").addEventListener("scroll", () => {
+  clearTimeout(scrollSaveTimer);
+  scrollSaveTimer = setTimeout(rememberScroll, 400);
+});
+
+// Undo after reopening: a version of the chapter is kept now and then (at most every 90 seconds while writing,
+// and on leaving it); opening it again replays them into the undo history, so Ctrl+Z steps back through them.
+const UNDO_PREFIX = "nr.undo.", UNDO_INDEX = "nr.undo.index", UNDO_KEEP = 12, UNDO_EVERY = 90000;
+const lastVersionAt = new Map();
+function rememberVersion(id, docJSON, force) {
+  if (!id || readOnly) return;
+  const now = Date.now();
+  if (!force && now - (lastVersionAt.get(id) || 0) < UNDO_EVERY) return;
+  lastVersionAt.set(id, now);
+  const list = store.get(UNDO_PREFIX + id, []);
+  const text = JSON.stringify(docJSON);
+  if (list.length && JSON.stringify(list[list.length - 1]) === text) return;
+  list.push(docJSON);
+  while (list.length > UNDO_KEEP) list.shift();
+  while (list.length > 1 && JSON.stringify(list).length > 700000) list.shift();
+  const index = store.get(UNDO_INDEX, []).filter((x) => x !== id);
+  index.push(id);
+  store.set(UNDO_INDEX, index);
+  store.set(UNDO_PREFIX + id, list);
+}
+
+function parseDoc(json) {
+  try { const d = schema.nodeFromJSON(json); d.check(); return d; } catch (e) { return null; }
+}
+
+function makeState(docJSON, id) {
+  let doc = parseDoc(docJSON);
+  if (!doc) doc = schema.node("doc", null, [schema.node("paragraph")]);
+  const plugins = [rules, keymap(keys), keymap(baseKeymap), history({ depth: 200 }), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook, comicLook];
+  // Earlier versions kept from before: start from the oldest and step forward to the text as it is now.
+  const older = (id ? store.get(UNDO_PREFIX + id, []) : []).map(parseDoc).filter(Boolean).filter((d) => !d.eq(doc));
+  if (!older.length) return EditorState.create({ doc, plugins });
+  let state = EditorState.create({ doc: older[0], plugins });
+  for (const next of [...older.slice(1), doc]) {
+    if (next.eq(state.doc)) continue;
+    const tr = state.tr.replaceWith(0, state.doc.content.size, next.content);
+    tr.setMeta("restoringHistory", true);
+    state = state.apply(closeHistory(tr));
+  }
+  return state.apply(state.tr.setSelection(TextSelection.atStart(state.doc)));
 }
 
 function load(msg) {
   flush();
+  if (view && currentId) { rememberScroll(); rememberVersion(currentId, view.state.doc.toJSON(), true); }
   if (typeof msg.dark === "boolean") setTheme(msg.dark);
   currentId = msg.id;
   readOnly = !!msg.readOnly;
@@ -956,7 +1063,8 @@ function load(msg) {
   // The dictionary for the book's language (loaded once; the text is checked again when it's ready).
   spell.load(document.documentElement.lang, (ok) => { if (ok && view) { applyView(); rehintNow(); } });
   document.getElementById("title").textContent = msg.title || "";
-  const state = makeState(msg.doc);
+  const state = makeState(msg.doc, readOnly ? null : msg.id);
+  if (!readOnly) rememberVersion(msg.id, state.doc.toJSON(), true);   // how it was when opened, to undo back to later
   if (!view) {
     view = new EditorView(document.getElementById("page"), {
       state,
@@ -964,7 +1072,10 @@ function load(msg) {
       attributes: { spellcheck: viewSettings.spellcheck ? "true" : "false", "aria-label": "Manuscript text" },
       nodeViews: { image: (node) => new ImageView(node) },
       handleDOMEvents: {
-        blur: () => { flush(); return false; },
+        blur: () => { flush(); requestAnimationFrame(placeCaret); return false; },
+        focus: () => { requestAnimationFrame(placeCaret); return false; },
+        compositionstart: () => { placeCaret(true); return false; },
+        compositionend: () => { requestAnimationFrame(() => placeCaret()); return false; },
         click: (v, e) => {
           const a = e.target.closest && e.target.closest("a[href]");
           if (a && (e.ctrlKey || e.metaKey)) { send({ type: "link", href: a.getAttribute("href") }); e.preventDefault(); return true; }
@@ -985,14 +1096,15 @@ function load(msg) {
     view.updateState(state);
   }
   dirty = false;
-  setSaved("saved");
+  setSaved("saved", false);
   stats();
   updateToolbar(view.state);
-  // Jump (not scroll) to the top, so switching chapters doesn't flicker past the old one.
+  // Jump (not scroll) to where this chapter was left (0.35), so switching chapters doesn't flicker past the old one.
   const scroller = document.getElementById("scroller");
   scroller.style.scrollBehavior = "auto";
-  scroller.scrollTop = 0;
-  requestAnimationFrame(() => { scroller.style.scrollBehavior = ""; });
+  const keptScroll = store.get(SCROLLS, {})[msg.id] || 0;
+  scroller.scrollTop = keptScroll;
+  requestAnimationFrame(() => { scroller.scrollTop = keptScroll; scroller.style.scrollBehavior = ""; placeCaret(); });
   if (!readOnly && msg.focus !== false) view.focus();
   reported = null;
   reportPicture(view.state);
@@ -1000,6 +1112,30 @@ function load(msg) {
   reportedComment = null;
   reportComment(view.state);
 }
+
+// A cursor that glides to where you type and breathes rather than blinks (0.35). It's a line drawn over the text;
+// Windows' own caret is hidden only while this one is shown (not while selecting, in IME composition or read-only).
+function placeCaret(composing) {
+  const c = document.getElementById("caret");
+  if (!c) return;
+  const root = document.documentElement;
+  const sel = view && view.state.selection;
+  const show = view && !readOnly && !composing && !view.composing && view.hasFocus() && sel && sel.empty && !(sel instanceof NodeSelection);
+  if (!show) { c.hidden = true; root.classList.remove("smooth-caret"); return; }
+  let r;
+  try { r = view.coordsAtPos(sel.head); } catch (e) { c.hidden = true; root.classList.remove("smooth-caret"); return; }
+  const a = c.parentElement.getBoundingClientRect();
+  const first = c.hidden;
+  c.hidden = false;
+  root.classList.add("smooth-caret");
+  c.classList.toggle("no-glide", first);
+  c.style.height = Math.max(8, r.bottom - r.top) + "px";
+  c.style.transform = `translate(${(r.left - a.left).toFixed(1)}px, ${(r.top - a.top).toFixed(1)}px)`;
+  c.classList.remove("breathe");
+  void c.offsetWidth;   // start the breathing again after each move
+  c.classList.add("breathe");
+}
+window.addEventListener("resize", () => placeCaret());
 
 function setTheme(dark) { document.documentElement.dataset.theme = dark ? "dark" : "light"; }
 
@@ -1117,7 +1253,7 @@ function receive(msg) {
     stats();
   }
   else if (msg.type === "stripComment") stripComment(msg.id);
-  else if (msg.type === "saved") { if (msg.id === currentId && !dirty) setSaved(msg.ok === false ? "failed" : "saved"); }
+  else if (msg.type === "saved") { if (msg.id === currentId && !dirty) setSaved(msg.ok === false ? "failed" : "saved", msg.ok !== false); }
   else if (msg.type === "command") {
     if (msg.name === "picture") send({ type: "insertImage" });
     else if (COMMANDS[msg.name] && view && !readOnly) run(COMMANDS[msg.name]());
@@ -1126,7 +1262,7 @@ function receive(msg) {
 
 if (host) host.addEventListener("message", (e) => receive(e.data));
 window.studioReceive = receive;   // for testing in a plain browser
-window.addEventListener("beforeunload", flush);
+window.addEventListener("beforeunload", () => { flush(); rememberScroll(); if (view && currentId) rememberVersion(currentId, view.state.doc.toJSON(), true); });
 document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); });
 
 buildToolbar();

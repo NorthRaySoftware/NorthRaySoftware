@@ -84,6 +84,9 @@ struct Settings {
     std::string backupFolder;
 };
 
+// A group of keyboard shortcuts ("Library" -> {"Ctrl+N", "New book"}, ...).
+using ShortcutGroup = std::pair<std::wstring, std::vector<std::pair<std::wstring, std::wstring>>>;
+
 class StudioApp : public AppWindow {
 public:
     bool create(HINSTANCE inst, int show);
@@ -130,6 +133,12 @@ private:
     void renameFocused();
     void chooseImage(Focus::Kind kind, const Id& id, int which);  // which: 0 cover/banner, 1 logo
     void contextMenuFor(const std::string& hitId, float x, float y);
+    void drawDropLine(float x, float y, float len, bool vertical);
+    cjui::Color povColour(const Id& id) const;
+    void quickJump();
+    void showShortcuts();
+    static std::vector<ShortcutGroup> shortcutGroups();
+    void drawDropInto(const cjui::Rect& r);
     void moveBookTo(const Id& bookId, const Id& worldId);
     void addToSeries(const Id& bookId, const Id& seriesId);
     void moveSeriesTo(const Id& seriesId, const Id& worldId);
@@ -253,6 +262,7 @@ private:
     std::int64_t dailyGoal() const;
     int writingStreak() const;   // days in a row with any words written (to today, or yesterday if none yet today)
     std::wstring todayLine() const;
+    std::int64_t wordsToday() const;
     // Today's words, the goal and the streak, in summary.json beside the settings, for NorthRay
     // Launcher's home page, and the book being written (title, series line, cover file) for NorthRay Capture.
     // Written only when they change.
@@ -572,6 +582,9 @@ private:
         std::vector<std::pair<Id, studio::review::NameIssue>> spellings;   // book, name spelt like a bible name
         std::string checksKey;
         float treeX = 0, treeW = 0;   // the tree scrolled across (Shift and the wheel), and its width
+        float treeZoom = 0;           // Ctrl + wheel (0.35); 0 = fit the page
+        bool treePan = false;         // dragging the tree about by its background
+        float panX = 0, panY = 0, panTreeX = 0, panScroll = 0;
         std::vector<studio::Mention> mentions;
         Id mentionsFor;
         std::string mentionsKey;   // the names they were found for

@@ -197,13 +197,25 @@ void StudioApp::drawFrame(float W, float H) {
         }
         if (panel) drawPanel(panelRect_);
         drawTopBar({0, 0, W, kTopH});
+        {   // Today's words against the daily goal: a thin bar along the foot of the top bar (0.35).
+            const std::int64_t goal = dailyGoal();
+            if (goal > 0) {
+                namespace nr = cjui::northray;
+                const float f = std::clamp((float)wordsToday() / (float)goal, 0.0f, 1.0f);
+                const float bw = slideTo("goalbar", W * f);
+                gfx_.fill({0, kTopH - 3, W, 3}, nr::kNightInk.withAlpha(0.10f));
+                gfx_.fill({0, kTopH - 3, bw, 3}, f >= 1 ? hexColor("#E8C547") : nr::kAuroraGreen);
+                addHit("goalbar", {0, kTopH - 5, W, 6}, nullptr, false);
+                tooltip("goalbar", todayLine());
+            }
+        }
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         if (drag_.active) {
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
                 const float third = d->rect.h / 3;
-                if (mouseY() > d->rect.y + third && mouseY() < d->rect.bottom() - third) gfx_.strokeRounded(d->rect.inset(1), 3, pal_.ribbon, 2);
-                else gfx_.fill({d->rect.x, mouseY() < d->rect.y + d->rect.h / 2 ? d->rect.y - 2 : d->rect.bottom(), d->rect.w, 3}, pal_.ribbon);
+                if (mouseY() > d->rect.y + third && mouseY() < d->rect.bottom() - third) drawDropInto(d->rect);
+                else drawDropLine(d->rect.x, mouseY() < d->rect.y + d->rect.h / 2 ? d->rect.y - 1 : d->rect.bottom() + 1, d->rect.w, false);
             }
             const float lw = std::min(gfx_.measureWidth(drag_.label, Font::BodyStrong) + 24, 320.0f);
             const Rect g{mouseX() + 14, mouseY() + 10, lw, 30};
@@ -243,11 +255,11 @@ void StudioApp::drawFrame(float W, float H) {
             if (d->kind == Drop::ToWorld || d->kind == Drop::ToIndependent || d->kind == Drop::ToSeries) {
                 gfx_.strokeRounded(d->rect.inset(1), 3, pal_.ribbon, 2);
             } else if (d->horizontal) {
-                const float x = mouseX() > d->rect.x + d->rect.w / 2 ? d->rect.right() + 6 : d->rect.x - 8;
-                gfx_.fill({x, d->rect.y, 3, d->rect.h}, pal_.ribbon);
+                const float x = mouseX() > d->rect.x + d->rect.w / 2 ? d->rect.right() + 7 : d->rect.x - 7;
+                drawDropLine(x, d->rect.y, d->rect.h, true);
             } else {
-                const float y = mouseY() > d->rect.y + d->rect.h / 2 ? d->rect.bottom() : d->rect.y - 2;
-                gfx_.fill({d->rect.x, y, d->rect.w, 3}, pal_.ribbon);
+                const float y = mouseY() > d->rect.y + d->rect.h / 2 ? d->rect.bottom() + 1 : d->rect.y - 1;
+                drawDropLine(d->rect.x, y, d->rect.w, false);
             }
         }
         const float lw = std::min(gfx_.measureWidth(drag_.label, Font::BodyStrong) + 24, 320.0f);
@@ -256,6 +268,28 @@ void StudioApp::drawFrame(float W, float H) {
         gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
     }
     lastDrops_ = drops_;
+}
+
+// Where a dragged chapter, scene or book would land (0.35: clearer): a line with a ring at its start and a soft
+// glow, centred on the gap; or, for "inside", the row tinted and outlined.
+void StudioApp::drawDropLine(float x, float y, float len, bool vertical) {
+    const Color c = pal_.ribbon;
+    if (vertical) {
+        gfx_.fillRounded({x - 4, y - 2, 8, len + 4}, 4, c.withAlpha(0.16f));
+        gfx_.fillRounded({x - 1.5f, y, 3, len}, 1.5f, c);
+        gfx_.circle(x, y - 1, 4, pal_.paper, true);
+        gfx_.circle(x, y - 1, 4, c, false, 2);
+    } else {
+        gfx_.fillRounded({x - 2, y - 4, len + 4, 8}, 4, c.withAlpha(0.16f));
+        gfx_.fillRounded({x + 4, y - 1.5f, len - 4, 3}, 1.5f, c);
+        gfx_.circle(x + 4, y, 4.5f, pal_.paper, true);
+        gfx_.circle(x + 4, y, 4.5f, c, false, 2);
+    }
+}
+
+void StudioApp::drawDropInto(const Rect& r) {
+    gfx_.fillRounded(r, 4, pal_.ribbon.withAlpha(0.14f));
+    gfx_.strokeRounded(r.inset(1), 4, pal_.ribbon, 2);
 }
 
 // ---------------------------------------------------------------- top bar
@@ -550,11 +584,37 @@ void StudioApp::drawStatusBar(const Rect&) {
 }
 
 // Today's words (and the daily goal), for the foot of the outline while writing.
-std::wstring StudioApp::todayLine() const {
-    if (!lib_) return {};
+std::int64_t StudioApp::wordsToday() const {
+    if (!lib_) return 0;
     const std::string today = Library::localDay(now());
     const auto days = lib_->wordsWritten({}, today);
-    const std::int64_t n = days.count(today) ? days.at(today) : 0;
+    return days.count(today) ? days.at(today) : 0;
+}
+
+// The keyboard shortcuts, for Settings and the Ctrl+/ sheet (one list, so they never disagree).
+std::vector<ShortcutGroup> StudioApp::shortcutGroups() {
+    return {
+        {L"Anywhere", {{L"Ctrl+K", L"Go to a chapter, scene, bible entry or book"}, {L"Ctrl+/", L"These shortcuts"}}},
+        {L"Library", {{L"Ctrl+N", L"New book"}, {L"Ctrl+Shift+N", L"New series"}, {L"Ctrl+Shift+W", L"New world"},
+                      {L"Ctrl+Shift+I", L"Import a book"}, {L"F2", L"Rename"}, {L"Del", L"Move to Trash"},
+                      {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+1 / Ctrl+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"},
+                      {L"F4", L"Show or hide the details panel"}, {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"},
+                      {L"Ctrl+,", L"Settings"}}},
+        {L"Writing", {{L"Ctrl+W", L"Open the current book in Writing (or double-click it)"},
+                      {L"Ctrl+Up / Ctrl+Down", L"Previous / next chapter"}, {L"Up / Down", L"Move through the outline"},
+                      {L"Alt+Up / Alt+Down", L"Move a chapter or scene up or down"}, {L"Enter", L"From the outline or a title, go to the text"}}},
+        {L"Typesetting", {{L"Left / Right, Page Up / Page Down", L"Previous / next pages"}, {L"Home / End", L"First / last pages"}}},
+        {L"Text", {{L"Ctrl+B / Ctrl+I / Ctrl+U", L"Bold / italic / underline"}, {L"Ctrl+Shift+K", L"Small capitals"},
+                   {L"Ctrl+Alt+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Shift+F", L"Focus mode (the text alone)"},
+                   {L"Ctrl+Shift+O", L"Other words for the selection"}, {L"Ctrl+Shift+T", L"Typewriter scrolling"},
+                   {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
+                   {L"Ctrl+Alt+0", L"Body text"}, {L"Ctrl+Alt+1 / 2 / 3", L"Headings"}, {L"Ctrl+Z / Ctrl+Y", L"Undo / redo"}}},
+    };
+}
+
+std::wstring StudioApp::todayLine() const {
+    if (!lib_) return {};
+    const std::int64_t n = wordsToday();
     const std::int64_t goal = dailyGoal();
     std::wstring t = L"Today: " + std::to_wstring(n) + (goal ? L" of " + std::to_wstring(goal) : std::wstring()) + L" words";
     if (goal && n >= goal) t += L"  ·  goal reached";
@@ -1450,8 +1510,8 @@ float StudioApp::pageSettings(const Rect& r0) {
     y += 48;
 
     section(L"KEYBOARD SHORTCUTS");
-    struct K { const wchar_t* keys; const wchar_t* what; };
-    auto group = [&](const std::wstring& name, std::initializer_list<K> keys) {
+    struct K { std::wstring keys, what; };
+    auto group = [&](const std::wstring& name, const std::vector<K>& keys) {
         gfx_.text(name, {r.x, y, r.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});
         y += 24;
         for (const K& k : keys) {
@@ -1462,17 +1522,11 @@ float StudioApp::pageSettings(const Rect& r0) {
         }
         y += 14;
     };
-    group(L"Library", {{L"Ctrl+N", L"New book"}, {L"Ctrl+Shift+N", L"New series"}, {L"Ctrl+Shift+W", L"New world"},
-                       {L"Ctrl+Shift+I", L"Import a book"}, {L"F2", L"Rename"}, {L"Del", L"Move to Trash"},
-                       {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+1 / Ctrl+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"}, {L"F4", L"Show or hide the details panel"},
-                       {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"}, {L"Ctrl+,", L"Settings"}});
-    group(L"Writing", {{L"Ctrl+W", L"Open the current book in Writing (or double-click it)"},
-                       {L"Ctrl+Up / Ctrl+Down", L"Previous / next chapter"}, {L"Up / Down", L"Move through the outline"},
-                       {L"Alt+Up / Alt+Down", L"Move a chapter or scene up or down"}, {L"Enter", L"From the outline or a title, go to the text"}});
-    group(L"Typesetting", {{L"Left / Right, Page Up / Page Down", L"Previous / next pages"}, {L"Home / End", L"First / last pages"}});
-    group(L"Text", {{L"Ctrl+B / Ctrl+I / Ctrl+U", L"Bold / italic / underline"}, {L"Ctrl+Shift+K", L"Small capitals"},
-                    {L"Ctrl+K", L"Link"}, {L"Ctrl+Alt+M", L"Comment on the selected words"}, {L"Ctrl+Shift+F", L"Focus mode (the text alone)"}, {L"Ctrl+Shift+O", L"Other words for the selection"}, {L"Ctrl+Shift+T", L"Typewriter scrolling"}, {L"Ctrl+Enter", L"Scene break (a *** divider; + Scene adds one at the end)"}, {L"Shift+Enter", L"Line break"},
-                    {L"Ctrl+Alt+0", L"Body text"}, {L"Ctrl+Alt+1 / 2 / 3", L"Headings"}, {L"Ctrl+Z / Ctrl+Y", L"Undo / redo"}});
+    for (const auto& [name, keys] : shortcutGroups()) {
+        std::vector<K> list;
+        for (const auto& [k, what] : keys) list.push_back({k, what});
+        group(name, list);
+    }
 
     section(L"ABOUT");
     y += gfx_.text(L"NorthRay Writing Studio " CJ_VERSION_WSTR L", from " CJ_DEVELOPER_WSTR L".", {r.x, y, r.w, 22},
