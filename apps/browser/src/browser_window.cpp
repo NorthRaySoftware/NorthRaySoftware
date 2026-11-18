@@ -32,7 +32,7 @@ constexpr float kTabTop = 8;
 constexpr float kNewTabW = 36;
 constexpr float kCaptionW = 46;  // each of minimise, maximise and close
 constexpr float kDragMin = 44;   // empty strip always left for dragging the window
-constexpr UINT_PTR kSpinTimer = 1, kShutdownTimer = 2;
+constexpr UINT_PTR kSpinTimer = 1, kShutdownTimer = 2, kPreviewTimer = 7;
 }  // namespace
 extern const UINT_PTR kDownloadsTimer = 3;
 namespace {
@@ -46,7 +46,7 @@ enum : UINT {
     CmdNewTab = 100, CmdReopen, CmdPrint, CmdDevTools, CmdAbout, CmdFullscreen,
     CmdThemeSystem = 200, CmdThemeLight, CmdThemeDark,
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
-    CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers,
+    CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers, CmdTabCloseRight, CmdTabMute,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
     CmdHistory = 600, CmdBackup, CmdRestore, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault, CmdPopout,
 };
@@ -72,8 +72,47 @@ void arcLines(cjui::Gfx& g, float cx, float cy, float r, float a0, float a1, Col
 
 std::wstring hostLabel(const std::wstring& url) { return widen(hostOf(narrow(url))); }
 
+constexpr UINT WM_APP_ADDRESS_MENU = WM_APP + 30;   // lParam: screen point (the address bar's right-click menu)
+
+void putTextOnClipboard(HWND owner, const std::wstring& t) {
+    if (!OpenClipboard(owner)) return;
+    EmptyClipboard();
+    if (HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (t.size() + 1) * sizeof(wchar_t))) {
+        std::copy_n(t.c_str(), t.size() + 1, static_cast<wchar_t*>(GlobalLock(g)));
+        GlobalUnlock(g);
+        if (!SetClipboardData(CF_UNICODETEXT, g)) GlobalFree(g);
+    }
+    CloseClipboard();
+}
+
+std::wstring clipboardText(HWND owner) {
+    std::wstring out;
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(owner)) return out;
+    if (HANDLE g = GetClipboardData(CF_UNICODETEXT)) {
+        if (const wchar_t* p = static_cast<const wchar_t*>(GlobalLock(g))) {
+            out.assign(p, wcsnlen(p, 32 * 1024));
+            GlobalUnlock(g);
+        }
+    }
+    CloseClipboard();
+    // One line: line breaks become spaces, and the ends are trimmed.
+    for (auto& c : out) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
+    const auto a = out.find_first_not_of(L' '), b = out.find_last_not_of(L' ');
+    return a == std::wstring::npos ? std::wstring() : out.substr(a, b - a + 1);
+}
+
 // Edit-control subclass: no beep on Enter or Escape (the window handles them).
 LRESULT CALLBACK addressProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
+    if (m == WM_CONTEXTMENU) {   // NorthRay's menu, with Paste and go (0.9)
+        POINT pt{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        if (pt.x == -1 && pt.y == -1) {
+            RECT rc;
+            GetWindowRect(h, &rc);
+            pt = {rc.left + 10, rc.bottom};
+        }
+        SendMessageW(GetParent(h), WM_APP_ADDRESS_MENU, 0, MAKELPARAM((short)pt.x, (short)pt.y));
+        return 0;
+    }
     if (m == WM_CHAR && (w == VK_RETURN || w == VK_ESCAPE || w == 1 /* Ctrl+A */)) {
         if (w == 1) SendMessageW(h, EM_SETSEL, 0, -1);
         return 0;
@@ -87,14 +126,35 @@ LRESULT CALLBACK addressProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD
 // ---------------------------------------------------------------- lifecycle
 
 BrowserWindow::BrowserWindow(Engine& engine, Settings& settings, std::wstring settingsPath)
-    : engine_(engine), settings_(settings), settingsPath_(std::move(settingsPath)) {}
+    : engine_(engine), settings_(settings), settingsPath_(std::move(settingsPath)) {
+    all().push_back(this);
+}
+
+std::vector<BrowserWindow*>& BrowserWindow::all() {
+    static std::vector<BrowserWindow*> windows;
+    return windows;
+}
+
+namespace {
+std::vector<std::unique_ptr<BrowserWindow>>& spawned() {
+    static std::vector<std::unique_ptr<BrowserWindow>> list;
+    return list;
+}
+}  // namespace
+
+void BrowserWindow::reapClosed() {
+    auto& list = spawned();
+    list.erase(std::remove_if(list.begin(), list.end(), [](const std::unique_ptr<BrowserWindow>& w) { return w->destroyed_; }), list.end());
+}
 
 BrowserWindow::~BrowserWindow() {
+    auto& a = all();
+    a.erase(std::remove(a.begin(), a.end(), this), a.end());
     if (editFont_) DeleteObject(editFont_);
     if (editBrush_) DeleteObject(editBrush_);
 }
 
-bool BrowserWindow::create(HINSTANCE inst, int show) {
+bool BrowserWindow::create(HINSTANCE inst, int show, bool adopting) {
     cjui::WindowSpec spec;
     spec.instance = inst;
     spec.className = kClassName;
@@ -106,6 +166,7 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     spec.minHeight = 420;
     spec.show = show;
     spec.style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;   // never paint over the page
+    spec.quitOnDestroy = false;   // the app ends with its last window (onDestroy)
     if (!createWindow(spec)) return false;
     // Recalculate the frame now that we handle WM_NCCALCSIZE: the caption goes, the tabs take its place.
     SetWindowPos(hwnd(), nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
@@ -135,7 +196,11 @@ bool BrowserWindow::create(HINSTANCE inst, int show) {
     SetTimer(hwnd(), 4, 15000, nullptr);   // the start page's clock (and weather, every half hour)
 
     applyTheme();
-    newTab(L"", true, false);
+    if (adopting) {
+        engineOk_ = engine_.ready();
+        return true;   // shown once its tab has arrived
+    }
+    if (!restoreSession()) newTab(L"", true, false);
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
     focusAddressBar();
@@ -177,6 +242,15 @@ void BrowserWindow::openFromCommandLine(const std::vector<std::wstring>& args) {
 }
 
 void BrowserWindow::onDestroy() {
+    destroyed_ = true;
+    {   // the last window: the app ends
+        bool others = false;
+        for (BrowserWindow* b : all())
+            if (b != this && b->hwnd() && !b->destroyed_) others = true;
+        if (!others) PostQuitMessage(0);
+    }
+    if (preview_) DestroyWindow(preview_);
+    preview_ = nullptr;
     KillTimer(hwnd(), kSpinTimer);
     KillTimer(hwnd(), kShutdownTimer);
     popBackIn();
@@ -252,8 +326,154 @@ void BrowserWindow::closeTab(int id) {
             else focusPage();
         }
     }
+    if (previewTab_ == id) hideTabPreview();
+    saveSession();
     updateTitle();
     invalidate();
+}
+
+void BrowserWindow::closeTabsToRight(int id) {
+    std::vector<int> right;
+    bool past = false;
+    for (const Tab& t : model_.tabs()) {
+        if (past) right.push_back(t.id);
+        if (t.id == id) past = true;
+    }
+    if (std::find(right.begin(), right.end(), model_.activeId()) != right.end()) activateTab(id);
+    for (int r : right) closeTab(r);
+}
+
+// ---------------------------------------------------------------- a tab into its own window (0.9)
+
+void BrowserWindow::detachTab(int id, POINT screen) {
+    TabView* v = view(id);
+    const Tab* t = model_.find(id);
+    if (!v || !t || model_.size() < 2) return;
+    if (id == popTab_) { flash(L"Put the video back in its tab before moving the tab to another window.", 6); return; }
+    if (tabHasDownloads(id)) { flash(L"This tab is still downloading. Move it once its downloads have finished.", 6); return; }
+    auto owned = std::make_unique<BrowserWindow>(engine_, settings_, settingsPath_);
+    BrowserWindow* nw = owned.get();
+    if (!nw->create(GetModuleHandleW(nullptr), SW_SHOWNORMAL, true)) return;
+    spawned().push_back(std::move(owned));
+    // Where it was dropped, about the size of this one.
+    RECT rc;
+    GetWindowRect(hwnd(), &rc);
+    const int w = std::max(640, (int)((rc.right - rc.left) * 0.8)), h = std::max(480, (int)((rc.bottom - rc.top) * 0.8));
+    SetWindowPos(nw->hwnd(), nullptr, screen.x - w / 4, std::max(0L, screen.y - 20), w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Out of this window without closing its page, into the new one.
+    TabView moved = std::move(*v);
+    const Tab tab = *t;
+    const bool wasActive = model_.activeId() == id;
+    gfx_.forgetImage(L"fav:" + std::to_wstring(id) + L":" + std::to_wstring(moved.favGen));
+    model_.close(id, false);
+    views_.erase(std::remove_if(views_.begin(), views_.end(), [id](const TabView& x) { return x.id == id; }), views_.end());
+    if (previewTab_ == id) hideTabPreview();
+    if (wasActive) {
+        updateAddressText();
+        if (TabView* a = activeView()) {
+            if (a->showStart) focusAddressBar();
+            else focusPage();
+        }
+    }
+    updateTitle();
+    invalidate();
+    nw->adoptTab(std::move(moved), tab);
+    ShowWindow(nw->hwnd(), SW_SHOWNORMAL);
+    SetForegroundWindow(nw->hwnd());
+    saveSession();
+}
+
+void BrowserWindow::adoptTab(TabView&& v, const Tab& t) {
+    const int id = model_.add(t.url, true, false);
+    if (Tab* nt = model_.find(id)) {
+        nt->title = t.title;
+        nt->loading = t.loading;
+    }
+    v.id = id;
+    v.snap.clear();
+    if (v.page) {
+        v.page->reparent(hwnd());
+        v.page->setEvents(eventsFor(id));
+    }
+    views_.push_back(std::move(v));
+    if (TabView* a = view(id); a && !a->deferredUrl.empty()) {   // restored but not opened yet: open it here
+        const std::wstring u = std::move(a->deferredUrl);
+        a->deferredUrl.clear();
+        navigateTab(*a, u);
+    }
+    updateAddressText();
+    updateTitle();
+    if (TabView* a = activeView()) {
+        if (a->showStart) focusAddressBar();
+        else focusPage();
+    }
+    if (anyLoading()) SetTimer(hwnd(), kSpinTimer, 33, nullptr);
+    invalidate();
+}
+
+// ---------------------------------------------------------------- last time's tabs (0.9)
+
+void BrowserWindow::saveSession() {
+    if (closing_) return;
+    settings_.session.clear();
+    settings_.sessionActive = 0;
+    int i = 0;
+    // Every open window's tabs, this one's first (they come back in one window).
+    std::vector<BrowserWindow*> order{this};
+    for (BrowserWindow* b : all())
+        if (b != this && b->live()) order.push_back(b);
+    for (BrowserWindow* b : order)
+    for (const Tab& t : b->model_.tabs()) {
+        const TabView* v = b->view(t.id);
+        std::string url = t.url;
+        if (v && !v->deferredUrl.empty()) url = narrow(v->deferredUrl);
+        if (v && v->showStart) continue;   // start, bookmarks, history... pages aren't kept
+        UrlParts p;
+        if (url.empty() || !splitUrl(url, p) || (p.scheme != "http" && p.scheme != "https" && p.scheme != "file")) continue;
+        if (b == this && t.id == model_.activeId()) settings_.sessionActive = i;
+        settings_.session.push_back({url, t.title});
+        ++i;
+    }
+    settings_.save(settingsPath_);
+}
+
+bool BrowserWindow::restoreSession() {
+    if (!settings_.restoreTabs || settings_.session.empty()) return false;
+    const auto list = settings_.session;
+    const int active = std::clamp(settings_.sessionActive, 0, (int)list.size() - 1);
+    int activeId = 0;
+    for (int i = 0; i < (int)list.size(); ++i) {
+        const int id = model_.add(list[(size_t)i].url, false, false);
+        TabView v;
+        v.id = id;
+        v.showStart = false;
+        v.deferredUrl = widen(list[(size_t)i].url);
+        views_.push_back(std::move(v));
+        if (Tab* t = model_.find(id)) t->title = list[(size_t)i].title;
+        if (i == active) activeId = id;
+    }
+    if (!activeId) return false;
+    model_.activate(activeId);
+    if (TabView* v = view(activeId)) {
+        const std::wstring u = std::move(v->deferredUrl);
+        v->deferredUrl.clear();
+        navigateTab(*v, u);
+    }
+    updateAddressText();
+    updateTitle();
+    return true;
+}
+
+// ---------------------------------------------------------------- each site's zoom (0.9)
+
+void BrowserWindow::applySiteZoom(TabView& v) {
+    if (!v.page) return;
+    const std::string host = hostOf(narrow(v.page->url()));
+    if (host.empty() || host == v.zoomHost) return;
+    v.zoomHost = host;
+    auto it = settings_.siteZoom.find(host);
+    const double want = it != settings_.siteZoom.end() ? it->second : 1.0;
+    if (std::fabs(v.page->zoom() - want) > 0.001) v.page->setZoom(want);
 }
 
 void BrowserWindow::closeOtherTabs(int id) {
@@ -266,8 +486,16 @@ void BrowserWindow::closeOtherTabs(int id) {
 
 void BrowserWindow::activateTab(int id) {
     if (model_.activeId() == id) return;
-    if (TabView* cur = activeView()) cur->editing = editFocused_;
+    if (TabView* cur = activeView()) {
+        cur->editing = editFocused_;
+        takeSnapshot(cur->id);   // for its hover preview
+    }
     model_.activate(id);
+    if (TabView* v = view(id); v && !v->deferredUrl.empty()) {   // restored from last time: open it now
+        const std::wstring u = std::move(v->deferredUrl);
+        v->deferredUrl.clear();
+        navigateTab(*v, u);
+    }
     updateAddressText();
     if (TabView* v = activeView()) {
         if (v->editing || (v->showStart && !v->page)) focusAddressBar();
@@ -361,8 +589,12 @@ PageEvents BrowserWindow::eventsFor(int id) {
         invalidate();
     };
     e.loaded = [this, id](const std::wstring& uri) {
-        if (TabView* v = view(id)) v->error.reset();
+        if (TabView* v = view(id)) {
+            v->error.reset();
+            applySiteZoom(*v);
+        }
         recordVisit(id, uri);
+        saveSession();
         invalidate();
     };
     e.downloadStarted = [this](const std::wstring& name) {
@@ -390,6 +622,14 @@ PageEvents BrowserWindow::eventsFor(int id) {
         v->favW = w;
         v->favH = h;
         v->favicon = std::move(rgba);
+        // Bookmarks of this site without an icon take it (0.9), so the bookmarks bar shows site icons once a
+        // site has been visited, including bookmarks imported from another browser.
+        if (bookmarks_ && v->page && !v->favicon.empty() && w > 0 && h > 0) {
+            const std::string host = hostOf(narrow(v->page->url()));
+            if (!host.empty())
+                for (const Bookmark& b : bookmarks_->search(host, 50))
+                    if (b.icon.empty() && hostOf(b.url) == host) bookmarks_->setIcon(b.id, w, h, v->favicon);
+        }
         invalidate();
     };
     e.fullscreen = [this](bool on) { setFullscreen(on, true); };
@@ -425,6 +665,20 @@ PageEvents BrowserWindow::eventsFor(int id) {
     };
     e.key = [this](UINT vk, bool ctrl, bool shift, bool alt) { return shortcut(vk, ctrl, shift, alt); };
     e.gotFocus = [this] { editFocused_ = false; invalidate(); };
+    e.audio = [this] { invalidate(); };
+    e.zoomed = [this, id](double z) {
+        TabView* v = view(id);
+        if (!v || !v->page) return;
+        const std::string host = hostOf(narrow(v->page->url()));
+        if (host.empty() || host != v->zoomHost) return;   // only once the site's own zoom is in place
+        const bool same = std::fabs(z - 1.0) < 0.001;
+        auto it = settings_.siteZoom.find(host);
+        if (same ? it == settings_.siteZoom.end() : (it != settings_.siteZoom.end() && std::fabs(it->second - z) < 0.001)) return;
+        if (same) settings_.siteZoom.erase(host);
+        else settings_.siteZoom[host] = z;
+        settings_.save(settingsPath_);
+        flash(L"Zoom " + std::to_wstring((int)std::lround(z * 100)) + L"% for " + widen(host) + L". Ctrl+0 puts it back.", 3);
+    };
     return e;
 }
 
@@ -549,8 +803,44 @@ void BrowserWindow::stopOrReload() {
     if (v->page) v->page->reload();
 }
 
+// The address bar's right-click menu (0.9): the usual editing commands, and Paste and go.
+void BrowserWindow::showAddressMenu(POINT screen) {
+    if (!edit_) return;
+    if (!editFocused_) focusAddressBar();
+    DWORD a = 0, b = 0;
+    SendMessageW(edit_, EM_GETSEL, (WPARAM)&a, (LPARAM)&b);
+    const bool sel = b > a, any = GetWindowTextLengthW(edit_) > 0;
+    const std::wstring clip = clipboardText(hwnd());
+    using cjui::MenuItem;
+    enum : UINT { Undo = 1, Cut, Copy, Paste, PasteGo, Del, All };
+    const std::vector<MenuItem> items = {
+        MenuItem::item(L"Undo", Undo, L"Ctrl+Z", SendMessageW(edit_, EM_CANUNDO, 0, 0) != 0),
+        MenuItem::sep(),
+        MenuItem::item(L"Cut", Cut, L"Ctrl+X", sel),
+        MenuItem::item(L"Copy", Copy, L"Ctrl+C", sel),
+        MenuItem::item(L"Paste", Paste, L"Ctrl+V", !clip.empty()),
+        MenuItem::item(L"Paste and go", PasteGo, {}, !clip.empty()),
+        MenuItem::item(L"Delete", Del, {}, sel),
+        MenuItem::sep(),
+        MenuItem::item(L"Select all", All, L"Ctrl+A", any),
+    };
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    switch (cmd) {
+        case Undo: SendMessageW(edit_, EM_UNDO, 0, 0); break;
+        case Cut: SendMessageW(edit_, WM_CUT, 0, 0); break;
+        case Copy: SendMessageW(edit_, WM_COPY, 0, 0); break;
+        case Paste: SendMessageW(edit_, WM_PASTE, 0, 0); break;
+        case PasteGo: submitText(clip); break;
+        case Del: SendMessageW(edit_, WM_CLEAR, 0, 0); break;
+        case All: SendMessageW(edit_, EM_SETSEL, 0, -1); break;
+        default: break;
+    }
+    if (cmd && cmd != PasteGo) SetFocus(edit_);
+}
+
 void BrowserWindow::focusAddressBar() {
     if (!edit_) return;
+    if (!IsWindowVisible(edit_)) ShowWindow(edit_, SW_SHOWNA);   // it's hidden while the address is drawn (0.9)
     SetFocus(edit_);
     SendMessageW(edit_, EM_SETSEL, 0, -1);
     editFocused_ = true;
@@ -919,13 +1209,35 @@ LRESULT BrowserWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
             // Coming back to the window: put the keyboard where it was.
             if (TabView* v = activeView(); v && !editFocused_ && v->page && !v->showStart && !v->error) v->page->focus();
             break;
+        case WM_APP_ADDRESS_MENU: {
+            handled = true;
+            showAddressMenu({GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            return 0;
+        }
         case WM_CLOSE: {
             handled = true;
             if (closing_) return 0;
+            if (settings_.askBeforeClosing && model_.size() >= 5 && IsWindowVisible(hwnd())) {
+                const std::wstring n = std::to_wstring(model_.size());
+                const std::wstring more = settings_.restoreTabs ? L"\n\nThey'll open again the next time you start NorthRay Browser." : L"";
+                if (cjui::messageBox(hwnd(), L"Close the window and its " + n + L" tabs?" + more, L"NorthRay Browser", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+                    return 0;
+            }
+            saveSession();
+            hideTabPreview();
             closing_ = true;
             ShowWindow(hwnd(), SW_HIDE);
             for (TabView& v : views_)
                 if (v.page) v.page->close();
+            {   // Other windows still open: the engine stays for them.
+                bool others = false;
+                for (BrowserWindow* b : all())
+                    if (b != this && b->live()) others = true;
+                if (others) {
+                    DestroyWindow(hwnd());
+                    return 0;
+                }
+            }
             // Wait (briefly) for the engine's processes to finish, so none are
             // left behind; then go.
             const HWND h = hwnd();
@@ -965,6 +1277,24 @@ void BrowserWindow::onTimer(UINT_PTR id) {
     } else if (id == kDownloadsTimer) {
         KillTimer(hwnd(), kDownloadsTimer);
         releaseParkedPages();
+    } else if (id == kPreviewTimer) {
+        POINT pt;
+        GetCursorPos(&pt);
+        int over = 0;
+        if (WindowFromPoint(pt) == hwnd()) {
+            ScreenToClient(hwnd(), &pt);
+            const float s = gfx_.dpiScale();
+            for (auto& [tid, r] : tabRects_)
+                if (r.contains(pt.x / s, pt.y / s)) over = tid;
+        }
+        if (!over || over != hoverTab_) {
+            KillTimer(hwnd(), kPreviewTimer);
+            hoverTab_ = 0;
+            hideTabPreview();
+        } else if (!previewTab_ && (int)(GetTickCount() - hoverSince_) >= 650) {
+            previewTab_ = over;
+            updateTabPreview();
+        }
     } else if (id == kShutdownTimer) {
         KillTimer(hwnd(), kShutdownTimer);
         DestroyWindow(hwnd());
@@ -974,6 +1304,8 @@ void BrowserWindow::onTimer(UINT_PTR id) {
 // ---------------------------------------------------------------- mouse
 
 bool BrowserWindow::onMouseDown(float x, float y) {
+    hideTabPreview();
+    hoverSince_ = GetTickCount() + 100000;   // not again until the pointer moves to another tab
     if (pick_.on && pick_.shown.contains(x, y)) {   // the colour picker takes the click
         pick_.mx = x;
         pick_.my = y;
@@ -981,7 +1313,7 @@ bool BrowserWindow::onMouseDown(float x, float y) {
         return true;
     }
     for (auto& [id, r] : tabRects_)
-        if (r.contains(x, y) && hitAt(x, y).rfind("tabx:", 0) != 0) {
+        if (r.contains(x, y) && hitAt(x, y).rfind("tabx:", 0) != 0 && hitAt(x, y).rfind("tabsnd:", 0) != 0) {
             dragTab_ = id;
             dragStartX_ = x;
             dragStartY_ = y;
@@ -993,6 +1325,20 @@ bool BrowserWindow::onMouseDown(float x, float y) {
 }
 
 void BrowserWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (!leftDown) {   // resting on a tab: its preview (0.9)
+        int over = 0;
+        for (auto& [id, r] : tabRects_)
+            if (r.contains(x, y)) over = id;
+        if (over != hoverTab_) {
+            hoverTab_ = over;
+            hoverSince_ = GetTickCount();
+            if (over && previewTab_) {   // already showing one: follow at once
+                previewTab_ = over;
+                updateTabPreview();
+            }
+        }
+        if (over) SetTimer(hwnd(), kPreviewTimer, 100, nullptr);
+    }
     if (maxHover_) { maxHover_ = false; invalidate(); }
     if (pick_.on) { pick_.mx = x; pick_.my = y; invalidate(); }
     if (!dragTab_ || !leftDown) return;
@@ -1013,7 +1359,25 @@ void BrowserWindow::onMouseMove(float x, float y, bool leftDown) {
     }
 }
 
-bool BrowserWindow::onMouseUp(float, float) {
+bool BrowserWindow::onMouseUp(float x, float y) {
+    // A tab dragged well away from the tabs: it gets a window of its own (0.9).
+    if (dragTab_ && dragging_ && model_.size() > 1 && !fullscreen_) {
+        const bool side = sideW() > 0;
+        RECT rc;
+        GetClientRect(hwnd(), &rc);
+        const float s = gfx_.dpiScale();
+        const bool outside = x < 0 || y < 0 || x > rc.right / s || y > rc.bottom / s;
+        const bool away = side ? (x > sideRect_.right() + 60) : (y > kStripH + 50 || y < -20);
+        if (outside || away) {
+            const int id = dragTab_;
+            dragTab_ = 0;
+            dragging_ = false;
+            POINT pt{(LONG)std::lround(x * s), (LONG)std::lround(y * s)};
+            ClientToScreen(hwnd(), &pt);
+            detachTab(id, pt);
+            return true;
+        }
+    }
     const bool was = dragTab_ != 0;
     dragTab_ = 0;
     dragging_ = false;
@@ -1143,9 +1507,11 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
         MenuItem::item(L"Reload", CmdTabReload, {}, hasPage),
         MenuItem::item(L"Duplicate", CmdTabDuplicate, {}, hasPage),
         MenuItem::item(popTab_ == id ? L"Put the video back" : L"Pop out the video", CmdPopout, {}, hasPage),
+        MenuItem::item(v->page && v->page->muted() ? L"Unmute tab" : L"Mute tab", CmdTabMute, {}, v->page != nullptr),
         MenuItem::sep(),
         MenuItem::item(L"Close tab", CmdTabClose, L"Ctrl+W"),
         MenuItem::item(L"Close other tabs", CmdTabCloseOthers, {}, model_.size() > 1),
+        MenuItem::item(L"Close tabs to the right", CmdTabCloseRight, {}, model_.indexOf(id) + 1 < (int)model_.size()),
         MenuItem::sep(),
         MenuItem::item(L"Reopen closed tab", CmdReopen, L"Ctrl+Shift+T", model_.hasClosed()),
         MenuItem::sep(),
@@ -1158,6 +1524,8 @@ void BrowserWindow::showTabMenu(int id, POINT screen) {
     else if (cmd == CmdPopout) popOutVideo(id);
     else if (cmd == CmdTabClose) closeTab(id);
     else if (cmd == CmdTabCloseOthers) closeOtherTabs(id);
+    else if (cmd == CmdTabCloseRight) closeTabsToRight(id);
+    else if (cmd == CmdTabMute && v->page) v->page->setMuted(!v->page->muted());
     else if (cmd == CmdReopen) reopenClosedTab();
     invalidate();
 }
@@ -1233,6 +1601,22 @@ void BrowserWindow::drawSideTabs(const Rect& r) {
 }
 
 bool BrowserWindow::onWheel(float x, float y, float deltaLines) {
+    // Ctrl + wheel on a reference board: bigger or smaller pictures (0.9).
+    if ((GetKeyState(VK_CONTROL) & 0x8000) && refs_ && deltaLines != 0)
+        if (TabView* v = activeView(); v && v->showStart && v->referencesPage) {
+            const std::string board = std::to_string(refBoard_);
+            double z = settings_.refZoom.count(board) ? settings_.refZoom[board] : 1.0;
+            z = std::clamp(z * (deltaLines > 0 ? 1.0 / 1.12 : 1.12), 0.5, 3.0);
+            if (std::fabs(z - 1.0) < 0.03) settings_.refZoom.erase(board);
+            else settings_.refZoom[board] = z;
+            invalidate();
+            return true;
+        }
+    // Over the tabs across the top: the wheel moves between them (0.9).
+    if (sideW() <= 0 && !fullscreen_ && y < kStripH && deltaLines != 0) {
+        activateNeighbour(deltaLines > 0 ? 1 : -1);   // down (towards you) is the next tab
+        return true;
+    }
     if (sideRect_.w > 0 && sideRect_.contains(x, y)) {
         sideScroll_ -= deltaLines * 40;
         invalidate();
@@ -1480,6 +1864,32 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
     }
     x += 24;
 
+    // Sound: a speaker while the page plays any (crossed out when muted); click it to mute (0.9).
+    if (v && v->page && (v->page->playingAudio() || v->page->muted()) && r.w >= 72) {
+        const std::string sid = "tabsnd:" + std::to_string(t.id);
+        const Rect sb{x - 4, cy - 11, 24, 22};
+        addHit(sid, sb, [this, tid = t.id] {
+            if (TabView* tv = view(tid); tv && tv->page) tv->page->setMuted(!tv->page->muted());
+        }, false);
+        const float sh = hoverAmount(sid);
+        if (sh > 0.01f) gfx_.fillRounded(sb, 5, (active ? pal_.ink : nr::kNightInk).withAlpha(0.10f * sh));
+        const bool muted = v->page->muted();
+        const Color c = muted ? ink.withAlpha(0.6f) : (active ? pal_.ribbon : nr::kAuroraGreen);
+        const float sx = x, sy = cy;
+        gfx_.fill({sx, sy - 2.5f, 3.5f, 5}, c);   // the box, then the cone
+        gfx_.fillTriangle(sx + 3, sy - 2.5f, sx + 7.5f, sy - 6.5f, sx + 7.5f, sy + 6.5f, c);
+        gfx_.fillTriangle(sx + 3, sy - 2.5f, sx + 7.5f, sy + 6.5f, sx + 3, sy + 2.5f, c);
+        if (muted) {
+            gfx_.line(sx + 10, sy - 3, sx + 15, sy + 3, c, 1.4f);
+            gfx_.line(sx + 15, sy - 3, sx + 10, sy + 3, c, 1.4f);
+        } else {
+            arcLines(gfx_, sx + 7.5f, sy, 4.0f, -0.9f, 0.9f, c, 1.3f);
+            arcLines(gfx_, sx + 7.5f, sy, 7.0f, -0.9f, 0.9f, c, 1.3f);
+        }
+        if (focused(sid)) focusRing(sb);
+        x += 22;
+    }
+
     // Title
     if (r.w >= 72) {
         std::wstring title = widen(t.title);
@@ -1487,20 +1897,21 @@ void BrowserWindow::drawTab(const Tab& t, const Rect& r, bool active) {
         if (title.empty() && v && v->error) title = hostLabel(v->errorUrl);
         if (title.empty()) title = widen(hostOf(t.url));
         if (title.empty()) title = t.loading ? L"Loading..." : L"New tab";
-        const float tw = r.right() - x - (showClose ? 30 : 10);
+        const float tw = r.right() - x - (showClose ? 34 : 10);
         gfx_.text(title, {x, r.y, tw, r.h - 2}, active ? Font::SmallStrong : Font::Small, ink, {Align::Left, false, true, true});
     }
 
     // Close
     if (showClose) {
         const std::string xid = "tabx:" + std::to_string(t.id);
-        const Rect xb{r.right() - 28, cy - 9, 18, 18};
+        // 24 DIPs square (0.9: easier to hit), the cross itself kept small.
+        const Rect xb{r.right() - 32, cy - 12, 24, 24};
         addHit(xid, xb, [this, tid = t.id] { closeTab(tid); }, false);
         const float xh = hoverAmount(xid);
-        if (xh > 0.01f) gfx_.fillRounded(xb, 5, (active ? pal_.ink : nr::kNightInk).withAlpha(0.10f * xh));
-        const float c = xb.x + 9, m = xb.y + 9;
-        gfx_.line(c - 4, m - 4, c + 4, m + 4, ink, 1.4f);
-        gfx_.line(c + 4, m - 4, c - 4, m + 4, ink, 1.4f);
+        if (xh > 0.01f) gfx_.fillRounded(xb, 6, (active ? pal_.ink : nr::kNightInk).withAlpha(0.12f * xh));
+        const float c = xb.x + 12, m = xb.y + 12;
+        gfx_.line(c - 4.5f, m - 4.5f, c + 4.5f, m + 4.5f, ink, 1.5f);
+        gfx_.line(c + 4.5f, m - 4.5f, c - 4.5f, m + 4.5f, ink, 1.5f);
     }
     if (focused(id)) focusRing(r.inset(2));
 }
@@ -1669,6 +2080,74 @@ void BrowserWindow::drawAddressBar(const Rect& r) {
             right = br.x - 2;
         }
     }
+    // Copy link (0.9): the page's whole address on the clipboard.
+    if (v && !v->showStart && !v->error && v->page && !v->page->url().empty() && !editFocused_) {
+        const Rect cr{right - 30, r.y + 3, 30, r.h - 6};
+        addHit("tb:copylink", cr, [this] {
+            if (TabView* tv = activeView(); tv && tv->page) {
+                putTextOnClipboard(hwnd(), tv->page->url());
+                flash(L"Link copied.", 3);
+            }
+        });
+        const float hv = hoverAmount("tb:copylink");
+        if (hv > 0.01f) gfx_.fillRounded(cr, 6, pal_.ink.withAlpha(0.07f * hv));
+        const Color c = pal_.inkMuted.mix(pal_.ink, hv);
+        // Two links of a chain, on a slant.
+        const float cx = cr.x + 15, cy = cr.y + cr.h / 2;
+        auto link = [&](float ox, float oy) {
+            const float ax = cx + ox - 3.5f, ay = cy + oy + 3.5f, bx = cx + ox + 3.5f, by = cy + oy - 3.5f;
+            gfx_.line(ax, ay, bx, by, c, 5.5f);
+            gfx_.line(ax, ay, bx, by, pal_.sunken, 2.5f);
+        };
+        link(-2.5f, 2.5f);
+        link(2.5f, -2.5f);
+        if (focused("tb:copylink")) focusRing(cr);
+        right = cr.x - 2;
+    }
+    // Not being edited: the address is drawn, the site's own name standing out and the rest fainter (0.9).
+    // A click on it gives the edit box back.
+    std::wstring shown;
+    if (v && !v->showStart && !editFocused_ && !v->editing && edit_) {
+        const int n = GetWindowTextLengthW(edit_);
+        shown.assign((size_t)n, L'\0');
+        if (n) GetWindowTextW(edit_, shown.data(), n + 1);
+    }
+    if (!shown.empty()) {
+        {   // kept in place (hidden), so it appears exactly there when clicked
+            const float s = gfx_.dpiScale();
+            const RECT rc{(LONG)std::lround(x * s), (LONG)std::lround((r.y + (r.h - 20) / 2) * s), (LONG)std::lround(right * s),
+                          (LONG)std::lround((r.y + (r.h + 20) / 2) * s)};
+            if (memcmp(&rc, &editRect_, sizeof rc) != 0 || IsWindowVisible(edit_)) {
+                editRect_ = rc;
+                SetWindowPos(edit_, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+            }
+        }
+        const Rect ar{x, r.y, right - x, r.h};
+        addHit("tb:address", ar, [this] { focusAddressBar(); }, false);
+        std::string url = v->error ? narrow(v->errorUrl) : v->page ? narrow(v->page->url()) : std::string();
+        if (url.empty()) if (const Tab* t = model_.find(v->id)) url = t->url;
+        const std::wstring host = widen(hostOf(url));
+        std::size_t at = host.empty() ? std::wstring::npos : shown.find(host);
+        if (at == std::wstring::npos && host.rfind(L"www.", 0) == 0) {
+            at = shown.find(host.substr(4));
+        }
+        const std::wstring hostShown = at == std::wstring::npos ? std::wstring() : (shown.find(host) == at ? host : host.substr(4));
+        gfx_.pushClip(ar);
+        float tx = x + 1;
+        auto part = [&](const std::wstring& t, bool strong) {
+            if (t.empty()) return;
+            gfx_.text(t, {tx, r.y, 4000, r.h}, Font::Body, strong ? pal_.ink : pal_.inkFaint, {Align::Left, false, false, true});
+            tx += gfx_.measureWidth(t, Font::Body);
+        };
+        if (at == std::wstring::npos) part(shown, true);
+        else {
+            part(shown.substr(0, at), false);
+            part(hostShown, true);
+            part(shown.substr(at + hostShown.size()), false);
+        }
+        gfx_.popClip();
+        return;
+    }
     // The edit control sits inside the drawn frame.
     const float s = gfx_.dpiScale();
     const float th = 20;
@@ -1815,6 +2294,169 @@ void BrowserWindow::updateNote() {
     SetWindowPos(note_, HWND_TOP, x, y, pw, ph, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     HRGN rgn = CreateRoundRectRgn(0, 0, pw + 1, ph + 1, (int)(20 * s), (int)(20 * s));
     SetWindowRgn(note_, rgn, TRUE);   // the window owns the region now
+}
+
+
+// ---------------------------------------------------------------- tab hover preview (0.9)
+
+// How the page looks as its tab is left, made small (at most 320 pixels wide), kept as BGRA for GDI.
+void BrowserWindow::takeSnapshot(int id) {
+    TabView* v = view(id);
+    if (!v || !v->page || v->showStart || v->error || !v->page->ready()) return;
+    v->page->capture([this, id](int w, int h, std::vector<unsigned char> rgba) {
+        TabView* tv = view(id);
+        if (!tv || w <= 0 || h <= 0 || rgba.size() < (size_t)w * h * 4) return;
+        const int tw = std::min(320, w), th = std::max(1, (int)std::lround((double)h * tw / w));
+        std::vector<unsigned char> out((size_t)tw * th * 4);
+        for (int y = 0; y < th; ++y) {
+            const int y0 = y * h / th, y1 = std::max(y0 + 1, (y + 1) * h / th);
+            for (int x = 0; x < tw; ++x) {
+                const int x0 = x * w / tw, x1 = std::max(x0 + 1, (x + 1) * w / tw);
+                unsigned sum[3] = {0, 0, 0}, n = 0;
+                for (int yy = y0; yy < y1; yy += std::max(1, (y1 - y0) / 4))
+                    for (int xx = x0; xx < x1; xx += std::max(1, (x1 - x0) / 4)) {
+                        const unsigned char* p = &rgba[((size_t)yy * w + xx) * 4];
+                        sum[0] += p[0], sum[1] += p[1], sum[2] += p[2], ++n;
+                    }
+                unsigned char* q = &out[((size_t)y * tw + x) * 4];
+                q[0] = (unsigned char)(sum[2] / n), q[1] = (unsigned char)(sum[1] / n), q[2] = (unsigned char)(sum[0] / n), q[3] = 255;
+            }
+        }
+        tv->snap = std::move(out);
+        tv->snapW = tw;
+        tv->snapH = th;
+        if (previewTab_ == id) updateTabPreview();
+    });
+}
+
+LRESULT CALLBACK previewProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* self = reinterpret_cast<BrowserWindow*>(GetWindowLongPtrW(h, GWLP_USERDATA));
+    switch (msg) {
+        case WM_NCHITTEST: return HTTRANSPARENT;
+        case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(h, &ps);
+            RECT rc;
+            GetClientRect(h, &rc);
+            // Drawn off-screen first, so it never flickers.
+            HDC mem = CreateCompatibleDC(dc);
+            HBITMAP bmp = CreateCompatibleBitmap(dc, rc.right, rc.bottom);
+            HGDIOBJ old = SelectObject(mem, bmp);
+            if (self) self->paintTabPreview(mem, rc);
+            BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
+            SelectObject(mem, old);
+            DeleteObject(bmp);
+            DeleteDC(mem);
+            EndPaint(h, &ps);
+            return 0;
+        }
+        default: break;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+void BrowserWindow::paintTabPreview(HDC dc, const RECT& rc) {
+    const float s = gfx_.dpiScale();
+    HBRUSH bg = CreateSolidBrush(toColorRef(pal_.surface));
+    FillRect(dc, &rc, bg);
+    DeleteObject(bg);
+    const Tab* t = model_.find(previewTab_);
+    TabView* v = view(previewTab_);
+    if (!t || !v) return;
+    std::wstring title = widen(t->title);
+    if (v->showStart) title = v->bookmarksPage ? L"Bookmarks" : v->historyPage ? L"History" : v->downloadsPage ? L"Downloads" : v->referencesPage ? L"Reference boards" : L"New tab";
+    std::wstring where = v->showStart ? L"NorthRay" : widen(hostOf(t->url));
+    if (title.empty()) title = where.empty() ? L"New tab" : where;
+    const int pad = (int)std::lround(12 * s);
+    SetBkMode(dc, TRANSPARENT);
+    HFONT bold = CreateFontW(-(int)std::lround(13 * s), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HFONT small = CreateFontW(-(int)std::lround(12 * s), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HGDIOBJ oldFont = SelectObject(dc, bold);
+    SetTextColor(dc, toColorRef(pal_.ink));
+    RECT tr{pad, pad, rc.right - pad, pad + (int)std::lround(20 * s)};
+    DrawTextW(dc, title.c_str(), (int)title.size(), &tr, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dc, small);
+    SetTextColor(dc, toColorRef(pal_.inkMuted));
+    std::wstring line = where;
+    if (v->page && v->page->muted()) line += L"  ·  muted";
+    else if (v->page && v->page->playingAudio()) line += L"  ·  playing sound";
+    RECT hr{pad, tr.bottom + (int)std::lround(2 * s), rc.right - pad, tr.bottom + (int)std::lround(20 * s)};
+    DrawTextW(dc, line.c_str(), (int)line.size(), &hr, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dc, oldFont);
+    DeleteObject(bold);
+    DeleteObject(small);
+    // The picture of the page, under the words.
+    if (!v->snap.empty() && v->snapW > 0 && v->snapH > 0) {
+        const int top = hr.bottom + (int)std::lround(8 * s);
+        const int w = rc.right - pad * 2, h = rc.bottom - top - pad;
+        if (w > 0 && h > 0) {
+            BITMAPINFO bi{};
+            bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bi.bmiHeader.biWidth = v->snapW;
+            bi.bmiHeader.biHeight = -v->snapH;   // top-down
+            bi.bmiHeader.biPlanes = 1;
+            bi.bmiHeader.biBitCount = 32;
+            bi.bmiHeader.biCompression = BI_RGB;
+            // Shown at the window's width, cut at the bottom if the page is tall.
+            const int srcH = std::min(v->snapH, (int)std::lround((double)h * v->snapW / w));
+            SetStretchBltMode(dc, HALFTONE);
+            SetBrushOrgEx(dc, 0, 0, nullptr);
+            StretchDIBits(dc, pad, top, w, std::min(h, (int)std::lround((double)srcH * w / v->snapW)), 0, v->snapH - srcH, v->snapW, srcH,
+                          v->snap.data(), &bi, DIB_RGB_COLORS, SRCCOPY);
+            HBRUSH frame = CreateSolidBrush(toColorRef(pal_.rule));
+            RECT fr{pad, top, pad + w, top + std::min(h, (int)std::lround((double)srcH * w / v->snapW))};
+            FrameRect(dc, &fr, frame);
+            DeleteObject(frame);
+        }
+    }
+    HBRUSH edge = CreateSolidBrush(toColorRef(pal_.rule));
+    FrameRect(dc, &rc, edge);
+    DeleteObject(edge);
+}
+
+void BrowserWindow::updateTabPreview() {
+    const Rect* tr = nullptr;
+    for (auto& [id, r] : tabRects_)
+        if (id == previewTab_) tr = &r;
+    TabView* v = view(previewTab_);
+    if (!tr || !v || dragging_ || closing_ || !IsWindowVisible(hwnd()) || GetForegroundWindow() != hwnd()) { hideTabPreview(); return; }
+    if (!preview_) {
+        static bool registered = false;
+        if (!registered) {
+            WNDCLASSW wc{};
+            wc.lpfnWndProc = previewProc;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = L"NorthRayBrowserTabPreview";
+            wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            RegisterClassW(&wc);
+            registered = true;
+        }
+        preview_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NorthRayBrowserTabPreview", L"", WS_POPUP, 0, 0, 10, 10, hwnd(), nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
+        if (!preview_) return;
+        SetWindowLongPtrW(preview_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    }
+    const float s = gfx_.dpiScale();
+    const float w = 280;
+    float h = 58;
+    if (!v->snap.empty() && v->snapW > 0) h += std::min(170.0f, (w - 24) * v->snapH / v->snapW) + 8;
+    const bool side = sideW() > 0;
+    POINT pt{(LONG)std::lround((side ? tr->right() + 6 : tr->x) * s), (LONG)std::lround((side ? tr->y : tr->bottom() + 4) * s)};
+    ClientToScreen(hwnd(), &pt);
+    const int pw = (int)std::lround(w * s), ph = (int)std::lround(h * s);
+    SetWindowPos(preview_, HWND_TOP, pt.x, pt.y, pw, ph, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    HRGN rgn = CreateRoundRectRgn(0, 0, pw + 1, ph + 1, (int)(16 * s), (int)(16 * s));
+    SetWindowRgn(preview_, rgn, TRUE);
+    InvalidateRect(preview_, nullptr, FALSE);
+}
+
+void BrowserWindow::hideTabPreview() {
+    previewTab_ = 0;
+    if (preview_ && IsWindowVisible(preview_)) ShowWindow(preview_, SW_HIDE);
 }
 
 }  // namespace nrb

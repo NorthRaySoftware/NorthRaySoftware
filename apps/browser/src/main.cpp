@@ -131,9 +131,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
             });
             MSG msg;
             while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-                if (window.preTranslate(msg)) continue;
+                bool used = false;
+                for (nrb::BrowserWindow* w : nrb::BrowserWindow::all())   // each window's keys (0.9: several windows)
+                    if (w->live() && w->preTranslate(msg)) { used = true; break; }
+                if (used) continue;
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+                nrb::BrowserWindow::reapClosed();
             }
             code = (int)msg.wParam;
         }

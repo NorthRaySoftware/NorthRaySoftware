@@ -36,7 +36,13 @@ public:
     BrowserWindow(Engine& engine, Settings& settings, std::wstring settingsPath);
     ~BrowserWindow() override;
 
-    bool create(HINSTANCE inst, int show);
+    // `adopting`: a window made for a tab dragged out of another (no tabs of its own to start with).
+    bool create(HINSTANCE inst, int show, bool adopting = false);
+    // Every open NorthRay Browser window (0.9: a tab can be dragged out into a window of its own).
+    static std::vector<BrowserWindow*>& all();
+    // Windows made by dragging a tab out are owned here; the closed ones are let go of between messages.
+    static void reapClosed();
+    bool live() const { return hwnd() && !destroyed_ && !closing_; }
     // Called once the engine has started (or failed to).
     void engineStarted(bool ok, const std::wstring& problem);
     // Addresses from the command line, or from a second launch.
@@ -83,12 +89,35 @@ private:
         bool editing = false;
         std::vector<unsigned char> favicon;
         int favW = 0, favH = 0, favGen = 0;
+        std::wstring deferredUrl;         // restored from last time: opened when the tab is first shown (0.9)
+        std::string zoomHost;             // the site whose zoom the page has
+        // How the page last looked, for the tab's hover preview (taken as the tab is left; 0.9).
+        std::vector<unsigned char> snap;
+        int snapW = 0, snapH = 0;
     };
+
+    // A tab dragged out of the strip: into a new window at `screen` (0.9).
+    void detachTab(int id, POINT screen);
+    void adoptTab(TabView&& v, const nrb::Tab& t);
+    bool destroyed_ = false;
 
     // Tabs
     int newTab(const std::wstring& url, bool activate, bool afterActive, int openerId = 0);
     void closeTab(int id);
     void closeOtherTabs(int id);
+    void closeTabsToRight(int id);
+    void saveSession();
+    bool restoreSession();
+    void applySiteZoom(TabView& v);
+    void takeSnapshot(int id);
+    // The hover preview: a small window under a tab after the pointer rests on it (0.9).
+    void updateTabPreview();
+    void hideTabPreview();
+    void paintTabPreview(HDC dc, const RECT& rc);
+    HWND preview_ = nullptr;
+    int previewTab_ = 0, hoverTab_ = 0;
+    DWORD hoverSince_ = 0;
+    friend LRESULT CALLBACK previewProc(HWND, UINT, WPARAM, LPARAM);
     void activateTab(int id);
     void activateNeighbour(int delta);
     void reopenClosedTab();
@@ -106,6 +135,7 @@ private:
     void goHome();
     void stopOrReload();
     void focusAddressBar();
+    void showAddressMenu(POINT screen);
     void focusPage();
 
     // Commands
@@ -264,6 +294,7 @@ private:
     void finishColourPick(bool take);
     std::unique_ptr<ReferenceStore> refs_;
     std::int64_t refBoard_ = 0;           // the board the page shows
+    std::string refDrawKey_;              // tab and board last drawn (to put a board's place back)
     std::int64_t renamingBoard_ = 0;
     struct ColourPick {
         bool on = false;

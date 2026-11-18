@@ -114,6 +114,8 @@ struct PageEvents {
     // used it (it then doesn't reach the page).
     std::function<bool(UINT vk, bool ctrl, bool shift, bool alt)> key;
     std::function<void()> gotFocus;
+    std::function<void()> audio;                       // started or stopped playing sound, or was muted (0.9)
+    std::function<void(double factor)> zoomed;         // the zoom changed (Ctrl+wheel, Ctrl+plus) (0.9)
 };
 
 class Page {
@@ -183,9 +185,18 @@ public:
     bool loading() const { return loading_; }
     bool canGoBack() const { return canBack_; }
     bool canGoForward() const { return canForward_; }
+    // Sound (0.9): whether the page is playing any, and muting it (the page keeps playing, silently).
+    bool playingAudio() const { return playingAudio_; }
+    bool muted() const { return muted_; }
+    void setMuted(bool on);
+    // Zoom (1.0 = 100 %), as Ctrl+wheel and Ctrl+plus/minus change it.
+    double zoom() const;
+    void setZoom(double factor);
 
     // Closes the view and its renderer. The Page can then be destroyed.
     void close();
+    // Who hears the page's events from now on (a tab dragged into another window, 0.9).
+    void setEvents(PageEvents events) { events_ = std::move(events); }
 
 private:
     void attach(ComPtr<ICoreWebView2Controller> controller);
@@ -207,6 +218,7 @@ private:
     bool popout_ = false;            // the video pop-out is on (set again after each new document)
     int blocked_ = 0;                // requests refused on the page showing
     std::wstring navigatingTo_;   // the main-frame address being opened
+    bool playingAudio_ = false, muted_ = false;
     bool loading_ = false, canBack_ = false, canForward_ = false, visible_ = true, closed_ = false;
     RECT bounds_{};
 };

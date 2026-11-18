@@ -46,6 +46,9 @@ void BrowserWindow::openReferenceStore() {
     refs_ = ReferenceStore::open(narrow(state + L"\\User\\references.db"), error);
     if (!refs_) { flash(L"Reference boards couldn't be opened: " + widen(error), 12); return; }
     refBoard_ = refs_->firstBoard();
+    // The board shown last time, if it's still there (0.9).
+    for (const RefBoard& b : refs_->boards())
+        if (b.id == settings_.refBoard) refBoard_ = b.id;
 }
 
 namespace {
@@ -222,6 +225,21 @@ void BrowserWindow::drawReferencesPage(const Rect& r) {
     const float w = std::min(r.w - 48, 1180.0f);
     const float x = r.x + (r.w - w) / 2;
     const Rect clip{r.x, r.y, r.w, r.h};
+    {   // Each board keeps its place (0.9): put back on arriving at it, noted while it's shown.
+        const std::string board = std::to_string(refBoard_);
+        settings_.refBoard = refBoard_;
+        const std::string key = std::to_string(model_.activeId()) + ":" + board;
+        if (key != refDrawKey_) {
+            refDrawKey_ = key;
+            auto it = settings_.refScroll.find(board);
+            ScrollState st = scrollState();
+            st.scroll = st.target = it != settings_.refScroll.end() ? (float)it->second : 0.0f;
+            st.content = std::max(st.content, st.scroll + r.h * 2);
+            setScrollState(st);
+        } else {
+            settings_.refScroll[board] = scrollState().target;
+        }
+    }
     float y = beginScroll(clip) + 30;
 
     gfx_.text(L"Reference boards", {x, y, w, 36}, Font::Title, pal_.ink, {Align::Left, false});
@@ -339,7 +357,10 @@ void BrowserWindow::drawReferencesPage(const Rect& r) {
     if (pics.empty())
         y += gfx_.text(L"No pictures on this board yet. On any page, right-click a picture and choose “Save picture to a reference board”.",
                        {x, y, w, 60}, Font::Body, pal_.inkMuted) + 16;
-    const int cols = std::max(1, (int)((w + 16) / 236));
+    // Ctrl + mouse wheel makes the pictures bigger or smaller (0.9), kept per board.
+    float zoom = 1.0f;
+    if (auto z = settings_.refZoom.find(std::to_string(refBoard_)); z != settings_.refZoom.end()) zoom = (float)z->second;
+    const int cols = std::max(1, (int)((w + 16) / (236 * zoom)));
     const float gap = 16, colW = (w - gap * (cols - 1)) / cols;
     std::vector<float> colY((size_t)cols, y);
     for (const RefPicture& p : pics) {

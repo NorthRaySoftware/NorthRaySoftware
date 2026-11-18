@@ -5,6 +5,7 @@
 #include <shlwapi.h>
 #include <wincodec.h>
 
+#include <algorithm>
 #include <ctime>
 #include <utility>
 
@@ -76,7 +77,8 @@ public:
         return (ULONG)r;
     }
     // ICoreWebView2EnvironmentOptions
-    HRESULT STDMETHODCALLTYPE get_AdditionalBrowserArguments(LPWSTR* v) override { *v = dupCoTask(L""); return S_OK; }
+    // Smooth scrolling (wheel and keys glide rather than jump), asked for explicitly (0.9).
+    HRESULT STDMETHODCALLTYPE get_AdditionalBrowserArguments(LPWSTR* v) override { *v = dupCoTask(L"--enable-smooth-scrolling"); return S_OK; }
     HRESULT STDMETHODCALLTYPE put_AdditionalBrowserArguments(LPCWSTR) override { return E_NOTIMPL; }
     HRESULT STDMETHODCALLTYPE get_Language(LPWSTR* v) override { *v = dupCoTask(language_); return S_OK; }
     HRESULT STDMETHODCALLTYPE put_Language(LPCWSTR v) override { language_ = v ? v : L""; return S_OK; }
@@ -203,6 +205,12 @@ Page::~Page() {
 
 void Page::create() {
     ICoreWebView2Environment* env = engine_.environment();
+    {   // The colour the page shows before it first paints, read by the engine as the view is made (no white
+        // flash in a dark window); put_DefaultBackgroundColor then keeps it.
+        wchar_t argb[16];
+        swprintf(argb, 16, L"FF%02X%02X%02X", GetRValue(options_.background), GetGValue(options_.background), GetBValue(options_.background));
+        SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", argb);
+    }
     if (!env) { if (events_.createFailed) events_.createFailed(false, L"The browser engine isn't running."); return; }
     std::weak_ptr<bool> alive = alive_;
     auto handler = makeHandler<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler, HRESULT, ICoreWebView2Controller*>(
@@ -393,6 +401,37 @@ void Page::wireEvents() {
             return S_OK;
         });
     web_->add_NewWindowRequested(newWin.get(), &t);
+
+    // Sound: a speaker on the tab, and muting from it (0.9).
+    if (auto w8 = web_.as<ICoreWebView2_8>()) {
+        auto readAudio = [this, live]() {
+            if (!live()) return;
+            auto x = web_.as<ICoreWebView2_8>();
+            if (!x) return;
+            BOOL p = FALSE, m = FALSE;
+            x->get_IsDocumentPlayingAudio(&p);
+            x->get_IsMuted(&m);
+            playingAudio_ = p != FALSE;
+            muted_ = m != FALSE;
+            if (events_.audio) events_.audio();
+        };
+        auto playing = makeHandler<ICoreWebView2IsDocumentPlayingAudioChangedEventHandler, ICoreWebView2*, IUnknown*>(
+            [readAudio](ICoreWebView2*, IUnknown*) -> HRESULT { readAudio(); return S_OK; });
+        w8->add_IsDocumentPlayingAudioChanged(playing.get(), &t);
+        auto mutedH = makeHandler<ICoreWebView2IsMutedChangedEventHandler, ICoreWebView2*, IUnknown*>(
+            [readAudio](ICoreWebView2*, IUnknown*) -> HRESULT { readAudio(); return S_OK; });
+        w8->add_IsMutedChanged(mutedH.get(), &t);
+    }
+    // Zoom: each site keeps its own (the window remembers it per site).
+    auto zoomH = makeHandler<ICoreWebView2ZoomFactorChangedEventHandler, ICoreWebView2Controller*, IUnknown*>(
+        [this, live](ICoreWebView2Controller* ctl, IUnknown*) -> HRESULT {
+            if (!live() || !ctl) return S_OK;
+            double z = 1.0;
+            ctl->get_ZoomFactor(&z);
+            if (events_.zoomed) events_.zoomed(z);
+            return S_OK;
+        });
+    controller_->add_ZoomFactorChanged(zoomH.get(), &t);
 
     auto closeReq = makeHandler<ICoreWebView2WindowCloseRequestedEventHandler, ICoreWebView2*, IUnknown*>(
         [this, live](ICoreWebView2*, IUnknown*) -> HRESULT {
@@ -867,6 +906,20 @@ void Page::focus() {
 }
 
 void Page::parentMoved() { if (controller_) controller_->NotifyParentWindowPositionChanged(); }
+
+void Page::setMuted(bool on) {
+    if (auto w8 = web_.as<ICoreWebView2_8>()) w8->put_IsMuted(on ? TRUE : FALSE);
+}
+
+double Page::zoom() const {
+    double z = 1.0;
+    if (controller_) controller_->get_ZoomFactor(&z);
+    return z;
+}
+
+void Page::setZoom(double factor) {
+    if (controller_) controller_->put_ZoomFactor(std::clamp(factor, 0.25, 5.0));
+}
 
 void Page::setBackground(COLORREF c) {
     options_.background = c;

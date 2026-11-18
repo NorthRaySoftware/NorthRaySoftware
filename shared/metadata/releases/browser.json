@@ -1,6 +1,23 @@
 {
   "releases": [
     {
+      "version": "0.9.0",
+      "date": "2026-11-18",
+      "notes": [
+        "Drag a tab down out of the tab strip to give it a window of its own.",
+        "The tabs you had open come back when the browser starts. Their pages open as you go to each tab, so starting stays quick.",
+        "Closing a window with five or more tabs asks first.",
+        "Each site remembers its own zoom (Ctrl + mouse wheel, or Ctrl and plus or minus). Ctrl+0 puts it back to 100%.",
+        "Tabs playing sound show a speaker. Click it to mute the tab, or use Mute tab in the tab's right-click menu.",
+        "Rest the pointer on a tab to see its title, its site and a small picture of the page.",
+        "Turn the mouse wheel over the tabs to move between them. The tab menu has “Close tabs to the right”, and the tabs' close buttons are bigger and easier to hit.",
+        "The address bar shows the site's name clearly with the rest of the address fainter, has a Copy link button, and its right-click menu has Paste and go.",
+        "Bookmarks pick up their site's icon once you've visited the site, including bookmarks imported from another browser.",
+        "No white flash before a page appears in a dark window, and scrolling glides smoothly.",
+        "Reference boards remember the board you were on, and each board's size of pictures (Ctrl + mouse wheel) and where you'd scrolled to."
+      ]
+    },
+    {
       "version": "0.8.1",
       "date": "2026-11-14",
       "notes": [

@@ -3,6 +3,7 @@
 // missing or wrong-typed value falls back to its default.
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,18 @@ struct Settings {
     bool defaultOffered = false;   // the start page has asked once about being the default browser
     // The video pop-out: where it was last (screen pixels; 0 wide = the bottom-right corner).
     int popX = 0, popY = 0, popW = 0, popH = 0;
+    // Tabs (0.9): last time's come back at start (their pages open when each is first shown), and a question
+    // before closing a window with many.
+    bool restoreTabs = true;
+    bool askBeforeClosing = true;
+    struct SessionTab { std::string url, title; };
+    std::vector<SessionTab> session;
+    int sessionActive = 0;
+    // Each site's zoom (host -> factor; 100 % isn't kept).
+    std::map<std::string, double> siteZoom;
+    // Reference boards (0.9): the board last shown, and each board's zoom and place (keyed by its id).
+    long long refBoard = 0;
+    std::map<std::string, double> refZoom, refScroll;
 
     // False if the file couldn't be read (the defaults are used). A file from a
     // newer version is read as far as it's understood and never overwritten

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.96.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Browser 0.9.0: drag tabs into their own windows, last time's tabs come back, each site keeps its zoom, mute tabs, tab previews and more polish."
+      ]
+    },
+    {
       "version": "0.95.0",
       "date": "2026-11-18",
       "notes": [

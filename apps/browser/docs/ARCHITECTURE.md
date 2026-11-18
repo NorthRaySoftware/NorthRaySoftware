@@ -197,3 +197,39 @@ The roadmap's "sync: none, local only (export/import file)".
   so app menus show whole.
 - Tested in Wine (`--no-engine`): a backup with history (11 files, checked with `unzip -l`), a change to the notes,
   then a restore with restart: the notes came back and the replaced files were in "Before restore 2026-11-14 1944".
+
+## 11. Polish (0.9.0)
+
+- **Several windows.** `BrowserWindow::all()` lists the open windows; ones made by dragging a tab out are owned by a
+  static list and deleted between messages once destroyed (`reapClosed`). The main loop offers each live window its
+  keys. Windows don't quit on destroy: the last one posts the quit, and only the last one's WM_CLOSE shuts the engine
+  down. Each window opens its own connections to the SQLite stores (WAL). A tab dropped more than 50 DIPs below the
+  strip (or outside the window) goes to `detachTab`: a new window (`create(..., adopting)`), then `adoptTab` moves the
+  `TabView` across without closing its page (`Page::reparent`, `Page::setEvents` with the new window's handlers). Tabs
+  that are popped out or downloading stay.
+- **Last time's tabs.** `saveSession` (on each page load, tab close and window close) writes every live window's web
+  tabs (http, https, file) to settings.json (`session`, `sessionActive`); `restoreSession` brings them back in one
+  window, opening only the active one. The others keep `deferredUrl` until first shown (`activateTab`, `adoptTab`).
+- **A question before closing** a window with 5 or more tabs (`askBeforeClosing`).
+- **Each site's zoom**: `Page::zoom/setZoom` and `PageEvents::zoomed` (ZoomFactorChanged). `applySiteZoom` sets the
+  host's stored zoom after each load; changes are stored per host (100 % removes it), with a short note.
+- **Sound**: `ICoreWebView2_8` (IsDocumentPlayingAudio, IsMuted and their events) behind `Page::playingAudio/muted/
+  setMuted`; tabs draw a speaker (crossed when muted) that toggles mute, and the tab menu has Mute tab.
+- **Tabs**: hover preview after 650 ms (a GDI popup, `previewProc`, with the title, the site and a picture of the page
+  taken by `CapturePreview` as the tab was last left, shrunk to 320 px), the wheel over the strip moves between tabs,
+  Close tabs to the right, 24 DIP close buttons.
+- **Address bar**: while not editing, the address is drawn (the EDIT hidden but kept in place) with the host in full
+  ink and the rest faint; a click gives the EDIT back with everything selected. A Copy link button. The EDIT's right-
+  click goes to NorthRay's own menu (`WM_APP_ADDRESS_MENU`) with Paste and go.
+- **Pages**: `WEBVIEW2_DEFAULT_BACKGROUND_COLOR` is set to the theme's paper before each view is made (no white flash);
+  `--enable-smooth-scrolling` is passed to the engine.
+- **Bookmarks bar icons**: when a page's icon arrives, bookmarks of the same site without one take it.
+- **Reference boards** remember the board shown, and each board's zoom (Ctrl + wheel, 0.5 to 3) and place.
+- Already there before this round: middle-click closes a tab, the downloads button's ring, Ctrl+click on start page
+  tiles.
+- Tested in Wine (`--no-engine`, in a Wine virtual desktop so the custom title bar shows): restored tabs, the preview
+  (no picture without the engine), the wheel, Close tabs to the right, the closing question, the drawn address with
+  the host standing out, the address menu and Paste and go, reference board zoom and place across a restart, dragging a
+  tab into a new window and closing each window. **Needs the engine (check on Windows)**: the page pictures in
+  previews, the speaker and muting, per-site zoom, Copy link, site icons arriving on the bookmarks bar, the dark
+  background before a page paints, and smooth scrolling.
