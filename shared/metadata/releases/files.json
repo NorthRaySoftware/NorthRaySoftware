@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.8.0",
+      "date": "2026-11-18",
+      "notes": [
+        "Quick look: press Space to see the selected file large over the window: a picture at full size with its pixel size, the start of a text file, or its icon. Space or Esc closes it, the arrow keys move to the next file and the look follows, and Enter opens it. (Ctrl+Space still shows or hides the preview pane.)",
+        "Hold Ctrl and turn the mouse wheel in Icons view to make the icons and pictures bigger or smaller. The size is remembered.",
+        "Drag the sidebar's edge to make it wider or narrower. The width is remembered.",
+        "A › after each part of the folder path opens a list of the folders inside it, to jump straight there. Backspace goes up a folder.",
+        "The status bar shows a picture's size in pixels when one picture is selected, and extensions in Details are drawn fainter so the names stand out.",
+        "Moving more than 50 items to the Recycle Bin asks first."
+      ]
+    },
+    {
       "version": "0.7.0",
       "date": "2026-11-16",
       "notes": [

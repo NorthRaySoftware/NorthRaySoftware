@@ -40,7 +40,7 @@ namespace nr = cjui::northray;
 
 namespace {
 
-constexpr float kSidebarW = 236;
+
 constexpr float kToolbarH = 56;
 constexpr float kHeaderH = 32;
 constexpr UINT_PTR kSpinTimer = 1;
@@ -56,7 +56,7 @@ struct TextPreview {
     bool truncated = false, notText = false;
 };
 
-bool isTextName(const std::wstring& name) {
+bool isTextNameImpl(const std::wstring& name) {
     static const wchar_t* exts[] = {L".txt", L".md", L".markdown", L".log", L".csv", L".tsv", L".json", L".xml", L".ini", L".cfg", L".conf",
                                     L".yaml", L".yml", L".toml", L".html", L".htm", L".css", L".js", L".ts", L".py", L".c", L".cpp", L".h",
                                     L".hpp", L".cs", L".java", L".lua", L".bat", L".cmd", L".ps1", L".sh", L".srt", L".vtt", L".fountain",
@@ -126,6 +126,8 @@ LRESULT CALLBACK quietEditProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWO
 }
 
 }  // namespace
+
+bool isTextName(const std::wstring& name) { return isTextNameImpl(name); }
 
 // ---------------------------------------------------------------- lifecycle
 
@@ -727,6 +729,7 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         if (vk == VK_ESCAPE) closeBatchRename();
         return true;
     }
+    if (quickLook_ && quickLookKey(vk)) return true;
     const std::size_t n = here_.thisPC ? 0 : shown_.size();
     const bool icons = settings_.view != ViewMode::Details;
     const int cols = icons ? std::max(1, columns_) : 1;
@@ -777,11 +780,12 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         case VK_F6: if (twoPanes_) { activate(1 - pane_, activeTab_[1 - pane_]); return true; } break;
         case VK_DELETE: deleteSelection(shift); return true;
         case VK_F5: refresh(); return true;
-        case VK_BACK: back(); return true;
+        case VK_BACK: up(); return true;   // up a folder (0.8; Alt+Left and the mouse's back button go back)
         case VK_BROWSER_BACK: back(); return true;
         case VK_BROWSER_FORWARD: forward(); return true;
         case VK_BROWSER_REFRESH: refresh(); return true;
         case VK_RETURN: openSelection(); return true;
+        case VK_SPACE: openQuickLook(); return true;
         case VK_ESCAPE:
             if (sel_.count() == 0 && here_.searching()) endSearch();
             else sel_.clear();
@@ -809,6 +813,17 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 }
 
 bool FilesWindow::onMouseDown(float x, float y) {
+    if (quickLook_) {   // a click closes it
+        quickLook_ = false;
+        invalidate();
+        return true;
+    }
+    // The sidebar's edge: drag it to make the sidebar wider or narrower.
+    if (sidebarEdge_ > 0 && std::fabs(x - sidebarEdge_) <= 4 && y > 48) {
+        sidebarDrag_ = true;
+        SetCapture(hwnd());
+        return true;
+    }
     if (batch_.open) {
         if (batchCard_.contains(x, y)) return false;   // its buttons
         closeBatchRename();
@@ -924,6 +939,19 @@ bool FilesWindow::onRightClick(float x, float y) {
 
 LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     switch (msg) {
+        case WM_SETCURSOR: {   // the sidebar's edge shows the resize pointer
+            if (LOWORD(lp) != HTCLIENT || sidebarEdge_ <= 0) break;
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd(), &pt);
+            const float s = gfx_.dpiScale(), x = pt.x / s, y = pt.y / s;
+            if (sidebarDrag_ || (std::fabs(x - sidebarEdge_) <= 4 && y > 48)) {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                handled = true;
+                return TRUE;
+            }
+            break;
+        }
         case WM_APP_LIST: {
             auto* b = reinterpret_cast<ListBatch*>(lp);
             receive(b);
@@ -1434,6 +1462,10 @@ void FilesWindow::deleteSelection(bool permanently) {
     const auto paths = selectedPaths();
     if (paths.empty() || here_.thisPC) return;
     const std::wstring what = paths.size() == 1 ? L"\u201C" + nameOf(paths[0]) + L"\u201D" : std::to_wstring(paths.size()) + L" items";
+    if (!permanently && paths.size() > 50 &&
+        cjui::messageBox(hwnd(), (L"Move " + what + L" to the Recycle Bin?\n\nThat's a lot at once, so Files is checking. They can be restored from the Recycle Bin.").c_str(),
+                         L"Delete", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+        return;
     if (permanently &&
         cjui::messageBox(hwnd(), (L"Delete " + what + L" permanently?\n\nThey won't go to the Recycle Bin, so they can't be brought back.").c_str(),
                          L"Delete permanently", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
@@ -1612,6 +1644,17 @@ const std::vector<std::wstring>& FilesWindow::treeChildren(const std::wstring& p
     return treeKids_[key] = std::move(names);
 }
 
+// The sub-folders of `path` in a menu (the breadcrumb's ›); choosing one goes there.
+void FilesWindow::subfolderMenu(const std::wstring& path, POINT screen) {
+    treeKids_.erase(lowerKey(path));   // read afresh
+    const auto& kids = treeChildren(path);
+    std::vector<cjui::MenuItem> items;
+    for (std::size_t i = 0; i < kids.size() && i < 900; ++i) items.push_back(cjui::MenuItem::item(kids[i], 100 + (UINT)i));
+    if (items.empty()) items.push_back(cjui::MenuItem::item(L"No folders in here", 1, {}, false));
+    const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
+    if (cmd >= 100 && cmd - 100 < kids.size()) go(Location{false, join(path, kids[cmd - 100])});
+}
+
 // The drives as the roots of a tree: a triangle opens or closes a folder, a click opens it. The tree
 // opens its way to the folder you're in.
 void FilesWindow::drawTree(const Rect& r, float& y, float bottom) {
@@ -1696,9 +1739,34 @@ void FilesWindow::togglePreview() {
     settings_.save(settingsPath_);
     RECT rc;
     GetClientRect(hwnd(), &rc);
-    if (settings_.previewPane && (rc.right - rc.left) / gfx_.dpiScale() < kSidebarW + 760)
+    if (settings_.previewPane && (rc.right - rc.left) / gfx_.dpiScale() < settings_.sidebarWidth + 760)
         flash(L"The preview pane shows when the window is wider.", 5);
     invalidate();
+}
+
+void FilesWindow::requestTextPreview(const std::wstring& key, const std::wstring& path) {
+    {
+            previewKey_ = key;
+            previewState_ = PreviewLoading;
+            previewText_.clear();
+            HWND win = hwnd();
+            std::thread([win, key, path] {
+                auto* t = new TextPreview;
+                t->key = key;
+                HANDLE h = CreateFileW(extendedPath(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                       OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+                std::vector<unsigned char> buf(48 * 1024);
+                DWORD got = 0;
+                if (h != INVALID_HANDLE_VALUE) {
+                    if (!ReadFile(h, buf.data(), (DWORD)buf.size(), &got, nullptr)) got = 0;
+                    CloseHandle(h);
+                }
+                if (got == 0 || !art::looksLikeText(buf.data(), got)) t->notText = true;
+                else t->text = art::decodeText(buf.data(), got, 120, &t->truncated);
+                if (got == buf.size()) t->truncated = true;
+                if (!PostMessageW(win, WM_APP_PREVIEW, 0, reinterpret_cast<LPARAM>(t))) delete t;
+            }).detach();
+        }
 }
 
 void FilesWindow::drawPreview(const Rect& r) {
@@ -1761,28 +1829,7 @@ void FilesWindow::drawPreview(const Rect& r) {
     }
     const bool textual = !picture && !e.folder() && !e.cloudOnly() && isTextName(e.name) && e.size > 0;
     if (textual) {
-        if (key != previewKey_) {
-            previewKey_ = key;
-            previewState_ = PreviewLoading;
-            previewText_.clear();
-            HWND win = hwnd();
-            std::thread([win, key, path] {
-                auto* t = new TextPreview;
-                t->key = key;
-                HANDLE h = CreateFileW(extendedPath(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                       OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-                std::vector<unsigned char> buf(48 * 1024);
-                DWORD got = 0;
-                if (h != INVALID_HANDLE_VALUE) {
-                    if (!ReadFile(h, buf.data(), (DWORD)buf.size(), &got, nullptr)) got = 0;
-                    CloseHandle(h);
-                }
-                if (got == 0 || !art::looksLikeText(buf.data(), got)) t->notText = true;
-                else t->text = art::decodeText(buf.data(), got, 120, &t->truncated);
-                if (got == buf.size()) t->truncated = true;
-                if (!PostMessageW(win, WM_APP_PREVIEW, 0, reinterpret_cast<LPARAM>(t))) delete t;
-            }).detach();
-        }
+        if (key != previewKey_) requestTextPreview(key, path);
         if (previewState_ == PreviewText) {
             gfx_.fillRounded(box, 8, pal_.paper);
             gfx_.strokeRounded(box, 8, pal_.rule);
@@ -2595,6 +2642,17 @@ std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
 }
 
 void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (sidebarDrag_) {
+        if (!leftDown) {
+            sidebarDrag_ = false;
+            ReleaseCapture();
+            settings_.save(settingsPath_);
+            return;
+        }
+        settings_.sidebarWidth = std::clamp(std::round(x), 180.0f, 420.0f);
+        invalidate();
+        return;
+    }
     if (!leftDown) { if (drag_.armed && !drag_.active) drag_ = Drag{}; return; }
     if (!drag_.armed) return;
     drag_.x = x;
@@ -2621,6 +2679,12 @@ void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
 }
 
 bool FilesWindow::onMouseUp(float x, float y) {
+    if (sidebarDrag_) {
+        sidebarDrag_ = false;
+        ReleaseCapture();
+        settings_.save(settingsPath_);
+        return true;
+    }
     if (!drag_.armed) return false;
     Drag d = drag_;
     drag_ = Drag{};
@@ -2685,6 +2749,16 @@ DWORD FilesWindow::dropAt(const std::vector<std::wstring>& paths, float x, float
 }
 
 bool FilesWindow::onWheel(float x, float y, float deltaLines) {
+    // Ctrl + wheel over the files: bigger or smaller tiles in Icons and Gallery (0.8).
+    if (GetKeyState(VK_CONTROL) < 0 && settings_.view != ViewMode::Details && !here_.thisPC) {
+        const float before = settings_.iconScale;
+        settings_.iconScale = std::clamp(std::round((settings_.iconScale - deltaLines * 0.05f) * 20.0f) / 20.0f, 0.7f, 2.0f);
+        if (settings_.iconScale != before) {
+            settings_.save(settingsPath_);
+            invalidate();
+        }
+        return true;
+    }
     if (sidebarRect_.contains(x, y) && !treeRect_.contains(x, y) && sideContent_ > sideViewH_) {
         sideScroll_ = std::clamp(sideScroll_ + deltaLines * 20.0f, 0.0f, std::max(0.0f, sideContent_ - sideViewH_));
         invalidate();
@@ -2806,8 +2880,9 @@ void FilesWindow::drawFrame(float W, float H) {
         SendMessageW(search_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
         SendMessageW(ask_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), TRUE);
     }
-    const float side = W >= 760 ? kSidebarW : 0;   // a narrow window gives the files the room
+    const float side = W >= 760 ? settings_.sidebarWidth : 0;   // a narrow window gives the files the room
     sidebarRect_ = {0, 0, side, H};
+    sidebarEdge_ = side;
     if (side > 0) drawSidebar({0, 0, side, H});
     drawToolbar({side, 0, W - side, kToolbarH});
     // The panes: one, or two side by side, each with its tabs along the top. The other pane is drawn
@@ -2869,6 +2944,7 @@ void FilesWindow::drawFrame(float W, float H) {
     drawToast({side, kToolbarH, W - side, H - kToolbarH});
     if (asking_) drawAsk(W, H);
     if (batch_.open) drawBatchRename(W, H);
+    if (quickLook_) drawQuickLook(W, H);
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
         const float s = gfx_.dpiScale();
@@ -3115,7 +3191,22 @@ void FilesWindow::drawAddress(const Rect& r) {
                   last ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Left, false, true, true});
         if (focused(id)) focusRing(cr);
         x = cr.right();
-        if (!last) {
+        // The › after a folder lists its sub-folders to go straight to (0.8), as in File Explorer.
+        const bool folderPart = !parts[i].to.thisPC && !parts[i].to.bin && parts[i].to.collection.empty() && !parts[i].to.path.empty();
+        if (!last || folderPart) {
+            const Rect chr{x, r.y + 4, chev, r.h - 8};
+            if (folderPart) {
+                const std::string cid = "tb:chev:" + std::to_string(i);
+                addHit(cid, chr, [this, path = parts[i].to.path, chr] {
+                    const float s2 = gfx_.dpiScale();
+                    POINT pt{(LONG)(chr.x * s2), (LONG)(chr.bottom() * s2)};
+                    ClientToScreen(hwnd(), &pt);
+                    subfolderMenu(path, pt);
+                });
+                tooltip(cid, L"Folders in \u201C" + parts[i].label + L"\u201D");
+                const float chv = hoverAmount(cid);
+                if (chv > 0.01f) gfx_.fillRounded(chr, 5, pal_.ink.withAlpha(0.07f * chv));
+            }
             const float cx = x + chev / 2, cy = r.y + r.h / 2;
             gfx_.line(cx - 2, cy - 4, cx + 2, cy, pal_.inkFaint, 1.3f);
             gfx_.line(cx + 2, cy, cx - 2, cy + 4, pal_.inkFaint, 1.3f);
@@ -3312,8 +3403,22 @@ void FilesWindow::drawDetails(const Rect& r) {
             gfx_.line(lx + 5.5f, ly + 1.5f, lx + 5.5f, ly + 4, pal_.ink, 1.2f);
         }
         const Color ink = fade < 1 ? pal_.inkMuted : pal_.ink;
-        gfx_.text(e.name, {xName + 30, row.y, nameW - 40 - chipsW, row.h}, Font::Body, e.icon < 0 && e.attributes == 0 ? pal_.inkFaint : ink,
-                  {Align::Left, false, true, true});
+        {   // The name, its extension a little fainter (0.8) when the whole name fits.
+            const Rect nr{xName + 30, row.y, nameW - 40 - chipsW, row.h};
+            const Color nameInk = e.icon < 0 && e.attributes == 0 ? pal_.inkFaint : ink;
+            const auto dot = e.folder() ? std::wstring::npos : e.name.find_last_of(L'.');
+            bool split = false;
+            if (dot != std::wstring::npos && dot > 0 && dot + 1 < e.name.size()) {
+                const std::wstring base = e.name.substr(0, dot), ext = e.name.substr(dot);
+                const float bw = gfx_.measureWidth(base, Font::Body), ew = gfx_.measureWidth(ext, Font::Body);
+                if (bw + ew <= nr.w) {
+                    gfx_.text(base, {nr.x, nr.y, bw + 2, nr.h}, Font::Body, nameInk, {Align::Left, false, false, true});
+                    gfx_.text(ext, {nr.x + bw, nr.y, ew + 4, nr.h}, Font::Body, nameInk.withAlpha(0.5f), {Align::Left, false, false, true});
+                    split = true;
+                }
+            }
+            if (!split) gfx_.text(e.name, nr, Font::Body, nameInk, {Align::Left, false, true, true});
+        }
         if (dateW > 0) gfx_.text(dateText(e.modified), {xDate + 10, row.y, dateW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
         if (typeW > 0)
             gfx_.text(folderCol ? searchFolderOf(i) : e.type, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted,
@@ -3330,15 +3435,16 @@ void FilesWindow::drawIcons(const Rect& r) {
     const Rect clip{r.x, r.y + 4, r.w, r.h - 4};
     listClip_ = clip;
     const float avail = r.w - pad * 2;
-    columns_ = std::max(1, (int)(avail / (gallery ? 200 : 156)));
+    const float sc = settings_.iconScale;   // Ctrl + mouse wheel (0.8)
+    columns_ = std::max(1, (int)(avail / ((gallery ? 200 : 156) * sc)));
     tileW_ = avail / (float)columns_;
-    tileH_ = gallery ? tileW_ : 172;
+    const float boxW = std::min(136 * sc, tileW_ - 20), boxH = std::round(boxW * 0.75f);
+    tileH_ = gallery ? tileW_ : boxH + 70;
     listX_ = r.x + pad;
     const float top = beginScroll(clip);
     listTop_ = top + 8;
     // Pictures are made at the size they're shown on this display.
-    const float boxW = 136, boxH = 102;
-    const int thumbPx = gallery ? (tileW_ * gfx_.dpiScale() <= 256 ? 256 : 512) : (boxW * gfx_.dpiScale() <= 128 ? 128 : 256);
+    const int thumbPx = gallery ? (tileW_ * gfx_.dpiScale() <= 256 ? 256 : 512) : (boxW * gfx_.dpiScale() <= 128 ? 128 : boxW * gfx_.dpiScale() <= 256 ? 256 : 512);
     const std::size_t n = shown_.size();
     const std::size_t lines = (n + (std::size_t)columns_ - 1) / (std::size_t)columns_;
     const std::size_t firstLine = (std::size_t)std::max(0.0f, std::floor((clip.y - listTop_) / tileH_));
@@ -3376,7 +3482,8 @@ void FilesWindow::drawIcons(const Rect& r) {
                 gfx_.stroke({p.x - 0.5f, p.y - 0.5f, p.w + 1, p.h + 1}, pal_.rule, 1);
                 if (fade < 1) gfx_.fill(p, pal_.paper.withAlpha(1.0f - fade));
             } else {
-                drawIcon(e.icon, {t.x + (t.w - 48) / 2, box.y + (boxH - 48) / 2, 48, 48}, fade);
+                const float is = sc >= 1.4f ? 96.0f : 48.0f;   // the large icons when the tiles are big
+                drawIcon(e.icon, {t.x + (t.w - is) / 2, box.y + (boxH - is) / 2, is, is}, fade);
             }
             gfx_.text(e.name, {t.x + 6, box.bottom() + 6, t.w - 12, 38}, Font::Small, fade < 1 ? pal_.inkMuted : pal_.ink,
                       {Align::Center, true, true});
@@ -3449,6 +3556,11 @@ std::wstring FilesWindow::statusText() const {
                 if (!shown_[i].folder()) { bytes += shown_[i].size; anyFile = true; }
             left += L"\n" + std::to_wstring(sel.size()) + L" selected";
             if (anyFile) left += L" (" + formatSize(bytes) + L")";
+            // One picture: its size in pixels (0.8; read from the file's header, once).
+            if (sel.size() == 1 && !shown_[sel[0]].folder() && !shown_[sel[0]].cloudOnly() && Thumbnails::hasPicture(shown_[sel[0]].name)) {
+                const auto d = pictureSize(rowPath(sel[0]));
+                if (d.first) left += L"  \u00B7  " + std::to_wstring(d.first) + L" \u00D7 " + std::to_wstring(d.second) + L" pixels";
+            }
         }
         if (partial_) left += L"\nStopped part-way (error " + std::to_wstring(errorCode_) + L"); press F5 to try again";
     }

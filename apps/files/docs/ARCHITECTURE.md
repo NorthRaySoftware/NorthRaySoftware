@@ -267,10 +267,27 @@ fit (short windows, 150% scaling); the tree keeps at least 40 DIPs. Question box
 - Tested in Wine: pattern with find and replace and `{n:2}`, the rename and Ctrl+Z on disk, a chain (1->2, 2->3) in
   the right order, and conflicts shown and blocking. The swap cycle is covered by the unit tests.
 
-## 7i. Next
+## 7i. 0.8.0, polish batch A
 
-Column resizing, UI Automation for screen readers, labels that follow moves made by other programs (NTFS file ids),
-File Explorer replacement as an optional setting (roadmap: later).
+- Quick look (src/quick_look.cpp): Space over the list opens the focused file large in a card over the window
+  (`drawQuickLook`); Space or Esc closes it, Enter opens the file, the arrow keys move the selection and the look
+  follows. Pictures: WIC decodes the real file (Image kinds under 200 MB) via `gfx_.drawImage`, else the 512 px
+  thumbnail; text through the preview pane's reader (`requestTextPreview`, now shared); anything else its icon.
+  Ctrl+Space keeps toggling the preview pane.
+- `pictureSize(path)` reads width and height from the WIC header only (cached, cleared past 2000); shown in the status
+  bar for a single selected picture and in quick look.
+- Settings `iconScale` (0.7..2, Ctrl+wheel in Icons view; 96 px icons from 1.4, thumbnails up to 512 px) and
+  `sidebarWidth` (180..420, dragged at the sidebar's edge with a resize cursor from WM_SETCURSOR).
+- Backspace goes up a folder; deleting more than 50 items asks first; extensions in Details are drawn fainter when the
+  whole name fits; a › after each breadcrumb part opens a menu of that folder's subfolders (`subfolderMenu`).
+- Tested in Wine: quick look on a picture and a text file, Backspace, the › menu, Ctrl+wheel, the sidebar drag and the
+  pixel size in the status bar.
+
+## 7j. Next
+
+Polish batch B (resizable Details columns, per-folder view and sort, folder sizes, thumbnails that fade in and are kept
+on disk, an in-window progress bar for long copies), then UI Automation, labels that follow outside moves (NTFS file
+ids), File Explorer replacement as an optional setting.
 
 ## (Earlier plan) 0.2, core file operations
 

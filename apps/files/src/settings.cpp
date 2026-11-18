@@ -27,6 +27,8 @@ bool Settings::load(const std::wstring& path) {
     }
     sortKey = std::clamp(cj::valueOr(j, "sortKey", 0), 0, 3);
     sortDescending = cj::valueOr(j, "sortDescending", false);
+    iconScale = std::clamp(cj::valueOr(j, "iconScale", 1.0f), 0.7f, 2.0f);
+    sidebarWidth = std::clamp(cj::valueOr(j, "sidebarWidth", 236.0f), 180.0f, 420.0f);
     showHidden = cj::valueOr(j, "showHidden", false);
     showProtected = cj::valueOr(j, "showProtected", false);
     lastFolder = cjui::widen(cj::valueOr(j, "lastFolder", ""));
@@ -48,7 +50,7 @@ bool Settings::load(const std::wstring& path) {
 bool Settings::save(const std::wstring& path) const {
     if (readOnly) return false;
     nlohmann::json j = {{"version", kVersion},          {"theme", (int)theme},         {"view", (int)view},
-                        {"sortKey", sortKey},           {"sortDescending", sortDescending},
+                        {"sortKey", sortKey},           {"sortDescending", sortDescending}, {"iconScale", iconScale}, {"sidebarWidth", sidebarWidth},
                         {"showHidden", showHidden},     {"showProtected", showProtected},
                         {"lastFolder", cjui::narrow(lastFolder)}};
     auto list = [](const std::vector<std::wstring>& v) {

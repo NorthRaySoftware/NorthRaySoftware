@@ -27,6 +27,8 @@
 
 namespace nrf {
 
+bool isTextName(const std::wstring& name);   // files_window.cpp: shown as text in previews
+
 class FilesWindow : public cjui::AppWindow {
 public:
     static constexpr const wchar_t* kClassName = L"NorthRayFiles";
@@ -226,6 +228,19 @@ private:
     std::vector<batch::Step> undoBatch_;   // the last batch, backwards
     std::wstring undoBatchFolder_;
     cjui::Rect batchCard_{};
+    // Quick look (Space, 0.8; quick_look.cpp) and pictures' pixel sizes (the status bar too).
+    bool quickLook_ = false;
+    cjui::Rect quickCard_{};
+    mutable std::map<std::wstring, std::pair<unsigned, unsigned>> pictureSizes_;
+    void openQuickLook();
+    bool quickLookKey(WPARAM vk);
+    void drawQuickLook(float W, float H);
+    std::pair<unsigned, unsigned> pictureSize(const std::wstring& path) const;
+    void requestTextPreview(const std::wstring& key, const std::wstring& path);
+    void subfolderMenu(const std::wstring& path, POINT screen);
+    // The sidebar's edge, dragged to resize it (0.8).
+    bool sidebarDrag_ = false;
+    float sidebarEdge_ = 0;
 
     // The preview pane (0.4)
     void togglePreview();

@@ -35,6 +35,7 @@ configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc 
 add_executable(NorthRayFiles WIN32
   src/main.cpp
   src/files_window.cpp
+  src/quick_look.cpp
   src/batch_rename.cpp
   src/shell.cpp
   src/settings.cpp

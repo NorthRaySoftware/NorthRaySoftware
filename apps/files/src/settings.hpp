@@ -27,6 +27,8 @@ struct Settings {
     bool twoPanes = false;
     bool previewPane = false;     // the selected item shown beside the list (0.4)
     std::vector<std::wstring> pinned;   // folders pinned to the sidebar, in order
+    float iconScale = 1.0f;       // Icons and Gallery tile size (Ctrl + mouse wheel), 0.7..2 (0.8)
+    float sidebarWidth = 236;     // dragged by its edge (0.8), 180..420
 
     bool load(const std::wstring& path);
     bool save(const std::wstring& path) const;

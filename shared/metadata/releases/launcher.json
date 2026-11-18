@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.94.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Files 0.8.0: quick look with Space, bigger or smaller icons with Ctrl+wheel, a resizable sidebar and more polish."
+      ]
+    },
+    {
       "version": "0.93.0",
       "date": "2026-11-18",
       "notes": [
