@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include "video/sources.hpp"
 
 namespace ncap {
 
@@ -187,6 +188,10 @@ bool CaptureWindow::saveLibrary() {
 
 void CaptureWindow::openLibrary() {
     loadLibrary(true);
+    // Back in the folder you were in last time, if it's still there.
+    const auto fl = library_.folders();
+    libFolder_ = std::find(fl.begin(), fl.end(), settings_.libraryFolder) != fl.end() ? settings_.libraryFolder : std::string();
+    libSizes_.clear();   // sizes read afresh
     openSettings(true);
     libraryOpen_ = true;
     invalidate();
@@ -452,6 +457,11 @@ void CaptureWindow::drawLibrary(const Rect& area) {
             invalidate();
         });
     y += 50;
+    // The folder you're in is remembered for next time (0.10.31).
+    if (libFolder_ != settings_.libraryFolder) {
+        settings_.libraryFolder = libFolder_;
+        settings_.save(settingsPath_);
+    }
     const auto found = library_.search({libQuery_, libKind_, libFolder_, libTag_});
     if (libBroken_) y += gfx_.text(L"The library's list (library.json) couldn't be read. Nothing is changed until it can be.", {x, y, w, 40}, Font::Body, pal_.live) + 10;
     if (found.empty()) {
@@ -490,6 +500,19 @@ void CaptureWindow::drawLibrary(const Rect& area) {
         }
         gfx_.text(widen(it.name), {cx + 10, cy + 134, cw - 20, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
         std::wstring sub = widen(ml::kindName(it.kind));
+        // Its length (videos and sounds, found in the background) and size.
+        const std::wstring path = filesDir() + L"\\" + widen(it.file);
+        if (it.kind == ml::Kind::Video || it.kind == ml::Kind::Sound || it.kind == ml::Kind::Music) {
+            const double len = libraryLength(path);
+            if (len > 0) {
+                wchar_t t[32];
+                const int sec = (int)std::lround(len);
+                if (sec >= 3600) swprintf(t, 32, L"%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
+                else swprintf(t, 32, L"%d:%02d", sec / 60, sec % 60);
+                sub += L" · " + std::wstring(t);
+            }
+        }
+        if (const std::uint64_t bytes = librarySize(path)) sub += L" · " + sizeWords(bytes);
         if (!it.folder.empty()) sub += L" · " + widen(it.folder);
         for (auto& t : it.tags) sub += L" #" + widen(t);
         gfx_.text(sub, {cx + 10, cy + 158, cw - 20, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
@@ -499,6 +522,45 @@ void CaptureWindow::drawLibrary(const Rect& area) {
     gfx_.text(L"Click to add to the scene · right-click for more", {x, y, w, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
     y += 30;
     endScroll(y - top + 20);
+}
+
+// A file's size, read once per file (and again when the Library is reopened).
+std::uint64_t CaptureWindow::librarySize(const std::wstring& path) {
+    auto it = libSizes_.find(path);
+    if (it != libSizes_.end()) return it->second;
+    std::error_code ec;
+    const auto n = fs::file_size(fs::path(path), ec);
+    return libSizes_[path] = ec ? 0 : (std::uint64_t)n;
+}
+
+// "4.2 MB"
+std::wstring CaptureWindow::sizeWords(std::uint64_t b) {
+    wchar_t t[32];
+    if (b < 1024) swprintf(t, 32, L"%llu bytes", (unsigned long long)b);
+    else if (b < 1024 * 1024) swprintf(t, 32, L"%.0f KB", b / 1024.0);
+    else if (b < 1024ull * 1024 * 1024) swprintf(t, 32, L"%.1f MB", b / (1024.0 * 1024));
+    else swprintf(t, 32, L"%.2f GB", b / (1024.0 * 1024 * 1024));
+    return t;
+}
+
+// A video's or sound's length: found once, on a worker thread, then the Library redraws. 0 until then.
+double CaptureWindow::libraryLength(const std::wstring& path) {
+    std::lock_guard<std::mutex> lock(libLenMutex_->m);
+    auto it = libLengths_->find(path);
+    if (it != libLengths_->end()) return it->second;
+    (*libLengths_)[path] = 0;   // asked: not asked again
+    auto lengths = libLengths_;
+    auto mtx = libLenMutex_;
+    HWND w = hwnd();
+    std::thread([path, lengths, mtx, w] {
+        const double s = video::mediaLength(path);
+        {
+            std::lock_guard<std::mutex> l(mtx->m);
+            (*lengths)[path] = s;
+        }
+        if (s > 0 && IsWindow(w)) InvalidateRect(w, nullptr, FALSE);
+    }).detach();
+    return 0;
 }
 
 // A design's picture for its card, made once (and again if the design file is newer) in Library\thumbs.

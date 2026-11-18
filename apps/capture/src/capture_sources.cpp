@@ -260,11 +260,37 @@ void CaptureWindow::addSourceMenu(POINT screen) {
             existing.push_back(MenuItem::item(widen(s.name), CmdExisting0 + (UINT)others.size() - 1));
         }
     }
+    // Grouped under headings (0.10.31): what it captures, what you design, what plays, the animated backgrounds,
+    // and what's already in your other scenes.
     std::vector<MenuItem> items = {
+        MenuItem::heading(L"Capture"),
         MenuItem::sub(L"Display (whole monitor)", mon),
         MenuItem::sub(L"Window", win),
         MenuItem::sub(L"Camera or capture card", cam),
+        MenuItem::item(L"Part of the screen\u2026", 9, L"drag a rectangle"),
+        MenuItem::heading(L"Designs and pictures"),
+        MenuItem::item(L"Overlay design\u2026", 12, L"Starting Soon, lower third, frame\u2026"),
+        MenuItem::item(L"Text\u2026", 6),
+        MenuItem::item(L"Image or animated GIF\u2026", 5),
+        MenuItem::item(L"Slideshow (a folder of images)\u2026", 7),
+        MenuItem::item(L"Colour\u2026", 8),
+        MenuItem::heading(L"Video and sound"),
+        MenuItem::item(L"Video or sound file\u2026", 11, L"or several, in turn"),
+        MenuItem::item(L"Music (a folder of songs)\u2026", 13, L"shuffled, ducks under your mic"),
     };
+    {
+        const design::Brand kit = video::designBrand();
+        items.push_back(MenuItem::item(L"Your intro video", 15, kit.intro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.intro.empty()));
+        items.push_back(MenuItem::item(L"Your outro video", 16, kit.outro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.outro.empty()));
+    }
+    const AudioChoices sound = audioChoices();
+    for (auto& m : audioAddItems(sound))
+        if (!m.separator) items.push_back(m);
+    items.push_back(MenuItem::heading(L"Animated backgrounds"));
+    items.push_back(MenuItem::item(L"Aurora sky", 14, L"a live animated background"));
+    items.push_back(MenuItem::item(L"Aurora pulse", 17, L"curtains rise with your music"));
+    items.push_back(MenuItem::item(L"Aurora wave", 18, L"ribbons flow with your music"));
+    items.push_back(MenuItem::heading(L"From your other scenes"));
     if (!existing.empty()) items.push_back(MenuItem::sub(L"A source from another scene", existing));
     // Another scene, shown inside this one (never one that would end up inside itself).
     std::vector<Id> nestable;
@@ -278,26 +304,6 @@ void CaptureWindow::addSourceMenu(POINT screen) {
     if (sceneItems.empty()) sceneItems.push_back(MenuItem::item(L"Make another scene first", 1, {}, false));
     items.push_back(MenuItem::sub(L"Scene (another scene inside this one)", sceneItems));
     items.push_back(MenuItem::item(L"Sync test (flash and beep)", 10, L"checks recordings"));
-    items.push_back(MenuItem::sep());
-    items.push_back(MenuItem::item(L"Image or animated GIF\u2026", 5));
-    items.push_back(MenuItem::item(L"Video or sound file\u2026", 11, L"or several, in turn"));
-    items.push_back(MenuItem::item(L"Music (a folder of songs)\u2026", 13, L"shuffled, ducks under your mic"));
-    items.push_back(MenuItem::item(L"Overlay design\u2026", 12, L"Starting Soon, lower third, frame\u2026"));
-    items.push_back(MenuItem::item(L"Text\u2026", 6));
-    items.push_back(MenuItem::item(L"Slideshow (a folder of images)\u2026", 7));
-    items.push_back(MenuItem::item(L"Colour\u2026", 8));
-    items.push_back(MenuItem::item(L"Aurora sky", 14, L"a live animated background"));
-    items.push_back(MenuItem::item(L"Aurora pulse", 17, L"curtains rise with your music"));
-    items.push_back(MenuItem::item(L"Aurora wave", 18, L"ribbons flow with your music"));
-    {
-        const design::Brand kit = video::designBrand();
-        items.push_back(MenuItem::item(L"Your intro video", 15, kit.intro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.intro.empty()));
-        items.push_back(MenuItem::item(L"Your outro video", 16, kit.outro.empty() ? L"set it in the brand kit" : L"from the brand kit", !kit.outro.empty()));
-    }
-    items.push_back(MenuItem::item(L"Part of the screen\u2026", 9, L"drag a rectangle"));
-    items.push_back(MenuItem::sep());
-    const AudioChoices sound = audioChoices();
-    for (auto& m : audioAddItems(sound)) items.push_back(m);
     const UINT cmd = cjui::showMenu(hwnd(), items, screen, pal_);
     if (audioAddCommand(cmd, sound)) return;
     switch (cmd) {

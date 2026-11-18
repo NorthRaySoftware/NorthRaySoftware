@@ -585,7 +585,8 @@ bool CaptureWindow::onMouseDown(float x, float y) {
             return true;
         }
     // Sources: a click selects (the eye and lock buttons at the right work on their own); a quick
-    // second click renames.
+    // second click opens its settings: a design opens in the designer, anything else shows its menu
+    // (where its settings are). Renaming is F2 or the menu.
     for (auto& [id, r] : sourceRows_)
         if (r.contains(x, y)) {
             focus_ = Focus::Sources;
@@ -593,7 +594,18 @@ bool CaptureWindow::onMouseDown(float x, float y) {
             const DWORD now = GetMessageTime();
             if (id == lastClickItem_ && now - lastClickItemTime_ <= GetDoubleClickTime()) {
                 lastClickItem_.clear();
-                if (const SceneItem* i = scenes_.item(scenes_.current(), id)) renameSource(i->source);
+                selected_ = id;
+                if (const SceneItem* i = scenes_.item(scenes_.current(), id)) {
+                    const Source* src = scenes_.source(i->source);
+                    if (src && src->kind == SourceKind::Design) {
+                        openDesigner(src->id);
+                    } else {
+                        const float s = gfx_.dpiScale();
+                        POINT pt{(LONG)(x * s), (LONG)(y * s)};
+                        ClientToScreen(hwnd(), &pt);
+                        itemMenu(id, pt);
+                    }
+                }
                 return true;
             }
             lastClickItem_ = id;
@@ -962,6 +974,12 @@ void CaptureWindow::drawTopBar(const Rect& r) {
         if (focused(id)) focusRing(b);
         bx -= 4;
     };
+    tooltip("top:help", L"Version, what's new and where Capture keeps its files");
+    tooltip("top:settings", L"Video, audio, streaming, hotkeys and everything else");
+    tooltip("top:library", L"Your pictures, videos, sounds and designs, shared with the other NorthRay apps");
+    tooltip("top:layout", L"Show, hide and arrange the panels, and save layouts");
+    tooltip("top:profile", L"Profiles keep their own settings, stream keys and scene collection");
+    tooltip("top:scenes", L"Switch between sets of scenes, or make a new set");
     topButton("top:help", L"About", [this] { showAbout(); });
     topButton("top:settings", L"Settings", [this] { openSettings(!settingsOpen_ || libraryOpen_); }, settingsOpen_ && !libraryOpen_);
     topButton("top:library", L"Library", [this] {
@@ -976,6 +994,21 @@ void CaptureWindow::drawTopBar(const Rect& r) {
 }
 
 void CaptureWindow::drawPreview(const Rect& r) {
+    drawPreviewArea(r);
+    // While you're live: a red outline round the preview and a LIVE tag, so it's never in doubt.
+    bool live = false;
+    if (streamer_.active()) streamStatusText(live);
+    if (live) {
+        const Color red = cjui::hexColor("#E0566A");
+        gfx_.strokeRounded({r.x + 1, r.y + 1, r.w - 2, r.h - 2}, 10, red, 2.5f);
+        const Rect tag{r.right() - 74, r.y + 10, 62, 24};
+        gfx_.fillRounded(tag, 6, red);
+        gfx_.circle(tag.x + 12, tag.y + tag.h / 2, 3.5f, cjui::hexColor("#FFFFFF"), true);
+        gfx_.text(L"LIVE", {tag.x + 20, tag.y, tag.w - 24, tag.h}, Font::SmallStrong, cjui::hexColor("#FFFFFF"), {Align::Left, false, false, true});
+    }
+}
+
+void CaptureWindow::drawPreviewArea(const Rect& r) {
     gfx_.fillRounded(r, 10, pal_.dark ? cjui::hexColor("#05080F") : cjui::hexColor("#0B1120"));
     previewInner_ = {r.x + 12, r.y + 12, std::max(0.0f, r.w - 24), std::max(0.0f, r.h - 44)};
     const Scene* sc = scenes_.scene(scenes_.current());
@@ -1203,18 +1236,20 @@ void CaptureWindow::drawControls(const Rect& b) {
     // Recording: the one that works now.
     {
         const bool rec = recorder_.active();
-        const Rect r{b.x + 12, y, w, 40};
+        const Rect r{b.x + 12, y, w, 50};   // the two big buttons (0.10.31: taller, larger words)
         const Color red = cjui::hexColor("#E0566A");
         addHit("ctl:record", r, [this, rec] {
             if (rec) stopRecording();
             else startRecording();
         });
+        tooltip("ctl:record", withHotkey(rec ? L"Stop recording. The MP4 copy is made straight after." : L"Record what's on the canvas to an MKV file, with an MP4 copy when it stops.",
+                                         hotkeys::Action::ToggleRecord));
         const float hv = hoverAmount("ctl:record");
         gfx_.fillRounded(r, 8, rec ? red.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
         gfx_.strokeRounded(r, 8, rec ? red : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
-        gfx_.circle(r.x + 18, r.y + r.h / 2, 5, rec ? red : red.withAlpha(0.8f), true);
+        gfx_.circle(r.x + 20, r.y + r.h / 2, 6, rec ? red : red.withAlpha(0.8f), true);
         std::wstring label = rec ? L"Stop recording" : L"Start recording";
-        gfx_.text(label, {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        gfx_.text(label, {r.x + 36, r.y, r.w - 44, r.h}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
         if (rec) {
             const output::RecordStatus st = recorder_.status();
             wchar_t t[32];
@@ -1223,9 +1258,10 @@ void CaptureWindow::drawControls(const Rect& b) {
             gfx_.text(t, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
         }
         if (focused("ctl:record")) focusRing(r);
-        y += 46;
+        y += 56;
         if (rec) {   // markers: chapters in the MP4 copy
             const Rect mb{b.x + 12, y, w, 32};
+            tooltip("ctl:marker", withHotkey(L"Marks this moment. Markers become chapters in the MP4 copy.", hotkeys::Action::Marker));
             button("ctl:marker", mb, L"Add a marker" + (markers_.empty() ? std::wstring() : L" (" + std::to_wstring(markers_.size()) + L" so far)"), [this] {
                 const double s = recorder_.status().seconds;
                 markers_.push_back({(std::int64_t)(s * 1e6), "Marker " + std::to_string(markers_.size() + 1)});

@@ -18,6 +18,7 @@ enum class Theme { System = 0, Light = 1, Dark = 2 };
 struct Settings {
     static constexpr int kVersion = 1;
     Theme theme = Theme::System;
+    std::string libraryFolder;        // the Library's folder when it was last open ("" the top)
     bool lowResource = false;         // preview, meters and animations kept to a minimum; output untouched
     int previewFps = 30;              // 0 = preview off
     int outputFps = 60;

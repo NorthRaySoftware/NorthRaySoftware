@@ -15,6 +15,8 @@ namespace cjui {
 
 static const UINT_PTR kFlashTimer = 0xC001;
 static const UINT_PTR kAnimTimer = 0xC002;
+static const UINT_PTR kTipTimer = 0xC00A;
+static const ULONGLONG kTipDelayMs = 550;
 static const UINT_PTR kAmbientTimer = 0xC003;
 
 static double g_ambientTime = -1;
@@ -386,10 +388,12 @@ void AppWindow::paint() {
         animating_ = false;
         hits_.clear();
         sliders_.clear();
+        tips_.clear();
         g_ambientTime = animationsOn_ && ambientAllowed_ ? std::fmod(double(c.QuadPart) / double(f.QuadPart), 86400.0) : -1;
         g_ambientWanted = false;
         gfx_.clear(pal_.paper);
         drawFrame((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
+        drawTooltip((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         gfx_.end();
         ambient_ = g_ambientWanted && animationsOn_ && ambientAllowed_;
         g_ambientWanted = false;
@@ -405,7 +409,34 @@ void AppWindow::updateHover() {
     std::string now;
     for (auto it = lastHits_.rbegin(); it != lastHits_.rend(); ++it)
         if (it->rect.contains(mouseX_, mouseY_) && it->clip.contains(mouseX_, mouseY_)) { now = it->id; break; }
-    if (now != hover_) { hover_ = now; invalidate(); }
+    if (now != hover_) {
+        hover_ = now;
+        hoverSince_ = GetTickCount64();
+        tipHidden_ = false;
+        if (hwnd_) SetTimer(hwnd_, kTipTimer, (UINT)kTipDelayMs + 20, nullptr);
+        invalidate();
+    }
+}
+
+void AppWindow::tooltip(const std::string& id, std::wstring text) {
+    if (!text.empty()) tips_.push_back({id, std::move(text)});
+}
+
+void AppWindow::drawTooltip(float W, float H) {
+    if (hover_.empty() || tipHidden_ || !dragging_.empty() || GetTickCount64() - hoverSince_ < kTipDelayMs) return;
+    if (GetKeyState(VK_LBUTTON) < 0 || GetKeyState(VK_RBUTTON) < 0) return;
+    const std::wstring* text = nullptr;
+    for (auto& [id, t] : tips_)
+        if (id == hover_) text = &t;
+    if (!text) return;
+    const float maxW = 320, pad = 8;
+    const float tw = std::min(maxW, gfx_.measureWidth(*text, Font::Small) + 2);
+    const float th = gfx_.text(*text, {-10000, -10000, tw, 400}, Font::Small, pal_.ink);   // measures the wrapped height
+    Rect r{mouseX_ + 14, mouseY_ + 20, tw + pad * 2, th + pad * 2 - 2};
+    if (r.right() > W - 6) r.x = std::max(6.0f, W - 6 - r.w);
+    if (r.bottom() > H - 6) r.y = std::max(6.0f, mouseY_ - 8 - r.h);
+    gfx_.fillRounded(r, 6, pal_.dark ? hexColor("#1B2A40") : hexColor("#10213A"));
+    gfx_.text(*text, {r.x + pad, r.y + pad - 1, tw, th}, Font::Small, hexColor("#EEF3FA"));
 }
 
 void AppWindow::moveFocus(int dir) {
@@ -622,6 +653,11 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             invalidate();
             return 0;
         case WM_TIMER:
+            if (wp == kTipTimer) {
+                KillTimer(hwnd, kTipTimer);
+                if (!hover_.empty()) invalidate();
+                return 0;
+            }
             if (wp == kAnimTimer) {
                 KillTimer(hwnd, kAnimTimer);
                 invalidate();  // the next paint re-arms the timer if still moving
@@ -665,6 +701,7 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!hover_.empty() && dragging_.empty()) { hover_.clear(); invalidate(); }
             return 0;
         case WM_LBUTTONDOWN:
+            if (!tipHidden_) { tipHidden_ = true; invalidate(); }
             SetFocus(hwnd);  // take keyboard focus back from any child control
             SetCapture(hwnd);
             if (onMouseDown(mouseX_, mouseY_)) { invalidate(); return 0; }

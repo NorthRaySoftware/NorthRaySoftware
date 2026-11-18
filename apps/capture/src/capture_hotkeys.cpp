@@ -265,4 +265,11 @@ float CaptureWindow::drawHotkeySettings(float x, float y0, float colW) {
     return y - y0;
 }
 
+// A tooltip's text with the hotkey you've set for that action, if any ("… (Ctrl+F9)").
+std::wstring CaptureWindow::withHotkey(const std::wstring& text, hotkeys::Action a, const std::string& target) const {
+    for (const auto& b : settings_.hotkeys)
+        if (b.action == a && (target.empty() || b.target == target)) return text + L"  (" + widen(hotkeys::text(b.combo)) + L")";
+    return text;
+}
+
 }  // namespace ncap

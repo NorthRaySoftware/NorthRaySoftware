@@ -37,6 +37,8 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <set>
 #include <string>
 #include <vector>
@@ -72,6 +74,7 @@ private:
     // Drawing
     void drawTopBar(const cjui::Rect& r);
     void drawPreview(const cjui::Rect& r);
+    void drawPreviewArea(const cjui::Rect& r);
     void drawPanel(int panel, const cjui::Rect& r);
     void drawScenes(const cjui::Rect& body);
     void drawSources(const cjui::Rect& body);
@@ -163,6 +166,7 @@ private:
     // The overlay designer (capture_designer.cpp).
     void addDesign();
     void openDesigner(const Id& source);
+    std::wstring withHotkey(const std::wstring& text, hotkeys::Action a, const std::string& target = {}) const;
     void drawDesigner(const cjui::Rect& area);
     void drawDesignerProperties(const cjui::Rect& r);
     void designChanged(bool keepUndo = true);
@@ -302,6 +306,14 @@ private:
     bool libBroken_ = false, libraryOpen_ = false;
     int libKind_ = -1;
     std::string libFolder_, libTag_, libQuery_;
+    // The Library's sizes and lengths (0.10.31). The lengths are filled by worker threads, so they're shared.
+    std::map<std::wstring, std::uint64_t> libSizes_;
+    struct LenLock { std::mutex m; };
+    std::shared_ptr<std::map<std::wstring, double>> libLengths_ = std::make_shared<std::map<std::wstring, double>>();
+    std::shared_ptr<LenLock> libLenMutex_ = std::make_shared<LenLock>();
+    std::uint64_t librarySize(const std::wstring& path);
+    double libraryLength(const std::wstring& path);
+    static std::wstring sizeWords(std::uint64_t bytes);
     std::vector<std::pair<std::string, cjui::Rect>> libRows_;
     void addAuroraPulse(bool wave = false);
     void visualiserTick();

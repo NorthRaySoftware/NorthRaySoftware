@@ -76,6 +76,8 @@ private:
 std::shared_ptr<VideoSource> createVideoSource(SourceKind kind, const std::string& settings);
 // The sources made in Capture itself (made_sources.cpp): images, text, colours, slideshows, regions.
 std::shared_ptr<VideoSource> createMadeSource(SourceKind kind, const std::string& settings);
+// A video or sound file's length in seconds (0 if it can't be read). Slow: call it off the window's thread.
+double mediaLength(const std::wstring& path);
 // The Stream mix's frequency bands (0..1) and loudness for the aurora pulse, set by the window as it
 // analyses the sound and read by the sources on the video thread.
 void setSoundBands(const std::vector<float>& bands, float level);

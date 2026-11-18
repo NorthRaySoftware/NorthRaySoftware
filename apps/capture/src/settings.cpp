@@ -39,6 +39,8 @@ bool Settings::load(const std::wstring& path) {
     const int t = cj::valueOr(j, "theme", 0);
     theme = t == 1 ? Theme::Light : t == 2 ? Theme::Dark : Theme::System;
     lowResource = cj::valueOr(j, "lowResource", false);
+    libraryFolder = cj::valueOr(j, "libraryFolder", std::string());
+    if (libraryFolder.size() > 400) libraryFolder.clear();
     const int pf = cj::valueOr(j, "previewFps", 30);
     previewFps = pf == 0 || pf == 10 || pf == 30 || pf == 60 ? pf : 30;
     const int of = cj::valueOr(j, "outputFps", 60);
@@ -126,7 +128,7 @@ bool Settings::save(const std::wstring& path) const {
     for (auto& [k, v] : savedLayouts) layouts[k] = v;
     nlohmann::json dests = nlohmann::json::array();
     for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}, {"bus", d.bus}});
-    const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource},
+    const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource}, {"libraryFolder", libraryFolder},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},

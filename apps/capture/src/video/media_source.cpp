@@ -578,4 +578,18 @@ private:
 
 std::shared_ptr<VideoSource> createMediaSource(const std::string& settings) { return std::make_shared<MediaSource>(settings); }
 
+double mediaLength(const std::wstring& path) {
+    // Its own COM and Media Foundation start-up: called on a worker thread (the Library's lengths).
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    double s = 0;
+    if (SUCCEEDED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
+        ComPtr<IMFSourceReader> r;
+        if (SUCCEEDED(MFCreateSourceReaderFromURL(path.c_str(), nullptr, &r))) s = durationOf(r.Get());
+        r.Reset();
+        MFShutdown();
+    }
+    if (SUCCEEDED(co)) CoUninitialize();
+    return s;
+}
+
 }  // namespace ncap::video

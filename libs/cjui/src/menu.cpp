@@ -48,6 +48,7 @@ namespace {
 constexpr float kPad = 6;        // around the rows
 constexpr float kRowH = 32;
 constexpr float kSepH = 9;
+constexpr float kHeadH = 30;   // a heading: a rule, then its word
 constexpr float kGutter = 34;    // the check mark's column
 constexpr float kShortcutGap = 36;
 constexpr float kArrowW = 24;
@@ -105,7 +106,7 @@ struct Session {
         for (size_t i = 0; i < items.size(); ++i) {
             const MenuItem& m = items[i];
             if (!L.filter.empty() && (m.separator || !matchesFilter(m.label, L.filter))) continue;
-            L.heights[i] = m.separator ? kSepH : kRowH;
+            L.heights[i] = m.separator ? (m.label.empty() ? kSepH : kHeadH) : kRowH;
         }
         L.content = 0;
         for (float hh : L.heights) L.content += hh;
@@ -174,6 +175,16 @@ struct Session {
             const Rect r = L.rows[i];
             if (!shown(L, i) || r.bottom() < view.y || r.y > view.bottom()) continue;
             any = any || !m.separator;
+            if (m.separator && !m.label.empty()) {   // a heading
+                if (i > 0) {
+                    const float y = std::floor((r.y + 5) * scale) / scale + 0.5f / scale;
+                    L.gfx.line(r.x + 8, y, r.right() - 8, y, pal.rule, 1);
+                }
+                std::wstring up = m.label;
+                for (auto& c : up) c = (wchar_t)towupper(c);
+                L.gfx.text(up, {r.x + 10, r.y + 8, r.w - 20, r.h - 8}, Font::Label, pal.inkMuted, {Align::Left, false, true, true});
+                continue;
+            }
             if (m.separator) {
                 const float y = std::floor((r.y + r.h / 2) * scale) / scale + 0.5f / scale;
                 L.gfx.line(r.x + 8, y, r.right() - 8, y, pal.rule, 1);
@@ -267,7 +278,7 @@ struct Session {
         float content = 0;
         for (const MenuItem& m : items) {
             choices += m.separator ? 0 : 1;
-            content += m.separator ? kSepH : kRowH;
+            content += m.separator ? (m.label.empty() ? kSepH : kHeadH) : kRowH;
         }
         L->searchable = choices >= kSearchFrom;
         L->listTop = kPad + (L->searchable ? kRowH + 4 : 0);

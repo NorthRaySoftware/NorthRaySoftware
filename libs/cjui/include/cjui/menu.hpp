@@ -40,6 +40,8 @@ struct MenuItem {
         return m;
     }
     static MenuItem sep() { MenuItem m; m.separator = true; return m; }
+    // A small upper-case heading over a group of items (not choosable; hidden while the menu is searched).
+    static MenuItem heading(std::wstring label) { MenuItem m; m.separator = true; m.label = std::move(label); return m; }
 };
 
 enum class MenuAnchor { TopLeft, TopRight };  // which corner of the menu sits at the point

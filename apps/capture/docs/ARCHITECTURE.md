@@ -1476,3 +1476,25 @@ the same):
 - Monitoring: a Media source's default buses add Monitor (a file can't feed back). Media sources with saved
   buses are given Monitor once at load (marked "monitorChosen"); any later change of buses sets monitorChosen,
   so a choice to turn it off stays off.
+
+## 55. Polish, batch 1 (released as 0.10.31, 18 Nov 2026; from CJ's 200 answers)
+
+- Already there, so nothing to build: snapping in the preview (edges and centre lines; Shift turns it off), the
+  preview's right-click giving the source's menu, and opening on the last scene (scenesChanged saves "current").
+- Double-click a source row: Design kinds call openDesigner, anything else opens itemMenu at the pointer.
+- Live: drawPreview wraps drawPreviewArea and adds a 2.5 px red outline and a LIVE tag when streamStatusText says
+  live; drawStreamControls shows "LIVE h:mm:ss" (Font::Title) under the button, from the longest destination.
+- Record and stream buttons: 50 DIPs tall, Font::Heading.
+- cjui: MenuItem::heading(label), a separator with a label (kHeadH 30, upper-case Font::Label, a rule above;
+  not choosable, hidden while searching). The add-source menu is grouped under five headings.
+- cjui: AppWindow::tooltip(hitId, text), registered per frame; shown after 550 ms of hover (kTipTimer), hidden on
+  a click until the hover changes, placed by the pointer and kept inside the window. Capture registers them for
+  the record, stream and marker buttons (withHotkey adds the user's hotkey), the top bar and each filter setting
+  (paramTip: one sentence per parameter key).
+- Library: sizes (fs::file_size, cached per open) and lengths (video::mediaLength, Media Foundation on a detached
+  worker thread with its own COM/MF start-up, results in a shared map, InvalidateRect when found); the folder is
+  saved as settings.libraryFolder and restored on open if it still exists.
+- Tested in Wine: the grouped menu, tooltips, double-click to the designer, sizes and lengths (0:03, 0:20), the
+  folder remembered. Not testable here: the live outline and timer (no streaming in Wine).
+- Environment note: on the new build machine Wine's wineserver aborted ("free(): invalid pointer") until
+  /run/user/0 existed (mkdir -p /run/user/0; chmod 700).

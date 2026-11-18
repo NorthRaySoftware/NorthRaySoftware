@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.10.31",
+      "date": "2026-11-18",
+      "notes": [
+        "Double-click a source to change it: a design opens in the overlay designer, and anything else shows its settings menu. Renaming is still F2 or the menu.",
+        "While you're live, the preview has a red outline and a LIVE tag, and a large timer under Start streaming shows how long you've been on.",
+        "Bigger Start recording and Start streaming buttons.",
+        "The + menu for sources is sorted under headings: Capture, Designs and pictures, Video and sound, Animated backgrounds, and From your other scenes.",
+        "Tooltips: rest the pointer on the main buttons to see what they do, with your hotkey if you've set one. Every audio filter setting (Threshold, Ratio, Attack and the rest) explains itself in plain words.",
+        "The Library shows each file's size, and the length of videos, music and sounds. It also opens on the folder you were last in."
+      ]
+    },
+    {
       "version": "0.10.30",
       "date": "2026-11-17",
       "notes": [

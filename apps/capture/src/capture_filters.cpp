@@ -27,6 +27,43 @@ using nlohmann::json;
 
 namespace {
 
+// What each filter setting does, in a sentence (the tooltips over its slider and value, 0.10.31).
+std::wstring paramTip(dsp::Type t, const std::string& k) {
+    using T = dsp::Type;
+    if (k == "gain") return L"Makes the sound louder or quieter before anything else. 0 dB leaves it as it is.";
+    if (k == "open") return L"How loud the sound must get before the gate opens and lets it through. Set it just above your room's background noise.";
+    if (k == "close") return L"How quiet it must get before the gate closes again. A little lower than \u201COpens above\u201D stops it flickering.";
+    if (k == "attack")
+        return t == T::NoiseGate ? L"How quickly the gate opens once you start speaking. Short keeps the start of words."
+                                 : L"How quickly it reacts when the sound gets loud. Short catches sudden peaks; longer keeps more punch.";
+    if (k == "hold") return L"How long the gate stays open after you stop, so the ends of words aren't cut off.";
+    if (k == "release")
+        return t == T::NoiseGate ? L"How gently the gate closes. Longer sounds more natural; shorter cuts noise sooner."
+                                 : L"How quickly it lets go once the sound is quieter again.";
+    if (k == "strength") return L"How much steady background noise (fans, hum, hiss) is taken away. Too much can make a voice sound watery.";
+    if (k == "threshold")
+        return t == T::Expander ? L"Sound quieter than this is turned down further, so background noise sinks between words."
+                                : L"Sound louder than this is evened out. Lower it to even out more of your voice.";
+    if (k == "ratio")
+        return t == T::Expander ? L"How strongly quiet sound is pushed down. 2:1 is gentle; 10:1 is close to a gate."
+                                : L"How strongly loud sound is held back. 2:1 is gentle, 4:1 is firm, 10:1 and above is close to a limiter.";
+    if (k == "makeup") return L"Turns the whole sound back up after it's been evened out, so it's as loud as before.";
+    if (k == "ceiling") return L"Nothing gets louder than this, so shouts and bangs never clip. -1 dB is a safe choice.";
+    if (k == "low") return L"Bass. Turn down to reduce rumble and boominess; up for a fuller voice.";
+    if (k == "mid") return L"The middle of the sound. Turn down around 300-500 Hz for less boxiness; up around 2-3 kHz for clearer words.";
+    if (k == "midFreq") return L"Where \u201CMiddle\u201D works, in hertz.";
+    if (k == "high") return L"Treble. Turn up for crisper, clearer speech; down to soften hiss and harsh S sounds.";
+    if (k == "balance") return L"Moves the sound to the left or right speaker.";
+    if (k == "delay") return L"Holds this sound back, to line it up with a camera that runs behind.";
+    if (k == "size") return L"How big the room sounds: small is a booth, large is a hall.";
+    if (k == "damping") return L"How soft the room's walls are. More damping gives a warmer, duller echo.";
+    if (k == "mix") return L"How much of the effect you hear against your own voice. 100% is effect only.";
+    if (k == "semitones") return L"How much higher or lower the voice goes, in semitones. 12 is a whole octave.";
+    if (k == "drive") return L"How strongly the radio or phone sound is pushed. More sounds rougher.";
+    if (k == "static") return L"Adds radio hiss and crackle.";
+    return L"";
+}
+
 const wchar_t* kWhat[] = {
     L"Louder or quieter before anything else.",
     L"Silences the sound while it's quiet (breathing, a fan between words) and opens when you speak.",
@@ -232,6 +269,11 @@ void CaptureWindow::drawFilters(const Rect& area) {
             const float v = std::clamp(f.values.count(p.key) ? f.values.at(p.key) : p.def, p.min, p.max);
             gfx_.text(widen(p.label), {x + 16, py, 160, 28}, Font::Body, pal_.ink, {Align::Left, false, true, true});
             const float frac = (v - p.min) / (p.max - p.min);
+            if (f.type != dsp::Type::Plugin) {
+                const std::wstring tip = paramTip(f.type, p.key);
+                tooltip(fid + p.key, tip);
+                tooltip(fid + p.key + ":v", tip);
+            }
             slider(fid + p.key, {x + 180, py + 6, colW - 340, 16}, frac, [chain, i, key = std::string(p.key), p, save](float t) mutable {
                 float nv = p.min + std::clamp(t, 0.0f, 1.0f) * (p.max - p.min);
                 // Round to what the unit shows.

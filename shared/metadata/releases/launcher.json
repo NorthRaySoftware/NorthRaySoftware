@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.92.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Capture 0.10.31: the first round of polish, with tooltips, a grouped + menu, a big live timer and more."
+      ]
+    },
+    {
       "version": "0.91.0",
       "date": "2026-11-17",
       "notes": [

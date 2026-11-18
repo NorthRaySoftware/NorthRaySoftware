@@ -142,6 +142,9 @@ protected:
     bool hasKeyboardFocus() const { return keyboardFocus_ && !focus_.empty(); }
     bool pressed(const std::string& id) const { return pressed_ == id && hover_ == id; }
     void addHit(const std::string& id, const Rect& r, std::function<void()> action, bool focusable = true);
+    // A tooltip for the hit area `id` (registered each frame, after or before its addHit): shown in a small
+    // bubble by the pointer once it has rested there for half a second, and gone when it moves off or clicks.
+    void tooltip(const std::string& id, std::wstring text);
     void focusRing(const Rect& r);
     bool button(const std::string& id, const Rect& r, const std::wstring& label, std::function<void()> action,
                 bool primary = false);
@@ -194,6 +197,10 @@ private:
     Rect maxButton_{};
     bool maxHover_ = false, maxPressed_ = false, trackingNc_ = false, windowActive_ = true;
     std::vector<Hit> hits_, lastHits_;
+    std::vector<std::pair<std::string, std::wstring>> tips_;
+    ULONGLONG hoverSince_ = 0;
+    bool tipHidden_ = false;   // clicked: no tip until the pointer moves to something else
+    void drawTooltip(float W, float H);
     std::string hover_, pressed_, focus_;
     bool keyboardFocus_ = false;
     float mouseX_ = -1, mouseY_ = -1;

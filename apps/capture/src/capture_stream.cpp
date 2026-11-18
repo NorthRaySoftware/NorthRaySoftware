@@ -236,19 +236,21 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
     const bool on = streamer_.active();
     const Color purple = cjui::hexColor("#7A5CFF");
     {
-        const Rect r{x, y, w, 40};
+        const Rect r{x, y, w, 50};
         addHit("ctl:stream", r, [this, on] {
             if (on) stopStreaming();
             else if (settings_.preLiveChecklist) openChecklist();
             else startStreaming();
         });
+        tooltip("ctl:stream", withHotkey(on ? L"Stop streaming to every destination." : L"Go live on the destinations that are switched on.",
+                                         hotkeys::Action::ToggleStream));
         const float hv = hoverAmount("ctl:stream");
         bool live = false;
         streamStatusText(live);
         gfx_.fillRounded(r, 8, on ? purple.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
         gfx_.strokeRounded(r, 8, on ? purple : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
-        gfx_.circle(r.x + 18, r.y + r.h / 2, 5, live ? kLive : on ? kWait : purple.withAlpha(0.8f), true);
-        gfx_.text(on ? L"Stop streaming" : L"Start streaming", {r.x + 32, r.y, r.w - 40, r.h}, Font::BodyStrong, pal_.ink,
+        gfx_.circle(r.x + 20, r.y + r.h / 2, 6, live ? kLive : on ? kWait : purple.withAlpha(0.8f), true);
+        gfx_.text(on ? L"Stop streaming" : L"Start streaming", {r.x + 36, r.y, r.w - 44, r.h}, Font::Heading, pal_.ink,
                   {Align::Left, false, true, true});
         if (on) {
             int n = 0, l = 0;
@@ -264,7 +266,18 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
             gfx_.text(right, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
         }
         if (focused("ctl:stream")) focusRing(r);
-        y += 46;
+        y += 56;
+        // Live: how long, big enough to read at a glance from across the room.
+        if (on && live) {
+            double longest = 0;
+            for (auto& id : streamer_.ids())
+                if (streamer_.active(id)) longest = std::max(longest, streamer_.status(id).seconds);
+            const Color red = cjui::hexColor("#E0566A");
+            gfx_.circle(x + 10, y + 19, 5, red, true);
+            gfx_.text(L"LIVE", {x + 22, y, 60, 38}, Font::SmallStrong, red, {Align::Left, false, false, true});
+            gfx_.text(clock(longest), {x + 70, y, w - 70, 38}, Font::Title, pal_.ink, {Align::Left, false, false, true});
+            y += 44;
+        }
     }
     // The destinations, each with its own state; click one to start or stop just that one.
     const bool show = settings_.destinations.size() > 1 || on;
