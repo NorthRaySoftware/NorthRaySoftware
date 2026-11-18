@@ -16,7 +16,7 @@ namespace cjr {
 
 class TwitchView {
 public:
-    enum class Event { Ready, Online, Offline, Playing, Paused, Failed, SoundOnlyOn, SoundOnlyOff, SoundOnlyUnavailable };
+    enum class Event { Ready, Online, Offline, Playing, Paused, Failed, SoundOnlyOn, SoundOnlyOff, SoundOnlyUnavailable, Unreachable };
 
     TwitchView();
     ~TwitchView();

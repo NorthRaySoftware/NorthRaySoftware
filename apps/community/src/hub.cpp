@@ -1,5 +1,6 @@
 #include "hub.hpp"
 #include "cjui/dialog.hpp"
+#include "cjui/format.hpp"
 
 #include "cjui/http.hpp"
 #include "cjui/packages.hpp"
@@ -10,6 +11,7 @@
 #include <shlobj.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -87,6 +89,7 @@ void CommunityApp::load() {
     // The catalogue, installs and release information are NorthRay Launcher's own
     // (shared metadata next to this program, the same online catalogue).
     model_.load();
+    readRadioStatus();
     stateDir_ = cjui::northRayDataDir() + L"\\CJ Philip Community";
     CreateDirectoryW(stateDir_.c_str(), nullptr);
     std::string text;
@@ -109,7 +112,65 @@ void CommunityApp::load() {
 
 void CommunityApp::refresh() {
     model_.refreshInstalls();
+    readRadioStatus();
     invalidate();
+}
+
+void CommunityApp::readRadioStatus() {
+    std::ifstream f((cjui::northRayDataDir() + L"\\CJ Radio\\status.json").c_str(), std::ios::binary);
+    if (!f) { radio_ = {}; return; }
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const nlohmann::json j = nlohmann::json::parse(ss.str(), nullptr, false);
+    if (!j.is_object()) return;
+    RadioStatus r;
+    r.live = cj::valueOr(j, "live", false);
+    r.show = cj::valueOr(j, "show", std::string());
+    r.sinceUtc = cj::valueOr(j, "sinceUtc", 0LL);
+    r.updatedUtc = cj::valueOr(j, "updatedUtc", 0LL);
+    if (j.contains("latestRecording") && j["latestRecording"].is_object()) {
+        const auto& l = j["latestRecording"];
+        r.latestTitle = cj::valueOr(l, "title", std::string());
+        r.latestUtc = cj::valueOr(l, "recordedUtc", 0LL);
+        r.latestMinutes = cj::valueOr(l, "durationMinutes", 0);
+        r.hasLatest = !r.latestTitle.empty();
+    }
+    radio_ = r;
+}
+
+// CJ Radio watches the broadcast while it's open and says so every minute; older than three minutes isn't trusted.
+bool CommunityApp::radioLive() const {
+    return radio_.live && cjui::nowUtc() - radio_.updatedUtc < 180 && cjui::isAppRunning("cj-radio");
+}
+
+float CommunityApp::drawLatestRecording(const Rect& r) {
+    if (!radio_.hasLatest) return 0;
+    const AppItem* radio = nullptr;
+    for (AppItem* a : cjApps()) if (a->entry.id == "cj-radio") radio = a;
+    if (!radio || !radio->inst.found) return 0;
+    float y = r.y;
+    gfx_.text(L"LATEST FROM CJ RADIO", {r.x, y, 400, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 26;
+    const Rect card{r.x, y, r.w, 84};
+    const std::string id = "latest";
+    addHit(id, card, [this] { open("cj-radio"); }, false);
+    const float hv = hoverAmount(id);
+    softShadow(card, 8, 0.35f + 0.65f * hv);
+    gfx_.fillRounded(card, 8, pal_.surface);
+    gfx_.strokeRounded(card, 8, pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+    // A play mark in the accent.
+    const float cx = card.x + 42, cy = card.y + card.h / 2;
+    gfx_.circle(cx, cy, 22, pal_.ribbon.withAlpha(0.14f + 0.1f * hv), true);
+    gfx_.fillTriangle(cx - 6, cy - 9, cx + 10, cy, cx - 6, cy + 9, pal_.ribbon);
+    const float tx = card.x + 82, tw = card.w - 82 - 170;
+    gfx_.text(w(radio_.latestTitle), {tx, card.y + 18, tw, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+    std::wstring meta = radio_.latestUtc ? cjui::formatShortDay(radio_.latestUtc) : std::wstring();
+    if (radio_.latestMinutes > 0) meta += (meta.empty() ? L"" : L"  \u00B7  ") + cjui::formatDuration(radio_.latestMinutes);
+    gfx_.text(meta, {tx, card.y + 46, tw, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+    button("latest:open", {card.right() - 158, cy - 17, 140, 34}, L"Listen in CJ Radio", [this] { open("cj-radio"); }, true);
+    if (focused(id)) focusRing(card);
+    y += card.h + 24;
+    return y - r.y;
 }
 
 std::vector<AppItem*> CommunityApp::cjApps() {
@@ -370,6 +431,19 @@ void CommunityApp::drawCard(const Rect& r, const AppItem& a) {
     const float tw = card.right() - tx - bw - 40;
     float y = card.y + 22;
     gfx_.text(w(a.entry.name), {tx, y, tw, 26}, Font::Heading, pal_.ink, {Align::Left, false, true});
+    // CJ Radio while a show is on: LIVE NOW beside its name (0.29).
+    if (appId == "cj-radio" && radioLive()) {
+        const float nw = std::min(tw - 100, gfx_.measureWidth(w(a.entry.name), Font::Heading));
+        const Rect pill{tx + nw + 12, y + 3, 82, 22};
+        const double secs = (double)GetTickCount64() / 1000.0;
+        const float pulse = 0.8f + 0.2f * (float)std::sin(secs * 2.4);
+        gfx_.fillRounded(pill, 11, pal_.live.withAlpha(0.85f + 0.15f * pulse));
+        gfx_.circle(pill.x + 12, pill.y + 11, 3.5f, hexColor("#FFFFFF").withAlpha(pulse), true);
+        gfx_.text(L"LIVE NOW", {pill.x + 20, pill.y, pill.w - 24, pill.h}, Font::Label, hexColor("#FFFFFF"), {Align::Left, false, false, true});
+        addHit("live:pill", pill, nullptr, false);
+        tooltip("live:pill", radio_.show.empty() ? std::wstring(L"On air now") : L"On air now: " + w(radio_.show));
+        wantAmbientFrame();
+    }
     y += 28;
     y += gfx_.text(w(a.entry.tagline), {tx, y, tw, 44}, Font::Small, pal_.inkMuted) + 8;
     // Status line with a dot, and what else can be done.
@@ -497,7 +571,9 @@ void CommunityApp::drawFrame(float W, float H) {
     y += 28;
     y += drawSelfUpdate({pad, y, W - pad * 2, 0});
     y += drawCards({pad, y, W - pad * 2, 0});
-    y += 18;
+    y += 10;
+    y += drawLatestRecording({pad, y, W - pad * 2, 0});
+    y += 8;
     y += gfx_.text(w(developer_) + L"  ·  CJ Philip Community " CJ_VERSION_WSTR, {pad, y, W - pad * 2, 20}, Font::Small, pal_.inkFaint,
                    {Align::Left, false}) + 8;
     endScroll(y - top + 20);

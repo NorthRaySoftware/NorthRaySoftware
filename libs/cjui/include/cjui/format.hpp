@@ -9,6 +9,7 @@ namespace cjui {
 
 std::wstring formatWhen(cj::UtcSeconds t, bool withWeekday = true);  // "Sat 14 Nov, 19:00"
 std::wstring formatDay(cj::UtcSeconds t);                            // "Saturday 14 November"
+std::wstring formatShortDay(cj::UtcSeconds t);                       // "Sat 14 Nov" (the UK style)
 std::wstring formatTime(cj::UtcSeconds t);                           // "19:00"
 std::wstring formatRelative(cj::UtcSeconds t, cj::UtcSeconds now);   // "Today", "Tomorrow", "Saturday", "3 days ago"
 std::wstring formatCountdown(cj::UtcSeconds t, cj::UtcSeconds now);  // "In 2 days", "In 40 minutes"

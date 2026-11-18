@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <nlohmann/json.hpp>
@@ -274,6 +275,54 @@ struct RecordingsResult {
 // Recordings that ship with the app: MP3 files in the Recordings folder next to
 // CJRadio.exe. Name them "2026-11-14 The CJ Philip Show.mp3" for a date and
 // title, and optionally add recordings.json there for descriptions.
+// An MP3's length in minutes from its headers (0.28): the first frame's bitrate and sample rate, and its Xing/Info
+// or VBRI frame count when there is one (variable bitrate); otherwise the file's size over the bitrate. Reads at
+// most the first 64 KB after any ID3 tag. 0 if it can't tell.
+static int mp3Minutes(const std::wstring& path) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    LARGE_INTEGER size{};
+    GetFileSizeEx(h, &size);
+    unsigned char head[10];
+    DWORD got = 0;
+    long long start = 0;
+    if (ReadFile(h, head, 10, &got, nullptr) && got == 10 && head[0] == 'I' && head[1] == 'D' && head[2] == '3')
+        start = 10 + ((head[6] & 0x7f) << 21 | (head[7] & 0x7f) << 14 | (head[8] & 0x7f) << 7 | (head[9] & 0x7f));
+    std::vector<unsigned char> buf(65536);
+    LARGE_INTEGER at;
+    at.QuadPart = start;
+    SetFilePointerEx(h, at, nullptr, FILE_BEGIN);
+    got = 0;
+    ReadFile(h, buf.data(), (DWORD)buf.size(), &got, nullptr);
+    CloseHandle(h);
+    static const int rates1[] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0};   // MPEG-1 layer III
+    static const int rates2[] = {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0};       // MPEG-2/2.5 layer III
+    for (DWORD k = 0; k + 4 < got; ++k) {
+        if (buf[k] != 0xff || (buf[k + 1] & 0xe0) != 0xe0) continue;
+        const int ver = (buf[k + 1] >> 3) & 3, layer = (buf[k + 1] >> 1) & 3, bri = buf[k + 2] >> 4, sri = (buf[k + 2] >> 2) & 3;
+        if (ver == 1 || layer != 1 || bri == 0 || bri == 15 || sri == 3) continue;   // layer III only
+        const bool mpeg1 = ver == 3;
+        const int kbps = mpeg1 ? rates1[bri] : rates2[bri];
+        static const int srs[3][3] = {{11025, 12000, 8000}, {22050, 24000, 16000}, {44100, 48000, 32000}};
+        const int sr = srs[ver == 0 ? 0 : ver == 2 ? 1 : 2][sri];
+        const bool mono = (buf[k + 3] >> 6) == 3;
+        const int samplesPerFrame = mpeg1 ? 1152 : 576;
+        // Xing / Info (just after the side information) or VBRI (32 bytes after the header): the number of frames.
+        const DWORD side = mpeg1 ? (mono ? 17 : 32) : (mono ? 9 : 17);
+        auto be32 = [&](DWORD p) { return (unsigned)buf[p] << 24 | (unsigned)buf[p + 1] << 16 | (unsigned)buf[p + 2] << 8 | buf[p + 3]; };
+        double seconds = 0;
+        const DWORD x = k + 4 + side;
+        if (x + 12 < got && (std::memcmp(&buf[x], "Xing", 4) == 0 || std::memcmp(&buf[x], "Info", 4) == 0) && (be32(x + 4) & 1))
+            seconds = (double)be32(x + 8) * samplesPerFrame / sr;
+        else if (k + 36 + 18 < got && std::memcmp(&buf[k + 36], "VBRI", 4) == 0)
+            seconds = (double)be32(k + 36 + 14) * samplesPerFrame / sr;
+        else if (kbps > 0)
+            seconds = (double)(size.QuadPart - start) * 8.0 / (kbps * 1000.0);
+        return seconds > 0 ? std::max(1, (int)std::lround(seconds / 60.0)) : 0;
+    }
+    return 0;
+}
+
 void RadioApp::scanLocalRecordings() {
     localRecordings_.clear();
     const std::wstring dir = exeDir() + L"\\Recordings";
@@ -315,6 +364,7 @@ void RadioApp::scanLocalRecordings() {
             r.category = cj::valueOr(e, "category", "");
             r.durationMinutes = std::clamp(cj::valueOr(e, "durationMinutes", 0), 0, 24 * 60);
         }
+        if (!r.durationMinutes) r.durationMinutes = std::min(24 * 60, mp3Minutes(dir + L"\\" + name));   // its length from the file
         localRecordings_.push_back(std::move(r));
     } while (FindNextFileW(h, &fd));
     FindClose(h);
@@ -540,7 +590,13 @@ LRESULT RadioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             case E::Failed:
                 twitchPlaying_ = false;
                 twitchStatus_ = {};  // unknown again: never guess live
-                twitchNote_ = L"The Twitch player stopped working. Press F5 to try again.";
+                twitchNote_ = L"The Twitch player stopped working.";
+                twitch_.destroy();
+                break;
+            case E::Unreachable:
+                twitchPlaying_ = false;
+                twitchStatus_ = {};
+                twitchNote_ = L"Twitch couldn't be reached. Check that this PC is online, then try again.";
                 twitch_.destroy();
                 break;
         }
@@ -592,14 +648,44 @@ LRESULT RadioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 
 void RadioApp::onTimer(UINT_PTR) {
     if (!station_.calendarUrl.empty() && calendarNextFetch_ != 0 && now() >= calendarNextFetch_) fetchCalendar();
+    shareStatus();
     invalidate();
+}
+
+// While a show is live (0.28): its name in the window's title (and so on the taskbar), and a small file beside
+// the settings that CJ Philip Community reads for its LIVE NOW badge and the latest recording. Nothing leaves the PC.
+void RadioApp::shareStatus() {
+    const auto st = status();
+    const bool live = st.state == cj::radio::StationState::Live;
+    const std::string show = live && st.current && !st.current->title.empty() ? st.current->title : std::string();
+    const std::wstring title = live ? (show.empty() ? std::wstring(L"CJ Radio \u2014 live now") : L"CJ Radio \u2014 " + widen(show) + L" (live)") : L"CJ Radio";
+    wchar_t cur[512] = {};
+    GetWindowTextW(hwnd(), cur, 512);
+    if (title != cur) SetWindowTextW(hwnd(), title.c_str());
+    const cj::UtcSeconds t = now();
+    const std::string latest = recordings_.empty() ? std::string() : recordings_.front().id;
+    if (live == sharedLive_ && show == sharedShow_ && latest == sharedLatest_ && t - sharedAt_ < 60) return;
+    sharedLive_ = live;
+    sharedShow_ = show;
+    sharedLatest_ = latest;
+    sharedAt_ = t;
+    json j;
+    j["live"] = live;
+    j["show"] = show;
+    j["sinceUtc"] = live ? cj::station::combineLive(nowPlaying_, twitchStatus_).startedUtc : 0;
+    j["updatedUtc"] = t;
+    if (!recordings_.empty()) {
+        const auto& r = recordings_.front();
+        j["latestRecording"] = {{"title", r.title}, {"recordedUtc", r.recordedUtc}, {"durationMinutes", r.durationMinutes}};
+    }
+    writeFileAtomic(stateDir_ + L"\\CJ Radio\\status.json", j.dump(2));
 }
 
 bool RadioApp::onKeyDown(WPARAM vk, bool ctrl, bool) {
     if (ctrl && vk >= '1' && vk <= '4') { navigate(static_cast<Page>(vk - '1')); return true; }
     const bool playing = player_.state() != StreamPlayer::State::Stopped &&
                          player_.state() != StreamPlayer::State::Finished && player_.state() != StreamPlayer::State::Error;
-    if ((ctrl && vk == 'P') || vk == VK_MEDIA_PLAY_PAUSE) {
+    if ((ctrl && vk == 'P') || vk == VK_MEDIA_PLAY_PAUSE || (vk == VK_SPACE && !ctrl)) {   // Space too (0.28)
         (void)playing;
         togglePause();
         return true;
@@ -863,7 +949,9 @@ float RadioApp::programmeRow(const Rect& r, const cj::radio::Programme& p, bool 
     using cj::radio::Status;
     const float timeW = showDate ? 116 : 72;
     if (showDate) {
-        gfx_.text(cjui::formatRelative(p.startUtc, now()), {r.x, r.y, timeW - 8, 18}, Font::Small, pal_.inkMuted,
+        // "Today", "Tomorrow", else the day in the UK style: "Tue 18 Nov" (0.28).
+        const std::wstring rel = cjui::formatRelative(p.startUtc, now());
+        gfx_.text(rel == L"Today" || rel == L"Tomorrow" ? rel : cjui::formatShortDay(p.startUtc), {r.x, r.y, timeW - 8, 18}, Font::Small, pal_.inkMuted,
                   {Align::Left, false, true});
         gfx_.text(cjui::formatTime(p.startUtc), {r.x, r.y + 18, timeW - 8, 22}, Font::Heading, pal_.ink, {Align::Left, false});
     } else {
@@ -912,11 +1000,26 @@ float RadioApp::onAirPanel(const Rect& r) {
     std::vector<Line> lines;
     const TextOpts single{Align::Left, false, true};
 
-    lines.push_back({28, [=, this](float y) {
-        gfx_.circle(x + 6, y + 9, live ? 6.0f : 5.0f, live ? kLamp : pal_.consoleMuted, live, 1.5f);
-        gfx_.text(live ? L"ON AIR" : st.state == StationState::StartingSoon ? L"STARTING SOON" : L"OFF AIR",
-                  {x + 20, y + 1, 200, 18}, Font::Label, live ? pal_.consoleInk : pal_.consoleMuted, {Align::Left, false});
-    }});
+    if (live) {
+        // A big ON AIR sign that glows while a show is live (0.28), breathing gently.
+        lines.push_back({62, [=, this](float y) {
+            const double secs = (double)GetTickCount64() / 1000.0;
+            const float pulse = 0.75f + 0.25f * (float)std::sin(secs * 2.2);
+            const float sw = 176, sh = 50;
+            const Rect sign{x, y + 2, sw, sh};
+            gfx_.glow(sign.x + sw / 2, sign.y + sh / 2, sw * 0.9f, sh * 1.6f, kLamp.withAlpha(0.35f * pulse));
+            gfx_.fillRounded(sign, 8, kLamp.withAlpha(0.18f + 0.10f * pulse));
+            gfx_.strokeRounded(sign.inset(1), 8, kLamp.withAlpha(0.65f + 0.35f * pulse), 2);
+            gfx_.text(L"ON AIR", sign, Font::Title, kLamp.mix(pal_.consoleInk, 0.25f * (1 - pulse)), {Align::Center, false, false, true});
+            wantAmbientFrame();
+        }});
+    } else {
+        lines.push_back({28, [=, this](float y) {
+            gfx_.circle(x + 6, y + 9, 5.0f, pal_.consoleMuted, false, 1.5f);
+            gfx_.text(st.state == StationState::StartingSoon ? L"STARTING SOON" : L"OFF AIR",
+                      {x + 20, y + 1, 200, 18}, Font::Label, pal_.consoleMuted, {Align::Left, false});
+        }});
+    }
 
     if (live) {
         const auto sig = cj::station::combineLive(nowPlaying_, twitchStatus_);
@@ -1067,8 +1170,17 @@ float RadioApp::pageListen(const Rect& r) {
                                     std::min(pw - 60, 520.0f), th + 4},
                       Font::Body, pal_.ink, {Align::Center});
             const std::string url = station_.twitchUrl;
+            // Try again (0.28): starts the player afresh; or watch on Twitch's own site.
+            const Rect tb{slot.x + pw / 2 - 70, slot.y + ph / 2 + th / 2 - 4, 140, 34};
+            button("listen:retry", tb, L"Try again", [this] {
+                twitchNote_.clear();
+                twitch_.destroy();
+                twitchChannel_.clear();
+                startTwitch();
+                invalidate();
+            }, true);
             const float lw = gfx_.measureWidth(L"Watch on Twitch instead", Font::Small);
-            linkText("listen:twitch-fallback", slot.x + pw / 2 - lw / 2, slot.y + ph / 2 + th / 2, L"Watch on Twitch instead",
+            linkText("listen:twitch-fallback", slot.x + pw / 2 - lw / 2, tb.bottom() + 12, L"Watch on Twitch instead",
                      [url] { cjui::openInBrowser(url); });
         } else {
             gfx_.fill(slot, hexColor("#111111"));
@@ -1199,7 +1311,7 @@ float RadioApp::pageSchedule(const Rect& r) {
         const int day = cjui::localDayKey(p.startUtc);
         if (day != lastDay) {
             if (lastDay != -1) y += 12;
-            const std::wstring d = cjui::formatDay(p.startUtc);
+            const std::wstring d = cjui::formatShortDay(p.startUtc);   // "Tue 18 Nov" (0.28)
             gfx_.text(d, {r.x, y, r.w, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false});
             const std::wstring rel = cjui::formatRelative(p.startUtc, now());
             if (rel == L"Today" || rel == L"Tomorrow")

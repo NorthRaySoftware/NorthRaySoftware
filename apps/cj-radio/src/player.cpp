@@ -33,6 +33,7 @@ struct StreamPlayer::Impl {
     std::atomic<bool> prebuffered{false};
     std::atomic<unsigned long long> framesPlayed{0};
     float gain = 0.8f;  // smoothed, audio thread only
+    bool fadeIn = false;  // a new stream: rise from silence over about two seconds (0.28)
 };
 
 static void dataCallback(ma_device* dev, void* out, const void*, ma_uint32 frameCount) {
@@ -103,6 +104,8 @@ void StreamPlayer::play(const std::string& url, bool live) {
     ma_pcm_rb_reset(&impl_->ring);
     impl_->prebuffered = false;
     impl_->framesPlayed = 0;
+    impl_->gain = 0;        // the device is stopped here, so the audio thread isn't reading these
+    impl_->fadeIn = true;
     const unsigned gen = ++generation_;
     setState(State::Connecting);
     if (ma_device_start(&impl_->device) != MA_SUCCESS) {
@@ -337,8 +340,15 @@ void StreamPlayer::fill(float* out, unsigned frameCount) {
         if (ma_pcm_rb_acquire_read(&impl_->ring, &n, &src) != MA_SUCCESS || n == 0) break;
         const float* in = static_cast<const float*>(src);
         float* dst = out + done * kChannels;
+        const float fadeStep = target / (kRate * kChannels * 1.8f);   // the start of a show: a gentle rise
         for (ma_uint32 i = 0; i < n * kChannels; ++i) {
-            impl_->gain += (target - impl_->gain) * (paused ? 0.002f : 0.0005f);  // short glides, no clicks
+            if (impl_->fadeIn && !paused) {
+                impl_->gain = std::min(target, impl_->gain + fadeStep);
+                if (impl_->gain >= target) impl_->fadeIn = false;
+            } else {
+                impl_->fadeIn = false;
+                impl_->gain += (target - impl_->gain) * (paused ? 0.002f : 0.0005f);  // short glides, no clicks
+            }
             const float v = in[i] * impl_->gain;
             dst[i] = v;
             peak = std::max(peak, std::fabs(v));

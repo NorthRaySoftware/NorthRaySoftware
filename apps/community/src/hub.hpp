@@ -57,6 +57,19 @@ private:
     std::string downloadPage_;
     std::string developer_ = "NorthRay Software";
     int theme_ = 0;                // 0 as Windows, 1 light, 2 dark
+    // What CJ Radio last said (its status.json beside its settings, written while it's open; 0.29).
+    struct RadioStatus {
+        bool live = false;
+        std::string show;
+        long long sinceUtc = 0, updatedUtc = 0;
+        bool hasLatest = false;
+        std::string latestTitle;
+        long long latestUtc = 0;
+        int latestMinutes = 0;
+    } radio_;
+    void readRadioStatus();
+    bool radioLive() const;        // live, and CJ Radio said so in the last few minutes
+    float drawLatestRecording(const Rect& r);
 };
 
 }  // namespace cjp

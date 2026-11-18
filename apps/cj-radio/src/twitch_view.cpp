@@ -210,6 +210,7 @@ bool TwitchView::create(HWND parent, const std::wstring& exeDir, const std::wstr
                                 else if (m == L"playing") me->post(Event::Playing);
                                 else if (m == L"paused") me->post(Event::Paused);
                                 else if (m == L"failed") me->post(Event::Failed);
+                                else if (m == L"unreachable") me->post(Event::Unreachable);
                                 else if (m == L"audio-on") me->post(Event::SoundOnlyOn);
                                 else if (m == L"audio-off") me->post(Event::SoundOnlyOff);
                                 else if (m == L"audio-unavailable") me->post(Event::SoundOnlyUnavailable);

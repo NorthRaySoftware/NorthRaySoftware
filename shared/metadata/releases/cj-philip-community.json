@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.29.0",
+      "date": "2026-11-18",
+      "notes": [
+        "A LIVE NOW badge on CJ Radio's card while a show is on (when CJ Radio is open; it's what watches the broadcast). Point at it for the show's name.",
+        "The home page shows CJ Radio's latest recording, with its date and length, and Listen in CJ Radio."
+      ]
+    },
+    {
       "version": "0.28.0",
       "date": "2026-11-15",
       "notes": [

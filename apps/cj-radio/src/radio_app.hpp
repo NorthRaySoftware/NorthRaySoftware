@@ -50,6 +50,10 @@ private:
     void startTwitch();
     void placeTwitch(float W, float H);
     void saveVolume();
+    void shareStatus();          // the window title while live, and CJ Radio\status.json for CJ Philip Community
+    bool sharedLive_ = false;
+    std::string sharedShow_, sharedLatest_;
+    cj::UtcSeconds sharedAt_ = 0;
 
     void listenLive();
     void playRecording(const cj::station::Recording& r);

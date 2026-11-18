@@ -6,9 +6,15 @@
   function tell(msg) { if (host) host.postMessage(msg); }
 
   var channel = new URLSearchParams(location.search).get("channel") || "";
-  if (!/^[a-z0-9_]{1,25}$/.test(channel) || typeof Twitch === "undefined" || !Twitch.Player) {
+  if (!/^[a-z0-9_]{1,25}$/.test(channel)) {
     document.getElementById("note").style.display = "flex";
     tell("failed");
+    return;
+  }
+  // Twitch's script didn't load: Twitch couldn't be reached (no connection, or Twitch is down).
+  if (typeof Twitch === "undefined" || !Twitch.Player) {
+    document.getElementById("note").style.display = "flex";
+    tell("unreachable");
     return;
   }
 
@@ -21,7 +27,10 @@
     muted: false
   });
 
-  player.addEventListener(Twitch.Player.READY, function () { tell("ready"); });
+  var readyTold = false;
+  player.addEventListener(Twitch.Player.READY, function () { readyTold = true; tell("ready"); });
+  // The player never got going (its own requests to Twitch failing): say so rather than wait for ever.
+  setTimeout(function () { if (!readyTold) tell("unreachable"); }, 25000);
   // ONLINE / OFFLINE come from Twitch itself: whether the channel is broadcasting.
   player.addEventListener(Twitch.Player.ONLINE, function () { tell("online"); });
   player.addEventListener(Twitch.Player.OFFLINE, function () { tell("offline"); });
@@ -55,7 +64,27 @@
     }
   }
 
-  player.addEventListener(Twitch.Player.PLAYING, function () { tell("playing"); applySound(); });
+  // When a show starts playing, its sound fades in over about two seconds instead of starting at full
+  // volume (once per show: after the channel goes offline and back on, it fades in again).
+  var fadedIn = false, fadeTimer = null;
+  function fadeIn() {
+    if (fadedIn) return;
+    fadedIn = true;
+    var target;
+    try { target = player.getVolume(); } catch (e) { return; }
+    if (!(target > 0)) return;
+    var step = 0, steps = 30;
+    try { player.setVolume(0); } catch (e) { return; }
+    clearInterval(fadeTimer);
+    fadeTimer = setInterval(function () {
+      step++;
+      var t = step / steps;
+      try { player.setVolume(target * t * t); } catch (e) { clearInterval(fadeTimer); return; }
+      if (step >= steps) clearInterval(fadeTimer);
+    }, 65);
+  }
+  player.addEventListener(Twitch.Player.OFFLINE, function () { fadedIn = false; });
+  player.addEventListener(Twitch.Player.PLAYING, function () { tell("playing"); applySound(); fadeIn(); });
   player.addEventListener(Twitch.Player.PAUSE, function () { tell("paused"); });
 
   // CJ Radio pauses the player when the Listen page isn't showing.

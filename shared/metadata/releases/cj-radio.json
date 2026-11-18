@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.28.0",
+      "date": "2026-11-18",
+      "notes": [
+        "While a show is live, a big ON AIR sign glows on the Listen page and the window's title (and its taskbar button) shows the show's name.",
+        "The sound fades in gently when a show starts playing, instead of starting suddenly at full volume.",
+        "The schedule shows dates in the UK style: Wed 18 Nov.",
+        "Recordings in CJ Radio's own Recordings folder show their length as well as their date.",
+        "The space bar plays and pauses.",
+        "When Twitch can't be reached, CJ Radio says so plainly and offers Try again, as well as watching on Twitch's own site."
+      ]
+    },
+    {
       "version": "0.27.3",
       "date": "2026-11-14",
       "notes": [

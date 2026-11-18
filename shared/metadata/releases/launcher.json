@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.99.0",
+      "date": "2026-11-18",
+      "notes": [
+        "CJ Radio 0.28.0 and CJ Philip Community 0.29.0: a glowing ON AIR sign, the show's name in the title, a gentle fade-in, LIVE NOW in CJ Philip Community and its latest recording."
+      ]
+    },
+    {
       "version": "0.98.0",
       "date": "2026-11-18",
       "notes": [

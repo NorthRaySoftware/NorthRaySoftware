@@ -47,6 +47,13 @@ std::wstring formatDay(cj::UtcSeconds t) {
     return buf;
 }
 
+std::wstring formatShortDay(cj::UtcSeconds t) {
+    SYSTEMTIME lt = toLocal(t);
+    wchar_t buf[32];
+    swprintf(buf, 32, L"%.3ls %d %.3ls", kDays[lt.wDayOfWeek], lt.wDay, kMonths[lt.wMonth - 1]);
+    return buf;
+}
+
 std::wstring formatTime(cj::UtcSeconds t) {
     SYSTEMTIME lt = toLocal(t);
     wchar_t buf[16];
