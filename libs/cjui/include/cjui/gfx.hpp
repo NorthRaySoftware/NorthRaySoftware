@@ -108,7 +108,7 @@ public:
     // Pixels made by the program (straight RGBA), drawn into dst and kept under
     // `key` until forgetImage(key). Opaque unless `useAlpha` (then the alpha
     // channel is kept, e.g. for site icons). Returns false if the bitmap couldn't be made.
-    bool drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha = false);
+    bool drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha = false, float opacity = 1.0f);
 
     void pushClip(const Rect& r);
     void popClip();

@@ -274,6 +274,126 @@ bool makePicture(IWICImagingFactory* f, const std::wstring& path, int px, Thumb&
     }
 }
 
+// ---- Kept on disk (0.9): %LOCALAPPDATA%\NorthRay\Files\Thumbnails, one small JPEG (PNG when it has
+// transparency) per file, named by a hash of its path, modified time and picture size, so a changed file gets a
+// new one. Pruned oldest first when the folder passes kDiskMax.
+const GUID kPngContainer = {0x1b7cfaf4, 0x713f, 0x473c, {0xbb, 0xcd, 0x61, 0x37, 0x42, 0x5f, 0xae, 0xaf}};
+const GUID kBgr24 = {0x6fddc324, 0x4e03, 0x4bfe, {0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x0c}};
+constexpr std::uint64_t kDiskMax = 300ull * 1024 * 1024, kDiskKeep = 220ull * 1024 * 1024;
+
+std::wstring cacheFolder() {
+    static const std::wstring dir = [] {
+        PWSTR p = nullptr;
+        std::wstring d;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p)) && p) d = std::wstring(p) + L"\\NorthRay\\Files\\Thumbnails";
+        CoTaskMemFree(p);
+        if (!d.empty()) SHCreateDirectoryExW(nullptr, d.c_str(), nullptr);
+        return d;
+    }();
+    return dir;
+}
+
+std::wstring cacheFile(const std::wstring& key, bool png) {
+    const std::wstring dir = cacheFolder();
+    if (dir.empty()) return L"";
+    std::uint64_t h = 1469598103934665603ull;   // FNV-1a over the key in lower case
+    for (wchar_t c : key) {
+        const unsigned v = (unsigned)towlower(c);
+        h = (h ^ (v & 0xff)) * 1099511628211ull;
+        h = (h ^ (v >> 8)) * 1099511628211ull;
+    }
+    wchar_t name[40];
+    swprintf(name, 40, L"\\%016llx.%ls", (unsigned long long)h, png ? L"png" : L"jpg");
+    return dir + name;
+}
+
+void touch(const std::wstring& file);
+
+bool loadCached(IWICImagingFactory* f, const std::wstring& key, int px, Thumb& out) {
+    for (bool png : {false, true}) {
+        const std::wstring file = cacheFile(key, png);
+        if (file.empty() || GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        if (decode(f, file, px, out)) {
+            touch(file);
+            return true;
+        }
+        DeleteFileW(file.c_str());   // spoiled: made again
+    }
+    return false;
+}
+
+void saveCached(IWICImagingFactory* f, const std::wstring& key, const Thumb& t) {
+    if (!f || t.w <= 0 || t.h <= 0 || t.rgba.size() != (std::size_t)t.w * t.h * 4) return;
+    bool alpha = false;
+    for (std::size_t i = 3; i < t.rgba.size() && !alpha; i += 4) alpha = t.rgba[i] != 255;
+    const std::wstring file = cacheFile(key, alpha);
+    if (file.empty()) return;
+    const std::wstring tmp = file + L".new";
+    Com<IWICBitmap> bmp;
+    Com<IWICStream> st;
+    Com<IWICBitmapEncoder> enc;
+    Com<IWICBitmapFrameEncode> fr;
+    Com<IPropertyBag2> bag;
+    bool ok = SUCCEEDED(f->CreateBitmapFromMemory((UINT)t.w, (UINT)t.h, kRgba, (UINT)t.w * 4, (UINT)t.rgba.size(), (BYTE*)t.rgba.data(), bmp.put())) &&
+              SUCCEEDED(f->CreateStream(st.put())) && SUCCEEDED(st->InitializeFromFilename(tmp.c_str(), GENERIC_WRITE)) &&
+              SUCCEEDED(f->CreateEncoder(alpha ? kPngContainer : kJpegContainer, nullptr, enc.put())) &&
+              SUCCEEDED(enc->Initialize(st.p, WICBitmapEncoderNoCache)) && SUCCEEDED(enc->CreateNewFrame(fr.put(), bag.put()));
+    if (ok && !alpha && bag) {
+        PROPBAG2 opt{};
+        opt.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
+        VARIANT v;
+        VariantInit(&v);
+        v.vt = VT_R4;
+        v.fltVal = 0.88f;
+        bag->Write(1, &opt, &v);
+    }
+    if (ok) {
+        WICPixelFormatGUID pf = alpha ? kRgba : kBgr24;
+        ok = SUCCEEDED(fr->Initialize(bag.p)) && SUCCEEDED(fr->SetSize((UINT)t.w, (UINT)t.h)) && SUCCEEDED(fr->SetPixelFormat(&pf)) &&
+             SUCCEEDED(fr->WriteSource(bmp.p, nullptr)) && SUCCEEDED(fr->Commit()) && SUCCEEDED(enc->Commit());
+    }
+    fr.put();
+    enc.put();
+    st.put();   // closes the file
+    if (!ok || !MoveFileExW(tmp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING)) DeleteFileW(tmp.c_str());
+}
+
+// Oldest first until the folder is back under kDiskKeep, once it's past kDiskMax.
+void pruneCache() {
+    const std::wstring dir = cacheFolder();
+    if (dir.empty()) return;
+    struct F { std::wstring name; std::uint64_t size, when; };
+    std::vector<F> files;
+    std::uint64_t total = 0;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileExW((dir + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        const std::uint64_t sz = ((std::uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+        const std::uint64_t when = ((std::uint64_t)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime;
+        files.push_back({fd.cFileName, sz, when});
+        total += sz;
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    if (total <= kDiskMax) return;
+    std::sort(files.begin(), files.end(), [](const F& a, const F& b) { return a.when < b.when; });
+    for (const F& f : files) {
+        if (total <= kDiskKeep) break;
+        if (DeleteFileW((dir + L"\\" + f.name).c_str())) total -= f.size;
+    }
+}
+
+// Pictures that were used again count as new, so pruning keeps them.
+void touch(const std::wstring& file) {
+    HANDLE h = CreateFileW(file.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    SetFileTime(h, nullptr, nullptr, &now);
+    CloseHandle(h);
+}
+
 }  // namespace
 
 struct Thumbnails::Shared {
@@ -293,6 +413,7 @@ Thumbnails::Thumbnails(HWND notify) : shared_(std::make_shared<Shared>()) {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);   // the Shell's thumbnail handlers want one
         Com<IWICImagingFactory> factory;
         CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+        std::uint64_t made = 0;
         for (;;) {
             Job job;
             {
@@ -305,7 +426,11 @@ Thumbnails::Thumbnails(HWND notify) : shared_(std::make_shared<Shared>()) {
             }
             auto* r = new ThumbResult;
             r->key = job.key;
-            if (!makePicture(factory.p, job.path, job.px, r->thumb)) {
+            if (++made % 300 == 1) pruneCache();   // at the start, then now and then
+            if (loadCached(factory.p, job.key, job.px, r->thumb)) {
+            } else if (makePicture(factory.p, job.path, job.px, r->thumb)) {
+                saveCached(factory.p, job.key, r->thumb);
+            } else {
                 r->thumb = {};
                 r->thumb.failed = true;
             }
@@ -401,6 +526,18 @@ void Thumbnails::forgetQueue() {
     ++shared_->generation;
     for (const Job& j : shared_->jobs) shared_->pending.erase(j.key);
     shared_->jobs.clear();
+}
+
+void Thumbnails::clearDisk() {
+    const std::wstring dir = cacheFolder();
+    if (dir.empty()) return;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileExW((dir + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) DeleteFileW((dir + L"\\" + fd.cFileName).c_str());
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
 }
 
 std::vector<std::uint64_t> Thumbnails::takeEvicted() {

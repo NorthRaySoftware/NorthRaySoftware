@@ -283,11 +283,39 @@ fit (short windows, 150% scaling); the tree keeps at least 40 DIPs. Question box
 - Tested in Wine: quick look on a picture and a text file, Backspace, the › menu, Ctrl+wheel, the sidebar drag and the
   pixel size in the status bar.
 
-## 7j. Next
+## 7j. 0.9.0, polish batch B
 
-Polish batch B (resizable Details columns, per-folder view and sort, folder sizes, thumbnails that fade in and are kept
-on disk, an in-window progress bar for long copies), then UI Automation, labels that follow outside moves (NTFS file
-ids), File Explorer replacement as an optional setting.
+- **Details columns** are sized by dragging their left edges in the header (`colEdges_` collected while drawing,
+  `colDrag_`, resize cursor in WM_SETCURSOR). Widths persist (`dateColW`, `typeColW`, `sizeColW`); Name takes what's
+  left and keeps at least 160 DIPs (the drag stops there, and a narrow window shrinks the others in proportion).
+- **Per-folder view and sort.** `Settings::view/sortKey/sortDescending` are what's showing; `baseView/...` (saved under
+  the old keys) are the defaults; `folderViews` (lower-case path, at most 500, most recent last) holds folders that
+  differ. `go()` applies a plain folder's memory (`applyFolderView`); changing the view or sort remembers it for that
+  folder, or changes the defaults for This PC, searches, collections and the bin. Each tab's `View` carries its own
+  view and sort, swapped with the settings' like the rest, so two panes can differ. View › "Use this view and order for
+  every folder" makes the current one the default and forgets the rest.
+- **Folder sizes** (src/folder_sizes.*): one detached worker, newest request first; the folder's own item count is
+  posted first (`WM_APP_FOLDERSIZE`), then the total size from a breadth walk that never follows reparse points and
+  stops at 250,000 entries or 4 s ("over ..."). Kept by path and modified time; F5 clears them; a new folder drops the
+  queue. Details shows "Folder · 3 items" / "empty" and the size; the status bar shows them for one selected folder.
+- **Thumbnails fade in** (`thumbAppear`: an eased value per picture serial, the icon cross-fading out in Icons view);
+  `Gfx::drawPixels` gained an opacity.
+- **Thumbnails on disk**: `%LOCALAPPDATA%\NorthRay\Files\Thumbnails`, named by FNV-1a of path|modified|px, JPEG
+  (quality 0.88) or PNG when transparent, written through WIC to `.new` then moved into place; read back through the
+  same decoder (touching the file so pruning is least recently used). Pruned to 220 MB once past 300 MB, at start and
+  every 300 pictures. Menu › "Clear saved thumbnails" deletes them.
+- **Copy and move progress in the window**: `ops::transfer`/`copyAs` take a `Progress` callback fed by an
+  `IFileOperationProgressSink`; after 400 ms the window draws a card with the percentage, painted synchronously from the
+  callback (the operation runs on the UI thread). Windows' own progress window is still shown.
+- Tested in Wine: column drag and its limits, per-folder memory across folders and restarts, counts and sizes (a nested
+  folder's size), the status bar, the disk cache written and read back after a restart, the fade (measured frame by
+  frame), and the progress card's drawing. Not testable here: the progress reports themselves (Wine's IFileOperation
+  can't copy, so Files uses SHFileOperation, which has none). Please check a large copy on Windows.
+
+## 7k. Next
+
+UI Automation for screen readers, labels that follow outside moves (NTFS file ids), File Explorer replacement as an
+optional setting, sorting folders by their size.
 
 ## (Earlier plan) 0.2, core file operations
 

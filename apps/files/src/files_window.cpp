@@ -73,7 +73,7 @@ enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdBatchRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
-    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab, CmdViewForAll, CmdClearThumbs,
 };
 
 constexpr UINT CmdColour0 = 1000;   // + labels::Colour
@@ -220,6 +220,7 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
     }
     updateRecycleBin();
     thumbs_ = std::make_unique<Thumbnails>(hwnd());
+    folderSizes_ = std::make_unique<FolderSizes>(hwnd());
     applyTheme();
     places_ = knownPlaces();
     ShowWindow(hwnd(), show);
@@ -240,7 +241,7 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
         return std::nullopt;
     };
     if (startPath.empty() && !settings_.tabs[0].empty()) {
-        tabs_[0].assign(1, View{});
+        tabs_[0].assign(1, newView());
         bool first = true;
         for (auto& t : settings_.tabs[0]) {
             auto loc = toLocation(t);
@@ -264,7 +265,7 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
         listDrivesAsync(hwnd(), 0, std::make_shared<std::atomic<std::uint64_t>>(0));
         return true;
     }
-    tabs_[0].assign(1, View{});
+    tabs_[0].assign(1, newView());
     // Where to start: the folder asked for, else the last one, else Home.
     std::wstring start = startPath;
     if (start.empty()) start = settings_.lastFolder;
@@ -320,10 +321,12 @@ void FilesWindow::go(const Location& to, bool remember, const std::wstring& sele
     }
     loadedOnce_ = true;
     if (thumbs_) thumbs_->forgetQueue();
+    if (folderSizes_) folderSizes_->forgetQueue();
     // Searching again for something else in the same place: what's shown stays (narrowed to the new
     // words) until the first new results come, so the list doesn't blink empty at every pause in typing.
     const bool again = to.searching() && here_.searching() && !here_.thisPC && samePath(to.path, here_.path) && to.everywhere == here_.everywhere;
     here_ = to;
+    applyFolderView();
     searchReplace_ = again;
     if (!again) {
         listed_.clear();
@@ -455,6 +458,7 @@ void FilesWindow::up() {
 }
 
 void FilesWindow::refresh() {
+    if (folderSizes_) folderSizes_->clear();   // sizes of what's inside may have changed deep down
     std::wstring keep;
     if (sel_.focus() >= 0 && (std::size_t)sel_.focus() < shown_.size()) keep = shown_[(std::size_t)sel_.focus()].name;
     go(here_, false, keep);
@@ -824,6 +828,18 @@ bool FilesWindow::onMouseDown(float x, float y) {
         SetCapture(hwnd());
         return true;
     }
+    // A Details column's edge (0.9).
+    if (const ColEdge* ce = colEdgeAt(x, y)) {
+        colDrag_ = ce->col;
+        colDragRight_ = ce->right;
+        // Name keeps at least 160 DIPs, so the column can grow by what Name has beyond that.
+        float nameRight = ce->x;
+        for (const ColEdge& o : colEdges_)
+            if (o.y0 == ce->y0 && o.nameLeft == ce->nameLeft) nameRight = std::min(nameRight, o.x);
+        colDragMax_ = ce->right - ce->x + std::max(0.0f, nameRight - ce->nameLeft - 160);
+        SetCapture(hwnd());
+        return true;
+    }
     if (batch_.open) {
         if (batchCard_.contains(x, y)) return false;   // its buttons
         closeBatchRename();
@@ -940,12 +956,12 @@ bool FilesWindow::onRightClick(float x, float y) {
 LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     switch (msg) {
         case WM_SETCURSOR: {   // the sidebar's edge shows the resize pointer
-            if (LOWORD(lp) != HTCLIENT || sidebarEdge_ <= 0) break;
+            if (LOWORD(lp) != HTCLIENT) break;
             POINT pt;
             GetCursorPos(&pt);
             ScreenToClient(hwnd(), &pt);
             const float s = gfx_.dpiScale(), x = pt.x / s, y = pt.y / s;
-            if (sidebarDrag_ || (std::fabs(x - sidebarEdge_) <= 4 && y > 48)) {
+            if (sidebarDrag_ || colDrag_ >= 0 || colEdgeAt(x, y) || (sidebarEdge_ > 0 && std::fabs(x - sidebarEdge_) <= 4 && y > 48)) {
                 SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
                 handled = true;
                 return TRUE;
@@ -971,11 +987,22 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             handled = true;
             return 0;
         }
+        case WM_APP_FOLDERSIZE: {
+            auto* r = reinterpret_cast<FolderSizeResult*>(lp);
+            if (folderSizes_) folderSizes_->received(r);
+            delete r;
+            invalidate();
+            handled = true;
+            return 0;
+        }
         case WM_APP_THUMB: {
             auto* t = reinterpret_cast<ThumbResult*>(lp);
             if (thumbs_) {
                 thumbs_->received(t);
-                for (std::uint64_t serial : thumbs_->takeEvicted()) gfx_.forgetImage(L"thumb:" + std::to_wstring(serial));
+                for (std::uint64_t serial : thumbs_->takeEvicted()) {
+                    gfx_.forgetImage(L"thumb:" + std::to_wstring(serial));
+                    seenThumbs_.erase(serial);
+                }
                 invalidate();   // (Icons and Gallery views, and the preview pane)
             }
             delete t;
@@ -1104,6 +1131,7 @@ void FilesWindow::onTimer(UINT_PTR id) {
 
 void FilesWindow::setView(ViewMode v) {
     settings_.view = v;
+    rememberFolderView();
     settings_.save(settingsPath_);
     if (sel_.focus() >= 0) {
         invalidate();
@@ -1120,6 +1148,7 @@ void FilesWindow::sortBy(SortKey k) {
         // Newest and largest first are what people usually want for those.
         settings_.sortDescending = k == SortKey::Modified || k == SortKey::Size;
     }
+    rememberFolderView();
     settings_.save(settingsPath_);
     showHere();
 }
@@ -1169,7 +1198,8 @@ void FilesWindow::showMenu() {
     const std::vector<MenuItem> items = {
         MenuItem::sub(L"View", {MenuItem::item(L"Details", CmdViewDetails, L"Ctrl+Shift+6", true, settings_.view == ViewMode::Details),
                                 MenuItem::item(L"Icons", CmdViewIcons, L"Ctrl+Shift+2", true, settings_.view == ViewMode::Icons),
-                                MenuItem::item(L"Gallery", CmdViewGallery, L"Ctrl+Shift+1", true, settings_.view == ViewMode::Gallery)}),
+                                MenuItem::item(L"Gallery", CmdViewGallery, L"Ctrl+Shift+1", true, settings_.view == ViewMode::Gallery), MenuItem::sep(),
+                                MenuItem::item(L"Use this view and order for every folder", CmdViewForAll)}),
         MenuItem::sub(L"Sort by", {MenuItem::item(L"Name", CmdSortName, {}, true, k == SortKey::Name),
                                    MenuItem::item(L"Date modified", CmdSortDate, {}, true, k == SortKey::Modified),
                                    MenuItem::item(L"Type", CmdSortType, {}, true, k == SortKey::Type),
@@ -1184,6 +1214,7 @@ void FilesWindow::showMenu() {
         MenuItem::sep(),
         MenuItem::item(L"Show hidden items", CmdHidden, {}, true, settings_.showHidden),
         MenuItem::item(L"Show protected operating system files", CmdProtected, {}, true, settings_.showProtected),
+        MenuItem::item(L"Clear saved thumbnails", CmdClearThumbs),
         MenuItem::sep(),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
@@ -1204,9 +1235,18 @@ void FilesWindow::showMenu() {
         case CmdSortDate: sortBy(SortKey::Modified); break;
         case CmdSortType: sortBy(SortKey::Type); break;
         case CmdSortSize: sortBy(SortKey::Size); break;
-        case CmdSortAsc: settings_.sortDescending = false; settings_.save(settingsPath_); showHere(); break;
-        case CmdSortDesc: settings_.sortDescending = true; settings_.save(settingsPath_); showHere(); break;
+        case CmdSortAsc: settings_.sortDescending = false; rememberFolderView(); settings_.save(settingsPath_); showHere(); break;
+        case CmdSortDesc: settings_.sortDescending = true; rememberFolderView(); settings_.save(settingsPath_); showHere(); break;
+        case CmdViewForAll:
+            settings_.forgetFolderViews();
+            settings_.save(settingsPath_);
+            break;
         case CmdRefresh: refresh(); break;
+        case CmdClearThumbs:
+            Thumbnails::clearDisk();
+            cjui::messageBox(hwnd(), L"The thumbnails Files keeps on disk have been deleted. They're made again as you browse.", L"Saved thumbnails",
+                             MB_OK | MB_ICONINFORMATION);
+            break;
         case CmdNewTab: newTab(here_); break;
         case CmdTwoPanes: setTwoPanes(!twoPanes_); break;
         case CmdPreview: togglePreview(); break;
@@ -1397,6 +1437,42 @@ void FilesWindow::copyOrCut(bool cut) {
     invalidate();
 }
 
+// A long copy or move (0.9): a bar in the window fed by Windows' own progress reports. It appears once the
+// operation has run for 400 ms, and is drawn there and then (the window is busy until the operation ends).
+ops::Progress FilesWindow::progressFor(bool move, std::size_t count) {
+    busy_ = Busy{};
+    busy_.what = std::wstring(move ? L"Moving " : L"Copying ") + (count == 1 ? L"1 item" : std::to_wstring(count) + L" items");
+    busy_.started = GetTickCount();
+    return [this](unsigned done, unsigned total) {
+        busy_.frac = total ? std::clamp((float)done / (float)total, 0.0f, 1.0f) : -1.0f;
+        const DWORD now = GetTickCount();
+        if (now - busy_.started < 400 || now - busy_.painted < 100) return;
+        busy_.on = true;
+        busy_.painted = now;
+        invalidate();
+        UpdateWindow(hwnd());
+    };
+}
+
+void FilesWindow::endBusy() {
+    const bool was = busy_.on;
+    busy_ = Busy{};
+    if (was) invalidate();
+}
+
+void FilesWindow::drawBusy(float W, float H) {
+    const float left = std::max(0.0f, sidebarEdge_), cw = std::min(420.0f, W - left - 40), ch = 64;   // over the list, not the sidebar
+    const Rect c{std::round(left + (W - left - cw) / 2), H - ch - 28, cw, ch};
+    gfx_.fillRounded(c, 12, pal_.surface);
+    gfx_.strokeRounded(c, 12, pal_.rule);
+    std::wstring t = busy_.what + L"\u2026";
+    if (busy_.frac >= 0) t += L"  " + std::to_wstring((int)std::lround(busy_.frac * 100)) + L"%";
+    gfx_.text(t, {c.x + 18, c.y + 10, cw - 36, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+    const Rect bar{c.x + 18, c.y + 40, cw - 36, 6};
+    gfx_.fillRounded(bar, 3, pal_.ink.withAlpha(0.1f));
+    if (busy_.frac >= 0) gfx_.fillRounded({bar.x, bar.y, std::max(6.0f, bar.w * busy_.frac), bar.h}, 3, pal_.ribbon);
+}
+
 void FilesWindow::paste(const std::wstring& into) {
     if ((here_.thisPC || here_.searching() || !here_.collection.empty() || here_.bin) && into.empty()) { flash(L"Open a folder to paste into it.", 5); return; }
     const std::wstring dest = into.empty() ? here_.path : into;
@@ -1423,10 +1499,12 @@ void FilesWindow::paste(const std::wstring& into) {
             arrived.push_back(nameOf(src));
         }
     }
-    ops::Result r = ops::transfer(hwnd(), plain, dest, clip.cut);
+    ops::Result r = ops::transfer(hwnd(), plain, dest, clip.cut, progressFor(clip.cut, plan.sources.size()));
+    endBusy();
     if (clip.cut) noteMoved(plain, dest);
     if (!beside.empty() && !r.cancelled) {
-        const ops::Result r2 = ops::copyAs(hwnd(), beside);
+        const ops::Result r2 = ops::copyAs(hwnd(), beside, progressFor(false, beside.size()));
+        endBusy();
         if (!r2.ok) r = r2;
     }
     if (clip.cut && r.ok) {
@@ -2148,8 +2226,10 @@ void FilesWindow::drawGalleryTile(const Rect& t, std::size_t i, int px, float fa
         const float s = std::max(box.w / th->w, box.h / th->h);
         const float w = th->w * s, h = th->h * s;
         gfx_.pushClip(box);
+        const float in = thumbAppear(th->serial);
+        if (in < 0.99f) gfx_.fillRounded(box, 8, pal_.sunken);
         gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(),
-                        {std::round(box.x + (box.w - w) / 2), std::round(box.y + (box.h - h) / 2), std::round(w), std::round(h)}, true);
+                        {std::round(box.x + (box.w - w) / 2), std::round(box.y + (box.h - h) / 2), std::round(w), std::round(h)}, true, in);
         if (fade < 1) gfx_.fill(box, pal_.paper.withAlpha(1.0f - fade));
         gfx_.popClip();
         picture = true;
@@ -2409,6 +2489,9 @@ void FilesWindow::swapView(View& v) {
     swap(searchNoIndex_, v.searchNoIndex);
     swap(searchReplace_, v.searchReplace);
     swap(searchFolders_, v.searchFolders);
+    swap(settings_.view, v.viewMode);
+    swap(settings_.sortKey, v.sortKey);
+    swap(settings_.sortDescending, v.sortDescending);
     const ScrollState mine = scrollState();
     setScrollState(v.scroll);
     v.scroll = mine;
@@ -2457,8 +2540,42 @@ void FilesWindow::activate(int pane, int tab) {
     invalidate();
 }
 
+FilesWindow::View FilesWindow::newView() const {
+    View v;
+    v.viewMode = settings_.baseView;
+    v.sortKey = settings_.baseSortKey;
+    v.sortDescending = settings_.baseDescending;
+    return v;
+}
+
+bool FilesWindow::plainFolder(const Location& l) {
+    return !l.thisPC && !l.searching() && l.collection.empty() && !l.bin && !l.path.empty();
+}
+
+void FilesWindow::applyFolderView() {
+    if (!plainFolder(here_)) return;
+    if (const Settings::FolderView* fv = settings_.folderView(lowerPath(here_.path))) {
+        settings_.view = fv->view;
+        settings_.sortKey = fv->sortKey;
+        settings_.sortDescending = fv->descending;
+    } else {
+        settings_.view = settings_.baseView;
+        settings_.sortKey = settings_.baseSortKey;
+        settings_.sortDescending = settings_.baseDescending;
+    }
+}
+
+void FilesWindow::rememberFolderView() {
+    if (plainFolder(here_)) settings_.rememberFolderView(lowerPath(here_.path));
+    else {   // This PC, searches, collections and the Recycle Bin: the usual view changes
+        settings_.baseView = settings_.view;
+        settings_.baseSortKey = settings_.sortKey;
+        settings_.baseDescending = settings_.sortDescending;
+    }
+}
+
 void FilesWindow::newTab(Location at) {
-    tabs_[pane_].push_back(View{});
+    tabs_[pane_].push_back(newView());
     activate(pane_, (int)tabs_[pane_].size() - 1);
     go(at, false);
 }
@@ -2489,7 +2606,7 @@ void FilesWindow::setTwoPanes(bool on) {
         twoPanes_ = true;
         if (tabs_[1].empty()) {
             const Location here = here_;
-            tabs_[1].push_back(View{});
+            tabs_[1].push_back(newView());
             activate(1, 0);
             go(here, false);   // the second pane starts where the first one is
         } else {
@@ -2524,7 +2641,8 @@ void FilesWindow::transferToOtherPane(bool move) {
     if (plan.nothingToDo) { flash(L"They're in that folder already.", 5); return; }
     if (!plan.problem.empty()) flash(plan.problem, 6);
     if (plan.sources.empty()) return;
-    const ops::Result r = ops::transfer(hwnd(), plan.sources, to.path, move);
+    const ops::Result r = ops::transfer(hwnd(), plan.sources, to.path, move, progressFor(move, plan.sources.size()));
+    endBusy();
     if (move) noteMoved(plan.sources, to.path);
     if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
                                                 L"NorthRay Files", MB_OK | MB_ICONWARNING);
@@ -2641,7 +2759,29 @@ std::wstring FilesWindow::dropTargetFolder(float x, float y, int* paneOut) {
     return out;
 }
 
+const FilesWindow::ColEdge* FilesWindow::colEdgeAt(float x, float y) const {
+    for (const ColEdge& e : colEdges_)
+        if (std::fabs(x - e.x) <= 4 && y >= e.y0 && y <= e.y1) return &e;
+    return nullptr;
+}
+
+float* FilesWindow::colWidth(int col) {
+    return col == 0 ? &settings_.dateColW : col == 1 ? &settings_.typeColW : &settings_.sizeColW;
+}
+
 void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
+    if (colDrag_ >= 0) {
+        if (!leftDown) {
+            colDrag_ = -1;
+            ReleaseCapture();
+            settings_.save(settingsPath_);
+            return;
+        }
+        const float lo = colDrag_ == 0 ? 90.0f : colDrag_ == 1 ? 80.0f : 64.0f, hi = colDrag_ == 0 ? 360.0f : colDrag_ == 1 ? 420.0f : 220.0f;
+        *colWidth(colDrag_) = std::clamp(std::round(colDragRight_ - x), lo, std::max(lo, std::min(hi, colDragMax_)));
+        invalidate();
+        return;
+    }
     if (sidebarDrag_) {
         if (!leftDown) {
             sidebarDrag_ = false;
@@ -2679,6 +2819,12 @@ void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
 }
 
 bool FilesWindow::onMouseUp(float x, float y) {
+    if (colDrag_ >= 0) {
+        colDrag_ = -1;
+        ReleaseCapture();
+        settings_.save(settingsPath_);
+        return true;
+    }
     if (sidebarDrag_) {
         sidebarDrag_ = false;
         ReleaseCapture();
@@ -2739,7 +2885,8 @@ DWORD FilesWindow::dropAt(const std::vector<std::wstring>& paths, float x, float
     const TransferPlan plan = planTransfer(paths, target, move);
     if (plan.nothingToDo || plan.sources.empty()) { if (!plan.problem.empty()) flash(plan.problem, 6); return DROPEFFECT_NONE; }
     if (!plan.problem.empty()) flash(plan.problem, 6);
-    const ops::Result r = ops::transfer(hwnd(), plan.sources, target, move);
+    const ops::Result r = ops::transfer(hwnd(), plan.sources, target, move, progressFor(move, plan.sources.size()));
+    endBusy();
     if (move) noteMoved(plan.sources, target);
     if (!r.ok && !r.cancelled) cjui::messageBox(hwnd(), (L"Some items couldn't be " + std::wstring(move ? L"moved" : L"copied") + L".\n\n" + r.message).c_str(),
                                                 L"NorthRay Files", MB_OK | MB_ICONWARNING);
@@ -2883,6 +3030,7 @@ void FilesWindow::drawFrame(float W, float H) {
     const float side = W >= 760 ? settings_.sidebarWidth : 0;   // a narrow window gives the files the room
     sidebarRect_ = {0, 0, side, H};
     sidebarEdge_ = side;
+    colEdges_.clear();
     if (side > 0) drawSidebar({0, 0, side, H});
     drawToolbar({side, 0, W - side, kToolbarH});
     // The panes: one, or two side by side, each with its tabs along the top. The other pane is drawn
@@ -2945,6 +3093,7 @@ void FilesWindow::drawFrame(float W, float H) {
     if (asking_) drawAsk(W, H);
     if (batch_.open) drawBatchRename(W, H);
     if (quickLook_) drawQuickLook(W, H);
+    if (busy_.on) drawBusy(W, H);
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
         const float s = gfx_.dpiScale();
@@ -3309,6 +3458,13 @@ void FilesWindow::drawContent(const Rect& rIn) {
     else drawIcons(r);
 }
 
+// A picture fades in the first time it's drawn (0.9), rather than popping in over its icon.
+float FilesWindow::thumbAppear(std::uint64_t serial) {
+    const std::string key = "thumbin:" + std::to_string(serial);
+    if (seenThumbs_.insert(serial).second) setAnim(key, 0.0f);
+    return anim(key, 1.0f, 10.0f);
+}
+
 void FilesWindow::drawRowBackground(const Rect& r, std::size_t row, float radius) {
     const bool sel = sel_.selected(row);
     const bool hov = hoverId() == idPrefix_ + "row:" + std::to_string(row);
@@ -3324,7 +3480,14 @@ void FilesWindow::drawDetails(const Rect& r) {
     const bool showType = w >= 620, showDate = w >= 430;
     // Search results: where each one is, in place of its type.
     const bool folderCol = here_.searching() || !here_.collection.empty() || here_.bin;
-    const float sizeW = 100, typeW = showType ? (folderCol ? std::min(260.0f, w * 0.3f) : 170) : 0, dateW = showDate ? 170 : 0;
+    float sizeW = settings_.sizeColW, typeW = showType ? settings_.typeColW : 0, dateW = showDate ? settings_.dateColW : 0;
+    {   // Name keeps at least 160: the others give way (in the window, not in the settings).
+        const float over = 160 - (w - sizeW - typeW - dateW);
+        if (over > 0) {
+            const float total = sizeW + typeW + dateW, k = std::max(0.3f, (total - over) / total);
+            sizeW = std::floor(sizeW * k), typeW = std::floor(typeW * k), dateW = std::floor(dateW * k);
+        }
+    }
     const float nameW = w - sizeW - typeW - dateW;
     const float xName = x0, xDate = xName + nameW, xType = xDate + dateW, xSize = xType + typeW;
 
@@ -3357,6 +3520,16 @@ void FilesWindow::drawDetails(const Rect& r) {
         head(idPrefix_ + "tb:sort:type", L"Type", xType, typeW, SortKey::Type, false);
     }
     head(idPrefix_ + "tb:sort:size", L"Size", xSize, sizeW - 14, SortKey::Size, true);
+    // Each column's left edge sizes it; a faint line shows where while the pointer is near or dragging.
+    auto edge = [&](float ex, float right, int col) {
+        colEdges_.push_back({ex, hr.y, hr.bottom(), right, x0, col});
+        if (colDrag_ == col || (colDrag_ < 0 && std::fabs(mouseX() - ex) <= 4 && mouseY() >= hr.y && mouseY() <= hr.bottom()))
+            gfx_.fill({ex - 1, hr.y + 6, 2, hr.h - 12}, pal_.ribbon.withAlpha(0.8f));
+        else gfx_.fill({ex - 0.5f, hr.y + 10, 1, hr.h - 20}, pal_.rule);
+    };
+    if (dateW > 0) edge(xDate, xDate + dateW, 0);
+    if (typeW > 0) edge(xType, xType + typeW, 1);
+    edge(xSize, xSize + sizeW, 2);
 
     const Rect clip{r.x, hr.bottom() + 2, r.w, r.h - kHeaderH - 2};
     listClip_ = clip;
@@ -3420,11 +3593,19 @@ void FilesWindow::drawDetails(const Rect& r) {
             if (!split) gfx_.text(e.name, nr, Font::Body, nameInk, {Align::Left, false, true, true});
         }
         if (dateW > 0) gfx_.text(dateText(e.modified), {xDate + 10, row.y, dateW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-        if (typeW > 0)
-            gfx_.text(folderCol ? searchFolderOf(i) : e.type, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted,
-                      {Align::Left, false, true, true});
+        // A folder: how many items it holds and how big it is, worked out in the background (0.9).
+        const FolderSize* fs = (e.folder() && !e.link() && !here_.bin && folderSizes_) ? folderSizes_->get(rp, e.modified) : nullptr;
+        if (typeW > 0) {
+            std::wstring ty = folderCol ? searchFolderOf(i) : e.type;
+            if (!folderCol && fs && fs->counted)
+                ty += L"  \u00B7  " + (fs->items == 0 ? std::wstring(L"empty") : std::to_wstring(fs->items) + (fs->items == 1 ? L" item" : L" items"));
+            gfx_.text(ty, {xType + 10, row.y, typeW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        }
         if (!e.folder())
             gfx_.text(formatSizeKb(e.size), {xSize, row.y, sizeW - 14, row.h}, Font::Small, pal_.inkMuted, {Align::Right, false, true, true});
+        else if (fs && (fs->sized || fs->counted) && !fs->failed && fs->items > 0)
+            gfx_.text(fs->sized ? (fs->partial ? L"over " : L"") + formatSizeKb(fs->bytes) : std::wstring(L"\u2026"), {xSize, row.y, sizeW - 14, row.h}, Font::Small,
+                      pal_.inkFaint, {Align::Right, false, true, true});
     }
     endScroll((float)n * rowH_ + 12);
 }
@@ -3478,8 +3659,13 @@ void FilesWindow::drawIcons(const Rect& r) {
                 const float s = std::min({boxW / th->w, boxH / th->h, 1.0f / ds});
                 const float w = std::max(1.0f, th->w * s), h = std::max(1.0f, th->h * s);
                 const Rect p{std::round(box.x + (boxW - w) / 2), std::round(box.y + (boxH - h) / 2), std::round(w), std::round(h)};
-                gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(), p, true);
-                gfx_.stroke({p.x - 0.5f, p.y - 0.5f, p.w + 1, p.h + 1}, pal_.rule, 1);
+                const float in = thumbAppear(th->serial);
+                if (in < 0.99f) {   // the icon gives way to the picture
+                    const float is = sc >= 1.4f ? 96.0f : 48.0f;
+                    drawIcon(e.icon, {t.x + (t.w - is) / 2, box.y + (boxH - is) / 2, is, is}, fade * (1 - in));
+                }
+                gfx_.drawPixels(L"thumb:" + std::to_wstring(th->serial), th->w, th->h, th->rgba.data(), p, true, in);
+                gfx_.stroke({p.x - 0.5f, p.y - 0.5f, p.w + 1, p.h + 1}, pal_.rule.withAlpha(pal_.rule.a * in), 1);
                 if (fade < 1) gfx_.fill(p, pal_.paper.withAlpha(1.0f - fade));
             } else {
                 const float is = sc >= 1.4f ? 96.0f : 48.0f;   // the large icons when the tiles are big
@@ -3556,6 +3742,13 @@ std::wstring FilesWindow::statusText() const {
                 if (!shown_[i].folder()) { bytes += shown_[i].size; anyFile = true; }
             left += L"\n" + std::to_wstring(sel.size()) + L" selected";
             if (anyFile) left += L" (" + formatSize(bytes) + L")";
+            // One folder: what's in it, once worked out (0.9).
+            if (sel.size() == 1 && shown_[sel[0]].folder() && folderSizes_)
+                if (const FolderSize* fs = folderSizes_->peek(rowPath(sel[0]), shown_[sel[0]].modified); fs && fs->counted) {
+                    left += L" (" + std::to_wstring(fs->items) + (fs->items == 1 ? L" item" : L" items");
+                    if (fs->sized) left += L", " + std::wstring(fs->partial ? L"over " : L"") + formatSize(fs->bytes);
+                    left += L")";
+                }
             // One picture: its size in pixels (0.8; read from the file's header, once).
             if (sel.size() == 1 && !shown_[sel[0]].folder() && !shown_[sel[0]].cloudOnly() && Thumbnails::hasPicture(shown_[sel[0]].name)) {
                 const auto d = pictureSize(rowPath(sel[0]));

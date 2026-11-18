@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.95.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Files 0.9.0: resizable columns, per-folder views, folder sizes, thumbnails that fade in and are kept on disk, and copy progress in the window."
+      ]
+    },
+    {
       "version": "0.94.0",
       "date": "2026-11-18",
       "notes": [

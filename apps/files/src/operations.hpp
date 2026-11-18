@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,9 +24,13 @@ struct Result {
 
 // Copies or moves `sources` into the folder `destination`. A copy into the folder they're already in
 // gets a new name ("cover - Copy.png"), as in File Explorer.
-Result transfer(HWND owner, const std::vector<std::wstring>& sources, const std::wstring& destination, bool move);
+// `progress`, when given, hears Windows' own progress reports (0.9): work done so far out of the total. It's called
+// on this thread while the operation runs; with the older SHFileOperation (where IFileOperation can't be used) it
+// isn't called at all.
+using Progress = std::function<void(unsigned done, unsigned total)>;
+Result transfer(HWND owner, const std::vector<std::wstring>& sources, const std::wstring& destination, bool move, const Progress& progress = {});
 // Copies each source to an exact new path (a copy beside the original, "cover - Copy.png").
-Result copyAs(HWND owner, const std::vector<std::pair<std::wstring, std::wstring>>& fromTo);
+Result copyAs(HWND owner, const std::vector<std::pair<std::wstring, std::wstring>>& fromTo, const Progress& progress = {});
 // To the Recycle Bin, or (permanently) gone; the caller asks first for permanent deletes.
 Result remove(HWND owner, const std::vector<std::wstring>& paths, bool permanently);
 Result rename(HWND owner, const std::wstring& path, const std::wstring& newName);

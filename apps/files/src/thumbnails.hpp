@@ -7,7 +7,8 @@
 // thumbnail handlers are loaded. Online-only (cloud) files are skipped, so
 // browsing never downloads them, and so are files too big to be worth it.
 //
-// Kept in memory only (at most kMaxKept); a disk cache comes with previews.
+// Kept in memory (at most kMaxKept) and, since 0.9, on disk in %LOCALAPPDATA%\NorthRay\Files\Thumbnails
+// (small JPEGs, PNGs when transparent; at most about 300 MB, the least recently used removed first).
 #pragma once
 
 #include <windows.h>
@@ -61,6 +62,8 @@ public:
     void forgetQueue();              // a new folder: what was asked for no longer matters
     // Pictures dropped from memory since last asked: their drawing bitmaps can go too.
     std::vector<std::uint64_t> takeEvicted();
+    // Deletes the pictures kept on disk (the menu's "Clear saved thumbnails").
+    static void clearDisk();
 
     static constexpr std::size_t kMaxKept = 600;
     static constexpr std::uint64_t kMaxBytes = 256ull * 1024 * 1024;   // larger files keep their icon

@@ -36,6 +36,7 @@ add_executable(NorthRayFiles WIN32
   src/main.cpp
   src/files_window.cpp
   src/quick_look.cpp
+  src/folder_sizes.cpp
   src/batch_rename.cpp
   src/shell.cpp
   src/settings.cpp

@@ -57,6 +57,51 @@ Result shFileOperation(HWND owner, UINT func, const std::vector<std::wstring>& f
     return r;
 }
 
+// Passes Windows' progress reports on (IFileOperationProgressSink; everything else is only acknowledged).
+class ProgressSink final : public IFileOperationProgressSink {
+public:
+    explicit ProgressSink(const Progress& p) : progress_(p) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override {
+        if (!out) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IFileOperationProgressSink) {
+            *out = static_cast<IFileOperationProgressSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG n = --refs_;
+        if (n == 0) delete this;
+        return n;
+    }
+    HRESULT STDMETHODCALLTYPE StartOperations() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostRenameItem(DWORD, IShellItem*, LPCWSTR, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostMoveItem(DWORD, IShellItem*, IShellItem*, LPCWSTR, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostCopyItem(DWORD, IShellItem*, IShellItem*, LPCWSTR, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD, IShellItem*, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem*, LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PostNewItem(DWORD, IShellItem*, LPCWSTR, LPCWSTR, DWORD, HRESULT, IShellItem*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE UpdateProgress(UINT total, UINT done) override {
+        if (progress_) progress_(done, total);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE ResetTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE PauseTimer() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ResumeTimer() override { return S_OK; }
+
+private:
+    Progress progress_;
+    ULONG refs_ = 1;
+};
+
 struct Op {
     Com<IFileOperation> op;
     bool create(HWND owner, DWORD flags) {
@@ -64,9 +109,14 @@ struct Op {
         op->SetOwnerWindow(owner);
         return SUCCEEDED(op->SetOperationFlags(flags));
     }
-    Result perform() {
+    Result perform(const Progress& progress = {}) {
         Result r;
+        DWORD cookie = 0;
+        ProgressSink* sink = progress ? new ProgressSink(progress) : nullptr;
+        if (sink && FAILED(op->Advise(sink, &cookie))) cookie = 0;
         const HRESULT hr = op->PerformOperations();
+        if (cookie) op->Unadvise(cookie);
+        if (sink) sink->Release();
         BOOL aborted = FALSE;
         op->GetAnyOperationsAborted(&aborted);
         if (aborted) { r.ok = false; r.cancelled = true; }
@@ -83,7 +133,7 @@ Com<IShellItem> item(const std::wstring& path) {
 
 }  // namespace
 
-Result transfer(HWND owner, const std::vector<std::wstring>& sources, const std::wstring& destination, bool move) {
+Result transfer(HWND owner, const std::vector<std::wstring>& sources, const std::wstring& destination, bool move, const Progress& progress) {
     if (sources.empty()) return {};
     // Copying into the same folder: a new name, never a clash.
     bool sameFolder = false;
@@ -98,13 +148,13 @@ Result transfer(HWND owner, const std::vector<std::wstring>& sources, const std:
             if (!it || !dest) { queued = false; break; }
             if (FAILED(move ? o.op->MoveItem(it.p, dest.p, nullptr, nullptr) : o.op->CopyItem(it.p, dest.p, nullptr, nullptr))) { queued = false; break; }
         }
-        if (queued) return o.perform();
+        if (queued) return o.perform(progress);
     }
     return shFileOperation(owner, move ? FO_MOVE : FO_COPY, sources, destination,
                            FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR | (sameFolder && !move ? FOF_RENAMEONCOLLISION : 0));
 }
 
-Result copyAs(HWND owner, const std::vector<std::pair<std::wstring, std::wstring>>& fromTo) {
+Result copyAs(HWND owner, const std::vector<std::pair<std::wstring, std::wstring>>& fromTo, const Progress& progress) {
     if (fromTo.empty()) return {};
     Op o;
     if (o.create(owner, FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR | FOFX_ADDUNDORECORD)) {
@@ -114,7 +164,7 @@ Result copyAs(HWND owner, const std::vector<std::pair<std::wstring, std::wstring
             const std::wstring name = nameOf(to);
             if (!it || !dest || FAILED(o.op->CopyItem(it.p, dest.p, name.c_str(), nullptr))) { queued = false; break; }
         }
-        if (queued) return o.perform();
+        if (queued) return o.perform(progress);
     }
     std::vector<std::wstring> from, to;
     for (auto& [f, t] : fromTo) { from.push_back(f); to.push_back(t); }

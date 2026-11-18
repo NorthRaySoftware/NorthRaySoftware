@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.9.0",
+      "date": "2026-11-18",
+      "notes": [
+        "Drag the edges of the column headings in Details to make the columns wider or narrower. The widths are remembered.",
+        "Each folder remembers its own view (Details, Icons or Gallery) and sort order. View › “Use this view and order for every folder” makes the current one the default everywhere.",
+        "Details shows how many items each folder holds and how big it is altogether, worked out in the background (very large folders show “over” a size after a few seconds). The status bar shows the same for a selected folder. Press F5 to work them out again.",
+        "Pictures fade in as they're made instead of popping in, and they're kept on disk (in your local app data, up to about 300 MB) so folders you've seen before show their pictures at once. Menu › “Clear saved thumbnails” deletes them.",
+        "Long copies and moves show how far they've got inside the window, as well as in Windows' own progress window."
+      ]
+    },
+    {
       "version": "0.8.0",
       "date": "2026-11-18",
       "notes": [

@@ -9,6 +9,8 @@
 
 #include "settings.hpp"
 #include "shell.hpp"
+#include "folder_sizes.hpp"
+#include "operations.hpp"
 #include "thumbnails.hpp"
 
 #include "nrf/batchrename.hpp"
@@ -91,7 +93,15 @@ private:
         ScrollState scroll{};
         bool searchLimited = false, searchNoIndex = false, searchReplace = false;
         std::uint64_t searchFolders = 0;
+        // Its view and sort (0.9: each folder remembers its own), swapped with settings_'s while it shows.
+        ViewMode viewMode = ViewMode::Details;
+        int sortKey = 0;
+        bool sortDescending = false;
     };
+    View newView() const;
+    void applyFolderView();      // a plain folder: its remembered view and sort, else the usual ones
+    void rememberFolderView();   // after the view or sort changes
+    static bool plainFolder(const Location& l);
     void swapView(View& v);
     View* viewForRequest(std::uint64_t request);
     const Location& tabLocation(int pane, int tab) const;
@@ -240,6 +250,13 @@ private:
     void subfolderMenu(const std::wstring& path, POINT screen);
     // The sidebar's edge, dragged to resize it (0.8).
     bool sidebarDrag_ = false;
+    // Details column edges in the header this frame (0.9): drag one to size the column right of it.
+    struct ColEdge { float x, y0, y1, right, nameLeft; int col; };
+    std::vector<ColEdge> colEdges_;
+    int colDrag_ = -1;          // 0 date, 1 type (or folder), 2 size
+    float colDragRight_ = 0, colDragMax_ = 0;
+    const ColEdge* colEdgeAt(float x, float y) const;
+    float* colWidth(int col);
     float sidebarEdge_ = 0;
 
     // The preview pane (0.4)
@@ -311,7 +328,19 @@ private:
     float rowH_ = 30;
     int columns_ = 1;           // icons per row in Icons view
     float tileW_ = 156, tileH_ = 172;
-    std::unique_ptr<Thumbnails> thumbs_;   // pictures of image files (Icons view)
+    std::unique_ptr<FolderSizes> folderSizes_;   // item counts and sizes of folders (Details, 0.9)
+    std::unique_ptr<Thumbnails> thumbs_;
+    std::set<std::uint64_t> seenThumbs_;
+    struct Busy {
+        bool on = false;
+        std::wstring what;
+        float frac = -1;
+        DWORD started = 0, painted = 0;
+    } busy_;
+    ops::Progress progressFor(bool move, std::size_t count);
+    void endBusy();
+    void drawBusy(float W, float H);   // pictures already faded in (0.9)
+    float thumbAppear(std::uint64_t serial);   // pictures of image files (Icons view)
     float listX_ = 0;
     std::vector<std::pair<std::wstring, cjui::Rect>> driveRects_;
 

@@ -157,7 +157,7 @@ std::pair<unsigned, unsigned> Gfx::imageSize(const std::wstring& path) {
     return img ? std::pair<unsigned, unsigned>{img->w, img->h} : std::pair<unsigned, unsigned>{0, 0};
 }
 
-bool Gfx::drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha) {
+bool Gfx::drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* rgba, const Rect& dst, bool useAlpha, float opacity) {
     if (!rt_) return false;
     auto it = images_.find(key);
     if (it == images_.end() || !it->second.bitmap) {
@@ -180,7 +180,7 @@ bool Gfx::drawPixels(const std::wstring& key, int w, int h, const std::uint8_t* 
         images_[key] = img;
         it = images_.find(key);
     }
-    rt_->DrawBitmap(it->second.bitmap, D2D1::RectF(dst.x, dst.y, dst.right(), dst.bottom()), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    rt_->DrawBitmap(it->second.bitmap, D2D1::RectF(dst.x, dst.y, dst.right(), dst.bottom()), std::clamp(opacity, 0.0f, 1.0f), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     return true;
 }
 
