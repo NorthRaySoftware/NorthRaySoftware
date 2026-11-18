@@ -9,7 +9,7 @@ namespace ncap::hotkeys {
 using nlohmann::json;
 
 namespace {
-const char* const kKeys[kActions] = {"scene", "toggle-stream", "toggle-record", "toggle-mute", "play-sound", "stop-sounds", "marker", "transition"};
+const char* const kKeys[kActions] = {"scene", "toggle-stream", "toggle-record", "toggle-mute", "play-sound", "stop-sounds", "marker", "transition", "toggle-source", "brb"};
 
 // Windows virtual-key codes used here (kept portable: no windows.h).
 enum : unsigned {
@@ -44,7 +44,7 @@ bool actionFromKey(const std::string& k, Action& out) {
     return false;
 }
 
-bool needsTarget(Action a) { return a == Action::Scene || a == Action::ToggleMute || a == Action::PlaySound; }
+bool needsTarget(Action a) { return a == Action::Scene || a == Action::ToggleMute || a == Action::PlaySound || a == Action::ToggleSource; }
 
 std::string describe(Action a, const std::string& t) {
     switch (a) {
@@ -56,6 +56,8 @@ std::string describe(Action a, const std::string& t) {
         case Action::StopSounds: return "Stop all sounds";
         case Action::Marker: return "Add a marker to the recording";
         case Action::Transition: return "Studio mode: send the preview live";
+        case Action::ToggleSource: return "Show or hide " + t;
+        case Action::Brb: return "Be right back (and back again)";
     }
     return {};
 }

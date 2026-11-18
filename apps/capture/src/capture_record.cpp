@@ -68,6 +68,7 @@ void CaptureWindow::startRecording() {
         cjui::messageBox(hwnd(), error, L"Recording couldn’t start", MB_OK | MB_ICONWARNING);
         return;
     }
+    if (settings_.sceneChapters) markers_.push_back({0, liveSceneName()});   // the first chapter: the scene it starts on
     const output::RecordStatus st = recorder_.status();
     log::info("Recording started: " + narrow(st.path) + " with " + narrow(st.encoder) + (st.hardware ? " (hardware)" : " (software)") + ", " +
               std::to_string(rs.video.width) + "x" + std::to_string(rs.video.height) + "@" + std::to_string(rs.video.fps) + ", " +

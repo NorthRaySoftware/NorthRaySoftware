@@ -32,6 +32,10 @@ bool renderDesign(const design::Document& d, float tMs, float scale, const Place
 design::Clock clockNow(std::int64_t elapsedMs);
 // How long the stream has been live (the longest destination), or -1 when it isn't; set by the window.
 void setLiveTime(std::int64_t ms);
+// The stream's plan, for the go-live, time-left and next-stream timers (set by the window; any thread):
+// `goLiveAt` is live::stampMs of the time set to go live (-1: none), `plannedMs` the stream's length (-1: none),
+// `nextText` the next stream in words ("" none).
+void setStreamPlan(std::int64_t goLiveAt, std::int64_t plannedMs, const std::string& nextText);
 
 // Saves a picture as a PNG.
 bool savePng(const std::wstring& path, const DesignPicture& p);

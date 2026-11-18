@@ -79,7 +79,9 @@ struct Element {
     std::string file;                        // a path (or a library file)
     bool cover = true;                       // fill the box (cropping) or fit inside it
     // Timer.
-    std::string timerMode = "countdown";     // countdown (for a length), until (a time of day), stopwatch, live (time since going live), clock
+    std::string timerMode = "countdown";     // countdown (for a length), until (a time of day), stopwatch, live (time since going live), clock,
+                                             // golive (to the time set to go live), remaining (the planned length less the time live),
+                                             // next (the next stream's day and time, as words) (0.11)
     int timerSeconds = 300;                  // countdown
     int timerUntil = 20 * 60;                // until: minutes after midnight
     std::string timerEnd = "Starting now!";  // shown at zero (countdown, until)
@@ -194,6 +196,9 @@ struct Clock {
     int localSeconds = 0;
     std::string dateText;
     std::int64_t liveMs = -1;
+    std::int64_t goLiveInMs = -1;   // until the time set to go live (-1: none set)
+    std::int64_t plannedMs = -1;    // how long the stream is meant to be (-1: not set)
+    std::string nextText;           // the next stream, as words ("Sat 22 Nov, 19:00"; "" not set)
 };
 struct TimerShown {
     std::string text;

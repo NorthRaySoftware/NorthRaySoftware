@@ -23,6 +23,7 @@
 #include "ncap/checklist.hpp"
 #include "ncap/gif.hpp"
 #include "ncap/hotkeys.hpp"
+#include "ncap/live.hpp"
 #include "ncap/scene_templates.hpp"
 #include "ncap/visualiser.hpp"
 #include "ncap/routing.hpp"
@@ -624,6 +625,54 @@ static void testOAuth() {
     CHECK(!o::parseRedirect("POST /?code=a&state=st8 HTTP/1.1", "st8").isCallback);
 }
 
+static void testLive() {
+    std::printf("live\n");
+    namespace lv = ncap::live;
+    lv::Stamp s;
+    CHECK(lv::parseStamp("2026-11-22T19:00", s) && s.year == 2026 && s.month == 11 && s.day == 22 && s.hour == 19 && s.minute == 0);
+    CHECK(lv::parseStamp("2026-11-22 07:05", s) && s.hour == 7 && s.minute == 5);
+    CHECK(!lv::parseStamp("2026-02-29T10:00", s) && lv::parseStamp("2028-02-29T10:00", s));
+    CHECK(!lv::parseStamp("2026-11-22T24:00", s) && !lv::parseStamp("2026-11-22T19:00x", s) && !lv::parseStamp("", s) && !lv::parseStamp("nope", s));
+    CHECK(lv::parseStamp("2026-11-22T19:00", s) && lv::stampText(s) == "2026-11-22T19:00");
+    CHECK(lv::stampWords(s) == "Sun 22 Nov, 19:00");
+    CHECK(lv::weekday(1970, 1, 1) == 4 && lv::weekday(2000, 1, 1) == 6 && lv::weekday(1969, 12, 31) == 3 && lv::weekday(2026, 11, 18) == 3);
+    CHECK(lv::civilMs(1970, 1, 1, 0, 0) == 0 && lv::civilMs(1970, 1, 2, 0, 0) == 86400000LL);
+    CHECK(lv::stampMs(s) - lv::civilMs(2026, 11, 22, 18, 59, 30) == 30000);
+    CHECK(lv::stampText(lv::addMinutes(s, 300)) == "2026-11-23T00:00");
+    CHECK(lv::stampText(lv::addMinutes(s, -19 * 60 - 1)) == "2026-11-21T23:59");
+    lv::Stamp y{2026, 12, 31, 23, 30};
+    CHECK(lv::stampText(lv::addMinutes(y, 45)) == "2027-01-01T00:15");
+    CHECK(lv::durationWords(40) == "40 s" && lv::durationWords(725) == "12 min 5 s" && lv::durationWords(5040) == "1 h 24 min" && lv::durationWords(-3) == "0 s");
+
+    // A report: samples bucketed every 5 s, scene times, destinations adding up, and a JSON round trip.
+    lv::Collector c;
+    c.begin(s, "Starting soon");
+    for (int t = 1; t <= 12; ++t) {
+        if (t == 4) c.scene(t, "Gameplay");
+        if (t == 9) c.scene(t, "Starting soon");
+        c.sample(t, 6000, t >= 10 ? 3 : 0);
+    }
+    c.scene(10, "Starting soon");   // the same: nothing
+    c.destination({"Twitch", 10, 6000, 2, 1});
+    c.destination({"Twitch", 2, 3000, 1, 0});
+    c.setRecorded();
+    const lv::Report r = c.finish(12);
+    CHECK(!c.running());
+    CHECK(r.seconds == 12 && r.dropped == 3 && r.recorded);
+    CHECK(r.kbps.size() == 3 && std::abs(r.kbps[0] - 6000) < 1);
+    CHECK(r.scenes.size() == 2 && r.scenes[0].first == "Starting soon" && std::abs(r.scenes[0].second - 7) < 0.01 && std::abs(r.scenes[1].second - 5) < 0.01);
+    CHECK(r.changes.size() == 3 && r.changes[1].first == 4 && r.changes[1].second == "Gameplay");
+    CHECK(r.destinations.size() == 1 && r.destinations[0].seconds == 12 && std::abs(r.destinations[0].averageKbps - 5500) < 1 && r.destinations[0].dropped == 3 &&
+          r.destinations[0].reconnects == 1);
+    lv::Report back;
+    CHECK(lv::fromJson(lv::toJson(r), back));
+    CHECK(back.started == "2026-11-22T19:00" && back.seconds == 12 && back.kbps.size() == 3 && back.scenes.size() == 2 && back.changes.size() == 3 &&
+          back.destinations.size() == 1 && back.destinations[0].name == "Twitch" && back.recorded && back.dropped == 3);
+    CHECK(!lv::fromJson("{}", back) && !lv::fromJson("nope", back) && !lv::fromJson(R"({"started":"tomorrow"})", back));
+    CHECK(lv::fromJson(R"({"started":"2026-11-22T19:00","kbps":[1,"x",-5],"scenes":[{"name":"A","seconds":-1}]})", back) && back.kbps.size() == 2 &&
+          back.kbps[1] == 0 && back.scenes.size() == 1 && back.scenes[0].second == 0);
+}
+
 static void testTransitions() {
     std::printf("transitions\n");
     namespace t = ncap::transition;
@@ -791,6 +840,21 @@ static void testSceneFiles() {
     const std::string file = c.exportScene(d);
     CHECK(file.find("Face cam") != std::string::npos && file.find("Logo") != std::string::npos && file.find("Display 1") == std::string::npos);
     CHECK(c.exportScene("nope").empty());
+    {   // 0.11: sound muted while a scene is live; kept in the file, dropped with its source, sound sources only.
+        SceneCollection m;
+        const Id sc = m.current();
+        const Id mic = m.addSource(SourceKind::InputAudio, "Mic", "{}");
+        const Id pic = m.addSource(SourceKind::Image, "Pic", "{}");
+        CHECK(m.setSceneMute(sc, mic, true) && m.scene(sc)->mutes.size() == 1);
+        CHECK(m.setSceneMute(sc, mic, true) && m.scene(sc)->mutes.size() == 1);   // not twice
+        CHECK(!m.setSceneMute(sc, pic, true) && !m.setSceneMute("nope", mic, true));
+        SceneCollection back;
+        CHECK(back.fromJson(m.toJson()) && back.scene(sc) && back.scene(sc)->mutes == std::vector<Id>{mic});
+        CHECK(m.setSceneMute(sc, mic, false) && m.scene(sc)->mutes.empty());
+        m.setSceneMute(sc, mic, true);
+        m.removeSource(mic);
+        CHECK(m.scene(sc)->mutes.empty());
+    }
     // Import into another collection at 1280x720: new ids, names kept (or made unique), nesting rewired, scaled.
     SceneCollection other2;
     other2.canvasWidth = 1280;
@@ -1506,6 +1570,8 @@ static void testHotkeys() {
     CHECK(!hk::allowed({0x10, 0x74}, why));                   // MOD_NOREPEAT and other bits
     CHECK(!hk::allowed({0, 0x14}, why));                      // Caps Lock
     CHECK(hk::describe(hk::Action::Scene, "Gameplay") == "Switch to Gameplay" && hk::describe(hk::Action::Marker, "") == "Add a marker to the recording");
+    CHECK(hk::describe(hk::Action::ToggleSource, "Webcam") == "Show or hide Webcam" && hk::needsTarget(hk::Action::ToggleSource));
+    CHECK(hk::actionKey(hk::Action::ToggleSource) == std::string("toggle-source"));
     for (int i = 0; i < hk::kActions; ++i) {
         hk::Action a;
         CHECK(hk::actionFromKey(hk::actionKey((hk::Action)i), a) && a == (hk::Action)i);
@@ -2598,6 +2664,29 @@ static void testDesignLive() {
     CHECK(timerText(t, c).text == "Not live");
     c.liveMs = 3723000;
     CHECK(timerText(t, c).text == "1:02:03");
+    // 0.11: to the time set to go live, the planned length's remainder, the next stream.
+    t.timerMode = "golive";
+    CHECK(timerText(t, c).text == "No time set");
+    c.goLiveInMs = 90000;
+    CHECK(timerText(t, c).text == "1:30");
+    c.goLiveInMs = 0;
+    CHECK(timerText(t, c).ended && timerText(t, c).text == "Starting now!");
+    t.timerMode = "remaining";
+    CHECK(timerText(t, c).text == "No length set");
+    c.plannedMs = 2 * 3600000;
+    c.liveMs = -1;
+    CHECK(timerText(t, c).text == "2:00:00");          // not live yet: the whole length
+    c.liveMs = 3600000 + 59 * 60000;
+    CHECK(timerText(t, c).text == "1:00");             // a minute left
+    c.liveMs = 3 * 3600000;
+    CHECK(timerText(t, c).ended);
+    t.timerMode = "next";
+    CHECK(timerText(t, c).text == "To be announced");
+    c.nextText = "Sat 22 Nov, 19:00";
+    t.text = "Next stream: {time}";
+    CHECK(timerText(t, c).text == "Next stream: Sat 22 Nov, 19:00");
+    t.text = "";
+    c = Clock{};
     t.timerMode = "clock";
     c.localSeconds = 9 * 3600 + 5 * 60 + 59;
     c.dateText = "Sun 15 Nov";
@@ -2800,6 +2889,7 @@ int main() {
     testDiagnostics();
     testOAuth();
     testTransitions();
+    testLive();
     testNesting();
     testSourceUtil();
     testSceneFiles();

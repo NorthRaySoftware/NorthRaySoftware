@@ -1,4 +1,5 @@
 #include "video/design_render.hpp"
+#include "ncap/live.hpp"
 
 #include <windows.h>
 #include <d2d1.h>
@@ -337,6 +338,9 @@ void blurAlpha(std::vector<std::uint8_t>& a, int w, int h, int r) {
 std::mutex gValuesM;
 std::atomic<std::int64_t> gLiveMs{-1};
 std::atomic<ULONGLONG> gLiveAt{0};
+std::atomic<std::int64_t> gGoLiveAt{-1}, gPlannedMs{-1};
+std::mutex gNextM;
+std::string gNextText;
 Placeholders gValues;
 unsigned gValuesVersion = 1;
 Brand gBrand = defaultBrand();
@@ -510,6 +514,13 @@ void setLiveTime(std::int64_t ms) {
     gLiveAt = GetTickCount64();
 }
 
+void setStreamPlan(std::int64_t goLiveAt, std::int64_t plannedMs, const std::string& nextText) {
+    gGoLiveAt = goLiveAt;
+    gPlannedMs = plannedMs;
+    std::lock_guard<std::mutex> l(gNextM);
+    gNextText = nextText;
+}
+
 Clock clockNow(std::int64_t elapsedMs) {
     Clock c;
     c.elapsedMs = elapsedMs;
@@ -521,6 +532,13 @@ Clock clockNow(std::int64_t elapsedMs) {
     c.dateText = std::string(days[st.wDayOfWeek % 7]) + " " + std::to_string(st.wDay) + " " + months[(st.wMonth + 11) % 12];
     const std::int64_t live = gLiveMs;
     c.liveMs = live < 0 ? -1 : live + (std::int64_t)(GetTickCount64() - gLiveAt);
+    const std::int64_t at = gGoLiveAt;
+    if (at >= 0) c.goLiveInMs = std::max<std::int64_t>(0, at - live::civilMs(st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds));
+    c.plannedMs = gPlannedMs;
+    {
+        std::lock_guard<std::mutex> l(gNextM);
+        c.nextText = gNextText;
+    }
     return c;
 }
 

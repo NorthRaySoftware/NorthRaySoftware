@@ -395,9 +395,23 @@ std::vector<Id> SceneCollection::unusedSources() const {
     return out;
 }
 
+bool SceneCollection::setSceneMute(const Id& scene, const Id& sourceId, bool muted) {
+    Scene* sc = sceneMut(scene);
+    const Source* src = source(sourceId);
+    if (!sc || !src || !hasSound(src->kind)) return false;
+    auto it = std::find(sc->mutes.begin(), sc->mutes.end(), sourceId);
+    if (muted == (it != sc->mutes.end())) return true;
+    if (muted) sc->mutes.push_back(sourceId);
+    else sc->mutes.erase(it);
+    ++changes_;
+    return true;
+}
+
 void SceneCollection::removeSource(const Id& id) {
-    for (auto& s : scenes_)
+    for (auto& s : scenes_) {
         s.items.erase(std::remove_if(s.items.begin(), s.items.end(), [&](const SceneItem& i) { return i.source == id; }), s.items.end());
+        s.mutes.erase(std::remove(s.mutes.begin(), s.mutes.end(), id), s.mutes.end());
+    }
     sources_.erase(std::remove_if(sources_.begin(), sources_.end(), [&](const Source& s) { return s.id == id; }), sources_.end());
     ++changes_;
 }
@@ -737,6 +751,7 @@ std::string SceneCollection::toJson() const {
         }
         json sc = {{"id", s.id}, {"name", s.name}, {"items", items}};
         if (!s.folder.empty()) sc["folder"] = s.folder;
+        if (!s.mutes.empty()) sc["mutes"] = s.mutes;
         scs.push_back(sc);
     }
     return j.dump(1);
@@ -772,6 +787,9 @@ bool SceneCollection::fromJson(const std::string& text) {
         sc.id = s["id"].get<std::string>();
         sc.name = s.value("name", std::string("Scene"));
         if (s.contains("folder") && s["folder"].is_string()) sc.folder = trim(s["folder"].get<std::string>()).substr(0, 120);
+        if (s.contains("mutes") && s["mutes"].is_array())
+            for (auto& m : s["mutes"])
+                if (m.is_string() && sc.mutes.size() < 64) sc.mutes.push_back(m.get<std::string>());
         if (s.contains("items") && s["items"].is_array())
             for (auto& i : s["items"]) {
                 if (!i.is_object() || !i.contains("source") || !i["source"].is_string() || !c.source(i["source"].get<std::string>())) continue;

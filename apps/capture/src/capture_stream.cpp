@@ -121,6 +121,7 @@ bool CaptureWindow::startDestination(const std::string& id, bool quiet) {
               std::to_string(c.fps) + ", " + std::to_string(ds.videoKbps) + " kbps CBR; " + std::to_string(streamer_.encodes().size()) +
               " encode(s) running)");
     destStates_[id] = -1;
+    liveStateCheck();
     invalidate();
     return true;
 }
@@ -155,6 +156,12 @@ void CaptureWindow::stopDestination(const std::string& id) {
     const output::DestinationStatus st = streamer_.status(id);
     streamer_.stop(id);
     destStates_.erase(id);
+    if (report_.running() && st.seconds > 0) {
+        std::string name = id;
+        for (std::size_t i = 0; i < settings_.destinations.size(); ++i)
+            if (settings_.destinations[i].id == id) name = narrow(destName(settings_, i));
+        report_.destination({name, st.seconds, (double)st.bytesSent * 8.0 / 1000.0 / st.seconds, st.droppedFrames, st.reconnects});
+    }
     log::info("Streaming to a destination stopped after " + std::to_string((int)st.seconds) + " s live, " + std::to_string(st.droppedFrames) +
               " frames dropped, " + std::to_string(st.reconnects) + " reconnections");
     if (!streamer_.active() && mfForStream_) {
@@ -171,6 +178,7 @@ void CaptureWindow::stopStreaming() {
         MFShutdown();
         mfForStream_ = false;
     }
+    liveStateCheck();
     invalidate();
 }
 
@@ -267,6 +275,7 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
         }
         if (focused("ctl:stream")) focusRing(r);
         y += r.h + 6;
+        if (on || brbOn() || !settings_.brbScene.empty()) y = drawBrbButton(x, y, w);   // once a scene is chosen for it
         // Live: how long, big enough to read at a glance from across the room.
         if (on && live) {
             double longest = 0;
@@ -583,6 +592,7 @@ float CaptureWindow::drawStreamingSettings(float x, float y0, float colW) {
         });
         y += std::max(h, 34.0f) + 12;
     }
+    y += drawLiveSettings(x, y, colW) + 4;
     y += gfx_.text(L"Every destination uses the encoder chosen under Recording, the canvas size and frame rate, and the Stream mix from the "
                    L"Audio mixer (AAC, 160 kbit/s).",
                    {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 8;

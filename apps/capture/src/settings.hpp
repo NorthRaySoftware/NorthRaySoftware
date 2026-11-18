@@ -56,6 +56,16 @@ struct Settings {
     std::vector<StreamDestination> destinations{StreamDestination{}};
     int streamRetryMax = 60;
     bool studioMode = false;          // Preview and Program side by side
+    // Your stream (0.11).
+    bool recordWhileStreaming = true;  // a recording runs whenever you stream, without pressing Record
+    bool sceneChapters = true;         // a chapter (marker) in the recording at each scene change
+    std::string brbScene;              // Be right back: the scene it switches to ("" = none chosen yet)
+    std::string goLiveAt;              // "2026-11-22T19:00", local time ("" = none): timers count to it
+    bool goLiveStarts = false;         // at that time, Start streaming happens by itself
+    std::string goLiveDone;            // the go-live time already acted on (so reopening Capture doesn't start it again)
+    std::string goLiveScene;           // and this scene goes live ("" = stay on the current one)
+    int plannedMinutes = 0;            // how long the stream is meant to be (0 = not set), for "time left" timers
+    std::string nextStreamAt;          // the next stream after this one, for end screens ("" = not set)
     transition::Settings transition;  // used when the program changes scene          // the longest wait between reconnection attempts, in seconds    // the monitor device is headphones (no echo into a microphone)
 
     bool load(const std::wstring& path);

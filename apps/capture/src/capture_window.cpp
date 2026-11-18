@@ -48,6 +48,7 @@ constexpr UINT WM_APP_ENCODERS = WM_APP + 60;
 enum : UINT {
     CmdRename = 100, CmdDuplicate, CmdUp, CmdDown, CmdDelete, CmdNewScene, CmdExportScene, CmdImportScene, CmdNewFolder, CmdNoFolder,
     CmdFolder0 = 9000,
+    CmdSceneMute0 = 9500,
     CmdPanel0 = 200,   // + panel: show or hide
     CmdPreview = 220, CmdResetLayout, CmdSaveLayout, CmdLayout0 = 300, CmdDeleteLayout0 = 400,
     CmdHide = 500, CmdLeft, CmdRight,
@@ -279,6 +280,7 @@ void CaptureWindow::saveScenes() {
 void CaptureWindow::scenesChanged() {
     // Saved shortly after the last change: quick changes in a row write once.
     SetTimer(hwnd(), kSaveTimer, 600, nullptr);
+    liveSceneCheck();
     invalidate();
 }
 
@@ -331,10 +333,21 @@ void CaptureWindow::sceneMenu(const Id& id, POINT screen) {
     if (!folderItems.empty()) folderItems.push_back(MenuItem::sep());
     folderItems.push_back(MenuItem::item(L"A new folder…", CmdNewFolder));
     if (sc && !sc->folder.empty()) folderItems.push_back(MenuItem::item(L"Out of its folder", CmdNoFolder));
-    const std::vector<MenuItem> items = {
+    // Sound sources muted whenever this scene is live (music under a talking scene), unmuted when it isn't.
+    std::vector<Id> sounds;
+    std::vector<MenuItem> muteItems;
+    for (auto& s : scenes_.sources())
+        if (hasSound(s.kind) && sounds.size() < 200) {
+            const bool on = sc && std::find(sc->mutes.begin(), sc->mutes.end(), s.id) != sc->mutes.end();
+            muteItems.push_back(MenuItem::item(widen(s.name), CmdSceneMute0 + (UINT)sounds.size(), {}, true, on));
+            sounds.push_back(s.id);
+        }
+    if (muteItems.empty()) muteItems.push_back(MenuItem::item(L"No sound sources yet", 0, {}, false));
+    std::vector<MenuItem> items = {
         MenuItem::item(L"Rename", CmdRename, L"F2"),
         MenuItem::item(L"Duplicate", CmdDuplicate),
         MenuItem::sub(L"Folder", folderItems),
+        MenuItem::sub(L"Mute while this scene is live", muteItems),
         MenuItem::sep(),
         MenuItem::item(L"Move up", CmdUp, {}, !first),
         MenuItem::item(L"Move down", CmdDown, {}, !last),
@@ -356,6 +369,15 @@ void CaptureWindow::sceneMenu(const Id& id, POINT screen) {
     else if (cmd == CmdExportScene) exportScene(id);
     else if (cmd == CmdImportScene) importScene();
     else if (cmd == CmdNoFolder) { scenes_.setSceneFolder(id, ""); scenesChanged(); }
+    else if (cmd >= CmdSceneMute0 && cmd < CmdSceneMute0 + sounds.size()) {
+        const Id src = sounds[cmd - CmdSceneMute0];
+        const bool on = sc && std::find(sc->mutes.begin(), sc->mutes.end(), src) != sc->mutes.end();
+        scenes_.setSceneMute(id, src, !on);
+        scenesChanged();
+        if (const Source* s = scenes_.source(src); s && sc)
+            flash(on ? widen(s->name) + L" is no longer muted in " + widen(sc->name) + L"."
+                     : widen(s->name) + L" will be muted whenever " + widen(sc->name) + L" is live.", 4);
+    }
     else if (cmd >= CmdFolder0 && cmd < CmdFolder0 + folders.size()) { scenes_.setSceneFolder(id, folders[cmd - CmdFolder0]); scenesChanged(); }
     else if (cmd == CmdNewFolder)
         askText(L"Name the folder", L"", [this, id](const std::wstring& name) {
@@ -514,6 +536,7 @@ void CaptureWindow::openSettings(bool on) {
     }
     wizardOpen_ = false;
     checklistOpen_ = false;
+    reportOpen_ = false;
     libraryOpen_ = false;
     setupTestOpen_ = false;
     if (hkListening_) {
@@ -844,6 +867,7 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         keyPickTick();
         automationTick();
         writingTick();
+        liveTick();
         if (!audio_.empty()) analyseRouting();
         invalidate();
     } else if (id == kMeterTimer) {
@@ -949,7 +973,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     // and so does a panel when it's shown; none when Windows' animations are off.
     const std::string page = !settingsOpen_ ? "main"
                              : !designFor_.empty() ? "design" : !filtersFor_.empty() ? "filters" : wizardOpen_ ? "wizard"
-                             : checklistOpen_ ? "checklist" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
+                             : checklistOpen_ ? "checklist" : reportOpen_ ? "report" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
     if (page != lastPage_) {
         lastPage_ = page;
         setAnim("#pagefade", 0.0f);
@@ -961,6 +985,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
         else if (wizardOpen_) drawWizard(body);
         else if (checklistOpen_) drawChecklist(body);
+        else if (reportOpen_) drawReport(body);
         else if (setupTestOpen_) drawSetupTest(body);
         else if (libraryOpen_) drawLibrary(body);
         else drawSettings(body);
@@ -1435,7 +1460,7 @@ void CaptureWindow::drawControls(const Rect& b) {
     // Streaming: the button and each destination.
     y = drawStreamControls(b.x + 12, y, w, b.bottom());
     y = drawStudioControls(b.x + 12, y, w, b.bottom());
-    const C cs[] = {{L"Replay buffer", L"Milestone 11"}, {L"Virtual camera", L"Milestone 11"}};
+    const C cs[] = {{L"Replay buffer", L"Milestone 11"}};   // (no virtual camera: not wanted)
     for (const C& c : cs) {
         if (y + 34 > b.bottom()) break;
         const Rect r{b.x + 12, y, w, 34};

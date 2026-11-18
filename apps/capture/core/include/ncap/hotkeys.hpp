@@ -22,8 +22,10 @@ enum class Action {
     StopSounds,       // stop every soundboard sound
     Marker,           // add a marker to the recording (a chapter in its MP4 copy)
     Transition,       // studio mode: send the preview scene to the program
+    ToggleSource,     // show or hide a source (by name) in the scene that's live
+    Brb,              // Be right back: on or off
 };
-constexpr int kActions = 8;
+constexpr int kActions = 10;
 const char* actionKey(Action a);          // "scene", "toggle-stream"...
 bool actionFromKey(const std::string& k, Action& out);
 bool needsTarget(Action a);               // Scene, ToggleMute, PlaySound

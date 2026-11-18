@@ -1527,3 +1527,35 @@ the same):
 - Tested in Wine: undo/redo of hiding a source, the pictures, the opening screen, What's new after an update, compact
   rows, the test page (sources, meters, chime button, encoder and keys), late-frame reasons. Not testable here: the
   chime through real headphones, the crash reopen (no crash to cause safely).
+
+## 57. The stream's extras (released as 0.11.0, 18 Nov 2026)
+
+The first batch of CJ's feature answers (docs/answers-2026-11-18.md). Window code in `src/capture_live.cpp`; the pure
+parts in `core/live` (tested).
+
+- `core/live`: `Stamp` (a local date and time to the minute, "2026-11-22T19:00"), `civilMs` (days from civil, for
+  differences between local times; no time zones involved), `stampWords` ("Sun 22 Nov, 19:00"), `addMinutes`. The
+  stream report: `Collector` (begin with the scene, `sample` about once a second with the total upload rate and frames
+  dropped so far, averaged into 5 s buckets, at most 12 hours of them; `scene` at each live-scene change, adding up each
+  scene's live time; `destination` with each destination's final figures, added together if it was restarted;
+  `finish`), and `toJson`/`fromJson` (lenient: bad values are skipped or clamped).
+- The plan (Settings: `goLiveAt`, `goLiveStarts`, `goLiveScene`, `goLiveDone`, `plannedMinutes`, `nextStreamAt`): the
+  window passes it to `video::setStreamPlan` each second, and `clockNow` fills `Clock::goLiveInMs`, `plannedMs` and
+  `nextText` for the new timer modes `golive`, `remaining` and `next` (core/design `timerText`). Going live by itself
+  happens only within two minutes after the time, once per time (`goLiveDone` is saved, so reopening doesn't repeat it).
+- `liveStateCheck` (after starting or stopping a destination, and each second) notices streaming start and stop: on
+  start the report begins and, with `recordWhileStreaming`, a recording starts (and only that one stops with the
+  stream). On stop: Be right back ends, and a report of 10 s or more is saved to `<state>\Reports\<date time>.json`
+  (the newest 100 kept) and shown. Destinations report their own figures when stopped (`stopDestination`).
+- `liveSceneCheck` (from `scenesChanged`, `takeToProgram` and each second): the live scene is `programScene()`. The
+  sources to leave out of the mix (`autoMuted_`) are the live scene's `mutes` plus, during Be right back, every
+  microphone (InputAudio); a change calls `syncAudio`, which uses `mixMuted` (the source's own mute or `autoMuted_`) so
+  the saved mute is never touched. A changed live scene adds a chapter (`sceneChapters`, while recording; the first one
+  at 0 s when the recording starts) and a scene change to the report.
+- Be right back (`toggleBrb`, the button under Start streaming once a scene is chosen, and hotkey action `brb`): remembers
+  the live scene, switches to `brbScene` and mutes the mics; again (or switching away from that scene) goes back.
+- Scenes keep `mutes` (sound source ids, at most 64; removed with the source); the scene menu's "Mute while this scene is
+  live" sets them. Hotkey action `toggle-source` shows or hides a source by name in the live scene.
+- Tested in Wine: scheduled go-live firing (then failing for want of an encoder, as expected here), Be right back on and
+  off, scene muting and its mixer label, the settings section, the report page (from a sample file, since nothing can
+  stream here). Not testable here: a real stream's report collection, recording alongside, chapters in a real MP4.

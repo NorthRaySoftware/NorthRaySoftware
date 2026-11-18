@@ -72,6 +72,15 @@ bool Settings::load(const std::wstring& path) {
     recordTracks = (unsigned)cj::valueOr(j, "recordTracks", 0x0F) & 0x3Fu;
     if (!recordTracks) recordTracks = 1;
     recordMp4 = cj::valueOr(j, "recordMp4", true);
+    recordWhileStreaming = cj::valueOr(j, "recordWhileStreaming", true);
+    sceneChapters = cj::valueOr(j, "sceneChapters", true);
+    brbScene = cj::valueOr(j, "brbScene", std::string());
+    goLiveAt = cj::valueOr(j, "goLiveAt", std::string());
+    goLiveStarts = cj::valueOr(j, "goLiveStarts", false);
+    goLiveScene = cj::valueOr(j, "goLiveScene", std::string());
+    goLiveDone = cj::valueOr(j, "goLiveDone", std::string());
+    plannedMinutes = std::clamp(cj::valueOr(j, "plannedMinutes", 0), 0, 24 * 60);
+    nextStreamAt = cj::valueOr(j, "nextStreamAt", std::string());
     preLiveChecklist = cj::valueOr(j, "preLiveChecklist", false);
     hotkeys.clear();
     if (auto it = j.find("hotkeys"); it != j.end() && it->is_array()) hotkeys = hotkeys::fromJson(it->dump());
@@ -137,7 +146,7 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";

@@ -13,6 +13,7 @@
 #include "ncap/scene_templates.hpp"
 #include "ncap/design.hpp"
 #include "ncap/diag.hpp"
+#include "ncap/live.hpp"
 #include "ncap/placement.hpp"
 #include "ncap/routing.hpp"
 #include "ncap/scenes.hpp"
@@ -403,6 +404,30 @@ private:
     std::wstring chatStatusText() const;
     void drawChatPanel(const cjui::Rect& body);   // the Chat panel: your Twitch chat, read-only
     output::TwitchChat chat_;
+    // The stream's extras (capture_live.cpp): the plan (go-live time, length, next stream), going live by itself,
+    // recording alongside, chapters at scene changes, muting by scene, Be right back, and the stream report.
+    void liveTick();                          // each second
+    void liveSceneCheck();                    // the live scene may have changed: chapters, the report, mutes
+    void liveStateCheck();                    // streaming may have started or stopped
+    void applyStreamPlan();                   // the plan to the design timers
+    void toggleBrb();
+    bool brbOn() const { return !brbFrom_.empty(); }
+    bool mixMuted(const Source& s) const { return audioMuted(s) || autoMuted_.count(s.id) > 0; }
+    std::string liveSceneName();
+    float drawLiveSettings(float x, float y0, float colW);   // Settings › Streaming › Your stream
+    float drawBrbButton(float x, float y, float w);
+    void openReport(int index);               // 0 = the newest saved
+    void drawReport(const cjui::Rect& area);
+    std::vector<std::wstring> reportFiles() const;   // newest first
+    std::wstring reportsFolder() const;
+    live::Collector report_;
+    live::Report shownReport_;
+    int shownReportIndex_ = 0;
+    bool reportOpen_ = false;
+    Id liveSceneSeen_, brbFrom_;
+    std::set<Id> autoMuted_;
+    bool wasStreaming_ = false, autoRecording_ = false;
+    ULONGLONG streamStartTick_ = 0;
     void timerTick();                         // countdowns reaching zero switch scenes                         // the program scene whose designs last played their entrances
     Id designFor_;                            // the design source the designer has open
     design::Document designDoc_;

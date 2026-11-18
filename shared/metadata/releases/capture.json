@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "0.11.0",
+      "date": "2026-11-18",
+      "notes": [
+        "A stream report after each stream: how long it was, the upload rate over the stream as a graph, frames dropped, each destination's figures and how long each scene was live. The earlier ones are in Settings › Streaming › Your stream.",
+        "Record while streaming (on unless you turn it off): a recording starts with the stream and stops with it.",
+        "Chapters at scene changes: each time the live scene changes, the recording gets a chapter named after it, in the MP4 copy.",
+        "Be right back: a button under Start streaming (and a hotkey) switches to the scene you choose for it and mutes your microphones; pressed again, it goes back.",
+        "Going live at a set time: timers can count down to it for a Starting soon scene, and Capture can start streaming by itself at that time.",
+        "New timer modes for designs: Until going live, Time left in the stream (from the length you set) and Next stream (for an end screen).",
+        "Mute while this scene is live (right-click a scene): music or any sound source is left out while that scene shows, and comes back when it doesn't.",
+        "A hotkey to show or hide any source in the scene that's live.",
+        "The greyed-out Virtual camera placeholder is gone (not planned)."
+      ]
+    },
+    {
       "version": "0.10.32",
       "date": "2026-11-18",
       "notes": [
@@ -65,7 +80,7 @@
       "notes": [
         "Capture keeps in step with Writing Studio by itself: the book, chapter and words on your overlays change within a few seconds of you switching chapter, changing book or writing, with nothing to set up.",
         "A new overlay, Writing progress (Overlay design… › On stream): the chapter you're on, today's words against your daily goal, the words in the book so far and your writing streak. New Reading and writing scenes include it.",
-        "Overlay text can use {chapter}, {today} (\u201C1,240 of 2,000 words today\u201D), {goal}, {bookwords}, {bookline} and {streakline}, alongside {book}, {series}, {words} and {streak}. When Writing Studio isn't there, they're empty rather than showing the braces."
+        "Overlay text can use {chapter}, {today} (“1,240 of 2,000 words today”), {goal}, {bookwords}, {bookline} and {streakline}, alongside {book}, {series}, {words} and {streak}. When Writing Studio isn't there, they're empty rather than showing the braces."
       ]
     },
     {

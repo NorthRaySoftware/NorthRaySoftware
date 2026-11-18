@@ -1101,20 +1101,25 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     }
     // Timer.
     if (e->kind == dz::Kind::Timer) {
-        static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock"};
-        static const wchar_t* modeNames[] = {L"Countdown for a length", L"Countdown to a time", L"Stopwatch", L"Time live", L"Clock"};
+        static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock", "golive", "remaining", "next"};
+        static const wchar_t* modeNames[] = {L"Countdown for a length", L"Countdown to a time", L"Stopwatch", L"Time live", L"Clock",
+                                             L"Until going live", L"Time left in the stream", L"Next stream"};
+        constexpr int kModes = 8;
         int mi = 0;
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < kModes; ++i)
             if (e->timerMode == modes[i]) mi = i;
         label(L"Shows");
         button("dz:p:tmode", {r.x + 112, y - 2, r.w - 112, 30}, modeNames[mi], [this, eid, edit] {
             std::vector<MenuItem> items;
             const dz::Element* x = designDoc_.find(eid);
-            for (int i = 0; i < 5; ++i) items.push_back(MenuItem::item(modeNames[i], 100 + (UINT)i, {}, true, x && x->timerMode == modes[i]));
+            for (int i = 0; i < kModes; ++i) {
+                if (i == 5) items.push_back(MenuItem::sep());
+                items.push_back(MenuItem::item(modeNames[i], 100 + (UINT)i, {}, true, x && x->timerMode == modes[i]));
+            }
             POINT pt;
             GetCursorPos(&pt);
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
-            if (cmd >= 100 && cmd < 105) edit([cmd](dz::Element& z) { z.timerMode = modes[cmd - 100]; });
+            if (cmd >= 100 && cmd < 100 + kModes) edit([cmd](dz::Element& z) { z.timerMode = modes[cmd - 100]; });
         });
         y += 36;
         if (e->timerMode == "countdown" || e->timerMode == "until") {
@@ -1185,6 +1190,18 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             toggle("dz:p:tpulse", r.x + 112, y + 2, e->timerPulse, [edit] { edit([](dz::Element& z) { z.timerPulse = !z.timerPulse; }); });
             gfx_.text(L"pulse", {r.x + 170, y, 100, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
             y += 36;
+        }
+        if (e->timerMode == "golive" || e->timerMode == "remaining" || e->timerMode == "next") {
+            const std::wstring note = e->timerMode == "golive"    ? L"Counts down to the time set to go live, in Settings \u203A Streaming \u203A Your stream."
+                                      : e->timerMode == "remaining" ? L"Counts down from the stream's length (Settings \u203A Streaming \u203A Your stream) while you're live."
+                                                                    : L"Shows the next stream's date and time from Settings \u203A Streaming \u203A Your stream.";
+            y += gfx_.text(note, {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 8;
+            if (e->timerMode != "next") {
+                label(L"Last 10 s");
+                toggle("dz:p:tpulse2", r.x + 112, y + 2, e->timerPulse, [edit] { edit([](dz::Element& z) { z.timerPulse = !z.timerPulse; }); });
+                gfx_.text(L"pulse", {r.x + 170, y, 100, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                y += 36;
+            }
         }
         if (e->timerMode == "clock") {
             label(L"Date");

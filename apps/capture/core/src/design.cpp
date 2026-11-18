@@ -545,6 +545,15 @@ TimerShown timerText(const Element& e, const Clock& c) {
         t.text = durationText(c.elapsedMs);
     } else if (e.timerMode == "live") {
         t.text = c.liveMs < 0 ? "Not live" : durationText(c.liveMs);
+    } else if (e.timerMode == "golive") {
+        if (c.goLiveInMs < 0) t.text = "No time set";
+        else counting(c.goLiveInMs);
+    } else if (e.timerMode == "remaining") {
+        if (c.plannedMs <= 0) t.text = "No length set";
+        else if (c.liveMs < 0) t.text = durationText(c.plannedMs);
+        else counting(c.plannedMs - c.liveMs);
+    } else if (e.timerMode == "next") {
+        t.text = c.nextText.empty() ? "To be announced" : c.nextText;
     } else {   // clock, 24-hour
         char b[16];
         std::snprintf(b, sizeof b, "%02d:%02d", (c.localSeconds / 3600) % 24, (c.localSeconds / 60) % 60);

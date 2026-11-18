@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.100.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Capture 0.11.0: stream reports, record while streaming, chapters at scene changes, Be right back, going live at a set time with new countdown timers, muting by scene, and a show-or-hide hotkey."
+      ]
+    },
+    {
       "version": "0.99.0",
       "date": "2026-11-18",
       "notes": [

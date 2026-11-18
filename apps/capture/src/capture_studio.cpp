@@ -154,6 +154,7 @@ void CaptureWindow::takeToProgram() {
     }
     programScene_ = next;
     if (const Scene* sc = scenes_.scene(next)) log::info("Live: " + sc->name + " (" + narrow(transitionLabel()) + ")");
+    liveSceneCheck();
     invalidate();
 }
 

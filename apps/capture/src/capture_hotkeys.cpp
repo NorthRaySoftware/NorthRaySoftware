@@ -123,6 +123,25 @@ void CaptureWindow::runHotkey(const hk::Binding& b) {
             }
             takeToProgram();
             return;
+        case hk::Action::Brb:
+            toggleBrb();
+            return;
+        case hk::Action::ToggleSource: {
+            // In the scene that's live (in studio mode the program, not the preview being set up).
+            const Id scene = programScene();
+            if (const Scene* sc = scenes_.scene(scene))
+                for (auto& it : sc->items)
+                    if (const Source* src = scenes_.source(it.source); src && src->name == b.target) {
+                        const bool show = !it.visible;
+                        const Id itemId = it.id;
+                        scenes_.setItemVisible(scene, itemId, show);
+                        scenesChanged();
+                        flash(widen(b.target) + (show ? L" shown." : L" hidden."), 2);
+                        return;
+                    }
+            flash(L"Hotkey " + widen(hk::text(b.combo)) + L": " + widen(b.target) + L" isn't in the scene that's live.", 4);
+            return;
+        }
     }
 }
 
@@ -190,10 +209,11 @@ void CaptureWindow::addHotkey() {
         choices.push_back({{}, a, t});
         return 100 + (UINT)choices.size() - 1;
     };
-    std::vector<MenuItem> scenes, mutes, sounds;
+    std::vector<MenuItem> scenes, mutes, sounds, shows;
     for (auto& sc : scenes_.scenes())
         if (scenes.size() < 200) scenes.push_back(MenuItem::item(widen(sc.name), add(hk::Action::Scene, sc.name)));
     for (auto& s : scenes_.sources()) {
+        if (shows.size() < 100) shows.push_back(MenuItem::item(widen(s.name), add(hk::Action::ToggleSource, s.name)));
         if (hasSound(s.kind) && mutes.size() < 100) mutes.push_back(MenuItem::item(widen(s.name), add(hk::Action::ToggleMute, s.name)));
         if (s.kind == SourceKind::Soundboard)
             for (auto& snd : soundboardSounds(s))
@@ -204,7 +224,9 @@ void CaptureWindow::addHotkey() {
     items.push_back(MenuItem::item(L"Start or stop streaming", add(hk::Action::ToggleStream)));
     items.push_back(MenuItem::item(L"Start or stop recording", add(hk::Action::ToggleRecord)));
     items.push_back(MenuItem::item(L"Add a marker to the recording", add(hk::Action::Marker)));
+    items.push_back(MenuItem::item(L"Be right back (and back again)", add(hk::Action::Brb)));
     items.push_back(MenuItem::sep());
+    if (!shows.empty()) items.push_back(MenuItem::sub(L"Show or hide a source", shows));
     if (!mutes.empty()) items.push_back(MenuItem::sub(L"Mute or unmute", mutes));
     if (!sounds.empty()) items.push_back(MenuItem::sub(L"Play a sound", sounds));
     items.push_back(MenuItem::item(L"Stop all sounds", add(hk::Action::StopSounds)));

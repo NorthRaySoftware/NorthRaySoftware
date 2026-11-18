@@ -83,6 +83,7 @@ struct Scene {
     std::string name;
     std::string folder;             // "" = not in a folder; the Scenes list groups by it
     std::vector<SceneItem> items;   // bottom first; the last is drawn on top
+    std::vector<Id> mutes;          // sound sources muted while this scene is live (0.11: music off on the chatting scene)
 };
 
 class SceneCollection {
@@ -151,6 +152,8 @@ public:
     // Folders: a name ("" takes it out of its folder). Scenes in a folder are kept together in the
     // list, in the folder's place.
     bool setSceneFolder(const Id& scene, const std::string& folder);
+    // Sound sources muted while the scene is live (0.11). Only sound sources; false if either isn't there.
+    bool setSceneMute(const Id& scene, const Id& source, bool muted);
 
     // A scene as a file of its own: the scene, the scenes shown inside it, and the sources they show
     // (with their settings: files' paths, which display... never stream keys, which aren't in here).
