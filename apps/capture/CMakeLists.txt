@@ -37,6 +37,25 @@ if(NOT WIN32)
 endif()
 
 configure_file(src/version.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp @ONLY)
+# What's new (0.10.32): this version's release notes, from the suite's metadata, shown once after an update.
+set(NCAP_RELEASES "${CMAKE_SOURCE_DIR}/shared/metadata/releases/capture.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NCAP_RELEASES}")
+file(READ "${NCAP_RELEASES}" NCAP_RELEASES_JSON)
+set(NCAP_WHATSNEW "")
+string(JSON NCAP_NOTES_VERSION ERROR_VARIABLE NCAP_JSON_ERR GET "${NCAP_RELEASES_JSON}" releases 0 version)
+if(NOT NCAP_JSON_ERR AND NCAP_NOTES_VERSION STREQUAL NCAP_VERSION)
+  string(JSON NCAP_NOTES_N LENGTH "${NCAP_RELEASES_JSON}" releases 0 notes)
+  math(EXPR NCAP_NOTES_LAST "${NCAP_NOTES_N} - 1")
+  foreach(i RANGE 0 ${NCAP_NOTES_LAST})
+    string(JSON NCAP_NOTE GET "${NCAP_RELEASES_JSON}" releases 0 notes ${i})
+    string(REPLACE "\\" "\\\\" NCAP_NOTE "${NCAP_NOTE}")
+    string(REPLACE "\"" "\\\"" NCAP_NOTE "${NCAP_NOTE}")
+    string(APPEND NCAP_WHATSNEW "    L\"${NCAP_NOTE}\",\n")
+  endforeach()
+endif()
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/whatsnew.hpp.new
+     "#pragma once\n// This version's release notes (made by CMake from shared/metadata/releases/capture.json).\ninline const wchar_t* const kWhatsNew[] = {\n${NCAP_WHATSNEW}    nullptr,\n};\n")
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/generated/whatsnew.hpp.new ${CMAKE_CURRENT_BINARY_DIR}/generated/whatsnew.hpp COPYONLY)
 configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc @ONLY)
 
 add_executable(NorthRayCapture WIN32
@@ -48,7 +67,7 @@ add_executable(NorthRayCapture WIN32
   src/capture_stream.cpp
   src/capture_studio.cpp
   src/capture_made.cpp
-  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_checklist.cpp src/capture_automation.cpp src/capture_hotkeys.cpp src/capture_scene_templates.cpp src/capture_library.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
+  src/capture_filters.cpp src/capture_border.cpp src/capture_plugins.cpp src/capture_designer.cpp src/capture_brand.cpp src/capture_profiles.cpp src/capture_wizard.cpp src/capture_checklist.cpp src/capture_setuptest.cpp src/capture_automation.cpp src/capture_hotkeys.cpp src/capture_scene_templates.cpp src/capture_library.cpp src/capture_soundboard.cpp src/capture_key.cpp src/audio/plugin_host.cpp
   src/output/net.cpp
   src/output/twitch_chat.cpp
   src/output/mp4_copy.cpp

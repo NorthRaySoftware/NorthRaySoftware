@@ -35,11 +35,15 @@ bool Settings::load(const std::wstring& path) {
     ss << f.rdbuf();
     const nlohmann::json j = nlohmann::json::parse(ss.str(), nullptr, false);
     if (j.is_discarded() || !j.is_object()) return false;
+    existed = true;
     readOnly = cj::valueOr(j, "version", 1) > kVersion;
     const int t = cj::valueOr(j, "theme", 0);
     theme = t == 1 ? Theme::Light : t == 2 ? Theme::Dark : Theme::System;
     lowResource = cj::valueOr(j, "lowResource", false);
     libraryFolder = cj::valueOr(j, "libraryFolder", std::string());
+    seenVersion = cj::valueOr(j, "seenVersion", std::string());
+    compactLayout = std::clamp(cj::valueOr(j, "compactLayout", 0), 0, 2);
+    if (seenVersion.size() > 32) seenVersion.clear();
     if (libraryFolder.size() > 400) libraryFolder.clear();
     const int pf = cj::valueOr(j, "previewFps", 30);
     previewFps = pf == 0 || pf == 10 || pf == 30 || pf == 60 ? pf : 30;
@@ -128,7 +132,7 @@ bool Settings::save(const std::wstring& path) const {
     for (auto& [k, v] : savedLayouts) layouts[k] = v;
     nlohmann::json dests = nlohmann::json::array();
     for (auto& d : destinations) dests.push_back({{"id", d.id}, {"service", d.service}, {"url", d.url}, {"kbps", d.kbps}, {"enabled", d.enabled}, {"bus", d.bus}});
-    const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource}, {"libraryFolder", libraryFolder},
+    const nlohmann::json j = {{"version", kVersion},        {"theme", (int)theme},       {"lowResource", lowResource}, {"libraryFolder", libraryFolder}, {"seenVersion", seenVersion}, {"compactLayout", compactLayout},
                               {"previewFps", previewFps},   {"outputFps", outputFps},    {"layout", layout},
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},

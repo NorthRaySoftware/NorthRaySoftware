@@ -102,6 +102,18 @@ public:
     // the preview is hidden.
     void setOutputsActive(bool on) { outputsActive_ = on; }
     EngineStats stats() const;
+    // Small pictures of the shown scene's items for the Sources panel (0.10.32): made on the video thread
+    // every 1.5 s while the window keeps asking (wantThumbs, each frame it draws the panel), by item id.
+    struct Thumb {
+        int w = 0, h = 0;
+        std::vector<std::uint8_t> rgba;   // straight RGBA
+        unsigned gen = 0;                 // changes with each new picture
+    };
+    void wantThumbs() { thumbsWanted_ = GetTickCount64(); }
+    std::map<Id, Thumb> thumbs() const {
+        std::lock_guard<std::mutex> l(m_);
+        return thumbs_;
+    }
     // Called on the video thread with each composed canvas while set (a recording or a stream);
     // `qpc` is when the frame was composed. Composition runs whenever this is set.
     using FrameSink = std::function<void(ID3D11Texture2D* canvas, LONGLONG qpc)>;
@@ -135,6 +147,14 @@ private:
 
     // Video thread only.
     Target canvas_;                 // the program: what outputs get
+    // Thumbnails (video thread makes them; thumbs_ is read under m_).
+    void makeThumbs(const Items& items);
+    std::atomic<ULONGLONG> thumbsWanted_{0};
+    ULONGLONG lastThumbs_ = 0;
+    std::map<Id, Thumb> thumbs_;
+    Target thumbTarget_;
+    ComPtr<ID3D11Texture2D> thumbStage_;
+    unsigned thumbGen_ = 0;
     Target from_, to_, studio_;     // a transition's two scenes; studio mode's preview
     std::map<Id, Target> nested_;   // scenes shown inside others, composed once a frame
     std::set<Id> nestedDone_;

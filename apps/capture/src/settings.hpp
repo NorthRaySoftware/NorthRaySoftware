@@ -18,7 +18,10 @@ enum class Theme { System = 0, Light = 1, Dark = 2 };
 struct Settings {
     static constexpr int kVersion = 1;
     Theme theme = Theme::System;
-    std::string libraryFolder;        // the Library's folder when it was last open ("" the top)
+    std::string libraryFolder;
+    std::string seenVersion;          // the version whose What's new has been shown
+    bool existed = false;
+    int compactLayout = 0;            // 0 automatic (laptop-sized windows), 1 always, 2 never             // (not saved) the settings file was there when Capture started: not a new install        // the Library's folder when it was last open ("" the top)
     bool lowResource = false;         // preview, meters and animations kept to a minimum; output untouched
     int previewFps = 30;              // 0 = preview off
     int outputFps = 60;

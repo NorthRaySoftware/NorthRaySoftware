@@ -283,6 +283,14 @@ void Engine::frame() {
     }
 
     compose(s);
+    // The Sources panel's pictures, while it's shown, every 1.5 s.
+    {
+        const ULONGLONG t = GetTickCount64();
+        if (t - thumbsWanted_.load() < 2500 && t - lastThumbs_ >= 1500) {
+            lastThumbs_ = t;
+            makeThumbs(s.studio ? s.previewItems : s.items);
+        }
+    }
     {
         std::lock_guard<std::mutex> calls(sinkCallM_);
         std::vector<FrameSink> sinks;
@@ -304,6 +312,77 @@ void Engine::frame() {
         gpu_.context()->End(tm.disjoint.Get());
         tm.pending = true;
     }
+}
+
+void Engine::makeThumbs(const Items& items) {
+    constexpr int TW = 96, TH = 54;
+    auto* dev = gpu_.device();
+    auto* ctx = gpu_.context();
+    if (!thumbTarget_.ensure(dev, TW, TH)) return;
+    if (!thumbStage_) {
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = TW;
+        d.Height = TH;
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_STAGING;
+        d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(dev->CreateTexture2D(&d, nullptr, &thumbStage_))) return;
+    }
+    std::map<Id, Thumb> made;
+    ++thumbGen_;
+    for (const auto& it : items) {
+        if (made.size() >= 40) break;
+        ID3D11ShaderResourceView* v = nullptr;
+        float sw = 0, sh = 0;
+        bool opaque = true;
+        if (it.nestedItems) {
+            auto n = nested_.find(it.nested);
+            if (n == nested_.end() || !n->second.srv) continue;
+            v = n->second.srv.Get();
+            sw = (float)n->second.w;
+            sh = (float)n->second.h;
+            opaque = false;
+        } else if (it.source) {
+            v = it.source->view();
+            sw = (float)it.source->width();
+            sh = (float)it.source->height();
+            opaque = !it.source->hasAlpha();
+        }
+        if (!v || sw <= 0 || sh <= 0) continue;
+        // The whole picture, fitted in the middle, on dark grey (see-through parts show it).
+        gpu_.clear(thumbTarget_.rtv.Get(), 0.11f, 0.13f, 0.17f, 1.0f);
+        gpu_.begin(thumbTarget_.rtv.Get(), TW, TH);
+        const float sc = std::min(TW / sw, TH / sh);
+        const float w = sw * sc, h = sh * sc, x = (TW - w) / 2, y = (TH - h) / 2;
+        const Pt corners[4] = {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}};
+        const Pt uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        gpu_.drawTexture(v, corners, uv, 1.0f, opaque);
+        ctx->CopyResource(thumbStage_.Get(), thumbTarget_.tex.Get());
+        D3D11_MAPPED_SUBRESOURCE m{};
+        if (FAILED(ctx->Map(thumbStage_.Get(), 0, D3D11_MAP_READ, 0, &m))) continue;
+        Thumb t;
+        t.w = TW;
+        t.h = TH;
+        t.gen = thumbGen_;
+        t.rgba.resize((size_t)TW * TH * 4);
+        for (int row = 0; row < TH; ++row) {
+            const std::uint8_t* src = static_cast<const std::uint8_t*>(m.pData) + (size_t)row * m.RowPitch;
+            std::uint8_t* dst = t.rgba.data() + (size_t)row * TW * 4;
+            for (int col = 0; col < TW; ++col) {   // BGRA to RGBA, opaque
+                dst[col * 4 + 0] = src[col * 4 + 2];
+                dst[col * 4 + 1] = src[col * 4 + 1];
+                dst[col * 4 + 2] = src[col * 4 + 0];
+                dst[col * 4 + 3] = 255;
+            }
+        }
+        ctx->Unmap(thumbStage_.Get(), 0);
+        made[it.id] = std::move(t);
+    }
+    std::lock_guard<std::mutex> l(m_);
+    thumbs_ = std::move(made);
 }
 
 void Engine::updateSources(const Items& items, std::set<VideoSource*>& done, int depth) {

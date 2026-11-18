@@ -232,6 +232,9 @@ void* markAppRunning(const std::string& appId) { return CreateMutexW(nullptr, FA
 
 static std::wstring g_crashName, g_crashFolder;
 
+static std::wstring g_reopenNote;   // the app's own line for the reopen question
+static ULONGLONG g_started = GetTickCount64();
+
 static void reportCrash(const std::string& what) {
     static bool once = false;
     if (once) return;
@@ -247,9 +250,25 @@ static void reportCrash(const std::string& what) {
         std::strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", std::localtime(&t));
         f << when << "  " << what << "\r\n";
     }
-    const std::wstring msg = g_crashName + L" ran into a problem and has to close.\n\n" + widen(what) +
-                             L"\n\nA report was saved to " + log + L".";
-    cjui::messageBox(nullptr, msg.c_str(), g_crashName.c_str(), MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+    // Offer to open it again (0.10.32), unless this copy was itself just reopened and has failed again
+    // straight away: then it's left closed, so a problem at start-up can't go round in a loop.
+    const bool reopened = _wgetenv(L"NORTHRAY_REOPENED") != nullptr;
+    const bool offer = !reopened || GetTickCount64() - g_started > 30000;
+    std::wstring msg = g_crashName + L" ran into a problem and has to close.\n\n" + widen(what) + L"\n\nA report was saved to " + log + L".";
+    if (offer) msg += (g_reopenNote.empty() ? std::wstring() : L"\n\n" + g_reopenNote) + L"\n\nOpen " + g_crashName + L" again now?";
+    const int answer = cjui::messageBox(nullptr, msg.c_str(), g_crashName.c_str(), MB_ICONERROR | (offer ? MB_YESNO : MB_OK) | MB_SETFOREGROUND);
+    if (offer && answer == IDYES) {
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        SetEnvironmentVariableW(L"NORTHRAY_REOPENED", L"1");
+        STARTUPINFOW si{sizeof si};
+        PROCESS_INFORMATION pi{};
+        std::wstring cmd = L"\"" + std::wstring(exe) + L"\"";
+        if (CreateProcessW(exe, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
 }
 
 // "NorthRayCapture.exe+0x1a2b3c" for an address (the module's file name and the offset in it).
@@ -316,6 +335,8 @@ static LONG WINAPI traceFault(EXCEPTION_POINTERS* ep) {
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
+
+void setCrashReopenNote(const std::wstring& note) { g_reopenNote = note; }
 
 void installCrashReport(const std::wstring& appName, const std::wstring& stateFolder) {
     g_crashName = appName;

@@ -236,7 +236,7 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
     const bool on = streamer_.active();
     const Color purple = cjui::hexColor("#7A5CFF");
     {
-        const Rect r{x, y, w, 50};
+        const Rect r{x, y, w, compact_ ? 40.0f : 50.0f};
         addHit("ctl:stream", r, [this, on] {
             if (on) stopStreaming();
             else if (settings_.preLiveChecklist) openChecklist();
@@ -266,7 +266,7 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
             gfx_.text(right, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
         }
         if (focused("ctl:stream")) focusRing(r);
-        y += 56;
+        y += r.h + 6;
         // Live: how long, big enough to read at a glance from across the room.
         if (on && live) {
             double longest = 0;

@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "0.10.32",
+      "date": "2026-11-18",
+      "notes": [
+        "Undo and redo: Ctrl+Z undoes moving, resizing, hiding, adding and removing sources and scenes, and changes to their settings; Ctrl+Y (or Ctrl+Shift+Z) redoes. Up to 50 steps, kept until you switch scene collection. Switching scenes isn't counted as a change.",
+        "Each row in the Sources panel starts with a small live picture of that source.",
+        "Test my setup (Settings): one page that checks each source in the scene, each sound source with a live meter, a test chime in your headphones (never streamed or recorded), and what recording and streaming will use.",
+        "When the video can't keep up, the line under the preview says why in plain words (the graphics card is busy, the processor is busy, too much to draw), and its tooltip says what to do about it.",
+        "A compact layout with tighter rows and buttons for laptop screens: Settings › Appearance › Compact layout (Automatic, On or Off).",
+        "Capture's window appears as soon as you open it, and shows that it's opening while your scenes, video and sound start.",
+        "What's new: after an update, Capture shows that version's changes once. About lists them too.",
+        "If Capture ever has to close, it offers to open again straight away. Your scenes are saved as you go, so they open as they were.",
+        "Pages (Settings, the Library, the designer) and panels fade in gently when they open."
+      ]
+    },
+    {
       "version": "0.10.31",
       "date": "2026-11-18",
       "notes": [

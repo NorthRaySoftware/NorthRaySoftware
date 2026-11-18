@@ -266,6 +266,11 @@ void CaptureWindow::syncAudio() {
         m.feed = stinger_->sound();
         mix.push_back(m);
     }
+    if (testSound_) {   // Test my setup's chime: heard in the monitor, never streamed or recorded
+        audio::MixSource m{"#testsound", nullptr, 1.0f, false, routing::Monitor};
+        m.feed = testSound_->ring();
+        mix.push_back(m);
+    }
     mixer_.setSources(std::move(mix));
     applyMonitor();
     // Meters run while there's something to measure (slower in low-resource mode).

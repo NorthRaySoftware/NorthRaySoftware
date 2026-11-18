@@ -65,5 +65,7 @@ void* markAppRunning(const std::string& appId);
 // and save a short report to %LOCALAPPDATA%\NorthRay\<folder>\crash.log,
 // instead of closing without a word.
 void installCrashReport(const std::wstring& appName, const std::wstring& stateFolder);
+// A line the crash message adds before offering to open the app again (e.g. what was saved).
+void setCrashReopenNote(const std::wstring& note);
 
 }  // namespace cjui

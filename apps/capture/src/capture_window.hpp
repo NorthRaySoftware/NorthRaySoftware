@@ -102,6 +102,27 @@ private:
     // Sources and the preview (capture_sources.cpp)
     void startEngine();
     void syncSources();                       // capture objects follow the scene collection
+    // Undo and redo for the scenes (0.10.32): a snapshot of the collection each time a change settles (when
+    // it's saved), without which scene is current; Ctrl+Z / Ctrl+Y step through them.
+    std::vector<std::string> undo_, redo_;
+    std::map<Id, std::wstring> thumbKeys_;
+    bool starting_ = false;
+    bool compact_ = false;
+    std::string lastPage_;
+    // Test my setup (capture_setuptest.cpp)
+    bool setupTestOpen_ = false;
+    std::unique_ptr<audio::SoundboardPlayer> testSound_;   // its chime, on the monitor only
+    double testPlayedAt_ = -1;
+    void openSetupTest();
+    void drawSetupTest(const cjui::Rect& area);
+    void playTestSound();            // the fade-ins: the page shown last frame, and the panels
+    std::set<int> lastPanels_;           // compact layout this frame (Settings › Compact layout)          // the first paint, before the scenes have loaded
+    void showWhatsNew(bool asked);
+    std::wstring keepUpAdvice(std::wstring& why);   // the Sources panel's pictures: the key each is drawn under
+    std::string undoBase_;
+    static std::string undoForm(const std::string& collectionJson);
+    void noteUndo();
+    void undoScenes(bool redo);
     void pushSnapshot();                      // what the video thread draws
     void placePreview();                      // the preview window over the preview area
     ItemSize sizeOf(const Id& source) const;  // the source's picture size (0x0 before the first)

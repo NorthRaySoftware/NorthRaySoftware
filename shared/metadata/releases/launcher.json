@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.93.0",
+      "date": "2026-11-18",
+      "notes": [
+        "NorthRay Capture 0.10.32: undo, live source pictures, Test my setup, a compact layout and more polish."
+      ]
+    },
+    {
       "version": "0.92.0",
       "date": "2026-11-18",
       "notes": [

@@ -4,6 +4,7 @@
 #include "log.hpp"
 #include "resource.h"
 #include "version.hpp"
+#include "whatsnew.hpp"
 
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
@@ -41,6 +42,7 @@ constexpr float kHeaderH = 38;
 constexpr UINT_PTR kStatsTimer = 1;
 constexpr UINT_PTR kSaveTimer = 2;
 constexpr UINT_PTR kMeterTimer = 3;   // capture_audio.cpp starts it
+constexpr UINT_PTR kWhatsNewTimer = 41;   // once, just after start-up
 constexpr UINT WM_APP_ENCODERS = WM_APP + 60;
 
 enum : UINT {
@@ -112,6 +114,10 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     SetWindowSubclass(ask_, quietEditProc, 1, 0);
     SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
     applyTheme();
+    // The window shows at once, saying it's opening, while the scenes, video and sound start (0.10.32).
+    starting_ = true;
+    ShowWindow(hwnd(), show);
+    UpdateWindow(hwnd());
     loadScenes();
     startEngine();
     loadProfile();
@@ -126,8 +132,10 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     SetTimer(hwnd(), kStatsTimer, settings_.lowResource ? 2000 : 1000, nullptr);
     usage_ = sampler_.sample();
     sys::findEncodersAsync(hwnd(), WM_APP_ENCODERS);
-    ShowWindow(hwnd(), show);
+    starting_ = false;
+    invalidate();
     UpdateWindow(hwnd());
+    SetTimer(hwnd(), kWhatsNewTimer, 700, nullptr);
     log::info("Window open; scene collection \"" + settings_.sceneCollection + "\" with " + std::to_string(scenes_.scenes().size()) + " scene(s)");
     return true;
 }
@@ -198,6 +206,59 @@ void CaptureWindow::loadScenes() {
     for (auto& [id, json] : upgraded) scenes_.setSourceSettings(id, json);
     savedChanges_ = upgraded.empty() ? scenes_.changes() : savedChanges_;
     if (!upgraded.empty()) scenesChanged();
+    undo_.clear();   // a different collection: its own history
+    redo_.clear();
+    undoBase_ = undoForm(scenes_.toJson());
+}
+
+// The collection as undo keeps it: without "current", so switching scenes isn't something to undo.
+std::string CaptureWindow::undoForm(const std::string& collectionJson) {
+    nlohmann::json j = nlohmann::json::parse(collectionJson, nullptr, false);
+    if (!j.is_object()) return collectionJson;
+    j.erase("current");
+    return j.dump();
+}
+
+void CaptureWindow::noteUndo() {
+    const std::string now = undoForm(scenes_.toJson());
+    if (undoBase_.empty()) {
+        undoBase_ = now;
+        return;
+    }
+    if (now == undoBase_) return;
+    undo_.push_back(std::move(undoBase_));
+    if (undo_.size() > 50) undo_.erase(undo_.begin());
+    redo_.clear();
+    undoBase_ = now;
+}
+
+void CaptureWindow::undoScenes(bool redo) {
+    KillTimer(hwnd(), kSaveTimer);
+    noteUndo();   // a change still settling counts as one step
+    auto& from = redo ? redo_ : undo_;
+    auto& to = redo ? undo_ : redo_;
+    if (from.empty()) {
+        flash(redo ? L"Nothing to redo." : L"Nothing to undo.", 3);
+        return;
+    }
+    const std::string target = from.back();
+    const Id keep = scenes_.current();
+    if (!scenes_.fromJson(target)) {   // can't happen with our own snapshots; dropped if it does
+        from.pop_back();
+        return;
+    }
+    from.pop_back();
+    to.push_back(undoBase_);
+    if (scenes_.scene(keep)) scenes_.setCurrent(keep);
+    undoBase_ = undoForm(scenes_.toJson());
+    if (!scenes_.item(scenes_.current(), selected_)) selected_.clear();
+    syncSources();
+    syncAudio();
+    designRendered_.clear();
+    savedChanges_ = ~0ull;   // saved as it is now
+    saveScenes();
+    flash(redo ? L"Redone. Ctrl+Z undoes it again." : L"Undone. Ctrl+Y redoes it.", 3);
+    invalidate();
 }
 
 void CaptureWindow::saveScenes() {
@@ -454,6 +515,7 @@ void CaptureWindow::openSettings(bool on) {
     wizardOpen_ = false;
     checklistOpen_ = false;
     libraryOpen_ = false;
+    setupTestOpen_ = false;
     if (hkListening_) {
         hkListening_ = false;
         registerHotkeys();
@@ -463,11 +525,31 @@ void CaptureWindow::openSettings(bool on) {
     invalidate();
 }
 
+// What's new: this version's notes (built in from the release metadata), once after an update, and from About.
+void CaptureWindow::showWhatsNew(bool asked) {
+    std::wstring notes;
+    for (const wchar_t* const* n = kWhatsNew; *n; ++n) notes += L"\u2022  " + std::wstring(*n) + L"\n\n";
+    if (!asked) {
+        const bool updated = settings_.seenVersion != CJ_VERSION_STR && settings_.existed;
+        if (settings_.seenVersion != CJ_VERSION_STR) {
+            settings_.seenVersion = CJ_VERSION_STR;
+            settings_.save(settingsPath_);
+        }
+        if (!updated || notes.empty()) return;
+    }
+    if (notes.empty()) notes = L"This version's notes aren't in this build. They're on the NorthRay Software website.";
+    while (!notes.empty() && notes.back() == L'\n') notes.pop_back();
+    cjui::messageBox(hwnd(), notes, L"What's new in NorthRay Capture " CJ_VERSION_WSTR, MB_OK | MB_ICONINFORMATION);
+}
+
 void CaptureWindow::showAbout() {
     std::wstring text = L"NorthRay Capture " CJ_VERSION_WSTR L" (in development)\n\n"
                         L"Livestreaming and recording for Windows.\n\n"
                         L"Developed by " CJ_DEVELOPER_WSTR L".\nNorthRaySoftware@protonmail.com\n\n"
                         L"Licences: the licences folder next to NorthRay Capture.";
+    std::wstring notes;
+    for (const wchar_t* const* n = kWhatsNew; *n; ++n) notes += L"\n\u2022  " + std::wstring(*n);
+    if (!notes.empty()) text += L"\n\nNew in this version:" + notes;
     cjui::messageBox(hwnd(), text, L"About NorthRay Capture", MB_OK | MB_ICONINFORMATION);
 }
 
@@ -506,6 +588,7 @@ bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (vk == VK_ESCAPE && !borderFor_.empty()) { borderFor_.clear(); invalidate(); return true; }
     if (ctrl && vk == VK_OEM_COMMA) { openSettings(!settingsOpen_); return true; }
     if (settingsOpen_) return designerKey(vk, ctrl, shift);
+    if (ctrl && (vk == 'Z' || vk == 'Y')) { undoScenes(vk == 'Y' || shift); return true; }
     if (sourceKey(vk, ctrl, shift)) return true;
     const auto& all = scenes_.scenes();
     auto at = std::find_if(all.begin(), all.end(), [&](const Scene& s) { return s.id == scenes_.current(); });
@@ -765,8 +848,12 @@ void CaptureWindow::onTimer(UINT_PTR id) {
         invalidate();
     } else if (id == kMeterTimer) {
         meterTick();
+    } else if (id == kWhatsNewTimer) {
+        KillTimer(hwnd(), kWhatsNewTimer);
+        showWhatsNew(false);
     } else if (id == kSaveTimer) {
         KillTimer(hwnd(), kSaveTimer);
+        noteUndo();
         saveScenes();
     }
 }
@@ -833,6 +920,13 @@ void CaptureWindow::drawAsk(float W, float H) {
 
 void CaptureWindow::drawFrame(float W, float H) {
     gfx_.clear(pal_.paper);
+    if (starting_) {   // the first paint, before anything has loaded
+        gfx_.text(L"NorthRay Capture", {0, H / 2 - 40, W, 34}, Font::Title, pal_.ink, {Align::Center, false, false, true});
+        gfx_.text(L"Opening your scenes\u2026", {0, H / 2, W, 24}, Font::Body, pal_.inkMuted, {Align::Center, false, false, true});
+        return;
+    }
+    // Compact (0.10.32): tighter rows and buttons on a laptop-sized window, or always, or never (Settings).
+    compact_ = settings_.compactLayout == 1 || (settings_.compactLayout == 0 && (W < 1500 || H < 860));
     drawTopBar({0, 0, W, kTopH});
     const Rect body{0, kTopH, W, H - kTopH - kStatusH};
     previewRect_ = dockRect_ = hSplit_ = previewInner_ = {};
@@ -851,14 +945,26 @@ void CaptureWindow::drawFrame(float W, float H) {
     previewLive_ = !settingsOpen_ && !asking_ && layout_.previewVisible && engine_.running() && engineError_.empty() && cur &&
                    (!cur->items.empty() || settings_.studioMode) &&   // studio mode: the program shows beside an empty preview
                    previewFps > 0;
+    // Gentle animations (0.10.32): a page (settings, the Library, the designer...) fades in when it opens,
+    // and so does a panel when it's shown; none when Windows' animations are off.
+    const std::string page = !settingsOpen_ ? "main"
+                             : !designFor_.empty() ? "design" : !filtersFor_.empty() ? "filters" : wizardOpen_ ? "wizard"
+                             : checklistOpen_ ? "checklist" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
+    if (page != lastPage_) {
+        lastPage_ = page;
+        setAnim("#pagefade", 0.0f);
+    }
+    const float pageIn = anim("#pagefade", 1.0f, 9.0f);
     if (settingsOpen_) {
         gfx_.pushClip(body);
         if (!designFor_.empty() && scenes_.source(designFor_)) drawDesigner(body);
         else if (!filtersFor_.empty() && scenes_.source(filtersFor_)) drawFilters(body);
         else if (wizardOpen_) drawWizard(body);
         else if (checklistOpen_) drawChecklist(body);
+        else if (setupTestOpen_) drawSetupTest(body);
         else if (libraryOpen_) drawLibrary(body);
         else drawSettings(body);
+        if (pageIn < 0.995f) gfx_.fill(body, pal_.paper.withAlpha(1.0f - pageIn));
         gfx_.popClip();
     } else {
         const float pad = 8;
@@ -887,12 +993,18 @@ void CaptureWindow::drawFrame(float W, float H) {
             const Rect r{x, dockRect_.y, w, dockRect_.h};
             panelRects_.push_back({p, r});
             drawPanel(p, r);
+            const std::string fk = "#panelfade" + std::to_string(p);
+            if (!lastPanels_.count(p)) setAnim(fk, 0.0f);
+            const float in = anim(fk, 1.0f, 9.0f);
+            if (in < 0.995f) gfx_.fillRounded(r, 10, pal_.paper.withAlpha(1.0f - in));
             x += w;
             if (i + 1 < n) {
                 vSplits_.push_back({x, dockRect_.y, kSplit, dockRect_.h});
                 x += kSplit;
             }
         }
+        lastPanels_.clear();
+        for (auto& [p, r] : panelRects_) lastPanels_.insert(p);
         }
     }
     drawStatusBar({0, H - kStatusH, W, kStatusH});
@@ -1032,12 +1144,15 @@ void CaptureWindow::drawPreviewArea(const Rect& r) {
     // Under it: the scene, the canvas, the rate, and how the video thread is keeping up.
     std::wstring info = name + L"   ·   " + std::to_wstring(scenes_.canvasWidth) + L" × " + std::to_wstring(scenes_.canvasHeight) +
                         L"   ·   " + std::to_wstring(settings_.outputFps) + L" fps";
+    std::wstring advice;
     if (engine_.running()) {
         const video::EngineStats st = engine_.stats();
         wchar_t b[96];
         swprintf(b, 96, L"   ·   composing at %.0f fps", st.fps);
         info += b;
-        if (st.late > 0) info += L", " + std::to_wstring(st.late) + L" late";
+        std::wstring why;
+        advice = keepUpAdvice(why);
+        if (!why.empty()) info += L"   ·   falling behind: " + why;
     }
     if (settings_.studioMode && previewLive_) {
         // Under each view: what it is and which scene.
@@ -1054,7 +1169,12 @@ void CaptureWindow::drawPreviewArea(const Rect& r) {
                   Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
         return;
     }
-    gfx_.text(info, {r.x + 14, r.bottom() - 28, r.w - 100, 20}, Font::Small, cjui::hexColor("#8A94AA"), {Align::Left, false, true, true});
+    const Rect infoR{r.x + 14, r.bottom() - 28, r.w - 100, 20};
+    gfx_.text(info, infoR, Font::Small, advice.empty() ? cjui::hexColor("#8A94AA") : cjui::hexColor("#E8C547"), {Align::Left, false, true, true});
+    if (!advice.empty()) {
+        addHit("pv:keepup", infoR, nullptr, false);
+        tooltip("pv:keepup", advice);
+    }
     gfx_.text(L"PREVIEW", {r.x + 14, r.bottom() - 28, r.w - 28, 20}, Font::Label, cjui::hexColor("#5A6680"), {Align::Right, false, false, true});
 }
 
@@ -1140,7 +1260,7 @@ void CaptureWindow::drawScenes(const Rect& b) {
             }
         }
         const float indent = s.folder.empty() ? 0 : 10;
-        const Rect row{b.x + 6 + indent, y, b.w - 12 - indent, 32};
+        const Rect row{b.x + 6 + indent, y, b.w - 12 - indent, compact_ ? 27.0f : 32.0f};
         if (row.y > b.bottom()) break;
         sceneRows_.push_back({s.id, row});
         const std::string id = "scene:" + s.id;
@@ -1164,7 +1284,7 @@ void CaptureWindow::drawScenes(const Rect& b) {
         if (i < 9)
             gfx_.text(L"Ctrl+" + std::to_wstring(i + 1), {row.x, row.y, row.w - 10, row.h}, Font::Small, pal_.inkFaint.withAlpha(0.6f + 0.4f * hv),
                       {Align::Right, false, false, true});
-        y += 34;
+        y += compact_ ? 29 : 34;
     }
 }
 
@@ -1177,10 +1297,18 @@ void CaptureWindow::drawSources(const Rect& b) {
         return;
     }
     float y = b.y + 6;
+    // Each row starts with a small picture of the source (0.10.32; not in low-resource mode).
+    const bool pictures = !settings_.lowResource && engine_.running();
+    std::map<Id, video::Engine::Thumb> thumbs;
+    if (pictures) {
+        engine_.wantThumbs();
+        thumbs = engine_.thumbs();
+    }
+    const float tx = pictures ? (compact_ ? 52.0f : 64.0f) : 0.0f;
     for (auto it = s->items.rbegin(); it != s->items.rend(); ++it) {   // top of the scene first
         const Source* src = scenes_.source(it->source);
         if (!src) continue;
-        const Rect row{b.x + 6, y, b.w - 12, 44};
+        const Rect row{b.x + 6, y, b.w - 12, compact_ ? 34.0f : 44.0f};
         if (row.y > b.bottom()) break;
         sourceRows_.push_back({it->id, row});
         const std::string id = "src:" + it->id;
@@ -1194,15 +1322,40 @@ void CaptureWindow::drawSources(const Rect& b) {
             gfx_.fillRounded(row, 7, pal_.ink.withAlpha(0.05f * std::max(hv, it->id == hoverItem_ ? 0.7f : 0.0f)));
         }
         const cjui::Color ink = it->visible ? pal_.ink : pal_.inkFaint;
-        gfx_.text(widen(src->name), {row.x + 14, row.y + 4, row.w - 84, 20}, on ? Font::BodyStrong : Font::Body, ink, {Align::Left, false, true, true});
+        if (pictures) {
+            const Rect pic = compact_ ? Rect{row.x + 10, row.y + 5, 43, 24} : Rect{row.x + 10, row.y + 7, 54, 30};
+            auto t = thumbs.find(it->id);
+            bool drawn = false;
+            if (t != thumbs.end() && !t->second.rgba.empty()) {
+                const std::wstring key = L"thumb:" + widen(it->id) + L":" + std::to_wstring(t->second.gen);
+                auto& old = thumbKeys_[it->id];
+                if (old != key) {
+                    if (!old.empty()) gfx_.forgetImage(old);
+                    old = key;
+                }
+                drawn = gfx_.drawPixels(key, t->second.w, t->second.h, t->second.rgba.data(), pic);
+            }
+            if (!drawn) gfx_.fillRounded(pic, 4, pal_.ink.withAlpha(0.07f));
+            gfx_.strokeRounded(pic, 4, pal_.rule, 1);
+            if (!it->visible) gfx_.fillRounded(pic, 4, pal_.surface.withAlpha(0.6f));
+        }
+        if (compact_)   // one line: the name, with a dot in the problem colour if something's wrong
+            gfx_.text(widen(src->name), {row.x + 14 + tx, row.y, row.w - 84 - tx, row.h}, on ? Font::BodyStrong : Font::Body, ink, {Align::Left, false, true, true});
+        else
+            gfx_.text(widen(src->name), {row.x + 14 + tx, row.y + 4, row.w - 84 - tx, 20}, on ? Font::BodyStrong : Font::Body, ink, {Align::Left, false, true, true});
         bool problem = false;
         std::wstring st = sourceStatus(src->id, &problem);
         if (!it->visible) st = L"Hidden" + (st.empty() ? L"" : L" · " + st);
-        gfx_.text(st, {row.x + 14, row.y + 23, row.w - 84, 17}, Font::Small, problem ? cjui::hexColor("#E0566A") : pal_.inkMuted,
-                  {Align::Left, false, true, true});
+        if (!compact_)
+            gfx_.text(st, {row.x + 14 + tx, row.y + 23, row.w - 84 - tx, 17}, Font::Small, problem ? cjui::hexColor("#E0566A") : pal_.inkMuted,
+                      {Align::Left, false, true, true});
+        else if (problem)
+            gfx_.circle(row.right() - 72, row.y + row.h / 2, 3.5f, cjui::hexColor("#E0566A"), true);
+        tooltip(id, st);   // the status, whole (and the only place it shows when compact)
         // Show/hide and lock.
         const Id item = it->id;
-        const Rect eye{row.right() - 60, row.y + 9, 26, 26}, lock{row.right() - 31, row.y + 9, 26, 26};
+        const float ey = row.y + (row.h - 26) / 2;
+        const Rect eye{row.right() - 60, ey, 26, 26}, lock{row.right() - 31, ey, 26, 26};
         addHit(id + ":eye", eye, [this, item, vis = it->visible] {
             scenes_.setItemVisible(scenes_.current(), item, !vis);
             scenesChanged();
@@ -1226,7 +1379,7 @@ void CaptureWindow::drawSources(const Rect& b) {
         if (!it->locked) gfx_.strokeRounded({lock.x + 7, lock.y + 11, 12, 9}, 2, lc, 1.4f);
         if (focused(id + ":eye")) focusRing(eye);
         if (focused(id + ":lock")) focusRing(lock);
-        y += 46;
+        y += compact_ ? 36 : 46;
     }
 }
 
@@ -1236,7 +1389,7 @@ void CaptureWindow::drawControls(const Rect& b) {
     // Recording: the one that works now.
     {
         const bool rec = recorder_.active();
-        const Rect r{b.x + 12, y, w, 50};   // the two big buttons (0.10.31: taller, larger words)
+        const Rect r{b.x + 12, y, w, compact_ ? 40.0f : 50.0f};   // the two big buttons (0.10.31: taller, larger words)
         const Color red = cjui::hexColor("#E0566A");
         addHit("ctl:record", r, [this, rec] {
             if (rec) stopRecording();
@@ -1258,7 +1411,7 @@ void CaptureWindow::drawControls(const Rect& b) {
             gfx_.text(t, {r.x, r.y, r.w - 12, r.h}, Font::Body, pal_.ink, {Align::Right, false, false, true});
         }
         if (focused("ctl:record")) focusRing(r);
-        y += 56;
+        y += r.h + 6;
         if (rec) {   // markers: chapters in the MP4 copy
             const Rect mb{b.x + 12, y, w, 32};
             tooltip("ctl:marker", withHotkey(L"Marks this moment. Markers become chapters in the MP4 copy.", hotkeys::Action::Marker));
@@ -1294,6 +1447,38 @@ void CaptureWindow::drawControls(const Rect& b) {
     }
     if (y + 40 < b.bottom())
         gfx_.text(L"Greyed out: not built yet; each starts working in the milestone shown.", {b.x + 14, y + 2, b.w - 28, 40}, Font::Small, pal_.inkFaint);
+}
+
+// Why the video isn't keeping up, in plain words (0.10.32): `why` is a few words for the line under the preview,
+// the result what to do about it (its tooltip). Both empty while it keeps up.
+std::wstring CaptureWindow::keepUpAdvice(std::wstring& why) {
+    why.clear();
+    if (!engine_.running()) return {};
+    const video::EngineStats st = engine_.stats();
+    const double target = (double)std::max(1, settings_.outputFps);
+    if (st.fps <= 0 || st.fps >= target * 0.85) return {};
+    const double budget = 1000.0 / target;   // ms a frame
+    wchar_t b[200];
+    std::wstring a;
+    if (st.gpuMs > budget * 0.8) {
+        why = L"the graphics card is busy";
+        swprintf(b, 200, L"The graphics card takes %.0f ms for each frame, and at %d fps it has %.0f ms. ", st.gpuMs, settings_.outputFps, budget);
+        a = std::wstring(b) + L"A game or another program may be using it heavily: close what you don't need, or lower the game's graphics settings. ";
+    } else if (usage_.systemCpu > 90) {
+        why = L"the processor is busy";
+        a = L"The processor is at " + percent(usage_.systemCpu) + L" across the whole PC. Close programs you don't need while you stream or record. ";
+    } else if (st.renderMs > budget * 0.8) {
+        why = L"too much to draw";
+        swprintf(b, 200, L"Each frame takes Capture %.0f ms to prepare, and at %d fps it has %.0f ms. ", st.renderMs, settings_.outputFps, budget);
+        a = std::wstring(b) + L"Fewer captures and cameras in the scene, or smaller ones, will help. ";
+    } else {
+        why = L"Windows is giving Capture too little time";
+        a = L"Nothing in Capture is slow, so other programs are probably taking the time. Closing them, or plugging a laptop in, usually helps. ";
+    }
+    swprintf(b, 200, L"Capture is making %.0f of the %d frames a second it should.\n\n", st.fps, settings_.outputFps);
+    return std::wstring(b) + a +
+           L"\n\nAlso: a lower frame rate or canvas size (Settings \u203a Video), or low-resource mode, lightens the load. What's on stream "
+           L"plays smoothly only while it keeps up.";
 }
 
 void CaptureWindow::drawStatusBar(const Rect& r) {
@@ -1381,6 +1566,7 @@ void CaptureWindow::drawSettings(const Rect& area) {
     const float top = beginScroll(clip);
     float y = top + 24;
     gfx_.text(L"Settings", {x, y, colW, 34}, Font::Title, pal_.ink, {Align::Left, false});
+    button("set:test", {x + colW - 480, y + 2, 170, 34}, L"Test my setup\u2026", [this] { openSetupTest(); });
     button("set:wizard", {x + colW - 300, y + 2, 180, 34}, L"Setup wizard\u2026", [this] { openWizard(); });
     button("set:close", {x + colW - 110, y + 2, 110, 34}, L"Done", [this] { openSettings(false); }, true);
     y += 54;
@@ -1404,6 +1590,13 @@ void CaptureWindow::drawSettings(const Rect& area) {
             applyTheme();
         });
         y += std::max(h, 34.0f) + 14;
+        const float h2 = row(L"Compact layout", L"Tighter rows and buttons, so more fits on a laptop screen. Automatic uses it when the window is smaller than about 1500 \u00D7 860.", 300);
+        segmented("set:compact", {x + colW - 300, y - 2, 300, 32}, {L"Automatic", L"On", L"Off"}, settings_.compactLayout, [this](int i) {
+            settings_.compactLayout = i;
+            settings_.save(settingsPath_);
+            invalidate();
+        });
+        y += std::max(h2, 34.0f) + 14;
     }
 
     section(L"PERFORMANCE");
