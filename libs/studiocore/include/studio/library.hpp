@@ -214,6 +214,20 @@ struct Entry {
 };
 // The sections an entry page of `kind` starts with (the built-in template).
 const std::vector<std::string>& defaultEntryTemplate(const std::string& kind);
+// A template line is a section's title, or a choice (0.37): "Status: Alive | Dead | Missing" offers those as buttons
+// (the section's text is the one picked, or anything written instead), and "Traits (any): Brave | Loyal | Proud"
+// lets several be picked ("Brave, Proud"). The title alone ("Status", "Traits") is the section's name on the page.
+struct SectionSpec {
+    std::string title;
+    std::vector<std::string> options;   // empty: a written section
+    bool many = false;                  // several can be picked
+};
+SectionSpec sectionSpec(const std::string& templateLine);
+// The section's text with `option` picked or unpicked: one choice replaces the text (picking the one already
+// picked clears it); several are kept as "A, B" in the options' order, with anything written that isn't one kept after.
+std::string toggleSectionOption(const SectionSpec& spec, const std::string& text, const std::string& option);
+// Whether `option` is picked in `text` (case and spacing ignored).
+bool sectionOptionPicked(const SectionSpec& spec, const std::string& text, const std::string& option);
 // A template written one section per line, and back.
 std::vector<std::string> parseEntryTemplate(const std::string& lines);
 std::string entryTemplateText(const std::vector<std::string>& sections);
@@ -489,6 +503,8 @@ public:
     bool setEntryTemplate(const Id& worldId, const std::string& kind, const std::vector<std::string>& sections);
     // An entry's sections in its template's order, with any it has beyond the template after them.
     std::vector<std::pair<std::string, std::string>> entrySections(const Entry& e) const;
+    // The choice behind one of the entry's sections ("" options if it's written, or not from the template).
+    SectionSpec entrySectionSpec(const Entry& e, const std::string& title) const;
     bool setSetting(const std::string& key, const std::string& value);
 
     // A whole-library JSON file (without images) for moving or archiving.

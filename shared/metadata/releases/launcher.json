@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.103.0",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Writing Studio 0.37.0: paste a whole bible page and each part goes where it belongs; sections that are choices; tidier pasting into chapters."
+      ]
+    },
+    {
       "version": "0.102.0",
       "date": "2026-11-19",
       "notes": [

@@ -1216,6 +1216,8 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (ws_ == Workspace::Import && vk == VK_ESCAPE && !importBusy_) { cancelImport(); return true; }
     if (vk == VK_F2) { renameFocused(); return true; }
     if (vk == VK_DELETE) { trashFocused(); return true; }
+    if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'V' && pasteFromClipboard()) return true;
+    if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'Z' && undoEntryPaste()) return true;
     if (ctrl && vk == 'Z') { undoTrash(); return true; }
     if (vk == VK_ESCAPE && drag_.active) { drag_ = {}; return true; }
     if (vk == VK_BACK || (vk == VK_LEFT && (GetKeyState(VK_MENU) & 0x8000))) {
@@ -1696,6 +1698,7 @@ void StudioApp::createFields() {
         if (multi) SetWindowSubclass(fields_[f], wheelScroll, 1, 0);
         SendMessageW(fields_[f], EM_SETLIMITTEXT, multi ? 200000 : 2000, 0);
     }
+    watchFieldPastes();
     SendMessageW(fields_[FSearch], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search titles, authors, tags"));
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"fantasy, dragons"));
     SendMessageW(fields_[FAccent], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"#2D4A6E"));

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.37.0",
+      "date": "2026-11-19",
+      "notes": [
+        "Paste a whole bible page: copy a character sheet (Name, Other names, How it's said, Summary, Details, sections like Appearance or History, Notes per book, Family, Relationships, Spoilers) and paste it onto an entry, or press Ctrl+V on the bible's cards to make a new entry from it. Each part goes to its place: sections into the page's own (Appearance into “Appearance & personality”), notes to each book by title or “Book 2”, and family and relationships become links to entries already in the bible. Ctrl+Z or “Undo the paste” puts it back.",
+        "Sections can be choices: in a kind's sections, “Status: Alive | Dead | Missing” shows those as buttons to pick from, with a box to write something else instead; “Traits (any): Brave | Loyal | Proud” lets you pick several.",
+        "Pasting into chapters: text from Google Docs no longer turns all bold, and its bold and italics are kept; Word's hidden formatting goes; quotes turn curly, “--” becomes a dash and “...” an ellipsis, as when typing; blank paragraphs and typed indents go; “***” lines become scene breaks; plain text joins lines wrapped short. Pictures can be pasted straight into the text.",
+        "The side panel's boxes tidy what's pasted: several lines pasted into a one-line box (a name, other names) are joined rather than cut off."
+      ]
+    },
+    {
       "version": "0.36.0",
       "date": "2026-11-19",
       "notes": [

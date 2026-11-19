@@ -244,9 +244,77 @@ std::vector<std::string> parseEntryTemplate(const std::string& lines) {
         while (i < l.size() && (l[i] == ' ' || l[i] == '\t' || l[i] == '-' || l[i] == '*')) ++i;
         l = l.substr(i);
         if (l.empty() || std::find(out.begin(), out.end(), l) != out.end()) continue;
-        out.push_back(l.substr(0, 80));
+        out.push_back(l.substr(0, sectionSpec(l).options.empty() ? 80 : 600));
     }
     return out;
+}
+
+namespace {
+std::string optionKey(const std::string& s) {
+    std::string out;
+    for (char c : trimmed(s)) out += (char)std::tolower((unsigned char)c);
+    return out;
+}
+std::vector<std::string> pickedParts(const std::string& text) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : text + ",") {
+        if (c == ',' || c == '\n') { if (!trimmed(cur).empty()) out.push_back(trimmed(cur)); cur.clear(); }
+        else cur += c;
+    }
+    return out;
+}
+}  // namespace
+
+SectionSpec sectionSpec(const std::string& line) {
+    SectionSpec s;
+    const size_t colon = line.find(':');
+    const size_t bar = line.find('|');
+    if (colon == std::string::npos || bar == std::string::npos || bar < colon) { s.title = trimmed(line); return s; }
+    s.title = trimmed(line.substr(0, colon));
+    std::string rest = line.substr(colon + 1) + "|";
+    std::string cur;
+    for (char c : rest) {
+        if (c == '|') {
+            const std::string o = trimmed(cur);
+            if (!o.empty() && o.size() <= 60 && s.options.size() < 24 &&
+                std::none_of(s.options.begin(), s.options.end(), [&](const std::string& x) { return optionKey(x) == optionKey(o); }))
+                s.options.push_back(o);
+            cur.clear();
+        } else cur += c;
+    }
+    // "(any)" or "(several)" after the title: more than one can be picked.
+    for (const char* mark : {"(any)", "(several)", "(pick any)", "(many)"}) {
+        const std::string m = mark;
+        if (s.title.size() > m.size() && optionKey(s.title.substr(s.title.size() - m.size())) == m) {
+            s.many = true;
+            s.title = trimmed(s.title.substr(0, s.title.size() - m.size()));
+        }
+    }
+    if (s.title.empty()) s.title = trimmed(line);
+    if (s.options.size() < 2) { s.options.clear(); s.many = false; s.title = trimmed(line); }
+    return s;
+}
+
+bool sectionOptionPicked(const SectionSpec& spec, const std::string& text, const std::string& option) {
+    if (!spec.many) return optionKey(text) == optionKey(option);
+    for (auto& p : pickedParts(text)) if (optionKey(p) == optionKey(option)) return true;
+    return false;
+}
+
+std::string toggleSectionOption(const SectionSpec& spec, const std::string& text, const std::string& option) {
+    if (!spec.many) return sectionOptionPicked(spec, text, option) ? std::string() : option;
+    const bool was = sectionOptionPicked(spec, text, option);
+    std::vector<std::string> parts = pickedParts(text), out;
+    for (auto& o : spec.options) {
+        const bool on = optionKey(o) == optionKey(option) ? !was : sectionOptionPicked(spec, text, o);
+        if (on) out.push_back(o);
+    }
+    for (auto& p : parts)   // written words that aren't one of the options stay
+        if (std::none_of(spec.options.begin(), spec.options.end(), [&](const std::string& o) { return optionKey(o) == optionKey(p); })) out.push_back(p);
+    std::string r;
+    for (auto& o : out) r += (r.empty() ? "" : ", ") + o;
+    return r;
 }
 
 std::string entryTemplateText(const std::vector<std::string>& sections) {
@@ -269,10 +337,23 @@ bool Library::setEntryTemplate(const Id& worldId, const std::string& kind, const
 
 std::vector<std::pair<std::string, std::string>> Library::entrySections(const Entry& e) const {
     std::vector<std::pair<std::string, std::string>> out;
-    for (auto& t : entryTemplate(e.worldId, e.kind)) out.emplace_back(t, e.section(t));
+    for (auto& t : entryTemplate(e.worldId, e.kind)) {
+        const std::string title = sectionSpec(t).title;
+        if (std::none_of(out.begin(), out.end(), [&](auto& o) { return o.first == title; })) out.emplace_back(title, e.section(title));
+    }
     for (auto& s : e.sections)
         if (!s.second.empty() && std::none_of(out.begin(), out.end(), [&](auto& o) { return o.first == s.first; })) out.push_back(s);
     return out;
+}
+
+SectionSpec Library::entrySectionSpec(const Entry& e, const std::string& title) const {
+    for (auto& t : entryTemplate(e.worldId, e.kind)) {
+        SectionSpec s = sectionSpec(t);
+        if (s.title == title) return s;
+    }
+    SectionSpec s;
+    s.title = title;
+    return s;
 }
 
 namespace detail {

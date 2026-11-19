@@ -9,7 +9,7 @@
 //                         {type:"flush"} (answered with {type:"flushed"}) {type:"title", title}  {type:"theme", dark}  {type:"image", blob, alt}  {type:"focus"}
 //                         {type:"saved", id, ok} (after a change was stored)  {type:"command", name} (the Format menu)
 // Messages to the app:    {type:"ready"} {type:"change", id, doc, words} {type:"stats", id, words, selectionWords}
-//                         {type:"link", href} {type:"insertImage"} {type:"saved-state", dirty} {type:"navigate", delta}
+//                         {type:"link", href} {type:"insertImage"} {type:"pasteImage", mime, name, data(base64) | tooLarge} {type:"saved-state", dirty} {type:"navigate", delta}
 //                         {type:"picture", id, pos, attrs} (a picture selected; pos null when none is)
 //                         {type:"comment", id, node, quote} (a comment was made on the selection)
 //                         {type:"commentFocus", id, node} (the cursor is in a comment; id null when it isn't)
@@ -23,6 +23,7 @@
 //                         {type:"entry", id} (Ctrl+click on a name from the world's bible)
 
 import { Schema } from "prosemirror-model";
+import { cleanPastedHTML, tidySlice, textToSlice } from "./paste.js";
 import { EditorState, Plugin, TextSelection, NodeSelection } from "prosemirror-state";
 import { EditorView, Decoration, DecorationSet } from "prosemirror-view";
 import { baseKeymap, toggleMark, setBlockType, wrapIn, chainCommands, exitCode, lift } from "prosemirror-commands";
@@ -98,9 +99,12 @@ export const schema = new Schema({
     },
   },
   marks: {
-    em: { parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }], toDOM: () => ["em", 0] },
-    strong: { parseDOM: [{ tag: "b" }, { tag: "strong" }, { style: "font-weight", getAttrs: (v) => /^(bold(er)?|[6-9]\d\d)$/.test(v) && null }], toDOM: () => ["strong", 0] },
-    underline: { parseDOM: [{ tag: "u" }], toDOM: () => ["u", 0] },
+    em: { parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }, { style: "font-style=normal", clearMark: (m) => m.type.name === "em" }],
+      toDOM: () => ["em", 0] },
+    strong: { parseDOM: [{ tag: "b" }, { tag: "strong" }, { style: "font-weight=400", clearMark: (m) => m.type.name === "strong" },
+      { style: "font-weight=normal", clearMark: (m) => m.type.name === "strong" },
+      { style: "font-weight", getAttrs: (v) => /^(bold(er)?|[6-9]\d\d)$/.test(v) && null }], toDOM: () => ["strong", 0] },
+    underline: { parseDOM: [{ tag: "u" }, { style: "text-decoration=underline" }, { style: "text-decoration-line=underline" }], toDOM: () => ["u", 0] },
     smallcaps: { parseDOM: [{ tag: "span.sc" }, { style: "font-variant=small-caps" }], toDOM: () => ["span", { class: "sc" }, 0] },
     strike: { parseDOM: [{ tag: "s" }, { tag: "del" }], toDOM: () => ["s", 0] },
     sup: { excludes: "sub", parseDOM: [{ tag: "sup" }], toDOM: () => ["sup", 0] },
@@ -1095,7 +1099,15 @@ function load(msg) {
           return false;
         },
       },
-      transformPastedHTML: (html) => html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ""),
+      // Pasting (0.37): see paste.js.
+      transformPastedHTML: cleanPastedHTML,
+      clipboardTextParser: (text) => textToSlice(text, schema),
+      transformPasted: (slice, v) => {
+        const from = v.state.selection.from;
+        const before = from > 1 ? v.state.doc.textBetween(Math.max(0, from - 1), from, "", "\uFFFC") : "";
+        return tidySlice(slice, schema, before);
+      },
+      handlePaste: (v, e) => pastePicture(e),
     });
   } else {
     view.updateState(state);
@@ -1189,6 +1201,25 @@ function buildToolbar() {
   for (const [id, delta] of [["prev", -1], ["next", 1]])
     document.getElementById(id).addEventListener("mousedown", (e) => { e.preventDefault(); navigate(delta)(); });
   document.getElementById("img").addEventListener("mousedown", (e) => { e.preventDefault(); send({ type: "insertImage" }); });
+}
+
+// A picture pasted (a screenshot, an image copied from a page or a folder): kept in the artwork library by the app,
+// which then puts it here as if inserted (0.37). Not when the clipboard has text too (a web page's words and pictures).
+function pastePicture(e) {
+  const cd = e.clipboardData;
+  if (!cd || readOnly) return false;
+  if (cd.getData("text/plain") || cd.getData("text/html")) return false;
+  const file = Array.from(cd.files || []).find((f) => /^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type));
+  if (!file) return false;
+  if (file.size > 40 * 1024 * 1024) { send({ type: "pasteImage", tooLarge: true }); return true; }
+  const r = new FileReader();
+  r.onload = () => {
+    const url = String(r.result || "");
+    const comma = url.indexOf(",");
+    if (comma > 0) send({ type: "pasteImage", mime: file.type, name: file.name || "", data: url.slice(comma + 1) });
+  };
+  r.readAsDataURL(file);
+  return true;
 }
 
 function insertImage(blob, alt, width) {

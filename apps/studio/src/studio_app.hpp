@@ -6,6 +6,8 @@
 // Typesetting, ...) are visible but switched off until they exist.
 #pragma once
 
+#include <optional>
+
 #include "cjui/window.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
@@ -425,6 +427,15 @@ private:
     void hideUnplacedFields();
     void loadFields();
     void commitFields();
+public:
+    // Pasting (0.37, studio_paste.cpp).
+    bool pastedIntoField(HWND field, const std::wstring& text);   // true: taken as a whole bible page
+    bool isListField(HWND field) const;
+private:
+    void watchFieldPastes();
+    bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
+    void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
+    bool undoEntryPaste();
     void setFieldText(Field f, const std::string& utf8);
     std::string fieldText(Field f) const;
     float panelField(const Rect& r, float y, const std::wstring& label, Field f, float h = 30);
@@ -579,6 +590,12 @@ private:
         std::string beat;          // Structure: the beat selected
     } pl_;
     // Worldbuilding
+    struct PasteUndo {
+        Id entry;
+        studio::Entry before;
+        std::vector<studio::EntryLink> added;
+        bool created = false;   // the entry was made by the paste
+    };
     struct WorldState {
         Id world, book;            // whose entries: a world's, or an independent book's
         std::string kind;          // the kind shown ("" = everything)
@@ -621,6 +638,7 @@ private:
         float boardOriginX = 0, boardOriginY = 0;   // where the board's (0, 0) was drawn
         std::map<std::string, std::pair<float, float>> boardDragPos;   // live position while dragging
         float boardDragW = 0;
+        std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
     } wb_;
     // Publishing
     struct PublishState {

@@ -192,7 +192,7 @@ static bool facetMatches(const Entry& e, const std::string& filter) {
 // ------------------------------------------------------------- the bible by book
 
 // The world's books in reading order: each series in turn (its reading order), then books in no series.
-static std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const Id& book) {
+std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const Id& book) {
     std::vector<Id> out;
     if (world.empty()) { if (!book.empty()) out.push_back(book); return out; }
     for (const Series* s : lib.seriesIn(world))
@@ -1423,6 +1423,14 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     std::map<int, float> fieldTop;   // where some fields are, to scroll to them
     if (e && !e->deleted) {
         panelHeading(c, y, L"ENTRY", true);
+        // A whole page from elsewhere (0.37), and taking the last one back.
+        if (wb_.pasteUndo && wb_.pasteUndo->entry == e->id) {
+            linkText("wb:pasteundo", c.x, y, L"Undo the paste", [this] { undoEntryPaste(); });
+            y += 28;
+        } else {
+            linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
+            y += 28;
+        }
         fieldTop[FName] = y;
         y = panelField(c, y, L"Name", FName);
         panelChoice("wb:kind", c, y, L"Kind", w(entryKindLabel(e->kind)), [this] {
@@ -1569,8 +1577,42 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                     focusFieldSoon_ = FSection;
                     invalidate();
                 });
+                // A choice (0.37): its options as buttons, and the box for anything else.
+                const SectionSpec spec = lib_->entrySectionSpec(*e, wb_.section);
+                if (!spec.options.empty()) {
+                    const std::string cur = e->section(wb_.section);
+                    gfx_.text(spec.many ? L"Pick any that fit" : L"Pick one", {c.x, y, c.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false});
+                    y += 22;
+                    float lx = c.x;
+                    for (const std::string& o : spec.options) {
+                        const std::wstring nm = w(o);
+                        const float bw = std::min(c.w, gfx_.measureWidth(nm, Font::Small) + 28);
+                        if (lx + bw > c.right() && lx > c.x) { lx = c.x; y += 36; }
+                        const Rect chip{lx, y, bw, 30};
+                        const std::string id = "wb:opt:" + o;
+                        const bool on = sectionOptionPicked(spec, cur, o);
+                        addHit(id, chip, [this, o] {
+                            commitFields();
+                            const Entry* x = lib_->entry(wb_.entry);
+                            if (!x) return;
+                            const SectionSpec sp = lib_->entrySectionSpec(*x, wb_.section);
+                            Entry u = *x;
+                            u.setSection(wb_.section, toggleSectionOption(sp, x->section(wb_.section), o));
+                            lib_->updateEntry(u);
+                            loadedFocus_ = {Focus::None, "-", ""};
+                            invalidate();
+                        });
+                        const float hv = hoverAmount(id);
+                        gfx_.fillRounded(chip, 15, on ? pal_.ribbon : pal_.surface.mix(pal_.sunken, 0.4f * hv));
+                        gfx_.strokeRounded(chip, 15, on ? pal_.ribbon : pal_.rule.mix(pal_.ribbon, hv));
+                        gfx_.text(nm, chip, Font::Small, on ? pal_.paper : pal_.ink, {Align::Center, false, true, true});
+                        if (focused(id)) focusRing(chip);
+                        lx += bw + 8;
+                    }
+                    y += 44;
+                }
                 fieldTop[FSection] = y;
-                y = panelField(c, y, w(wb_.section), FSection, 170);
+                y = panelField(c, y, spec.options.empty() ? w(wb_.section) : L"Or in your own words", FSection, spec.options.empty() ? 170 : 70);
             }
         }
         {
@@ -1604,8 +1646,10 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                     invalidate();
                 });
                 y += 26;
-                y += gfx_.text(L"Writing already in a section you take out stays on the page, after the others.", {c.x, y, c.w, 40}, Font::Small,
-                               pal_.inkFaint) + 12;
+                y += gfx_.text(L"For buttons to pick from, write the choices after a colon: “Status: Alive | Dead | Missing”. "
+                               L"Add (any) to the name to pick several: “Traits (any): Brave | Loyal | Proud”. "
+                               L"Writing already in a section you take out stays on the page, after the others.",
+                               {c.x, y, c.w, 120}, Font::Small, pal_.inkFaint) + 12;
             }
         }
 

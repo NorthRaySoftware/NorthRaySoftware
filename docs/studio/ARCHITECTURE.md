@@ -415,6 +415,42 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.37.0: pasting, and choice sections (19 Nov 2026)
+
+CJ asked for better pasting, for world bible sections that can be text or buttons, and to paste a whole character
+sheet (his Tom, Sarrah, Light Magic and Telvana pages are test fixtures in `tests/fixtures/paste/`) so the parts go to
+the right sections.
+
+- **studiocore/entry_paste** parses pasted text into a `Page` (name, other names, pronunciation, summary, details,
+  sections, book notes, relations, notes) and `apply`s it to an entry. Headings: Markdown, a whole line in bold, a
+  known word on its own (`slotOf`), "Label:" with nothing after, or a short capitalised line after a boundary (a
+  blank line, a sentence's end, a field or another heading), so pages with no blank lines still split. Text before
+  the first recognised part (a chat's preamble) is dropped. `looksLikePage` needs two parts, one with a known name, so
+  lists and sections with subheadings aren't taken for pages. Applying merges: empty fields filled, text added after
+  what's there unless already present, details replaced by label, sections into the template section with that title
+  or a part of it ("Appearance" -> "Appearance & personality"), book notes by title, else "Book N" by reading order
+  when no title is given (a title that's no book's goes to the notes), Family/Relationships lines into links via
+  `relationFor(kind, label)` when the named entry exists (by name, or an other name only one entry has), the rest
+  into details. A second paste of the same page changes nothing.
+- **Choice sections**: a template line "Title: A | B | C" (`sectionSpec`), with "(any)" after the title for several.
+  The section is still keyed by its title and holds text, so changing the options never loses writing;
+  `toggleSectionOption` keeps written words that aren't options. `entrySections` maps template lines to titles.
+- **App** (`studio_paste.cpp`): every panel box is subclassed for WM_PASTE: a page onto the open entry, else the text
+  cleaned (`cleanPastedText`: no-break and zero-width spaces, line breaks to the box's kind, one-line boxes join lines,
+  other names with commas). Ctrl+V on an entry or the cards (new entry of a chosen kind), "Fill this page from what
+  you've copied", and `PasteUndo` (the entry before, links added, or the entry made) for Ctrl+Z / "Undo the paste".
+- **Editor** (`editor/src/paste.js`): `cleanPastedHTML` (Word markup, Google Docs' bold wrapper, and inline styles
+  turned into tags, since the page's CSP stops `style` attributes being applied, so ProseMirror's style rules never
+  matched pasted bold), `tidySlice` (curly quotes using the character before the cursor, dashes, ellipses, blank
+  gap paragraphs and indents gone, "***" lines to scene breaks), `textParagraphs` for plain text. Pasted pictures go
+  to the app as base64 (`pasteImage`, 40 MB limit) and into the artwork library, then the text.
+- Tested: core (1088 checks: the four fixtures parsed and applied, links made to existing entries by name and other
+  name, a second paste changing nothing, choice toggling); the editor's paste in Chromium (Google Docs' wrapper and
+  span styles, Word markup, plain text, quotes and scene breaks); Studio in Wine (Ctrl+V on the cards making a
+  character from Sarrah's page, a page pasted into a panel box with a link made, Undo the paste and Ctrl+Z, lists
+  pasted into one-line boxes, choice and several-choice sections). Pasted pictures and the editor's paste inside the
+  app need WebView2, so Windows only.
+
 ## 0.36.0: constructed languages (19 Nov 2026)
 
 CJ asked for conlangs to be imported and exported, and for their words not to be marked as misspellings unless they're

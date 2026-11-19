@@ -6,6 +6,7 @@
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
 #include "studio/document.hpp"
+#include "studio/entry_paste.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
 #include "studio/publish.hpp"
@@ -2122,7 +2123,136 @@ static void testConlang() {
     CHECK(cl::merge(m, inc) == 1 && m.words.size() == 2 && m.words[0].meaning == "mountain" && m.words[0].word == "khaz");
 }
 
+static std::string pasteFixture(const char* name) {
+    std::ifstream f(fixture((std::string("paste/") + name).c_str()), std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+static void testEntryPaste() {
+    using namespace studio;
+    namespace pa = studio::paste;
+    // Choice sections in a template.
+    {
+        const SectionSpec s = sectionSpec("Status: Alive | Dead | Missing | dead");
+        CHECK(s.title == "Status" && s.options.size() == 3 && !s.many);
+        CHECK(toggleSectionOption(s, "", "Dead") == "Dead" && toggleSectionOption(s, "Dead", "Dead").empty() && toggleSectionOption(s, "Dead", "Alive") == "Alive");
+        CHECK(sectionOptionPicked(s, " dead ", "Dead"));
+        const SectionSpec m = sectionSpec("Traits (any): Brave | Loyal | Proud");
+        CHECK(m.title == "Traits" && m.many && m.options.size() == 3);
+        CHECK(toggleSectionOption(m, "", "Proud") == "Proud");
+        CHECK(toggleSectionOption(m, "Proud, stubborn", "Brave") == "Brave, Proud, stubborn");
+        CHECK(toggleSectionOption(m, "Brave, Proud", "Brave") == "Proud");
+        CHECK(sectionSpec("Age, birth & status").options.empty() && sectionSpec("Age, birth & status").title == "Age, birth & status");
+        CHECK(sectionSpec("Status: alive").options.empty() && sectionSpec("Only | one:").options.empty());
+    }
+    // Parsing the two shapes: Markdown (Tom) and plain (Sarrah), and pages without blank lines (Light Magic).
+    const pa::Page tom = pa::parse(pasteFixture("tom.txt"));
+    CHECK(tom.name == "Thomas Terrance Smith");
+    CHECK(tom.aliases.size() == 12 && tom.aliases[0] == "Tom" && tom.aliases.back() == "my master's scion");
+    CHECK(tom.pronunciation == "TOM-us TERR-ence SMITH");
+    CHECK(tom.summary.rfind("A young blacksmith", 0) == 0);
+    CHECK(tom.details.find("Eyes: forest green") != std::string::npos && tom.details.find("Here's") == std::string::npos);
+    CHECK(tom.sections.size() == 4 && tom.sections[0].first == "Appearance" && tom.sections[3].first == "Abilities");
+    CHECK(tom.sections[2].second.find("\n\n") != std::string::npos);   // History's paragraphs kept
+    CHECK(tom.bookNotes.size() == 3 && tom.bookNotes[0].first == "Shards of Light (Book 1)" && tom.bookNotes[2].first == "Book 5");
+    CHECK(tom.bookNotes[0].second.rfind("\xE2\x80\xA2 Returning", 0) == 0 && tom.bookNotes[1].second.rfind("Tom stabs", 0) == 0);
+    CHECK(tom.relations.size() == 16 && tom.relations[0].first == "Parents");
+    CHECK(tom.notes.find("Spoilers:") == 0 && tom.notes.find("chapter 5") != std::string::npos);
+    const pa::Page sar = pa::parse(pasteFixture("sarrah.txt"));
+    CHECK(sar.name == "Sah\xE2\x80\x99ra Jane Crystalline" && sar.aliases.size() == 14 && sar.pronunciation == "SAH-rah");
+    CHECK(sar.sections.size() == 4 && sar.sections[1].first == "Personality");
+    CHECK(sar.sections[3].second.find("fireballs, and a flame spiral") != std::string::npos);
+    CHECK(sar.bookNotes.size() == 2 && sar.bookNotes[1].first == "Book 5");
+    CHECK(sar.relations.size() == 11 && sar.details.find("POV symbol") != std::string::npos);
+    const pa::Page light = pa::parse(pasteFixture("light.txt"));
+    CHECK(light.sections.size() == 3 && light.sections[0].first == "How it works" && light.sections[2].first == "History");
+    CHECK(light.sections[0].second.find("many forms") != std::string::npos);
+    CHECK(light.bookNotes.size() == 2 && light.relations.size() == 5);
+    const pa::Page tel = pa::parse(pasteFixture("telvana.txt"));
+    CHECK(tel.sections.size() == 2 && tel.bookNotes.size() == 1 && tel.bookNotes[0].second.find("\xE2\x80\xA2 In Ursvald") != std::string::npos);
+    CHECK(!pa::looksLikePage("Just a sentence.") && pa::looksLikePage("Name: Ada\nSummary\nA smith."));
+    CHECK(!pa::looksLikePage("Toby\n- Tommy\n\nThe Watchman\n"));   // a list, not a page
+    CHECK(!pa::looksLikePage("Early years\nShe grew up by the sea.\n\nLater\nShe left."));   // a section with its own headings
+    CHECK(pa::relationFor("character", "Parents") == "Child of" && pa::relationFor("character", "Best friend") == "Friend of");
+    CHECK(pa::relationFor("character", "Haunted by").empty() && pa::relationFor("place", "Owned by") == "Owned by");
+    CHECK(pa::relationFor("magic", "Used by") == "Practised by" && pa::relationFor("character", "Used by").empty());
+
+    // Putting it on entries.
+    const std::string dir = tempLibrary("paste");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id b1 = lib->createBook("Shards of Light", world);
+    const Id b2 = lib->createBook("The Reign of Zornov", world);
+    const Id ralph = lib->createEntry(world, {}, "character", "Ralph Smith");
+    const Id jim = lib->createEntry(world, {}, "character", "Jim Armstrong");
+    const Id sarrah = lib->createEntry(world, {}, "character", "Sah'ra Jane Crystalline");
+    {
+        Entry s = *lib->entry(sarrah);
+        s.aliases = {"Sarrah"};
+        CHECK(lib->updateEntry(s));
+    }
+    const Id t = lib->createEntry(world, {}, "character", "New character");
+    {
+        Entry x = *lib->entry(t);
+        x.details = "Eyes: blue\nHeight: tall";
+        x.setSection("Abilities & powers", "Swordsman.");
+        CHECK(lib->updateEntry(x));
+    }
+    pa::Report r;
+    CHECK(pa::apply(*lib, t, tom, {b1, b2}, r));
+    const Entry& e = *lib->entry(t);
+    CHECK(e.name == "Thomas Terrance Smith" && r.name && e.aliases.size() == 12);
+    CHECK(e.details.find("Eyes: forest green") != std::string::npos && e.details.find("Eyes: blue") == std::string::npos);
+    CHECK(e.details.find("Height: tall") != std::string::npos);
+    CHECK(e.section("Appearance & personality").find("brown hair") != std::string::npos);
+    CHECK(e.section("Appearance & personality").find("warm, loyal") != std::string::npos);
+    CHECK(e.section("Abilities & powers").rfind("Swordsman.\n\nTom is a trained", 0) == 0);
+    CHECK(e.section("History").find("Silverbrick") != std::string::npos);
+    CHECK(e.bookNote(b1).find("Gir-Garhm") != std::string::npos && e.bookNote(b2).rfind("Tom stabs", 0) == 0);
+    CHECK(e.notes.find("Book 5:\nTom is the father") != std::string::npos && r.unmatchedBooks.size() == 1);
+    // Links to entries in the bible (by name or other name); the rest stay as details.
+    const auto links = lib->linksOf(t);
+    auto linked = [&](const Id& to, const char* label) {
+        return std::any_of(links.begin(), links.end(), [&](const EntryLink& l) { return l.from == t && l.to == to && l.label == label; });
+    };
+    CHECK(linked(ralph, "Child of") && linked(jim, "Friend of") && linked(sarrah, "Partner of"));
+    CHECK(r.links == 3);
+    CHECK(e.details.find("Parents: Maria Susan Smith") != std::string::npos && e.details.find("Ralph") == std::string::npos);
+    CHECK(e.details.find("Haunted by: the Mimic") != std::string::npos);
+    CHECK(r.words().find("the name, 12 other names") == 0);
+    // Pasting again changes nothing and adds no links.
+    pa::Report again;
+    CHECK(pa::apply(*lib, t, tom, {b1, b2}, again));
+    CHECK(again.links == 0 && again.aliases == 0 && again.sections == 0 && again.details == 0 && again.bookNotes == 0 && !again.summary);
+    // A named entry keeps its name; the pasted one becomes another name.
+    const Id s2 = lib->createEntry(world, {}, "magic", "Light");
+    pa::Report r2;
+    CHECK(pa::apply(*lib, s2, light, {b1, b2}, r2));
+    CHECK(lib->entry(s2)->name == "Light" && lib->entry(s2)->aliases[0] == "Light Magic");
+    CHECK(lib->entry(s2)->section("How it works").find("many forms") != std::string::npos);
+    // A choice section from the template is still a section a paste can fill.
+    CHECK(lib->setEntryTemplate(world, "place", parseEntryTemplate("Description\nStatus: Thriving | Ruined | Lost\nHistory")));
+    const Id tv = lib->createEntry(world, {}, "place", "New place");
+    CHECK(lib->entrySections(*lib->entry(tv)).size() == 3 && lib->entrySections(*lib->entry(tv))[1].first == "Status");
+    CHECK(lib->entrySectionSpec(*lib->entry(tv), "Status").options.size() == 3);
+    pa::Report r3;
+    CHECK(pa::apply(*lib, tv, tel, {b1, b2}, r3));
+    // A book's title that isn't in the library isn't matched by its number.
+    {
+        const pa::Page odd = pa::parse("Name: X\nNotes per book\nThe Lost Tome (Book 1). Something.\nBook 2. Other.\n");
+        const Id xe = lib->createEntry(world, {}, "thing", "New thing");
+        pa::Report rx;
+        CHECK(pa::apply(*lib, xe, odd, {b1, b2}, rx));
+        CHECK(lib->entry(xe)->bookNote(b1).empty() && lib->entry(xe)->bookNote(b2) == "Other." && rx.unmatchedBooks.size() == 1);
+        CHECK(lib->entry(xe)->notes.find("The Lost Tome (Book 1):\nSomething.") != std::string::npos);
+    }
+    CHECK(lib->entry(tv)->name == "Telvana" && lib->entry(tv)->bookNote(b1).find("Telvana\xE2\x80\x99s cliffs") != std::string::npos);
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 int main() {
+    testEntryPaste();
     testConlang();
     testBackup();
     testReview();

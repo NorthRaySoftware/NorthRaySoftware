@@ -10,6 +10,7 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <functional>
@@ -21,6 +22,34 @@
 #include <filesystem>
 
 namespace nrs {
+
+// Base64 (from the editor's pasted pictures); "" if it isn't base64.
+static std::string decodeBase64(const std::string& in) {
+    static const auto table = [] {
+        std::array<int, 256> t{};
+        t.fill(-1);
+        const char* a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; ++i) t[(unsigned char)a[i]] = i;
+        return t;
+    }();
+    std::string out;
+    out.reserve(in.size() * 3 / 4);
+    unsigned buf = 0;
+    int bits = 0;
+    for (char c : in) {
+        if (c == '=') break;
+        if (c == '\n' || c == '\r' || c == ' ') continue;
+        const int v = table[(unsigned char)c];
+        if (v < 0) return {};
+        buf = (buf << 6) | (unsigned)v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += (char)((buf >> bits) & 0xFF);
+        }
+    }
+    return out;
+}
 
 using nlohmann::json;
 using namespace studio;
@@ -253,6 +282,20 @@ void StudioApp::editorMessage(const std::string& text) {
             }
         }
         dlg->Release();
+    } else if (type == "pasteImage") {
+        // A picture pasted into the text (0.37): into the artwork library, then the text, as if inserted.
+        if (m.value("tooLarge", false)) { flash(L"That picture is too large to paste (over 40 MB). Insert it from a file instead.", 6); return; }
+        const std::string bytes = decodeBase64(m.value("data", ""));
+        if (bytes.empty()) { flash(L"Couldn't read the pasted picture.", 5); return; }
+        const std::string mime = m.value("mime", "image/png");
+        std::string ext = mime.substr(mime.find('/') + 1);
+        if (ext == "jpeg") ext = "jpg";
+        std::string name = m.value("name", "");
+        if (name.empty() || name == "image." + ext) name = "Pasted picture." + ext;
+        const std::string stem = name.substr(0, name.find_last_of('.'));
+        const Id art = lib_->addArtwork(bytes, stem, name);
+        if (art.empty()) flash(w(lib_->lastError()), 8);
+        else insertArtwork(art);
     } else if (type == "failed") {
         editorNote_ = L"The editor stopped working. Switch to the Library and back to restart it; your text up to the last save is safe.";
         editor_.destroy();
