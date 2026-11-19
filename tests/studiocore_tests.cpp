@@ -2,6 +2,7 @@
 // a fresh temporary folder and reopens the library to prove what was saved.
 #include "studio/artwork.hpp"
 #include "studio/bible_export.hpp"
+#include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
 #include "studio/document.hpp"
@@ -2039,7 +2040,90 @@ static void testBackup() {
     fs::remove_all(copyDir);
 }
 
+static void testConlang() {
+    namespace cl = studio::conlang;
+    std::vector<cl::Language> out;
+    std::string err;
+    // CSV with a header (columns in another order, quotes, a comma inside a meaning, accents, a BOM).
+    const std::string csv = "\xEF\xBB\xBF" "English,Conword,Part of speech,IPA\r\n"
+                            "light,veyth'ar,noun,/veɪθ.ar/\r\n"
+                            "\"river, stream\",sel-amar,noun,\r\n"
+                            "\"to \"\"see\"\"\",ómë,verb,\r\n"
+                            ",,,\r\n"
+                            "plural,-in,suffix,\r\n"
+                            "again,ve-,prefix,\r\n";
+    CHECK(cl::importFile("C:\\words\\Telvani.csv", csv, out, err) && out.size() == 1);
+    const cl::Language t = out[0];   // a copy: `out` is used again below
+    CHECK(t.name == "Telvani" && t.words.size() == 5);
+    CHECK(t.words[0].word == "veyth'ar" && t.words[0].meaning == "light" && t.words[0].part == "noun" && t.words[0].pronunciation == "/veɪθ.ar/");
+    CHECK(t.words[1].meaning == "river, stream" && t.words[2].word == "ómë" && t.words[2].meaning == "to \"see\"");
+    const cl::SpellData sd = cl::spellData(t);
+    auto has = [](const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); };
+    CHECK(has(sd.words, "veyth'ar") && has(sd.words, "sel-amar") && has(sd.words, "sel") && has(sd.words, "amar") && has(sd.words, "ómë"));
+    CHECK(has(sd.suffixes, "in") && has(sd.prefixes, "ve") && !has(sd.words, "-in") && !has(sd.words, "ve-"));
+    // Semicolons, no header: word, meaning, part.
+    CHECK(cl::importFile("dwarvish.csv", "khaz;mountain;noun\nbaruk;axe;noun\n", out, err) && out[0].words.size() == 2 && out[0].words[1].meaning == "axe" &&
+          out[0].words[1].part == "noun" && out[0].name == "dwarvish");
+    // TSV.
+    CHECK(cl::importFile("x.tsv", "word\tgloss\nalpha\tfirst\n", out, err) && out[0].words.size() == 1 && out[0].words[0].meaning == "first");
+    // SFM (Toolbox / Lexique Pro).
+    const std::string sfm = "\\_sh v3.0  400  MDF 4.0\n\n\\lx veyth'ar\n\\ps n\n\\ge light\n\\de the light of dawn\n\\nt common in songs\n\n\\lx amar\n\\ge water\n"
+                            "\\ge river\n";
+    CHECK(cl::importFile("lexicon.db", sfm, out, err) && out[0].words.size() == 2);
+    CHECK(out[0].words[0].word == "veyth'ar" && out[0].words[0].part == "n" && out[0].words[0].meaning == "light" && out[0].words[0].notes == "common in songs");
+    CHECK(out[0].words[1].meaning == "water; river");
+    CHECK(cl::importFile("noext", sfm, out, err) && out[0].words.size() == 2);   // sniffed
+    // Plain lists.
+    CHECK(cl::importFile("list.txt", "# my words\nkhaz = mountain\nbaruk - axe\nzirak\nmenu: gate\n", out, err) && out[0].words.size() == 4);
+    CHECK(cl::importFile("h.txt", "Word = Meaning\nkhaz = mountain\n", out, err) && out[0].words.size() == 1);
+    CHECK(cl::importFile("list.txt", "# my words\nkhaz = mountain\nbaruk - axe\nzirak\nmenu: gate\n", out, err));
+    CHECK(out[0].words[0].meaning == "mountain" && out[0].words[1].meaning == "axe" && out[0].words[2].word == "zirak" && out[0].words[3].meaning == "gate");
+    // UTF-16 with a BOM.
+    {
+        std::string u16 = "\xFF\xFE";
+        for (char c : std::string("khaz\r\n")) u16 += c, u16 += '\0';
+        CHECK(cl::importFile("u.txt", u16, out, err) && out[0].words.size() == 1 && out[0].words[0].word == "khaz");
+    }
+    // Our own file, round trip; and a file with several languages.
+    cl::Language back;
+    {
+        std::vector<cl::Language> again;
+        CHECK(cl::importFile("Telvani.nrlang", cl::exportJson(t), again, err) && again.size() == 1);
+        back = again[0];
+        CHECK(back.name == "Telvani" && back.words == t.words);
+    }
+    CHECK(cl::importFile("two.json", R"({"languages":[{"name":"A","words":["x","y"]},{"name":"B","words":[{"word":"z","meaning":"zed"}]}]})", out, err) &&
+          out.size() == 2 && out[1].words[0].meaning == "zed");
+    // CSV export reads back the same.
+    {
+        std::vector<cl::Language> again;
+        CHECK(cl::importFile("Telvani.csv", cl::exportCsv(t), again, err) && again[0].words == t.words);
+    }
+    // Nothing readable.
+    CHECK(!cl::importFile("empty.csv", "", out, err) && !err.empty());
+    CHECK(!cl::importFile("bad.nrlang", "{nope", out, err));
+    CHECK(!cl::importFile("none.json", R"({"name":"X","words":[]})", out, err));
+    // Kept in settings: ids, names required, junk skipped.
+    std::vector<cl::Language> langs{t};
+    langs[0].id = cl::newId({});
+    cl::Language d;
+    d.name = "Dwarvish";
+    d.id = cl::newId(langs);
+    langs.push_back(d);
+    CHECK(langs[0].id == "lang1" && langs[1].id == "lang2");
+    const auto kept = cl::fromJson(cl::toJson(langs));
+    CHECK(kept == langs);
+    CHECK(cl::fromJson("junk").empty() && cl::fromJson(R"({"languages":[{"name":""},{"name":"Ok","id":"a"},{"name":"Dup","id":"a"}]})").size() == 2);
+    // Merging: new words added, gaps filled, nothing doubled.
+    cl::Language m;
+    m.words = {{"khaz", "", "", "", ""}};
+    cl::Language inc;
+    inc.words = {{"KHAZ", "mountain", "noun", "", ""}, {"baruk", "axe", "", "", ""}};
+    CHECK(cl::merge(m, inc) == 1 && m.words.size() == 2 && m.words[0].meaning == "mountain" && m.words[0].word == "khaz");
+}
+
 int main() {
+    testConlang();
     testBackup();
     testReview();
     testWorldbuilding();

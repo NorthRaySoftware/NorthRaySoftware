@@ -587,7 +587,7 @@ function keepCaretCentred() {
 
 // Style hints (hints.js): worked out for the whole chapter a moment after typing stops,
 // and moved along with the text in between, so typing never waits for them.
-let style = { scope: "", name: "this book", label: "this book", rules: [], ignore: {}, words: [] };
+let style = { scope: "", name: "this book", label: "this book", rules: [], ignore: {}, words: [], languages: [] };
 let ignoreOnceSet = new Set();
 let lastHints = { hints: [], counts: {}, slow: [] };
 let pausedRules = new Set();
@@ -623,8 +623,13 @@ function hintDecorations(doc) {
         const context = b.text.slice(Math.max(0, m.from - 24), m.to + 24);
         const low = m.word.toLocaleLowerCase();
         if (spellIgnored.has(low) || ignoreOnceSet.has("spell|" + low + "|" + context)) continue;
-        res.hints.push({ from: b.pos + m.from, to: b.pos + m.to, key: "spell", cat: "spell", name: "Spelling", text: m.word, context,
-          msg: `"${m.word}" isn't in the ${document.documentElement.lang === "en-US" ? "American" : "British"} English dictionary.`, why: "" });
+        // Near a word of one of the bible's languages: it's that word misspelt.
+        const near = spell.conlangNear(m.word);
+        const dict = `the ${document.documentElement.lang === "en-US" ? "American" : "British"} English dictionary`;
+        const msg = near
+          ? `"${m.word}" isn't in ${dict} or in ${near.lang || "your language"}. Did you mean the ${near.lang || "language"} word "${near.word}"${near.meaning ? ` (${near.meaning})` : ""}?`
+          : `"${m.word}" isn't in ${dict}${style.languages && style.languages.length ? " or your world's languages" : ""}.`;
+        res.hints.push({ from: b.pos + m.from, to: b.pos + m.to, key: "spell", cat: "spell", name: "Spelling", text: m.word, context, msg, why: "" });
       }
   }
   lastHints = res;
@@ -1245,7 +1250,9 @@ function receive(msg) {
       if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
       style = { scope: String(msg.style.scope || ""), name: String(msg.style.name || "this book"), label: String(msg.style.label || "this book"),
         rules: Array.isArray(msg.style.rules) ? msg.style.rules : [], ignore: msg.style.ignore && typeof msg.style.ignore === "object" ? msg.style.ignore : {},
-        words: Array.isArray(msg.style.words) ? msg.style.words.map(String) : [] };
+        words: Array.isArray(msg.style.words) ? msg.style.words.map(String) : [],
+        languages: Array.isArray(msg.style.languages) ? msg.style.languages : [] };
+      spell.setConlangs(style.languages);
       renderRules();
     }
     spell.setExtraWords([...nameWords, ...style.words]);

@@ -311,6 +311,21 @@ void StudioApp::sendView() {
                         {"rules", st.is_object() && st.contains("rules") && st["rules"].is_array() ? st["rules"] : json::array()},
                         {"ignore", st.is_object() && st.contains("ignore") && st["ignore"].is_object() ? st["ignore"] : json::object()},
                         {"words", st.is_object() && st.contains("words") && st["words"].is_array() ? st["words"] : json::array()}};
+        // The world's constructed languages, for the spell checker (0.36).
+        json langs = json::array();
+        if (const Book* b = lib_->book(writingBook_))
+            for (const auto& l : conlangs(b->worldId, b->worldId.empty() ? b->id : Id{})) {
+                const conlang::SpellData sd = conlang::spellData(l);
+                json words = json::array();
+                std::set<std::string> whole;
+                for (auto& wd : l.words)
+                    if (std::find(sd.words.begin(), sd.words.end(), wd.word) != sd.words.end() && whole.insert(wd.word).second)
+                        words.push_back({{"word", wd.word}, {"meaning", wd.meaning.substr(0, 200)}});
+                for (auto& p : sd.words)
+                    if (!whole.count(p)) words.push_back(p);   // the parts of hyphenated words
+                langs.push_back({{"name", l.name}, {"words", words}, {"prefixes", sd.prefixes}, {"suffixes", sd.suffixes}});
+            }
+        msg["style"]["languages"] = langs;
     }
     editor_.send(msg.dump());
 }

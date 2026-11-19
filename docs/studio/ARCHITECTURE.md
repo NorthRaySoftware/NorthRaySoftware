@@ -414,3 +414,36 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   reload); the app in Wine (Ctrl+K and choosing, the shortcuts sheet, the family tree's zoom and pan). Needs the real
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
+
+## 0.36.0: constructed languages (19 Nov 2026)
+
+CJ asked for conlangs to be imported and exported, and for their words not to be marked as misspellings unless they're
+misspelt.
+
+- `studio/conlang` (studiocore, tested): `Language` (id, name, notes, words) and `Word` (word, meaning, part,
+  pronunciation, notes). Kept per bible scope in the library's settings, `conlangs:world:<id>` or `conlangs:book:<id>`,
+  as JSON (`toJson`/`fromJson`: nameless languages and empty words dropped, duplicate ids renumbered; at most 50
+  languages, 50,000 words each). `importFile` reads NorthRay's .nrlang (JSON, one language or a "languages" list),
+  CSV/TSV/semicolon files (quoted fields; a header row's columns recognised by name: word/conword/lemma/headword,
+  meaning/gloss/definition/english/translation, part of speech/pos/class, pronunciation/ipa, notes; otherwise word,
+  meaning, part), SFM/MDF lexicons (\lx, \ge/\gn, \de, \ps, \ph, \nt; sniffed in files without an extension) and plain
+  lists (`word = meaning`, `word - meaning`, `word: meaning`, tab, or a word alone; a heading line skipped), from UTF-8
+  (BOM or not) or UTF-16 with a BOM, up to 32 MB. `exportJson` (.nrlang) and `exportCsv` (UTF-8 with a BOM, CRLF).
+  `merge` adds new words and fills gaps in existing ones (matched ignoring ASCII case). `spellData`: whole words,
+  hyphenated and multi-word entries also split into parts, and affixes (`-in` an ending, `ve-` a beginning).
+- Worldbuilding › Languages (studio_languages.cpp): a sidebar item under Glossary; the page has Import / New language,
+  a tab per language, Add a word / Export / Name and notes / Remove, and the words like a dictionary (only rows on screen
+  are drawn). Focus::Language (contextSeries "w:<word>" for a word) edits a language (FName, FNotes) or a word (FName,
+  FDescription meaning, FGenre part, FAlt pronunciation, FNotes) in the right panel, saved through the usual
+  commitFields. Saving sorts words alphabetically and calls sendView so Writing's checker updates at once. Parsed
+  languages are cached against the stored JSON (asked for every frame).
+- The editor: sendView adds `style.languages` ([{name, words: [{word, meaning} | part], prefixes, suffixes}]).
+  spell.js `setConlangs`: a word of a language is known as it is or with one known beginning and up to two endings;
+  `conlangNear` finds the nearest language word within 1-3 edits (by length) for a misspelling, and the hint then
+  reads "... isn't in the British English dictionary or in Telvani. Did you mean the Telvani word "veyth'ar" (light)?";
+  language words near a misspelling join the suggestions.
+- Tested: core (1022 checks: every format, round trips, merge, spell data); the editor in Chromium (veyth'ar,
+  sel-amar, veveyth'ar and veyth'arin accepted; veythar marked with veyth'ar suggested first; English misspellings as
+  before); Studio in Wine (CSV import of 6 words with accents and affixes, editing a word's pronunciation, adding a
+  word, a plain list merged into the language, CSV and .nrlang export, everything kept after a restart). Writing's
+  spell marks themselves need WebView2, so in the app on Windows only.

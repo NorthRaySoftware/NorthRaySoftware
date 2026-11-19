@@ -7,6 +7,7 @@
 #pragma once
 
 #include "cjui/window.hpp"
+#include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
 #include "studio/artwork.hpp"
@@ -47,7 +48,8 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language } kind = None;
+    // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
     Id id;
@@ -182,6 +184,21 @@ private:
     // Style rules belong to the book's world, or to the book itself when it's in no world.
     struct StyleScope { std::string key; std::string name, label; };
     StyleScope styleScope() const;
+    // Constructed languages (studio_languages.cpp).
+    std::string conlangKey(const Id& world, const Id& book) const;
+    const std::vector<studio::conlang::Language>& conlangs(const Id& world, const Id& book) const;
+    void saveConlangs(std::vector<studio::conlang::Language> langs);   // for the Worldbuilding scope shown
+    void openLanguages();
+    void newLanguage();
+    void addLanguageWord();
+    void importLanguages();
+    void exportLanguage(const std::string& id);
+    void removeLanguage(const std::string& id);
+    void loadLanguageFields();
+    void commitLanguageFields(const Focus& f);
+    void drawLanguages(const Rect& r);
+    void drawLanguagePanel(const Rect& r);
+    mutable std::map<std::string, std::pair<std::string, std::vector<studio::conlang::Language>>> conlangCache_;   // key -> (stored JSON, read)
     void styleFileExport(const std::string& json);
     void styleFileImport();
     bool focusMode() const;           // Writing in focus mode: no side panels
@@ -578,6 +595,8 @@ private:
         Id pinning;                // placing this entry's pin on the open map: the next click on it says where
         bool checks = false;       // the Checks page
         bool glossary = false;     // the Glossary page
+        bool languages = false;    // the Languages page (constructed languages)
+        std::string language;      // the language shown there
         studio::review::Continuity continuity;           // worked out for the Checks page
         std::vector<std::pair<Id, studio::review::NameIssue>> spellings;   // book, name spelt like a bible name
         std::string checksKey;

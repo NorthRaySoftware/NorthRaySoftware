@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.36.0",
+      "date": "2026-11-19",
+      "notes": [
+        "Your world's own languages: Worldbuilding › Languages. Each language is a list of words with their meaning, part of speech, how they're said and notes, edited on the page and in the side panel.",
+        "Import a language from a spreadsheet (CSV or TSV), an SFM lexicon (Toolbox, Lexique Pro, FieldWorks), a plain word list (“khaz = mountain”) or a NorthRay .nrlang file; into a new language or added to one you have. Export as .nrlang or CSV.",
+        "The spell checker knows them: a word from one of your languages isn't marked as a misspelling, words built from its endings and beginnings (“-in”, “ve-”) count too, and a near miss is marked with the right word suggested: “Did you mean the Telvani word ‘veyth’ar’ (light)?”"
+      ]
+    },
+    {
       "version": "0.35.0",
       "date": "2026-11-18",
       "notes": [

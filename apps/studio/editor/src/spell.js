@@ -40,6 +40,67 @@ export function load(language, onReady) {
     .catch(() => { loading = null; onReady && onReady(false); });
 }
 
+// Constructed languages (0.36): each language's words, beginnings ("ve-") and endings ("-ar"). A word of one of
+// them is spelt right; a word near one is a misspelling with that word as the suggestion.
+let conWords = new Map();   // lower-cased -> { word, lang, meaning }
+let conPrefixes = [], conSuffixes = [];
+const norm = (w) => String(w).toLocaleLowerCase().replace(/[’‘]/g, "'");
+export function setConlangs(list) {
+  conWords = new Map();
+  const pre = new Set(), suf = new Set();
+  for (const l of Array.isArray(list) ? list : []) {
+    const name = String(l.name || "");
+    for (const w of Array.isArray(l.words) ? l.words : []) {
+      const word = typeof w === "string" ? w : String(w.word || "");
+      const low = norm(word);
+      if (low && !conWords.has(low)) conWords.set(low, { word, lang: name, meaning: typeof w === "string" ? "" : String(w.meaning || "") });
+    }
+    for (const p of Array.isArray(l.prefixes) ? l.prefixes : []) if (p) pre.add(norm(p));
+    for (const s of Array.isArray(l.suffixes) ? l.suffixes : []) if (s) suf.add(norm(s));
+  }
+  // Longest first, so "-ian" is tried before "-n".
+  conPrefixes = [...pre].sort((a, b) => b.length - a.length);
+  conSuffixes = [...suf].sort((a, b) => b.length - a.length);
+  cache.clear();
+}
+
+// A word of one of the languages, as it stands or with known beginnings and endings (one beginning, up to two endings).
+function conlangKnown(low) {
+  if (!conWords.size) return false;
+  if (conWords.has(low)) return true;
+  const stems = (w) => {
+    const out = [w];
+    for (const s1 of conSuffixes) {
+      if (!w.endsWith(s1) || w.length - s1.length < 2) continue;
+      const a = w.slice(0, -s1.length);
+      out.push(a);
+      for (const s2 of conSuffixes) if (a.endsWith(s2) && a.length - s2.length >= 2) out.push(a.slice(0, -s2.length));
+    }
+    return out;
+  };
+  const tries = [low];
+  for (const p of conPrefixes) if (low.startsWith(p) && low.length - p.length >= 2) tries.push(low.slice(p.length));
+  for (const t of tries) for (const st of stems(t)) if (conWords.has(st)) return true;
+  return false;
+}
+
+// The constructed-language word nearest a misspelling ({ word, lang, meaning }), or null if none is close.
+export function conlangNear(word) {
+  if (!conWords.size) return null;
+  const low = norm(word);
+  const limit = low.length <= 4 ? 1 : low.length <= 8 ? 2 : 3;
+  let best = null, bestD = Infinity;
+  for (const [k, v] of conWords) {
+    if (Math.abs(k.length - low.length) > limit) continue;
+    const d = distance(low, k);
+    if (d <= limit && d < bestD) { best = v; bestD = d; }
+  }
+  return best;
+}
+
+// The constructed-language entry for a word spelt right ({ word, lang, meaning }), or null.
+export function conlangWord(word) { return conWords.get(norm(word)) || null; }
+
 export function setExtraWords(words) {
   // Curly and straight apostrophes are the same letter here (Veyth’ar is Veyth'ar).
   extra = new Set((words || []).map((w) => String(w).toLocaleLowerCase().replace(/[’‘]/g, "'")));
@@ -51,6 +112,7 @@ function known(word) {
   const w = word.replace(/’/g, "'");
   const low = w.toLocaleLowerCase();
   if (extra.has(low) || extra.has(low.replace(/'s$/, ""))) return true;
+  if (conlangKnown(low) || conlangKnown(low.replace(/'s$/, ""))) return true;
   if (cache.has(w)) return cache.get(w);
   let ok = checker.correct(w) || checker.correct(low) || checker.correct(w.replace(/'s$/, ""));
   // Oxford spelling: organize, realization, if organise and realisation are words.
@@ -127,6 +189,11 @@ export function suggestions(word, n = 5) {
   if (SPLIT[low]) list.unshift(SPLIT[low]);
   // Always look further too: jumbled letters ("Capitan" -> "Captain") are often more than nspell's one or two edits.
   list = list.concat(farSuggestions(low));
+  // The constructed languages' words near it, as they're written there.
+  if (conWords.size) {
+    const limit = low.length <= 4 ? 1 : low.length <= 8 ? 2 : 3;
+    for (const [k, v] of conWords) if (Math.abs(k.length - low.length) <= limit && distance(low, k) <= limit) list.push(v.word);
+  }
   const seen = new Set();
   list = list.filter((s) => { const k = s.toLocaleLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
   // Closest first; the same letters in another order count as nearly there.

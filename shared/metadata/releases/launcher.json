@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.102.0",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Writing Studio 0.36.0: constructed languages in Worldbuilding, imported and exported, and known to the spell checker."
+      ]
+    },
+    {
       "version": "0.101.0",
       "date": "2026-11-19",
       "notes": [

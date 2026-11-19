@@ -306,6 +306,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.pinning.clear();
     wb_.checks = false;
     wb_.glossary = false;
+    wb_.languages = false;
     if (wb_.entry != id) {
         wb_.panelScroll = 0;
         wb_.section.clear();
@@ -519,7 +520,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && wb_.familyRoot.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -610,6 +611,20 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         y += 32;
     }
     {
+        const std::string id = "side:wb:languages";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { openLanguages(); });
+        const bool sel = wb_.languages;
+        const float hv = hoverAmount(id);
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Languages", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        const std::size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
+        if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+        if (focused(id)) focusRing(rr);
+        y += 32;
+    }
+    {
         const std::string id = "side:wb:share";
         const Rect rr{x, y, wd, 30};
         addHit(id, rr, [this] { shareBible(); });
@@ -691,6 +706,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
     if (wb_.checks) { drawChecks(r); return; }
     if (wb_.glossary) { drawGlossary(r); return; }
+    if (wb_.languages) { drawLanguages(r); return; }
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
@@ -1388,6 +1404,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
     gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
+    if (wb_.languages) { drawLanguagePanel(r); return; }
     if (const Entry* ce = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry)) {
         // The section written in the panel: the one picked, else the first of the template.
         const auto secs = lib_->entrySections(*ce);

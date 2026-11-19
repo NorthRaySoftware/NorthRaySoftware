@@ -1814,6 +1814,8 @@ void StudioApp::loadFields() {
             if (focus_.kind == Focus::BoardItem && bd.value("id", "") == focus_.contextSeries)
                 for (auto& it : bd["items"]) if (it.value("id", "") == focus_.id) setFieldText(FCaption, it.value("caption", ""));
         }
+    } else if (focus_.kind == Focus::Language) {
+        loadLanguageFields();
     } else if (focus_.kind == Focus::Entry) {
         if (const Entry* e = lib_->entry(focus_.id)) {
             setFieldText(FName, e->name);
@@ -1920,6 +1922,8 @@ void StudioApp::commitFields() {
                     if (it.value("id", "") == f.id && it.value("caption", "") != fieldText(FCaption)) { it["caption"] = fieldText(FCaption); changed = true; }
         }
         if (changed) saveBoards(bj);
+    } else if (f.kind == Focus::Language) {
+        commitLanguageFields(f);
     } else if (f.kind == Focus::Entry) {
         if (const Entry* x = lib_->entry(f.id)) {
             Entry n = *x;
