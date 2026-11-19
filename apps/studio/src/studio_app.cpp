@@ -1822,6 +1822,8 @@ void StudioApp::loadFields() {
         loadLanguageFields();
     } else if (focus_.kind == Focus::Share) {
         loadShareFields();
+    } else if (focus_.kind == Focus::Relation) {
+        loadRelationFields();
     } else if (focus_.kind == Focus::Entry) {
         if (const Entry* e = lib_->entry(focus_.id)) {
             setFieldText(FName, e->name);
@@ -1932,6 +1934,8 @@ void StudioApp::commitFields() {
         commitLanguageFields(f);
     } else if (f.kind == Focus::Share) {
         commitShareFields();
+    } else if (f.kind == Focus::Relation) {
+        commitRelationFields(f);
     } else if (f.kind == Focus::Entry) {
         if (const Entry* x = lib_->entry(f.id)) {
             Entry n = *x;

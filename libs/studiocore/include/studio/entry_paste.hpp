@@ -33,6 +33,11 @@ struct Page {
 // Reads pasted text. Markdown emphasis and list markers are taken off; list items in longer text become "• " lines.
 Page parse(const std::string& text);
 
+// A blank page to fill in and paste back, for an entry of `kind`: every part the paste understands, the kind's
+// sections (`sections`, the world's template titles), a line for each book's notes, and suggested detail, family and
+// relationship labels. Lines left blank are ignored when it's pasted.
+std::string blankPage(const std::string& kind, const std::vector<std::string>& sections, const std::vector<std::string>& bookTitles);
+
 // Whether text looks like a page rather than a sentence, a list or a few paragraphs with headings: two or more parts
 // recognised, one of them with a known name (Name:, Other names:, Summary, Details, Family, Relationships…).
 bool looksLikePage(const std::string& text);
@@ -41,12 +46,15 @@ struct Report {
     bool name = false, summary = false, pronunciation = false;
     int aliases = 0, details = 0, sections = 0, bookNotes = 0, links = 0, notes = 0;
     std::vector<std::string> unmatchedBooks;   // labels kept in the notes instead
+    std::vector<Id> created;                   // entries made for names in Family or Relationships not in the bible yet
     std::string words() const;                 // "the name, 3 other names, the summary, 18 details, …"
 };
 
 // Puts a parsed page onto an entry. Each part the paste has replaces that part of the entry: the name, other names,
 // how it's said, summary, details (all of them), each section and each book's notes it names, the notes, and the
-// relationships of each kind it lists (old links of that kind go). Parts the paste doesn't have are left as they were.
+// relationships of each kind it lists (old links of that kind go). A name in Family or Relationships that isn't in the
+// bible becomes a new entry of the kind the relationship points at (Lives in: a place), linked. Parts the paste doesn't
+// have are left as they were.
 // `booksInOrder` is the world's books in reading order, for "Book 2". False with the library's error if the entry
 // couldn't be saved.
 bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& report);

@@ -51,7 +51,7 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation } kind = None;
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
@@ -444,9 +444,17 @@ private:
     void loadShareFields();
     void commitShareFields();
     void makeSharedBible();
+    // The world's own kinds of relationship (studio_relations.cpp).
+    void openRelations(const std::string& select);
+    void newRelation();
+    void drawRelations(const Rect& r);
+    void drawRelationsPanel(const Rect& r);
+    void loadRelationFields();
+    void commitRelationFields(const Focus& f);
     bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
     void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
     bool undoEntryPaste();
+    void copyBlankPage();     // a template for the open entry's kind, on the clipboard
     void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)
     bool undoBibleReset();
     void setFieldText(Field f, const std::string& utf8);
@@ -616,6 +624,7 @@ private:
         Id entry;
         studio::Entry before;
         std::vector<studio::EntryLink> added, removed;
+        std::vector<Id> made;
         bool created = false;   // the entry was made by the paste
     };
     struct WorldState {
@@ -662,6 +671,7 @@ private:
         float boardDragW = 0;
         std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
         std::optional<studio::Library::BibleReset> resetUndo;   // the last reset, to take back (0.38.1)
+        bool relationsPage = false;           // the Relationships page (0.38.2)
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;

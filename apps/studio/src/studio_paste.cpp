@@ -15,6 +15,7 @@
 #include <commctrl.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace nrs {
 
@@ -178,6 +179,7 @@ void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool 
     for (auto& l : lib_->linksOf(entryId))
         if (std::none_of(linksBefore.begin(), linksBefore.end(), [&](const EntryLink& x) { return x.from == l.from && x.to == l.to && x.label == l.label; }))
             undo.added.push_back(l);
+    undo.made = report.created;
     for (auto& l : linksBefore)   // links of a kind the paste replaced
         if (lib_->entry(l.from) && lib_->entry(l.to)) {
             const auto now = lib_->linksOf(entryId);
@@ -206,6 +208,7 @@ bool StudioApp::undoEntryPaste() {
     if (!lib_->entry(u.entry)) return false;
     for (auto& l : u.added) lib_->removeLink(l.from, l.to, l.label);
     for (auto& l : u.removed) lib_->addLink(l.from, l.to, l.label);
+    for (const Id& m : u.made) lib_->trashEntry(m);   // the entries made for names in Family and Relationships
     if (u.created) {
         lib_->trashEntry(u.entry);
         if (wb_.entry == u.entry) openEntry({});
@@ -217,6 +220,30 @@ bool StudioApp::undoEntryPaste() {
     loadedFocus_ = {Focus::None, "-", ""};
     invalidate();
     return true;
+}
+
+// A blank page for the open entry's kind (its world's sections, its books), to fill in elsewhere and paste back.
+void StudioApp::copyBlankPage() {
+    const Entry* e = lib_ ? lib_->entry(wb_.entry) : nullptr;
+    if (!e) return;
+    std::vector<std::string> sections, books;
+    for (auto& [t, text] : lib_->entrySections(*e)) sections.push_back(t);
+    for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book))
+        if (const studio::Book* bk = lib_->book(b)) books.push_back(bk->title);
+    std::string text = paste::blankPage(e->kind, sections, books);
+    std::wstring wt;
+    for (wchar_t ch : w(text)) { if (ch == L'\n') wt += L'\r'; wt += ch; }
+    if (!OpenClipboard(hwnd())) { flash(L"The clipboard is busy; try again.", 4); return; }
+    EmptyClipboard();
+    if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (wt.size() + 1) * sizeof(wchar_t))) {
+        if (void* p = GlobalLock(h)) {
+            memcpy(p, wt.c_str(), (wt.size() + 1) * sizeof(wchar_t));
+            GlobalUnlock(h);
+            if (!SetClipboardData(CF_UNICODETEXT, h)) GlobalFree(h);
+        }
+    }
+    CloseClipboard();
+    flash(L"A blank " + w(entryKindLabel(e->kind)) + L" page is copied. Fill it in anywhere, copy it all, and paste it back here.", 8);
 }
 
 // ------------------------------------------------------------------ starting the bible again

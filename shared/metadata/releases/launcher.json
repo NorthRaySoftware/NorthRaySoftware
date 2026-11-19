@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.104.2",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Writing Studio 0.38.2: pasted relationships fill in properly, your own kinds of relationship, new entries for what the bible doesn't have, and a blank page to fill in."
+      ]
+    },
+    {
       "version": "0.104.1",
       "date": "2026-11-19",
       "notes": [

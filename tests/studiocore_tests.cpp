@@ -2228,6 +2228,10 @@ static void testEntryPaste() {
     CHECK(!pa::looksLikePage("Early years\nShe grew up by the sea.\n\nLater\nShe left."));   // a section with its own headings
     CHECK(pa::relationFor("character", "Parents") == "Child of" && pa::relationFor("character", "Best friend") == "Friend of");
     CHECK(pa::relationFor("character", "Haunted by").empty() && pa::relationFor("place", "Owned by") == "Owned by");
+    CHECK(guessReverseRelation("Admires") == "Admired by" && guessReverseRelation("Haunted by") == "Haunts" && guessReverseRelation("Guided by") == "Guides");
+    CHECK(guessReverseRelation("Deceived by") == "Deceives" && guessReverseRelation("Teaches") == "Taught by" && guessReverseRelation("Guardian of") == "Has guardian");
+    CHECK(guessReverseRelation("Watches over") == "Watched over by" && guessReverseRelation("Stabbed by") == "Stabs" && guessReverseRelation("Twin") == "Twin");
+    CHECK(guessReverseRelation("Has guardian") == "Guardian of" && guessReverseRelation("Carries") == "Carried by");
     CHECK(pa::relationFor("magic", "Used by") == "Practised by" && pa::relationFor("character", "Used by").empty());
 
     // Putting it on entries.
@@ -2279,14 +2283,29 @@ static void testEntryPaste() {
         return std::any_of(links.begin(), links.end(), [&](const EntryLink& l) { return l.from == t && l.to == to && l.label == label; });
     };
     CHECK(linked(ralph, "Child of") && linked(jim, "Friend of") && linked(sarrah, "Partner of"));
-    CHECK(r.links == 3);
-    CHECK(e.details.find("Parents: Maria Susan Smith") != std::string::npos && e.details.find("Ralph") == std::string::npos);
-    CHECK(e.details.find("Haunted by: the Mimic") != std::string::npos);
+    // Those not in the bible yet are made (Maria, Astrid, Celos, Bluebolt, Telvana...) and linked too.
+    {
+        const Entry* maria = lib->findEntryNamed(world, {}, "Maria Susan Smith");
+        CHECK(maria && maria->kind == "character" && linked(maria->id, "Child of"));
+        const Entry* home = lib->findEntryNamed(world, {}, "Silverbrick Lane");
+        CHECK(home && home->kind == "place" && linked(home->id, "Lives in"));
+        CHECK(r.created.size() >= 12 && r.links >= 13 && lib->findEntryNamed(world, {}, "Human", "race"));
+    }
+    CHECK(e.details.find("Parents:") == std::string::npos && e.details.find("Ralph") == std::string::npos);
+    // A relationship the bible doesn't have is one of the world's own, linked like the rest.
+    {
+        const Entry* mimic = lib->findEntryNamed(world, {}, "the Mimic");
+        CHECK(mimic && linked(mimic->id, "Haunted by") && e.details.find("Haunted by") == std::string::npos);
+        CHECK(lib->relationReverse(world, {}, "Haunted by") == "Haunts");
+        bool listed = false;
+        for (auto& c : lib->customRelations(world, {})) listed |= c.label == "Haunted by" && c.reverse == "Haunts";
+        CHECK(listed);
+    }
     CHECK(r.words().find("the name, 12 other names") == 0);
     // Pasting again changes nothing and adds no links.
     pa::Report again;
     CHECK(pa::apply(*lib, t, tom, {b1, b2}, again));
-    CHECK(again.links == 0 && again.aliases == 0 && again.sections == 0 && again.details == 0 && again.bookNotes == 0 && !again.summary);
+    CHECK(again.created.empty() && again.links == 0 && again.aliases == 0 && again.sections == 0 && again.details == 0 && again.bookNotes == 0 && !again.summary);
     // A named entry keeps its name; the pasted one becomes another name.
     const Id s2 = lib->createEntry(world, {}, "magic", "Light");
     pa::Report r2;
@@ -2308,6 +2327,54 @@ static void testEntryPaste() {
         CHECK(pa::apply(*lib, xe, odd, {b1, b2}, rx));
         CHECK(lib->entry(xe)->bookNote(b1).empty() && lib->entry(xe)->bookNote(b2) == "Other." && rx.unmatchedBooks.size() == 1);
         CHECK(lib->entry(xe)->notes.find("The Lost Tome (Book 1):\nSomething.") != std::string::npos);
+    }
+    // Aaliyah: names written more fully than the bible's, with "the", a kind of relationship said another way.
+    {
+        const Id yon = lib->createEntry(world, {}, "character", "Yonvaan Yerasuun");
+        const Id ship = lib->createEntry(world, {}, "group", "Grey Wanderer");
+        const Id akunda = lib->createEntry(world, {}, "place", "Akunda");
+        const Id aa = lib->createEntry(world, {}, "character", "New character");
+        const pa::Page ap = pa::parse(pasteFixture("aaliyah.txt"));
+        pa::Report ar;
+        CHECK(pa::apply(*lib, aa, ap, {b1, b2}, ar));
+        const auto ls = lib->linksOf(aa);
+        auto has = [&](const Id& to, const char* label) {
+            return std::any_of(ls.begin(), ls.end(), [&](const EntryLink& l) { return l.from == aa && l.to == to && l.label == label; });
+        };
+        CHECK(has(yon, "Child of") && has(ship, "Member of") && has(akunda, "Lives in") && has(sarrah, "Student of"));
+        const Entry* ramus = lib->findEntryNamed(world, {}, "Ramus Yerasuun");
+        CHECK(ramus && has(ramus->id, "Family"));
+        CHECK(lib->findEntryNamed(world, {}, "Human", "race") && lib->findEntryNamed(world, {}, "Mortal world", "realm"));   // made from the details
+        CHECK(has(jim, "Admires") && lib->entry(aa)->details.find("Admires") == std::string::npos);
+        CHECK(lib->relationReverse(world, {}, "Admires") == "Admired by");
+        // Renaming a kind of relationship renames its links; its uses are counted.
+        CHECK(lib->relationUses(world, {}, "Admires") == 1);
+        CHECK(lib->renameRelation(world, {}, "Admires", {"Looks up to", "Looked up to by"}));
+        const auto ls2 = lib->linksOf(aa);
+        CHECK(std::any_of(ls2.begin(), ls2.end(), [&](const EntryLink& l) { return l.to == jim && l.label == "Looks up to"; }));
+        CHECK(lib->relationReverse(world, {}, "Looks up to") == "Looked up to by" && lib->relationUses(world, {}, "Admires") == 0);
+        CHECK(lib->ensureRelation(world, {}, "friend of") == "Friend of" && lib->ensureRelation(world, {}, "looked up to by") == "Looked up to by");
+        CHECK(pa::relationFor("character", "Former teacher") == "Student of" && pa::relationFor("character", "Crew of") == "Member of");
+        CHECK(pa::relationFor("character", "Grandparents") == "Family" && pa::relationFor("place", "Related to") == "Related to");
+    }
+    // A blank page: pasting it as it is changes nothing; filled in partly, only what's written goes in.
+    {
+        const std::string blank = pa::blankPage("character", {"Appearance & personality", "Backstory & goals"}, {"Shards of Light", "The Reign of Zornov"});
+        CHECK(blank.find("Name: ") == 0 && blank.find("Shards of Light: ") != std::string::npos && blank.find("Taught by: ") != std::string::npos);
+        const pa::Page empty = pa::parse(blank);
+        CHECK(empty.name.empty() && empty.aliases.empty() && empty.details.empty() && empty.sections.empty() && empty.relations.empty() &&
+              empty.bookNotes.empty() && empty.notes.empty() && empty.summary.empty());
+        std::string filled = blank;
+        auto put = [&](const std::string& after, const std::string& text) { filled.insert(filled.find(after) + after.size(), text); };
+        put("Name: ", "Lia Crystalline");
+        put("Eyes: ", "violet");
+        put("Backstory & goals\n", "Sarrah's younger sister.");
+        put("Shards of Light: ", "Stays in Akunda.");
+        put("Siblings: ", "Sah'ra Jane Crystalline");
+        const pa::Page fp = pa::parse(filled);
+        CHECK(fp.name == "Lia Crystalline" && fp.aliases.empty() && fp.details == "Eyes: violet" && fp.sections.size() == 1 &&
+              fp.sections[0].first == "Backstory & goals" && fp.bookNotes.size() == 1 && fp.relations.size() == 1 && fp.relations[0].first == "Siblings");
+        CHECK(pa::blankPage("place", {"Description"}, {}).find("Type: ") != std::string::npos);
     }
     // Starting the bible again, and taking that back.
     {

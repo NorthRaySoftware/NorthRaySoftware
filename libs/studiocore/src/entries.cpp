@@ -574,6 +574,176 @@ bool Library::undoBibleReset(const BibleReset& reset) {
     return ok;
 }
 
+// ----------------------------------------------------------------- the world's own relationships
+
+namespace {
+std::string relKey(const Id& worldId, const Id& bookId) { return worldId.empty() ? "relations:book:" + bookId : "relations:world:" + worldId; }
+std::string lowerAscii(std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; }
+std::string capitalised(std::string s) {
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(0, 1);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == ':')) s.pop_back();
+    if (!s.empty()) s[0] = (char)std::toupper((unsigned char)s[0]);
+    return s;
+}
+// Irregular verbs: third person -> past participle.
+const std::vector<std::pair<const char*, const char*>>& irregular() {
+    static const std::vector<std::pair<const char*, const char*>> v = {
+        {"teaches", "taught"}, {"leads", "led"}, {"holds", "held"}, {"keeps", "kept"}, {"fights", "fought"}, {"seeks", "sought"},
+        {"sees", "seen"}, {"knows", "known"}, {"hides", "hidden"}, {"bears", "borne"}, {"bites", "bitten"}, {"binds", "bound"},
+        {"brings", "brought"}, {"builds", "built"}, {"buys", "bought"}, {"catches", "caught"}, {"chooses", "chosen"}, {"feeds", "fed"},
+        {"finds", "found"}, {"forgives", "forgiven"}, {"forsakes", "forsaken"}, {"gives", "given"}, {"hears", "heard"}, {"loses", "lost"},
+        {"makes", "made"}, {"meets", "met"}, {"pays", "paid"}, {"rides", "ridden"}, {"rules", "ruled"}, {"sells", "sold"}, {"sends", "sent"},
+        {"shoots", "shot"}, {"slays", "slain"}, {"steals", "stolen"}, {"strikes", "struck"}, {"swears", "sworn"}, {"takes", "taken"},
+        {"tells", "told"}, {"wins", "won"}, {"writes", "written"}, {"breaks", "broken"}, {"forgets", "forgotten"}, {"betrays", "betrayed"},
+        {"has", "had"}, {"does", "done"}, {"bests", "bested"}, {"saves", "saved"}, {"slew", "slain"}, {"killed", "killed"}};
+    return v;
+}
+std::string participle(const std::string& verb3) {   // "admires" -> "admired"
+    const std::string v = lowerAscii(verb3);
+    for (auto& [a, b] : irregular()) if (v == a) return b;
+    std::string base = v;
+    if (base.size() > 4 && base.compare(base.size() - 3, 3, "ies") == 0) return base.substr(0, base.size() - 3) + "ied";
+    if (base.size() > 4 && (base.compare(base.size() - 4, 4, "ches") == 0 || base.compare(base.size() - 4, 4, "shes") == 0 ||
+                            base.compare(base.size() - 3, 3, "xes") == 0 || base.compare(base.size() - 3, 3, "sses") == 0))
+        base = base.substr(0, base.size() - 2);
+    else if (!base.empty() && base.back() == 's') base.pop_back();
+    if (!base.empty() && base.back() == 'e') return base + "d";
+    return base + "ed";
+}
+std::string thirdPerson(const std::string& part) {   // "haunted" -> "haunts"
+    const std::string p = lowerAscii(part);
+    for (auto& [a, b] : irregular()) if (p == b) return a;
+    if (p.size() > 4 && p.compare(p.size() - 3, 3, "ied") == 0) return p.substr(0, p.size() - 3) + "ies";
+    if (p.size() > 3 && p.compare(p.size() - 2, 2, "ed") == 0) {
+        std::string stem = p.substr(0, p.size() - 2);
+        // "deceived", "guided", "raised", "loved", "hated": the stem wants its e back.
+        static const char* withE[] = {"deceiv", "guid", "rais", "lov", "hat", "creat", "admir", "ador", "serv", "sav", "chas", "us",
+                                      "bless", "curs", "despis", "nam", "tam", "receiv", "believ", "rescu", "captur", "forg"};
+        for (const char* w : withE) if (stem == w) return stem + "es";
+        const char last = stem.empty() ? 0 : stem.back();
+        if (last == 'v' || last == 'z' || (last == 'c' && stem.size() > 2)) return stem + "es";
+        if (stem.size() > 2 && stem[stem.size() - 1] == stem[stem.size() - 2] && std::string("bdgmnprt").find(last) != std::string::npos)
+            stem.pop_back();   // "stabbed" -> "stabs"
+        if (last == 's' || last == 'x' || (stem.size() > 1 && (stem.compare(stem.size() - 2, 2, "ch") == 0 || stem.compare(stem.size() - 2, 2, "sh") == 0)))
+            return stem + "es";
+        return stem + "s";
+    }
+    return p;
+}
+}  // namespace
+
+std::string guessReverseRelation(const std::string& labelIn) {
+    const std::string label = capitalised(labelIn);
+    if (label.empty()) return label;
+    std::vector<std::string> words;
+    {
+        std::istringstream in(label);
+        for (std::string w; in >> w;) words.push_back(w);
+    }
+    const std::string first = lowerAscii(words[0]), last = lowerAscii(words.back());
+    // "Haunted by" -> "Haunts"; "Guided by" -> "Guides".
+    if (words.size() >= 2 && last == "by") {
+        std::string out = capitalised(thirdPerson(first));
+        for (size_t i = 1; i + 1 < words.size(); ++i) out += " " + words[i];
+        return out;
+    }
+    // "Guardian of" -> "Has guardian"; "Heir of" -> "Has heir".
+    if (words.size() >= 2 && last == "of") {
+        std::string noun;
+        for (size_t i = 0; i + 1 < words.size(); ++i) noun += (noun.empty() ? "" : " ") + lowerAscii(words[i]);
+        return "Has " + noun;
+    }
+    if (first == "has" && words.size() >= 2) {
+        std::string noun;
+        for (size_t i = 1; i < words.size(); ++i) noun += (noun.empty() ? "" : " ") + lowerAscii(words[i]);
+        return capitalised(noun) + " of";
+    }
+    // "Admires" -> "Admired by"; "Watches over" -> "Watched over by"; "Is loyal to" stays as it is.
+    if (first.size() > 2 && first.back() == 's' && first != "is" && first != "was") {
+        std::string out = capitalised(participle(first));
+        for (size_t i = 1; i < words.size(); ++i) out += " " + words[i];
+        return out + " by";
+    }
+    return label;   // the same both ways ("Rivals", "Twin")
+}
+
+std::vector<CustomRelation> Library::customRelations(const Id& worldId, const Id& bookId) const {
+    std::vector<CustomRelation> out;
+    const json j = json::parse(setting(relKey(worldId, bookId)), nullptr, false);
+    if (!j.is_array()) return out;
+    for (auto& r : j)
+        if (r.is_object() && r.contains("label") && r["label"].is_string()) {
+            CustomRelation c{capitalised(r["label"].get<std::string>()), r.contains("reverse") && r["reverse"].is_string() ? capitalised(r["reverse"].get<std::string>()) : std::string()};
+            if (c.label.empty() || c.label.size() > 60) continue;
+            if (c.reverse.empty()) c.reverse = guessReverseRelation(c.label);
+            if (std::none_of(out.begin(), out.end(), [&](const CustomRelation& x) { return lowerAscii(x.label) == lowerAscii(c.label); })) out.push_back(c);
+        }
+    return out;
+}
+
+bool Library::setCustomRelations(const Id& worldId, const Id& bookId, const std::vector<CustomRelation>& list) {
+    json j = json::array();
+    for (auto& c : list) if (!capitalised(c.label).empty()) j.push_back({{"label", capitalised(c.label)}, {"reverse", capitalised(c.reverse)}});
+    return setSetting(relKey(worldId, bookId), j.empty() ? std::string() : j.dump());
+}
+
+std::string Library::ensureRelation(const Id& worldId, const Id& bookId, const std::string& labelIn) {
+    const std::string label = capitalised(labelIn);
+    if (label.empty()) return label;
+    for (auto& r : relations()) {
+        if (lowerAscii(r.label) == lowerAscii(label)) return r.label;
+    }
+    auto list = customRelations(worldId, bookId);
+    for (auto& c : list) {
+        if (lowerAscii(c.label) == lowerAscii(label)) return c.label;
+        if (lowerAscii(c.reverse) == lowerAscii(label)) return c.reverse;   // its other side, already known
+    }
+    list.push_back({label, guessReverseRelation(label)});
+    setCustomRelations(worldId, bookId, list);
+    return label;
+}
+
+std::string Library::relationReverse(const Id& worldId, const Id& bookId, const std::string& label) const {
+    for (auto& c : customRelations(worldId, bookId)) {
+        if (c.label == label) return c.reverse;
+        if (c.reverse == label) return c.label;
+    }
+    return reverseRelation(label);
+}
+
+int Library::relationUses(const Id& worldId, const Id& bookId, const std::string& label) const {
+    std::set<Id> mine;
+    for (const Entry* e : entriesOf(worldId, worldId.empty() ? bookId : Id{})) mine.insert(e->id);
+    int n = 0;
+    for (auto& l : links_) if (l.label == label && mine.count(l.from)) ++n;
+    return n;
+}
+
+bool Library::renameRelation(const Id& worldId, const Id& bookId, const std::string& from, const CustomRelation& to) {
+    const std::string label = capitalised(to.label);
+    if (label.empty()) { error_ = "A relationship needs a name."; return false; }
+    std::set<Id> mine;
+    for (const Entry* e : entriesOf(worldId, worldId.empty() ? bookId : Id{})) mine.insert(e->id);
+    if (!begin()) return false;
+    auto list = customRelations(worldId, bookId);
+    bool found = false;
+    for (auto& c : list)
+        if (c.label == from) { c = {label, capitalised(to.reverse).empty() ? guessReverseRelation(label) : capitalised(to.reverse)}; found = true; }
+    if (!found) list.push_back({label, capitalised(to.reverse).empty() ? guessReverseRelation(label) : capitalised(to.reverse)});
+    if (!setCustomRelations(worldId, bookId, list)) { rollback(); return false; }
+    if (label != from) {
+        for (auto& l : links_) {
+            if (l.label != from || !mine.count(l.from)) continue;
+            Stmt s(db_, "UPDATE OR IGNORE entry_links SET label = ?4 WHERE from_id = ?1 AND to_id = ?2 AND label = ?3");
+            s.bind(1, l.from).bind(2, l.to).bind(3, from).bind(4, label);
+            if (!s.run()) { error_ = sqlite3_errmsg(db_); rollback(); return false; }
+        }
+    }
+    if (!commit()) return false;
+    if (label != from) for (auto& l : links_) if (l.label == from && mine.count(l.from)) l.label = label;
+    return true;
+}
+
 std::vector<EntryLink> Library::linksOf(const Id& id) const {
     std::vector<EntryLink> out;
     for (auto& l : links_) {
@@ -865,7 +1035,10 @@ std::vector<std::string> nameParts(const std::string& full) {
                                                     "la", "al", "el", "bin", "bint", "ibn", "ap", "mac", "y", "and"};
     static const std::set<std::string> titles = {"mr", "mrs", "ms", "miss", "dr", "sir", "dame", "lord", "lady", "king", "queen", "prince",
                                                  "princess", "captain", "capt", "general", "father", "mother", "brother", "sister",
-                                                 "master", "mistress", "saint", "st", "professor", "prof"};
+                                                 "master", "mistress", "saint", "st", "professor", "prof",
+                                                 // forms of address: "Her Highness" never stands for someone as "Her" (0.38.2)
+                                                 "her", "his", "your", "my", "their", "our", "highness", "majesty", "lordship", "ladyship",
+                                                 "grace", "excellency", "honour", "honor", "eminence", "holiness"};
     std::vector<std::string> words;
     for (size_t i = 0; i < full.size();) {
         while (i < full.size() && std::isspace((unsigned char)full[i])) ++i;

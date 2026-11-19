@@ -139,7 +139,7 @@ std::vector<std::pair<std::string, const Entry*>> relationsOf(const Library& lib
         const bool mine = l.from == e.id;
         const Entry* o = lib.entry(mine ? l.to : l.from);
         if (!o || !v.shows(o->id)) continue;
-        out.push_back({mine ? l.label : reverseRelation(l.label), o});
+        out.push_back({mine ? l.label : lib.relationReverse(v.options().worldId, v.options().bookId, l.label), o});
     }
     return out;
 }

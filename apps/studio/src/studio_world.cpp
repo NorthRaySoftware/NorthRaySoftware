@@ -304,6 +304,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.glossary = false;
     wb_.languages = false;
     wb_.share = false;
+    wb_.relationsPage = false;
     if (wb_.entry != id) {
         wb_.panelScroll = 0;
         wb_.section.clear();
@@ -385,11 +386,27 @@ void StudioApp::addRelationship() {
     if (others.empty()) { flash(L"Add another entry first, then link the two.", 5); return; }
     // The relationships that suit this kind of entry, then the entries that suit that relationship
     // (the usual kinds first, the rest after a line).
-    const auto& choices = relationsFor(e->kind);
-    std::vector<std::wstring> labels;
-    for (auto& r : choices) labels.push_back(w(r.label));
-    const int li = popupAt(hwnd(), labels);
-    if (li < 0) return;
+    const auto& builtIn = relationsFor(e->kind);
+    struct Choice { std::string label, targets; };
+    std::vector<Choice> choices;
+    for (auto& r : builtIn) choices.push_back({r.label, r.targets});
+    const auto own = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{});
+    HMENU rm = CreatePopupMenu();
+    for (size_t i = 0; i < choices.size(); ++i) AppendMenuW(rm, MF_STRING, 1 + (UINT)i, w(choices[i].label).c_str());
+    if (!own.empty()) AppendMenuW(rm, MF_SEPARATOR, 0, nullptr);
+    for (auto& c : own) {
+        choices.push_back({c.label, ""});
+        AppendMenuW(rm, MF_STRING, (UINT)choices.size(), w(c.label).c_str());
+    }
+    AppendMenuW(rm, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(rm, MF_STRING, 9000, L"A new kind of relationship\u2026");
+    POINT rp;
+    GetCursorPos(&rp);
+    const int pick = (int)cjui::trackMenu(rm, rp, hwnd());
+    DestroyMenu(rm);
+    if (pick == 9000) { newRelation(); return; }
+    const int li = pick - 1;
+    if (li < 0 || li >= (int)choices.size()) return;
     const std::string targets = std::string(" ") + choices[li].targets + " ";
     auto fits = [&](const Entry* x) { return targets == "  " || targets.find(" " + x->kind + " ") != std::string::npos; };
     std::stable_partition(others.begin(), others.end(), fits);
@@ -517,7 +534,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && wb_.familyRoot.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.relationsPage && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -622,6 +639,20 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         y += 32;
     }
     {
+        const std::string id = "side:wb:relations";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { openRelations({}); });
+        const bool sel = wb_.relationsPage;
+        const float hv = hoverAmount(id);
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Relationships", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        const std::size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
+        if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+        if (focused(id)) focusRing(rr);
+        y += 32;
+    }
+    {
         const std::string id = "side:wb:share";
         const Rect rr{x, y, wd, 30};
         addHit(id, rr, [this] { shareBible(); });
@@ -708,6 +739,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     if (!wb_.board.empty()) { drawBoard(r); return; }
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
     if (wb_.share) { drawShare(r); return; }
+    if (wb_.relationsPage) { drawRelations(r); return; }
     if (wb_.checks) { drawChecks(r); return; }
     if (wb_.glossary) { drawGlossary(r); return; }
     if (wb_.languages) { drawLanguages(r); return; }
@@ -1306,7 +1338,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             const bool mine = l.from == e->id;
             const Entry* other = lib_->entry(mine ? l.to : l.from);
             if (!other) continue;
-            const std::wstring label = w(mine ? l.label : reverseRelation(l.label));
+            const std::wstring label = w(mine ? l.label : lib_->relationReverse(wb_.world, wb_.world.empty() ? wb_.book : Id{}, l.label));
             gfx_.text(label, {m.x, y, 160, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
             linkText("wb:rel:" + other->id + l.label, m.x + 170, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
             gfx_.text(w(entryKindLabel(other->kind)), {m.x + 170, y, cw - 170 - 80, 24}, Font::Small, pal_.inkFaint,
@@ -1410,6 +1442,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (wb_.languages) { drawLanguagePanel(r); return; }
     if (wb_.share) { drawSharePanel(r); return; }
+    if (wb_.relationsPage) { drawRelationsPanel(r); return; }
     if (const Entry* ce = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry)) {
         // The section written in the panel: the one picked, else the first of the template.
         const auto secs = lib_->entrySections(*ce);
@@ -1436,6 +1469,8 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
             y += 28;
         }
+        linkText("wb:blank", c.x, y, L"Copy a blank page to fill in", [this] { copyBlankPage(); });
+        y += 28;
         fieldTop[FName] = y;
         y = panelField(c, y, L"Name", FName);
         panelChoice("wb:kind", c, y, L"Kind", w(entryKindLabel(e->kind)), [this] {

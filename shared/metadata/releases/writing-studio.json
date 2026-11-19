@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.38.2",
+      "date": "2026-11-19",
+      "notes": [
+        "Pasted relationships fill in properly: a fuller form of a name finds the entry (\u201cYonvaan Akumes Yerasuun\u201d finds Yonvaan Yerasuun), \u201cThe\u201d doesn't matter, and wordings like Grandparents, Former teacher, Crew of and Taught by are understood.",
+        "What a pasted page names that the bible doesn't have is made: a person, place or group in Family or Relationships becomes a new entry of the right kind, linked; a race or realm in the details joins the bible's Races or Realms. Undo the paste takes them away again.",
+        "Copy a blank page to fill in: a template for the entry's kind, with your world's sections and books. Lines left blank are ignored when it's pasted back.",
+        "Your own kinds of relationship: any wording in a pasted page's Relationships that Writing Studio doesn't know (Admires, Haunted by) becomes one of your world's relationships and is linked, reading the other way from the other side (Admired by, Haunts). Worldbuilding › Relationships lists them with their links, makes new ones, renames them (their links follow) and changes how they read from the other side; Add a relationship offers them."
+      ]
+    },
+    {
       "version": "0.38.1",
       "date": "2026-11-19",
       "notes": [

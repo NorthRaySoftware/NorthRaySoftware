@@ -251,6 +251,14 @@ struct EntryLink {
 // The relationships offered, each with how it reads from the other side.
 struct Relation { const char* label; const char* reverse; };
 const std::vector<Relation>& relations();
+// A relationship the author made (0.38.2), kept with the world: "Admires" / "Admired by".
+struct CustomRelation {
+    std::string label, reverse;
+    bool operator==(const CustomRelation&) const = default;
+};
+// The other side's wording for a made-up relationship ("Admires" -> "Admired by", "Haunted by" -> "Haunts",
+// "Guardian of" -> "Guarded by"... best guesses, which the author can change).
+std::string guessReverseRelation(const std::string& label);
 // What an entry of `kind` can be linked as, with the kinds each usually points at ("place group"; "" = any).
 struct RelationChoice { const char* label; const char* targets; };
 const std::vector<RelationChoice>& relationsFor(const std::string& kind);
@@ -442,6 +450,17 @@ public:
         std::vector<std::pair<std::string, std::string>> settings;   // key -> value before
     };
     bool resetBible(const Id& worldId, const Id& bookId, bool everything, BibleReset& out);
+    // The world's (or independent book's) own kinds of relationship (setting "relations:world:<id>" or ":book:<id>").
+    std::vector<CustomRelation> customRelations(const Id& worldId, const Id& bookId) const;
+    bool setCustomRelations(const Id& worldId, const Id& bookId, const std::vector<CustomRelation>& list);
+    // Adds one if no relationship (built-in or the world's) has that label already; returns the label as kept.
+    std::string ensureRelation(const Id& worldId, const Id& bookId, const std::string& label);
+    // How a link reads from its other side: the world's own kinds first, then the built-in ones.
+    std::string relationReverse(const Id& worldId, const Id& bookId, const std::string& label) const;
+    // Renames a kind of relationship in every link of the world's entries (and the list), in one go.
+    bool renameRelation(const Id& worldId, const Id& bookId, const std::string& from, const CustomRelation& to);
+    // How many of the world's links use a label.
+    int relationUses(const Id& worldId, const Id& bookId, const std::string& label) const;
     bool undoBibleReset(const BibleReset& reset);
     std::vector<EntryLink> linksOf(const Id& entryId) const;   // both directions, as stored
     // Tidying the bible. An entry already there by this name (any case, either apostrophe), of `kind` if given.

@@ -219,9 +219,15 @@ Page parse(const std::string& raw) {
         if (c.empty()) continue;
 
         if (awaiting != Slot::None) {
-            setSingle(awaiting, c);
+            // "Name:" left blank (a template): the next line is another part, not the name.
+            std::string lab, val;
+            const bool another = slotOf(key(c)) != Slot::None || (splitField(c, lab, val) && slotOf(key(lab)) != Slot::None);
+            const Slot was = awaiting;
             awaiting = Slot::None;
-            continue;
+            if (!another) {
+                setSingle(was, c);
+                continue;
+            }
         }
 
         // A known heading on its own ("Summary", "**Details**", "## Notes per book", "Family:").
@@ -298,7 +304,8 @@ Page parse(const std::string& raw) {
         }
         const bool plainHeading = !bullet && boundary && words(c) <= 5 && c.size() <= 48 && !endsSentence(c) &&
                                   std::isupper((unsigned char)c[0]) && c.find(':') == std::string::npos &&
-                                  (i + 1 >= lines.size() || !trim(lines[i + 1]).empty());
+                                  (i + 1 >= lines.size() || !trim(lines[i + 1]).empty() || block == Slot::Details || block == Slot::Family ||
+                                   block == Slot::Relations || block == Slot::Summary || (block == Slot::Section && textOf(block) && textOf(block)->empty()));
         if ((marked && words(c) <= 8) || plainHeading) {
             std::string t = c;
             while (!t.empty() && (t.back() == ':' || t.back() == ' ')) t.pop_back();
@@ -308,17 +315,57 @@ Page parse(const std::string& raw) {
             continue;
         }
 
-        // Text in the block it's under.
+        // Text in the block it's under ("Age:" left blank in a template is skipped).
+        if ((block == Slot::Details || block == Slot::Family || block == Slot::Relations) && !c.empty() && c.back() == ':') continue;
         if (block == Slot::Details) { addDetail(c); continue; }
         if (block == Slot::Family || block == Slot::Relations) { addDetail(c); continue; }
         if (block == Slot::BookNotes && p.bookNotes.empty()) { p.bookNotes.emplace_back(std::string(), std::string()); bookNote = 0; }
         if (std::string* t = textOf(block)) addLine(*t, gap, bullet ? "\xE2\x80\xA2 " + c : c);
         // Before anything recognised (a chat's "Here's the entry…"): left out.
     }
+    // A "Spoilers" heading with nothing under it (a template) leaves nothing in the notes.
+    {
+        std::string t = p.notes;
+        while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back();
+        if (t.size() >= 9 && t.compare(t.size() - 9, 9, "Spoilers:") == 0) {
+            t.erase(t.size() - 9);
+            while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back();
+            p.notes = t;
+        }
+    }
     // Sections with nothing under them aren't kept.
     p.sections.erase(std::remove_if(p.sections.begin(), p.sections.end(), [](auto& s) { return trim(s.second).empty(); }), p.sections.end());
     p.bookNotes.erase(std::remove_if(p.bookNotes.begin(), p.bookNotes.end(), [](auto& s) { return trim(s.second).empty(); }), p.bookNotes.end());
     return p;
+}
+
+std::string blankPage(const std::string& kind, const std::vector<std::string>& sections, const std::vector<std::string>& bookTitles) {
+    std::vector<const char*> details;
+    if (kind == "character") details = {"Gender", "Race", "Realm", "Age", "Birthday", "Height", "Hair", "Eyes", "Marks", "Clothing", "Weapon", "Home", "Occupation", "Title"};
+    else if (kind == "creature") details = {"Realm", "Habitat", "Size", "Diet", "Lifespan", "Danger"};
+    else if (kind == "race") details = {"Realm", "Homeland", "Lifespan", "Language", "Population"};
+    else if (kind == "place") details = {"Type", "Realm", "Location", "Climate", "Population", "Ruled by", "Founded"};
+    else if (kind == "realm") details = {"Ruled by", "Reached by", "Time there"};
+    else if (kind == "group") details = {"Leader", "Base", "Founded", "Members", "Symbol", "Colours"};
+    else if (kind == "thing") details = {"Type", "Made by", "Made of", "Owner", "Where it is"};
+    else if (kind == "magic") details = {"Source", "Colour", "Cost", "Difficulty"};
+    else if (kind == "event") details = {"When", "Where", "Outcome"};
+    else details = {"When", "Where"};
+    std::string t = "Name: \nOther names: \nHow it's said: \n\nSummary\n\n\nDetails\n";
+    for (auto* d : details) t += std::string(d) + ": \n";
+    for (auto& s : sections) t += "\n" + s + "\n\n";
+    t += "\nNotes per book\n";
+    if (bookTitles.empty()) t += "Book 1: \n";
+    for (auto& b : bookTitles) t += b + ": \n";
+    if (kind == "character") t += "\nFamily\nParents: \nPartner: \nSiblings: \nChildren: \n";
+    t += "\nRelationships\n";
+    std::vector<std::string> rel;
+    if (kind == "character") rel = {"Friends", "Enemies", "Taught by", "Member of", "Lives in", "Rides", "Owns"};
+    else
+        for (auto& c : relationsFor(kind)) if (rel.size() < 7) rel.push_back(c.label);
+    for (auto& r : rel) t += r + ": \n";
+    t += "\nNotes\n\n\nSpoilers\n\n";
+    return t;
 }
 
 bool looksLikePage(const std::string& text) {
@@ -331,6 +378,9 @@ bool looksLikePage(const std::string& text) {
 
 std::string relationFor(const std::string& kind, const std::string& labelIn) {
     std::string k = key(labelIn);
+    // "Former teacher", "late husband", "ex-wife": the same relationship.
+    for (const char* pre : {"former ", "ex-", "ex ", "late ", "old ", "one-time ", "current ", "sworn ", "adoptive ", "step-", "step"})
+        if (k.rfind(pre, 0) == 0 && k.size() > std::string(pre).size() + 2) { k = k.substr(std::string(pre).size()); break; }
     static const std::vector<std::pair<std::vector<const char*>, const char*>> table{
         {{"parents", "parent", "father", "mother", "mum", "mom", "dad", "birth parents", "adoptive parents"}, "Child of"},
         {{"children", "child", "son", "sons", "daughter", "daughters", "kids"}, "Parent of"},
@@ -342,9 +392,14 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         {{"enemies", "enemy", "nemesis", "foes", "foe"}, "Enemy of"},
         {{"rivals", "rival"}, "Rival of"},
         {{"allies", "ally"}, "Ally of"},
-        {{"mentor", "mentors", "teacher", "teachers", "master", "trained by", "taught by"}, "Student of"},
+        {{"mentor", "mentors", "teacher", "teachers", "master", "trained by", "taught by", "instructor", "tutor", "student of", "pupil of",
+          "apprentice of"}, "Student of"},
         {{"students", "student", "pupil", "pupils", "former pupil", "former pupils", "apprentice", "apprentices", "trainee"}, "Mentor of"},
-        {{"relatives", "relative", "family", "uncle", "aunt", "cousin", "cousins", "grandparents", "niece", "nephew"}, "Family"},
+        {{"relatives", "relative", "family", "uncle", "uncles", "aunt", "aunts", "cousin", "cousins", "grandparents", "grandparent", "grandmother",
+          "grandfather", "grandchildren", "grandchild", "grandson", "granddaughter", "niece", "nieces", "nephew", "nephews", "in-laws",
+          "extended family", "ancestor", "ancestors", "descendant", "descendants"}, "Family"},
+        {{"crew of", "crew", "ship", "aboard", "serves aboard", "belongs to", "part of", "joined", "order", "guild", "house", "clan"}, "Member of"},
+        {{"loves", "in love with", "beloved", "sweetheart"}, "Loves"},
         {{"members", "member"}, "Has member"},
         {{"leader", "leaders"}, "Led by"},
         {{"home", "lives at"}, "Lives in"},
@@ -363,7 +418,8 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         for (auto& c : choices) if (key(c.label) == key(l)) return c.label;
         return {};
     };
-    if (!want.empty()) return offered(want);
+    if (!want.empty())
+        if (std::string r = offered(want); !r.empty()) return r;
     if (std::string r = offered(k); !r.empty()) return r;
     if (std::string r = offered(k + " of"); !r.empty()) return r;
     if (k.size() > 3 && k.back() == 's')
@@ -513,31 +569,71 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
     struct NewLink { Id to; std::string label; };
     std::vector<NewLink> links;
     std::vector<std::string> relabels;   // relationships the paste sets, so the old ones of that kind go
-    const auto others = lib.entriesOf(e.worldId, e.worldId.empty() ? e.bookId : Id{});
+    auto others = lib.entriesOf(e.worldId, e.worldId.empty() ? e.bookId : Id{});   // looked up again after an entry is made
+    // An entry in the bible by a pasted name: its name or another name it goes by (with or without "the"), or a fuller
+    // form of its name ("Yonvaan Akumes Yerasuun" for the entry "Yonvaan Yerasuun"). Never a guess between two.
+    auto bare = [&](std::string k) { return k.rfind("the ", 0) == 0 ? k.substr(4) : k; };
     auto findNamed = [&](const std::string& nm) -> const Entry* {
         std::string n = nm;
         if (const size_t paren = n.find('('); paren != std::string::npos) n = trim(n.substr(0, paren));
-        const std::string k = key(n);
+        const std::string k = bare(key(n));
         if (k.empty()) return nullptr;
-        for (const Entry* o : others) if (o->id != e.id && key(o->name) == k) return o;
+        for (const Entry* o : others) if (o->id != e.id && bare(key(o->name)) == k) return o;
         const Entry* only = nullptr;
+        bool twice = false;
+        auto consider = [&](const Entry* o) { if (only && only != o) twice = true; else only = o; };
         for (const Entry* o : others) {
             if (o->id == e.id) continue;
-            for (auto& s : searchNames(*o))
-                if (key(s) == k) {
-                    if (only && only != o) return nullptr;   // two entries go by it: not guessed
-                    only = o;
-                }
+            for (auto& s : searchNames(*o)) if (bare(key(s)) == k) { consider(o); break; }
         }
-        return only;
+        if (only && !twice) return only;
+        if (twice) return nullptr;
+        // A fuller name: an entry whose whole name (two words or more) is a part of the pasted one.
+        if (std::count(k.begin(), k.end(), ' ') >= 1) {
+            std::vector<std::string> parts;
+            for (auto& p : nameParts(n)) parts.push_back(bare(key(p)));
+            for (const Entry* o : others) {
+                if (o->id == e.id) continue;
+                const std::string ok = bare(key(o->name));
+                if (std::count(ok.begin(), ok.end(), ' ') >= 1 && std::find(parts.begin(), parts.end(), ok) != parts.end()) consider(o);
+            }
+            if (only && !twice) return only;
+        }
+        return nullptr;
+    };
+    // Who isn't in the bible yet becomes an entry of the kind the relationship points at (a person by default).
+    auto kindFor = [&](const std::string& rel) {
+        for (auto& c : relationsFor(e.kind))
+            if (rel == c.label) {
+                std::string t = c.targets;
+                t = t.substr(0, t.find(' '));
+                return t.empty() ? std::string("character") : t;
+            }
+        return std::string("character");
     };
     std::string leftover;
+    const Id scopeBook = e.worldId.empty() ? e.bookId : Id{};
     for (auto& [label, value] : page.relations) {
-        const std::string rel = relationFor(e.kind, label);
+        std::string rel = relationFor(e.kind, label);
+        // One the bible doesn't know ("Admires"): a kind of relationship of the world's own, with its other side.
+        if (rel.empty()) rel = lib.ensureRelation(e.worldId, scopeBook, label);
         if (!rel.empty() && std::find(relabels.begin(), relabels.end(), rel) == relabels.end()) relabels.push_back(rel);
         std::vector<std::string> rest;
         for (auto& nm : splitNames(value)) {
-            const Entry* o = rel.empty() ? nullptr : findNamed(nm);
+            if (rel.empty()) { rest.push_back(nm); continue; }
+            const Entry* o = findNamed(nm);
+            if (!o) {
+                std::string n = nm;
+                if (const size_t paren = n.find('('); paren != std::string::npos) n = trim(n.substr(0, paren));
+                if (!n.empty() && n.size() <= 120 && n.find_first_of(".!?") == std::string::npos) {
+                    const Id made = lib.createEntry(e.worldId, e.worldId.empty() ? e.bookId : Id{}, kindFor(rel), n);
+                    if (!made.empty()) {
+                        r.created.push_back(made);
+                        others = lib.entriesOf(e.worldId, e.worldId.empty() ? e.bookId : Id{});   // the list moved
+                        o = lib.entry(made);
+                    }
+                }
+            }
             if (o) links.push_back({o->id, rel});
             else rest.push_back(nm);
         }
@@ -561,10 +657,27 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
     if (!notes.empty() && notes != e.notes) { e.notes = notes; r.notes = 1; }
     if (!lib.updateEntry(e)) return false;
 
+    // A race or realm named in the details that the bible doesn't have yet becomes one of its Races or Realms.
+    {
+        std::istringstream in(e.details);
+        for (std::string l; std::getline(in, l);) {
+            std::string lab, val;
+            if (!splitField(l, lab, val) || val.empty()) continue;
+            const std::string k = key(lab);
+            const std::string kind = k == "race" || k == "species" ? "race" : k == "realm" || k == "plane" ? "realm" : std::string();
+            if (kind.empty() || val.size() > 80) continue;
+            std::string v = val;
+            if (const size_t paren = v.find('('); paren != std::string::npos) v = trim(v.substr(0, paren));
+            if (v.empty() || lib.findEntryNamed(e.worldId, e.worldId.empty() ? e.bookId : Id{}, v, kind)) continue;
+            const Id made = lib.createEntry(e.worldId, e.worldId.empty() ? e.bookId : Id{}, kind, v);
+            if (!made.empty()) r.created.push_back(made);
+        }
+    }
+
     // Relationships: of each kind the paste names, the old links go and the pasted ones come in.
     for (const EntryLink& x : lib.linksOf(e.id)) {
         const bool mine = x.from == e.id;
-        const std::string asMine = mine ? x.label : reverseRelation(x.label);
+        const std::string asMine = mine ? x.label : lib.relationReverse(e.worldId, scopeBook, x.label);
         if (std::find(relabels.begin(), relabels.end(), asMine) == relabels.end()) continue;
         const Id other = mine ? x.to : x.from;
         const bool kept = std::any_of(links.begin(), links.end(), [&](const NewLink& l) { return l.to == other && l.label == asMine; });
@@ -573,7 +686,7 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
     const auto existing = lib.linksOf(e.id);
     for (auto& l : links) {
         const bool have = std::any_of(existing.begin(), existing.end(), [&](const EntryLink& x) {
-            return (x.from == e.id && x.to == l.to && x.label == l.label) || (x.to == e.id && x.from == l.to && x.label == reverseRelation(l.label));
+            return (x.from == e.id && x.to == l.to && x.label == l.label) || (x.to == e.id && x.from == l.to && x.label == lib.relationReverse(e.worldId, scopeBook, l.label));
         });
         if (!have && lib.addLink(e.id, l.to, l.label)) ++r.links;
     }
@@ -591,6 +704,7 @@ std::string Report::words() const {
     if (sections) parts.push_back(count(sections, "section", "sections"));
     if (bookNotes) parts.push_back(count(bookNotes, "book's notes", "books' notes"));
     if (links) parts.push_back(count(links, "link", "links"));
+    if (!created.empty()) parts.push_back(count((int)created.size(), "new entry for something the bible didn't have", "new entries for things the bible didn't have"));
     if (notes) parts.push_back("the notes");
     std::string out;
     for (size_t i = 0; i < parts.size(); ++i) out += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];

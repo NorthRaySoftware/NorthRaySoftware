@@ -672,7 +672,8 @@ let nameKinds = new Map(); // entry id -> its kind's class (k-place, ...), for t
 const PARTICLES = new Set(["of", "the", "de", "da", "di", "du", "del", "della", "der", "den", "van", "von", "le", "la", "al", "el",
   "bin", "bint", "ibn", "ap", "mac", "y", "and"]);
 const TITLES = new Set(["mr", "mrs", "ms", "miss", "dr", "sir", "dame", "lord", "lady", "king", "queen", "prince", "princess",
-  "captain", "capt", "general", "father", "mother", "brother", "sister", "master", "mistress", "saint", "st", "professor", "prof"]);
+  "captain", "capt", "general", "father", "mother", "brother", "sister", "master", "mistress", "saint", "st", "professor", "prof",
+  "her", "his", "your", "my", "their", "our", "highness", "majesty", "lordship", "ladyship", "grace", "excellency", "honour", "honor", "eminence", "holiness"]);
 function nameParts(full) {
   const words = String(full).trim().split(/\s+/).filter(Boolean);
   if (words.length < 2) return [];

@@ -415,6 +415,37 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.38.2: relationships that fill in, your own kinds of relationship, things made, a blank page (19 Nov 2026)
+
+- `relationFor` strips "former", "ex-", "late", "step-" and the like, and knows more wordings (grandparents and other
+  relatives as Family, crew of / part of / house / clan as Member of, instructor and tutor as Student of); a wording's
+  relationship the kind doesn't offer falls back to the label itself ("Related to" for places).
+- Finding a pasted name: by name or other name with "the" ignored, then a fuller form (an entry's whole name of two or
+  more words among `nameParts` of the pasted one), never guessing between two.
+- Names in Family and Relationships the bible lacks become entries of the relationship's first target kind (a person
+  by default) and are linked; Race/Species and Realm/Plane detail values the bible lacks become Race and Realm
+  entries. `Report::created` lists them, and the app's `PasteUndo::made` trashes them on Undo. (`others` is looked up
+  again after each entry is made: the entries vector moves.)
+- `blankPage(kind, sections, books)`: Name, Other names, How it's said, Summary, Details with suggested labels per
+  kind, the world's sections, a line per book, Family (characters), Relationships with suggested labels, Notes,
+  Spoilers. The parser ignores its blanks: a blank "Name:" doesn't take the next part's line, "Label:" lines without a
+  value are skipped in Details, Family and Relationships, headings straight after blank parts still count, and an empty
+  Spoilers leaves nothing. "Copy a blank page to fill in" in the entry panel puts it on the clipboard (CRLF).
+- **The world's own relationships**: `CustomRelation {label, reverse}` kept as `relations:world:<id>` (or `:book:`).
+  `guessReverseRelation` words the other side ("Admires" -> "Admired by" through a participle with irregular verbs;
+  "Haunted by" -> "Haunts"; "Guardian of" -> "Has guardian"; otherwise the same both ways). `ensureRelation` adds one
+  unless a built-in or existing label (or its other side) matches; `relationReverse(world, book, label)` reads the
+  world's own first, then `reverseRelation`, and replaces it in the entry page, the bible export and the paste;
+  `renameRelation` changes the list and every link of the world's entries in one transaction; `relationUses` counts.
+  A pasted Relationships line `relationFor` doesn't know becomes one (and links like any other).
+- Worldbuilding › Relationships (`studio_relations.cpp`, `Focus::Relation`): the world's own kinds with their other
+  side and link counts, New kind of relationship, the built-in ones listed for reference; the panel renames (FName) or
+  rewords the other side (FAlt), or removes it with its links after asking. Add a relationship lists the world's own
+  after the built-in ones, and "A new kind of relationship…".
+- Name parts leave out forms of address ("Her Highness" never makes "Her" a name), in the core and the editor.
+- Tested in core (1157 checks: the Aaliyah page, a blank page pasted unchanged and partly filled, reverse wordings,
+  renaming) and in Wine (Aaliyah pasted with Admires linked; renaming a kind with its link following).
+
 ## 0.38.1: pasting replaces, Reset the bible (19 Nov 2026)
 
 - `paste::apply` replaces instead of merging: each part the page has replaces the entry's (name, other names,
