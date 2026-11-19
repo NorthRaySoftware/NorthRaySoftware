@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.104.0",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Writing Studio 0.38.0: a new world bible website with themes and styling chosen before it's made, languages in the bible's website and PDF, seven more cover layouts, and Your worlds as the start page."
+      ]
+    },
+    {
       "version": "0.103.0",
       "date": "2026-11-19",
       "notes": [

@@ -12,6 +12,8 @@
 #include <set>
 #include <sstream>
 
+#include <nlohmann/json.hpp>
+
 namespace studio::bible {
 
 namespace fs = std::filesystem;
@@ -156,6 +158,20 @@ std::string esc(const std::string& s) {
     return o;
 }
 
+// For a JavaScript string inside a <script> file.
+std::string jsStr(const std::string& s) {
+    std::string o = "\"";
+    for (char c : s) {
+        if (c == '"' || c == '\\') { o += '\\'; o += c; }
+        else if (c == '\n') o += "\\n";
+        else if (c == '\r') continue;
+        else if (c == '<') o += "\\u003c";
+        else if ((unsigned char)c < 0x20) continue;
+        else o += c;
+    }
+    return o + "\"";
+}
+
 std::string pageName(const Id& id) { return "e-" + id + ".html"; }
 
 // Text with the bible's names linked to their pages (never to the entry itself).
@@ -173,34 +189,339 @@ std::string linked(const std::string& text, const std::vector<const Entry*>& sho
     return out + esc(text.substr(at));
 }
 
-const char* kCss = R"CSS(:root{--ink:#1d2330;--muted:#5d6577;--faint:#8d93a1;--rule:#dfe2e8;--paper:#fbfaf7;--card:#fff;--accent:#2d4a6e}
-@media (prefers-color-scheme:dark){:root{--ink:#e9ebf0;--muted:#aab0bd;--faint:#7c8290;--rule:#2c3240;--paper:#12151c;--card:#1a1e27;--accent:#8fb3e0}}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 Georgia,"Times New Roman",serif}
-header{border-bottom:1px solid var(--rule);padding:14px 20px;font:15px/1.4 system-ui,sans-serif;display:flex;gap:18px;flex-wrap:wrap;align-items:baseline}
-header a{color:var(--muted);text-decoration:none}header a:hover{color:var(--accent)}header .home{font-weight:600;color:var(--ink);font-size:17px}
-main{max-width:860px;margin:0 auto;padding:28px 20px 80px}h1{font-size:2.3em;line-height:1.15;margin:.2em 0 .1em}h2{font:600 13px system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:2.2em 0 .6em}
-a{color:var(--accent)}.kind{font:600 12px system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}.said,.also{color:var(--muted)}
-.guide{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:10px 14px;font:14px system-ui,sans-serif;color:var(--muted);margin-bottom:20px}
-.top{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}.top img{width:220px;max-width:100%;border-radius:6px;box-shadow:0 2px 10px #0002}
-table{border-collapse:collapse;width:100%;max-width:560px;font-size:15px}td{padding:5px 0;border-bottom:1px solid var(--rule);vertical-align:top}td:first-child{color:var(--muted);width:38%}
-ul.list{list-style:none;padding:0;columns:2 260px}ul.list li{padding:3px 0}.gallery{display:flex;gap:12px;flex-wrap:wrap}.gallery figure{margin:0;max-width:260px}
-.gallery img{max-width:260px;max-height:200px;border-radius:6px}figcaption{font:13px system-ui,sans-serif;color:var(--muted)}
-.map{position:relative;display:inline-block;max-width:100%}.map img{max-width:100%;display:block;border-radius:6px}
-.pin{position:absolute;transform:translate(-7px,-7px);display:flex;align-items:center;gap:6px;font:13px system-ui,sans-serif;text-decoration:none;color:var(--ink)}
-.pin i{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #fff;display:block}.pin span{background:#fffd;color:#1d2330;border-radius:10px;padding:1px 8px}
-.letter{font-size:1.6em;color:var(--accent);border-bottom:1px solid var(--rule);margin:1.2em 0 .4em}dl dt{font-weight:600;margin-top:.8em}dl dd{margin:0;color:var(--muted)}
-footer{max-width:860px;margin:0 auto;padding:0 20px 40px;color:var(--faint);font:13px system-ui,sans-serif}
+// Paragraphs, with lines starting "• " or "- " as a list.
+std::string prose(const std::string& text, const std::vector<const Entry*>& shown, const Id& self) {
+    std::string out, list;
+    auto flush = [&] { if (!list.empty()) { out += "<ul>" + list + "</ul>"; list.clear(); } };
+    std::istringstream in(text);
+    std::string line, para;
+    auto endPara = [&] { if (!para.empty()) { flush(); out += "<p>" + linked(para, shown, self) + "</p>"; para.clear(); } };
+    while (std::getline(in, line)) {
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+        std::string t = line;
+        while (!t.empty() && t.front() == ' ') t.erase(0, 1);
+        if (t.empty()) { endPara(); flush(); continue; }
+        if (t.rfind("\xE2\x80\xA2 ", 0) == 0 || t.rfind("- ", 0) == 0 || t.rfind("* ", 0) == 0) {
+            endPara();
+            list += "<li>" + linked(t.substr(t[0] == '-' || t[0] == '*' ? 2 : 4), shown, self) + "</li>";
+            continue;
+        }
+        flush();
+        para += (para.empty() ? "" : " ") + t;
+    }
+    endPara();
+    flush();
+    return out;
+}
+
+std::string initials(const std::string& name) {
+    std::string out;
+    std::istringstream in(name);
+    for (std::string w; in >> w && out.size() < 2;) {
+        if (w == "the" || w == "The" || w == "of" || w == "and") continue;
+        const unsigned char c = (unsigned char)w[0];
+        size_t n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+        out += w.substr(0, n);
+        if (out.size() >= 2 && c < 0x80) break;
+    }
+    return out;
+}
+
+struct Palette { const char *paper, *card, *ink, *muted, *faint, *rule, *accent, *head; };
+struct ThemeDef { const char* id; Palette light, dark; const char* headings; const char* body; bool caps; };
+const std::vector<ThemeDef>& themeDefs() {
+    static const std::vector<ThemeDef> t = {
+        {"parchment", {"#f4ecdc", "#fffaf0", "#2b2118", "#6a5a48", "#9a8a74", "#e0d2b8", "#8a3b2b", "#ece0c6"},
+         {"#1c1712", "#251f18", "#efe6d6", "#bfae94", "#8c7c66", "#3a3026", "#d99a6c", "#211b14"}, "crimson", "book", false},
+        {"clean", {"#fafbfc", "#ffffff", "#1d2330", "#5d6577", "#8d93a1", "#e3e6ec", "#2d4a6e", "#ffffff"},
+         {"#12151c", "#1a1e27", "#e9ebf0", "#aab0bd", "#7c8290", "#2c3240", "#8fb3e0", "#161a22"}, "modern", "georgia", false},
+        {"night", {"#0b1120", "#121a2e", "#e8ecf6", "#aab4cc", "#77819a", "#24304a", "#59d6a8", "#0e1628"},
+         {"#0b1120", "#121a2e", "#e8ecf6", "#aab4cc", "#77819a", "#24304a", "#59d6a8", "#0e1628"}, "crimson", "modern", false},
+        {"grimoire", {"#f1e8d6", "#fbf5e8", "#2a1d12", "#6c5539", "#9b8466", "#dccaa6", "#9a6b17", "#e8dabd"},
+         {"#17110d", "#211913", "#efe2c6", "#c2ad89", "#8f7c5e", "#3b2c1f", "#d4a64a", "#1d150f"}, "garamond", "gentium", true},
+        {"atlas", {"#eef2f4", "#ffffff", "#1b2a35", "#53636f", "#87949e", "#d5dde3", "#2f7d6d", "#e4ebef"},
+         {"#101a20", "#16232b", "#e3ecf1", "#a3b3bd", "#748591", "#26353f", "#5cc2ab", "#13212a"}, "humanist", "georgia", false},
+    };
+    return t;
+}
+const ThemeDef& themeDef(const std::string& id) {
+    for (auto& t : themeDefs()) if (id == t.id) return t;
+    return themeDefs()[0];
+}
+struct FontDef { const char* id; const char* stack; const char* bundled; };
+const std::vector<FontDef>& fontDefs() {
+    static const std::vector<FontDef> f = {
+        {"crimson", "\"Crimson Text\",Georgia,serif", "crimson-text"},
+        {"gentium", "\"Gentium Book Plus\",\"Palatino Linotype\",Georgia,serif", "gentium-book-plus"},
+        {"book", "\"Palatino Linotype\",\"Book Antiqua\",Palatino,\"Iowan Old Style\",Georgia,serif", ""},
+        {"georgia", "Georgia,\"Times New Roman\",serif", ""},
+        {"garamond", "Garamond,\"EB Garamond\",\"Adobe Garamond Pro\",\"Crimson Text\",Georgia,serif", "crimson-text"},
+        {"modern", "\"Segoe UI\",system-ui,-apple-system,\"Helvetica Neue\",Arial,sans-serif", ""},
+        {"humanist", "\"Gill Sans\",\"Gill Sans MT\",Calibri,\"Trebuchet MS\",sans-serif", ""},
+        {"typewriter", "\"Courier Prime\",\"Courier New\",monospace", "courier-prime"},
+    };
+    return f;
+}
+const FontDef& fontDef(const std::string& id) {
+    for (auto& f : fontDefs()) if (id == f.id) return f;
+    return fontDefs()[0];
+}
+
+const char* kindHex(const std::string& kind, bool dark) {
+    struct K { const char* k; const char* light; const char* dark; };
+    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"},
+                           {"race", "#6B8E23", "#A5C76A"},      {"realm", "#5B5FC7", "#9A9DF0"},    {"group", "#7D5BD0", "#AE93F2"},
+                           {"thing", "#B08A1E", "#E0BE55"},     {"lore", "#1E97A6", "#55C6D4"},     {"magic", "#B3439E", "#E37FD0"},
+                           {"event", "#C9476A", "#F07C98"}};
+    for (auto& x : ks) if (kind == x.k) return dark ? x.dark : x.light;
+    return dark ? "#7AA9F0" : "#3E7BD6";
+}
+
+bool validHex(const std::string& h) {
+    return h.size() == 7 && h[0] == '#' && h.find_first_not_of("0123456789abcdefABCDEF", 1) == std::string::npos;
+}
+
+const char* kSiteJs = R"JS((function(){
+var q=document.getElementById('q'),box=document.getElementById('qr');
+if(q&&box&&window.NR_BIBLE){
+ var data=window.NR_BIBLE,sel=-1,hits=[];
+ function norm(s){return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[‘’]/g,"'");}
+ function show(){var t=norm(q.value.trim());box.innerHTML='';hits=[];sel=-1;
+  if(!t){box.hidden=true;return;}
+  data.forEach(function(e){var n=norm(e.n),score=n.indexOf(t)===0?3:n.indexOf(t)>=0?2:0;
+   if(!score)e.a.forEach(function(a){if(norm(a).indexOf(t)>=0)score=Math.max(score,1);});
+   if(!score&&t.length>2&&norm(e.s).indexOf(t)>=0)score=0.5;
+   if(score)hits.push([score,e]);});
+  hits.sort(function(a,b){return b[0]-a[0]||a[1].n.localeCompare(b[1].n);});hits=hits.slice(0,12);
+  if(!hits.length){box.innerHTML='<div class="none">Nothing called that.</div>';box.hidden=false;return;}
+  hits.forEach(function(h,i){var e=h[1],a=document.createElement('a');a.href=e.u;a.className='k-'+e.c;
+   a.innerHTML='<i></i><b></b><span></span>';a.querySelector('b').textContent=e.n;a.querySelector('span').textContent=e.k;box.appendChild(a);});
+  box.hidden=false;}
+ q.addEventListener('input',show);
+ q.addEventListener('keydown',function(ev){var links=box.querySelectorAll('a');
+  if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){if(!links.length)return;ev.preventDefault();sel=(sel+(ev.key==='ArrowDown'?1:-1)+links.length)%links.length;
+   links.forEach(function(l,i){l.classList.toggle('on',i===sel);});}
+  else if(ev.key==='Enter'){var l=links[sel<0?0:sel];if(l)location.href=l.href;}
+  else if(ev.key==='Escape'){q.value='';show();}});
+ document.addEventListener('click',function(ev){if(!box.contains(ev.target)&&ev.target!==q)box.hidden=true;});
+ document.addEventListener('keydown',function(ev){if(ev.key==='/'&&document.activeElement!==q&&!/input|textarea/i.test(document.activeElement.tagName)){ev.preventDefault();q.focus();}});
+}
+document.querySelectorAll('input.filter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;
+ f.addEventListener('input',function(){var s=f.value.toLowerCase();t.querySelectorAll('tbody tr').forEach(function(r){r.hidden=s&&r.textContent.toLowerCase().indexOf(s)<0;});});});
+})();
+)JS";
+
+}  // namespace
+
+const std::vector<Theme>& themes() {
+    static const std::vector<Theme> t = {
+        {"parchment", "Parchment", "Warm paper and a deep red, serif type: an old book."},
+        {"clean", "Clean", "White and blue-grey with modern headings: a reference site."},
+        {"night", "Night sky", "Dark blue with stars and aurora green, dark however it's read."},
+        {"grimoire", "Grimoire", "Leather and gold with spaced capitals: a book of lore."},
+        {"atlas", "Atlas", "Cool grey and sea green with clear headings: a travel guide."},
+    };
+    return t;
+}
+
+ThemeColours themeColours(const std::string& theme, bool dark) {
+    const ThemeDef& t = themeDef(theme);
+    const bool night = std::string(t.id) == "night";
+    const Palette& p = dark || night ? t.dark : t.light;
+    return {p.paper, p.card, p.ink, p.muted, p.rule, p.accent, p.head, t.caps, night};
+}
+
+const std::vector<FontChoice>& fonts() {
+    static const std::vector<FontChoice> f = {
+        {"crimson", "Crimson Text (a book serif, included in the site)", "crimson-text"},
+        {"gentium", "Gentium Book Plus (wide-ranging accents, included)", "gentium-book-plus"},
+        {"book", "Palatino (book)", ""},
+        {"georgia", "Georgia (screen serif)", ""},
+        {"garamond", "Garamond (classic)", "crimson-text"},
+        {"modern", "Segoe UI (modern sans)", ""},
+        {"humanist", "Gill Sans (humanist sans)", ""},
+        {"typewriter", "Courier Prime (typewriter, included)", "courier-prime"},
+    };
+    return f;
+}
+
+std::string toJson(const Look& l) {
+    nlohmann::json j{{"theme", l.theme}, {"mode", l.mode}, {"accent", l.accent}, {"headings", l.headings}, {"body", l.body},
+                     {"title", l.title},  {"tagline", l.tagline}, {"cards", l.cards}, {"search", l.search}, {"kindColours", l.kindColours}};
+    return j.dump();
+}
+
+Look lookFromJson(const std::string& text) {
+    Look l;
+    const auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object()) return l;
+    auto str = [&](const char* k, std::string& v) { if (j.contains(k) && j[k].is_string()) v = j[k].get<std::string>(); };
+    auto flag = [&](const char* k, bool& v) { if (j.contains(k) && j[k].is_boolean()) v = j[k].get<bool>(); };
+    str("theme", l.theme);
+    str("mode", l.mode);
+    str("accent", l.accent);
+    str("headings", l.headings);
+    str("body", l.body);
+    str("title", l.title);
+    str("tagline", l.tagline);
+    flag("cards", l.cards);
+    flag("search", l.search);
+    flag("kindColours", l.kindColours);
+    if (std::none_of(themes().begin(), themes().end(), [&](const Theme& t) { return l.theme == t.id; })) l.theme = "parchment";
+    if (l.mode != "light" && l.mode != "dark") l.mode = "auto";
+    if (!l.accent.empty() && !validHex(l.accent)) l.accent.clear();
+    if (l.title.size() > 200) l.title.resize(200);
+    if (l.tagline.size() > 400) l.tagline.resize(400);
+    return l;
+}
+
+std::vector<conlang::Language> languagesOf(const Library& lib, const Id& worldId, const Id& bookId) {
+    const std::string key = worldId.empty() ? "conlangs:book:" + bookId : "conlangs:world:" + worldId;
+    return conlang::fromJson(lib.setting(key));
+}
+
+std::string websiteCss(const Look& look, const std::string& worldAccent, bool bundledHeadings, bool bundledBody) {
+    const ThemeDef& t = themeDef(look.theme);
+    const std::string hid = look.headings == "theme" || look.headings.empty() ? std::string(t.headings) : look.headings;
+    const std::string bid = look.body == "theme" || look.body.empty() ? std::string(t.body) : look.body;
+    const FontDef& hf = fontDef(hid);
+    const FontDef& bf = fontDef(bid);
+    (void)worldAccent;   // offered in the app as one of the choices; the theme's own colour otherwise
+    const std::string accent = validHex(look.accent) ? look.accent : "";
+    auto vars = [&](const Palette& p, bool dark) {
+        std::string a = accent.empty() ? p.accent : accent;
+        std::string v = "--paper:" + std::string(p.paper) + ";--card:" + p.card + ";--ink:" + p.ink + ";--muted:" + p.muted + ";--faint:" + p.faint +
+                        ";--rule:" + p.rule + ";--accent:" + a + ";--head:" + p.head + ";";
+        // A world's own colour can be too dark to read on a dark page: lifted towards the ink there.
+        if (dark && !accent.empty()) v += "--accent:color-mix(in srgb," + a + " 62%,#ffffff);";
+        for (const char* k : {"character", "creature", "place", "race", "realm", "group", "thing", "lore", "magic", "event"})
+            v += std::string("--k-") + k + ":" + (look.kindColours ? kindHex(k, dark) : "var(--accent)") + ";";
+        return v;
+    };
+    const bool night = std::string(t.id) == "night";
+    std::string css;
+    css += ":root{" + vars(look.mode == "dark" || night ? t.dark : t.light, look.mode == "dark" || night) +
+           "--hf:" + hf.stack + ";--bf:" + bf.stack + ";color-scheme:" + (look.mode == "dark" || night ? "dark" : look.mode == "light" ? "light" : "light dark") + "}\n";
+    if (look.mode == "auto" && !night) css += "@media (prefers-color-scheme:dark){:root{" + vars(t.dark, true) + "}}\n";
+    (void)bundledHeadings;
+    (void)bundledBody;
+    css += R"CSS(*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.65 var(--bf);text-rendering:optimizeLegibility}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:hover{text-decoration-thickness:2px}
+img{max-width:100%}
+.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--head) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule);
+ display:flex;align-items:center;gap:20px;padding:10px 24px;font:15px/1.3 var(--bf);flex-wrap:wrap}
+.brand{font:600 20px/1.2 var(--hf);color:var(--ink);text-decoration:none;margin-right:6px}
+.top nav{display:flex;gap:4px 16px;flex-wrap:wrap;flex:1}
+.top nav a{color:var(--muted);text-decoration:none;font-size:14px;white-space:nowrap}
+.top nav a:hover,.top nav a.on{color:var(--accent)}
+.search{position:relative}
+#q{width:220px;max-width:60vw;font:15px var(--bf);padding:7px 12px 7px 32px;border:1px solid var(--rule);border-radius:20px;background:var(--card);color:var(--ink);
+ background-image:radial-gradient(circle at 15px 15px,transparent 5px,var(--faint) 5.5px,var(--faint) 6.5px,transparent 7px);outline:none}
+#q:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+#qr{position:absolute;right:0;top:42px;width:340px;max-width:90vw;background:var(--card);border:1px solid var(--rule);border-radius:12px;box-shadow:0 12px 40px #0003;padding:6px;max-height:70vh;overflow:auto}
+#qr a{display:flex;align-items:baseline;gap:10px;padding:7px 10px;border-radius:8px;text-decoration:none;color:var(--ink)}
+#qr a i{width:8px;height:8px;border-radius:50%;background:var(--k);flex:none;align-self:center}
+#qr a span{margin-left:auto;font-size:12px;color:var(--faint)}
+#qr a:hover,#qr a.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+#qr .none{padding:10px;color:var(--faint);font-size:14px}
+main{max-width:1120px;margin:0 auto;padding:28px 24px 90px}
+h1,h2,h3{font-family:var(--hf);line-height:1.15;font-weight:600}
+h1{font-size:clamp(2.1em,5vw,3.1em);margin:.1em 0 .15em;letter-spacing:-.01em}
+.crumbs{font-size:14px;color:var(--faint);margin-bottom:14px}.crumbs a{color:var(--muted);text-decoration:none}.crumbs a:hover{color:var(--accent)}
+.kind{font:700 12px/1.4 var(--bf);letter-spacing:.12em;text-transform:uppercase;color:var(--k,var(--accent))}
+.said{color:var(--muted);font-style:italic}.also{color:var(--muted);font-size:.92em;margin-top:4px}
+.guide{background:var(--card);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:12px 16px;font-size:15px;color:var(--muted);margin:0 0 24px}
+/* home */
+.hero{position:relative;border-radius:18px;overflow:hidden;min-height:300px;display:flex;align-items:flex-end;margin-bottom:30px;
+ background:radial-gradient(120% 140% at 10% 0%,color-mix(in srgb,var(--accent) 70%,#000) 0%,color-mix(in srgb,var(--accent) 30%,#000) 60%,#000 120%);background-size:cover;background-position:center}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,#000a 100%)}
+.hero .in{position:relative;z-index:1;padding:36px 40px;color:#fff;max-width:820px}
+.hero .eyebrow{font:700 12px var(--bf);letter-spacing:.18em;text-transform:uppercase;opacity:.8}
+.hero h1{color:#fff;margin:.1em 0;font-size:clamp(2.4em,7vw,4em);text-shadow:0 2px 20px #0006}
+.hero p{margin:0;font-size:1.15em;opacity:.92;font-style:italic}
+.intro{max-width:760px;font-size:1.05em;margin:0 0 26px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 34px}
+.chips a{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:20px;background:var(--card);border:1px solid var(--rule);color:var(--ink);text-decoration:none;font-size:15px}
+.chips a i{width:9px;height:9px;border-radius:50%;background:var(--k,var(--accent))}.chips a small{color:var(--faint)}
+.chips a:hover{border-color:var(--k,var(--accent))}
+.kindhead{display:flex;align-items:baseline;gap:12px;font-size:1.7em;margin:46px 0 16px;padding-bottom:8px;border-bottom:2px solid var(--k,var(--accent))}
+.kindhead small{font:14px var(--bf);color:var(--faint)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.card{display:flex;gap:14px;background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:12px;text-decoration:none;color:var(--ink);
+ transition:transform .15s,box-shadow .15s,border-color .15s;border-top:3px solid var(--k,var(--accent))}
+.card:hover{transform:translateY(-2px);box-shadow:0 10px 26px #0002;border-color:var(--k,var(--accent))}
+.card .pic{flex:none;width:76px;height:96px;border-radius:9px;background:color-mix(in srgb,var(--k,var(--accent)) 16%,var(--card)) center/cover no-repeat;
+ display:flex;align-items:center;justify-content:center;font:600 28px var(--hf);color:var(--k,var(--accent))}
+.card b{display:block;font:600 1.12em/1.25 var(--hf);margin:2px 0 4px}
+.card p{margin:0;font-size:14px;line-height:1.45;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+ul.list{list-style:none;padding:0;columns:3 220px;margin:0}ul.list li{padding:3px 0;break-inside:avoid}
+/* entry */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:44px;align-items:start}
+.main>p.lead{font-size:1.16em;color:var(--ink)}
+.main h2{font-size:1.45em;margin:1.7em 0 .5em;padding-bottom:6px;border-bottom:1px solid var(--rule)}
+.main ul{padding-left:1.2em}
+.infobox{background:var(--card);border:1px solid var(--rule);border-radius:16px;overflow:hidden;position:sticky;top:76px;font-size:15px;border-top:4px solid var(--k,var(--accent))}
+.infobox img.portrait{display:block;width:100%;max-height:420px;object-fit:cover}
+.infobox .box{padding:14px 16px}
+.infobox h3{font-size:1.25em;margin:0 0 8px}
+.infobox h4{font:700 11px var(--bf);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:16px 0 4px}
+table{border-collapse:collapse;width:100%}td{padding:6px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+td:first-child{color:var(--muted);width:40%;padding-right:10px}
+tr:last-child td{border-bottom:0}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.gallery figure{margin:0}.gallery img{width:100%;height:200px;object-fit:cover;border-radius:10px;display:block}
+figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+.map{position:relative;display:inline-block;max-width:100%}.map img{max-width:100%;display:block;border-radius:12px}
+.pin{position:absolute;transform:translate(-8px,-8px);display:flex;align-items:center;gap:6px;font-size:13px;text-decoration:none;color:var(--ink)}
+.pin i{width:16px;height:16px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px #0006;display:block}
+.pin span{background:#fffe;color:#1d2330;border-radius:10px;padding:1px 8px;box-shadow:0 1px 4px #0003}
+.pager{display:flex;justify-content:space-between;gap:16px;margin-top:56px;padding-top:18px;border-top:1px solid var(--rule)}
+.pager a{text-decoration:none;max-width:48%}.pager small{display:block;color:var(--faint);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.pager a.next{text-align:right;margin-left:auto}
+/* glossary and languages */
+.letters{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 20px;position:sticky;top:62px;background:var(--paper);padding:8px 0;z-index:5}
+.letters a{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;text-decoration:none;font:600 15px var(--hf);background:var(--card);border:1px solid var(--rule)}
+.letter{font:600 1.9em var(--hf);color:var(--accent);border-bottom:1px solid var(--rule);margin:1.2em 0 .4em;scroll-margin-top:120px}
+dl dt{font-weight:600;margin-top:.9em}dl dd{margin:0;color:var(--muted)}
+.lang{margin:0 0 50px}.lang .meta{color:var(--faint);font-size:14px}
+.lang table{font-size:15px;background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.lang th{text-align:left;font:700 11px var(--bf);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--rule)}
+.lang td{padding:7px 12px;width:auto}.lang td:first-child{color:var(--ink);font-weight:600;width:auto}
+.lang .ipa{color:var(--muted);font-style:italic}
+input.filter{font:15px var(--bf);padding:7px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);margin:6px 0 12px;width:280px;max-width:100%}
+footer{max-width:1120px;margin:0 auto;padding:0 24px 40px;color:var(--faint);font-size:13px}
+@media (max-width:860px){.layout{grid-template-columns:1fr}.infobox{position:static;order:-1}.top{padding:10px 16px}main{padding:20px 16px 70px}.hero .in{padding:26px 22px}#q{width:160px}}
+@media print{.top,.search,.pager,.letters{display:none}body{background:#fff;color:#000}.card{break-inside:avoid}}
 )CSS";
+    if (night)
+        css += "body{background:radial-gradient(1px 1px at 20% 30%,#fff8,transparent),radial-gradient(1px 1px at 70% 12%,#fff7,transparent),"
+               "radial-gradient(1.5px 1.5px at 40% 80%,#fff6,transparent),radial-gradient(1px 1px at 85% 60%,#fff6,transparent),"
+               "radial-gradient(1px 1px at 10% 75%,#fff5,transparent),var(--paper);background-size:420px 420px,380px 380px,520px 520px,300px 300px,460px 460px,auto;"
+               "background-attachment:fixed}\n.hero{box-shadow:inset 0 -60px 80px -40px color-mix(in srgb,var(--accent) 50%,transparent)}\n";
+    if (t.caps) css += "h1,h2,.brand,.kindhead{text-transform:uppercase;letter-spacing:.08em}.hero h1{letter-spacing:.06em}\n";
+    for (const char* k : {"character", "creature", "place", "race", "realm", "group", "thing", "lore", "magic", "event"})
+        css += std::string(".k-") + k + "{--k:var(--k-" + k + ")}";
+    css += "\n";
+    return css;
+}
+
+namespace {
 
 struct Site {
     const Library& lib;
     const View& view;
+    const Look& look;
     std::string folder;
+    std::string title;
+    std::vector<conlang::Language> langs;
     std::map<std::string, std::string> pictures;   // blob -> "images/<blob>.<ext>" ("" = couldn't)
     std::string error;
 
     std::string picture(const std::string& blob) {
-        if (blob.empty()) return {};
+        if (blob.empty() || !view.options().pictures) return {};
         if (auto it = pictures.find(blob); it != pictures.end()) return it->second;
         const std::string bytes = readFile(lib.blobPath(blob));
         const std::string type = pictureType(bytes);
@@ -215,21 +536,26 @@ struct Site {
         return rel;
     }
 
-    std::string page(const std::string& title, const std::string& body) const {
-        std::string nav = "<header><a class=\"home\" href=\"index.html\">" + esc(view.title()) + "</a>";
+    std::string page(const std::string& pageTitle, const std::string& body, const std::string& here = {}) const {
+        std::string nav = "<header class=\"top\"><a class=\"brand\" href=\"index.html\">" + esc(title) + "</a><nav>";
         std::set<std::string> kinds;
         for (const Entry* e : view.entries()) kinds.insert(e->kind);
         for (const auto& k : entryKinds())
-            if (kinds.count(k)) nav += "<a href=\"index.html#" + k + "\">" + esc(entryKindPlural(k)) + "</a>";
-        nav += "<a href=\"glossary.html\">Glossary</a></header>";
+            if (kinds.count(k)) nav += "<a href=\"index.html#" + k + "\"" + (here == k ? " class=\"on\"" : "") + ">" + esc(entryKindPlural(k)) + "</a>";
+        if (view.options().glossary) nav += "<a href=\"glossary.html\"" + std::string(here == "glossary" ? " class=\"on\"" : "") + ">Glossary</a>";
+        if (!langs.empty()) nav += "<a href=\"languages.html\"" + std::string(here == "languages" ? " class=\"on\"" : "") + ">Languages</a>";
+        nav += "</nav>";
+        if (look.search) nav += "<div class=\"search\"><input id=\"q\" type=\"search\" placeholder=\"Search\" autocomplete=\"off\" aria-label=\"Search the bible\"><div id=\"qr\" hidden></div></div>";
+        nav += "</header>";
         std::string guide;
         if (view.options().readersGuide) {
             const Book* b = lib.book(view.options().upTo);
             guide = "<div class=\"guide\">A reader's guide" + (b ? " for readers of <em>" + esc(b->title) + "</em>: nothing here is revealed later in the series." : std::string(".")) + "</div>";
         }
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-               "<title>" + esc(title) + "</title><link rel=\"stylesheet\" href=\"style.css\"></head><body>" + nav + "<main>" + guide + body +
-               "</main><footer>Made with NorthRay Writing Studio.</footer></body></html>\n";
+               "<title>" + esc(pageTitle) + "</title><link rel=\"stylesheet\" href=\"style.css\"></head><body>" + nav + "<main>" + guide + body +
+               "</main><footer>" + esc(title) + " \xC2\xB7 made with NorthRay Writing Studio.</footer>" +
+               (look.search ? "<script src=\"search.js\"></script><script src=\"site.js\"></script>" : "<script src=\"site.js\"></script>") + "</body></html>\n";
     }
 
     bool write(const std::string& name, const std::string& text) {
@@ -239,141 +565,299 @@ struct Site {
         return true;
     }
 
-    std::string entryPage(const Entry& e) {
+    std::string card(const Entry& e) {
+        const std::string img = picture(e.imageBlob);
+        std::string summary = view.shows(e, "summary") ? e.summary : std::string();
+        if (summary.size() > 260) {
+            size_t cut = summary.rfind(' ', 250);
+            summary = summary.substr(0, cut == std::string::npos ? 250 : cut) + "\xE2\x80\xA6";
+        }
+        return "<a class=\"card k-" + e.kind + "\" href=\"" + pageName(e.id) + "\"><div class=\"pic\"" +
+               (img.empty() ? ">" + esc(initials(e.name)) : " style=\"background-image:url('" + img + "')\">") + "</div><div><div class=\"kind\">" +
+               esc(entryKindLabel(e.kind)) + "</div><b>" + esc(e.name) + "</b>" + (summary.empty() ? "" : "<p>" + esc(summary) + "</p>") + "</div></a>";
+    }
+
+    std::string entryPage(const Entry& e, const Entry* prev, const Entry* next) {
         const auto& shown = view.entries();
-        std::string b;
-        b += "<div class=\"top\">";
-        if (const std::string img = picture(e.imageBlob); !img.empty()) b += "<img src=\"" + img + "\" alt=\"" + esc(e.name) + "\">";
-        b += "<div><div class=\"kind\">" + esc(entryKindLabel(e.kind)) + "</div><h1>" + esc(e.name) + "</h1>";
-        if (!e.pronunciation.empty()) b += "<div class=\"said\">Said “" + esc(e.pronunciation) + "”</div>";
+        std::string main, aside;
+        main += "<div class=\"kind\">" + esc(entryKindLabel(e.kind)) + "</div><h1>" + esc(e.name) + "</h1>";
+        if (!e.pronunciation.empty()) main += "<div class=\"said\">Said \xE2\x80\x9C" + esc(e.pronunciation) + "\xE2\x80\x9D</div>";
         if (!e.aliases.empty()) {
             std::string a;
-            for (auto& x : e.aliases) a += (a.empty() ? "" : ", ") + std::string("“") + esc(x) + "”";
-            b += "<div class=\"also\">Also " + a + "</div>";
+            for (auto& x : e.aliases) a += (a.empty() ? "" : ", ") + std::string("\xE2\x80\x9C") + esc(x) + "\xE2\x80\x9D";
+            main += "<div class=\"also\">Also known as " + a + "</div>";
         }
-        if (!e.summary.empty() && view.shows(e, "summary")) b += "<p>" + linked(e.summary, shown, e.id) + "</p>";
+        if (!e.summary.empty() && view.shows(e, "summary")) main += "<p class=\"lead\">" + linked(e.summary, shown, e.id) + "</p>";
+        for (auto& [t, text] : lib.entrySections(e)) {
+            if (text.empty() || !view.shows(e, "section:" + t)) continue;
+            main += "<h2>" + esc(t) + "</h2>" + prose(text, shown, e.id);
+        }
+        if (!view.options().readersGuide)
+            for (const Id& bk : booksInOrder(lib, view.options().worldId, view.options().bookId)) {
+                const std::string& note = e.bookNote(bk);
+                const Book* book = lib.book(bk);
+                if (note.empty() || !book) continue;
+                main += "<h2>In <em>" + esc(book->title) + "</em></h2>" + prose(note, shown, e.id);
+            }
+        if (!e.mapBlob.empty())
+            if (const std::string img = picture(e.mapBlob); !img.empty()) {
+                main += "<h2>Map</h2><div class=\"map\"><img src=\"" + img + "\" alt=\"Map of " + esc(e.name) + "\">";
+                for (auto& p : e.pins)
+                    if (const Entry* o = lib.entry(p.entry); o && view.shows(p.entry)) {
+                        char pos[64];
+                        std::snprintf(pos, sizeof pos, "left:%.2f%%;top:%.2f%%", p.x * 100, p.y * 100);
+                        main += "<a class=\"pin\" style=\"" + std::string(pos) + "\" href=\"" + pageName(o->id) + "\"><i></i><span>" + esc(o->name) + "</span></a>";
+                    }
+                main += "</div>";
+            }
+        std::string gal;
+        for (auto& g : e.gallery)
+            if (g.blob != e.imageBlob)
+                if (const std::string img = picture(g.blob); !img.empty())
+                    gal += "<figure><img src=\"" + img + "\" alt=\"" + esc(g.caption.empty() ? e.name : g.caption) + "\" loading=\"lazy\">" +
+                           (g.caption.empty() ? "" : "<figcaption>" + esc(g.caption) + "</figcaption>") + "</figure>";
+        if (!gal.empty()) main += "<h2>Gallery</h2><div class=\"gallery\">" + gal + "</div>";
+        if (!view.options().readersGuide && !e.notes.empty()) main += "<h2>Notes</h2>" + prose(e.notes, shown, e.id);
+
+        // The box at the side: picture, details, family, relationships.
+        if (const std::string img = picture(e.imageBlob); !img.empty()) aside += "<img class=\"portrait\" src=\"" + img + "\" alt=\"" + esc(e.name) + "\">";
+        aside += "<div class=\"box\"><h3>" + esc(e.name) + "</h3>";
         std::string rows;
         for (auto& [label, value] : detailLines(e.details)) {
             if (!label.empty() && !view.shows(e, "detail:" + label)) continue;
             rows += label.empty() ? "<tr><td colspan=\"2\">" + linked(value, shown, e.id) + "</td></tr>"
                                   : "<tr><td>" + esc(label) + "</td><td>" + linked(value, shown, e.id) + "</td></tr>";
         }
-        if (!rows.empty()) b += "<table>" + rows + "</table>";
-        b += "</div></div>";
-        for (auto& [title, text] : lib.entrySections(e)) {
-            if (text.empty() || !view.shows(e, "section:" + title)) continue;
-            b += "<h2>" + esc(title) + "</h2>";
-            for (auto& p : paragraphs(text)) b += "<p>" + linked(p, shown, e.id) + "</p>";
-        }
-        if (!view.options().readersGuide) {
-            for (const Id& bk : booksInOrder(lib, view.options().worldId, view.options().bookId)) {
-                const std::string& note = e.bookNote(bk);
-                const Book* book = lib.book(bk);
-                if (note.empty() || !book) continue;
-                b += "<h2>In " + esc(book->title) + "</h2>";
-                for (auto& p : paragraphs(note)) b += "<p>" + linked(p, shown, e.id) + "</p>";
+        if (!rows.empty()) aside += "<table>" + rows + "</table>";
+        if (view.options().family) {
+            if (e.kind == "character") {
+                const auto f = lib.familyOf(e.id);
+                std::string fam;
+                auto row = [&](const char* label, const std::vector<Id>& ids) {
+                    std::string names;
+                    for (const Id& i : ids)
+                        if (const Entry* o = lib.entry(i); o && view.shows(i)) names += (names.empty() ? "" : ", ") + std::string("<a href=\"") + pageName(i) + "\">" + esc(o->name) + "</a>";
+                    if (!names.empty()) fam += "<tr><td>" + std::string(label) + "</td><td>" + names + "</td></tr>";
+                };
+                row("Parents", f.parents);
+                row("Partners", f.partners);
+                row("Brothers and sisters", f.siblings);
+                row("Children", f.children);
+                if (!fam.empty()) aside += "<h4>Family</h4><table>" + fam + "</table>";
+            }
+            if (const auto rel = relationsOf(lib, view, e); !rel.empty()) {
+                // One row per relationship, names together.
+                std::vector<std::pair<std::string, std::string>> grouped;
+                for (auto& [label, o] : rel) {
+                    const std::string link = "<a href=\"" + pageName(o->id) + "\">" + esc(o->name) + "</a>";
+                    auto it = std::find_if(grouped.begin(), grouped.end(), [&](auto& g) { return g.first == label; });
+                    if (it == grouped.end()) grouped.push_back({label, link});
+                    else it->second += ", " + link;
+                }
+                aside += "<h4>Relationships</h4><table>";
+                for (auto& [l, names] : grouped) aside += "<tr><td>" + esc(l) + "</td><td>" + names + "</td></tr>";
+                aside += "</table>";
             }
         }
-        if (e.kind == "character") {
-            const auto f = lib.familyOf(e.id);
-            std::string fam;
-            auto row = [&](const char* label, const std::vector<Id>& ids) {
-                std::string names;
-                for (const Id& i : ids)
-                    if (const Entry* o = lib.entry(i); o && view.shows(i)) names += (names.empty() ? "" : ", ") + std::string("<a href=\"") + pageName(i) + "\">" + esc(o->name) + "</a>";
-                if (!names.empty()) fam += "<tr><td>" + std::string(label) + "</td><td>" + names + "</td></tr>";
-            };
-            row("Parents", f.parents);
-            row("Partners", f.partners);
-            row("Brothers and sisters", f.siblings);
-            row("Children", f.children);
-            if (!fam.empty()) b += "<h2>Family</h2><table>" + fam + "</table>";
+        aside += "</div>";
+        std::string pager;
+        if (prev || next) {
+            pager = "<nav class=\"pager\">";
+            if (prev) pager += "<a href=\"" + pageName(prev->id) + "\"><small>\xE2\x80\xB9 Previous</small>" + esc(prev->name) + "</a>";
+            if (next) pager += "<a class=\"next\" href=\"" + pageName(next->id) + "\"><small>Next \xE2\x80\xBA</small>" + esc(next->name) + "</a>";
+            pager += "</nav>";
         }
-        if (const auto rel = relationsOf(lib, view, e); !rel.empty()) {
-            b += "<h2>Relationships</h2><table>";
-            for (auto& [label, o] : rel) b += "<tr><td>" + esc(label) + "</td><td><a href=\"" + pageName(o->id) + "\">" + esc(o->name) + "</a></td></tr>";
-            b += "</table>";
-        }
-        if (!e.mapBlob.empty()) {
-            if (const std::string img = picture(e.mapBlob); !img.empty()) {
-                b += "<h2>Map</h2><div class=\"map\"><img src=\"" + img + "\" alt=\"Map of " + esc(e.name) + "\">";
-                for (auto& p : e.pins)
-                    if (const Entry* o = lib.entry(p.entry); o && view.shows(p.entry)) {
-                        char pos[64];
-                        std::snprintf(pos, sizeof pos, "left:%.2f%%;top:%.2f%%", p.x * 100, p.y * 100);
-                        b += "<a class=\"pin\" style=\"" + std::string(pos) + "\" href=\"" + pageName(o->id) + "\"><i></i><span>" + esc(o->name) + "</span></a>";
-                    }
-                b += "</div>";
-            }
-        }
-        std::string gal;
-        for (auto& g : e.gallery)
-            if (const std::string img = picture(g.blob); !img.empty())
-                gal += "<figure><img src=\"" + img + "\" alt=\"" + esc(g.caption.empty() ? e.name : g.caption) + "\">" +
-                       (g.caption.empty() ? "" : "<figcaption>" + esc(g.caption) + "</figcaption>") + "</figure>";
-        if (!gal.empty()) b += "<h2>Gallery</h2><div class=\"gallery\">" + gal + "</div>";
-        if (!view.options().readersGuide && !e.notes.empty()) {
-            b += "<h2>Notes</h2>";
-            for (auto& p : paragraphs(e.notes)) b += "<p>" + linked(p, shown, e.id) + "</p>";
-        }
-        return page(e.name + " - " + view.title(), b);
+        const std::string crumbs = "<div class=\"crumbs\"><a href=\"index.html\">" + esc(title) + "</a> \xE2\x80\xBA <a href=\"index.html#" + e.kind + "\">" +
+                                   esc(entryKindPlural(e.kind)) + "</a></div>";
+        return page(e.name + " \xC2\xB7 " + title, crumbs + "<article class=\"k-" + e.kind + "\"><div class=\"layout\"><div class=\"main\">" + main +
+                                                    "</div><aside class=\"infobox\">" + aside + "</aside></div>" + pager + "</article>",
+                    e.kind);
     }
 };
 
+bool copyFontFamily(const std::string& fontsFolder, const std::string& id, const std::string& site, std::string& faces, const std::string& familyName) {
+    if (fontsFolder.empty() || id.empty()) return false;
+    std::error_code ec;
+    const fs::path src = u8path(fontsFolder + "/" + id);
+    if (!fs::is_directory(src, ec)) return false;
+    fs::create_directories(u8path(site + "/fonts/" + id), ec);
+    bool any = false;
+    for (auto& f : fs::directory_iterator(src, ec)) {
+        const auto u8 = f.path().filename().u8string();
+        const std::string name(u8.begin(), u8.end());
+        if (name.size() < 5) continue;
+        std::string ext = name.substr(name.size() - 4);
+        for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
+        if (ext != ".ttf" && name != "OFL.txt") continue;
+        fs::copy_file(f.path(), u8path(site + "/fonts/" + id + "/" + name), fs::copy_options::overwrite_existing, ec);
+        if (ext != ".ttf") continue;
+        const bool bold = name.find("Bold") != std::string::npos, italic = name.find("Italic") != std::string::npos;
+        faces += "@font-face{font-family:\"" + familyName + "\";src:url(\"fonts/" + id + "/" + name + "\") format(\"truetype\");font-weight:" +
+                 (bold ? "700" : "400") + ";font-style:" + (italic ? "italic" : "normal") + ";font-display:swap}\n";
+        any = true;
+    }
+    return any;
+}
+
 }  // namespace
 
-bool exportWebsite(const Library& lib, const Options& options, const std::string& folder, std::string& error, int* pages) {
+bool exportWebsite(const Library& lib, const Options& options, const std::string& folder, std::string& error, int* pages, const Look& look,
+                   const std::string& fontsFolder) {
     const View view(lib, options);
     std::error_code ec;
     fs::create_directories(u8path(folder + "/images"), ec);
     if (ec) { error = "Couldn't make the folder: " + ec.message(); return false; }
-    Site site{lib, view, folder, {}, {}};
-    if (!site.write("style.css", kCss)) { error = site.error; return false; }
+    const World* world = lib.world(options.worldId);
+    Site site{lib, view, look, folder, look.title.empty() ? view.title() : look.title, {}, {}, {}};
+    if (options.languages) site.langs = languagesOf(lib, options.worldId, options.worldId.empty() ? options.bookId : Id{});
+
+    // The stylesheet, with the typefaces the look needs copied in.
+    {
+        const ThemeDef& t = themeDef(look.theme);
+        const std::string hid = look.headings == "theme" || look.headings.empty() ? std::string(t.headings) : look.headings;
+        const std::string bid = look.body == "theme" || look.body.empty() ? std::string(t.body) : look.body;
+        const FontDef& hf = fontDef(hid);
+        const FontDef& bf = fontDef(bid);
+        std::string faces;
+        std::set<std::string> done;
+        for (const FontDef* f : {&hf, &bf}) {
+            if (!*f->bundled || done.count(f->bundled)) continue;
+            done.insert(f->bundled);
+            const std::string fam = std::string(f->bundled) == "crimson-text" ? "Crimson Text" : std::string(f->bundled) == "gentium-book-plus" ? "Gentium Book Plus" : "Courier Prime";
+            copyFontFamily(fontsFolder, f->bundled, folder, faces, fam);
+        }
+        if (!site.write("style.css", faces + websiteCss(look, world ? world->accent : std::string(), *hf.bundled, *bf.bundled))) { error = site.error; return false; }
+    }
+    if (!site.write("site.js", kSiteJs)) { error = site.error; return false; }
+
+    // Entries, each with the one before and after it of the same kind.
     int n = 0;
-    for (const Entry* e : view.entries()) {
-        if (!site.write(pageName(e->id), site.entryPage(*e))) { error = site.error; return false; }
+    std::vector<const Entry*> ordered;
+    for (const auto& k : entryKinds())
+        for (const Entry* e : view.entries()) if (e->kind == k) ordered.push_back(e);
+    for (size_t i = 0; i < ordered.size(); ++i) {
+        const Entry* prev = i > 0 && ordered[i - 1]->kind == ordered[i]->kind ? ordered[i - 1] : nullptr;
+        const Entry* next = i + 1 < ordered.size() && ordered[i + 1]->kind == ordered[i]->kind ? ordered[i + 1] : nullptr;
+        if (!site.write(pageName(ordered[i]->id), site.entryPage(*ordered[i], prev, next))) { error = site.error; return false; }
         ++n;
     }
-    // Home: the world, then everything by kind.
-    std::string home = "<h1>" + esc(view.title()) + "</h1>";
-    if (const World* w = lib.world(options.worldId)) {
-        if (const std::string img = site.picture(w->bannerBlob); !img.empty()) home = "<img src=\"" + img + "\" alt=\"\" style=\"width:100%;border-radius:8px\">" + home;
-        for (auto& p : paragraphs(w->description)) home += "<p>" + linked(p, view.entries(), {}) + "</p>";
+
+    // What the search box looks through.
+    if (look.search) {
+        std::string js = "window.NR_BIBLE=[";
+        bool first = true;
+        for (const Entry* e : ordered) {
+            std::string aliases;
+            for (auto& a : e->aliases) aliases += (aliases.empty() ? "" : ",") + jsStr(a);
+            std::string summary = view.shows(*e, "summary") ? e->summary.substr(0, 240) : std::string();
+            js += std::string(first ? "" : ",\n") + "{n:" + jsStr(e->name) + ",a:[" + aliases + "],k:" + jsStr(entryKindLabel(e->kind)) + ",c:" + jsStr(e->kind) +
+                  ",u:" + jsStr(pageName(e->id)) + ",s:" + jsStr(summary) + "}";
+            first = false;
+        }
+        js += "];\n";
+        if (!site.write("search.js", js)) { error = site.error; return false; }
     }
-    for (const auto& k : entryKinds()) {
-        std::string items;
-        for (const Entry* e : view.entries())
-            if (e->kind == k) items += "<li><a href=\"" + pageName(e->id) + "\">" + esc(e->name) + "</a></li>";
-        if (!items.empty()) home += "<h2 id=\"" + k + "\">" + esc(entryKindPlural(k)) + "</h2><ul class=\"list\">" + items + "</ul>";
+
+    // Home: the world's banner and words, then everything by kind.
+    {
+        std::string home;
+        const std::string banner = world ? site.picture(world->bannerBlob) : std::string();
+        home += "<section class=\"hero\"" + (banner.empty() ? std::string() : " style=\"background-image:url('" + banner + "')\"") + "><div class=\"in\"><div class=\"eyebrow\">" +
+                (options.readersGuide ? "A reader's guide" : "World bible") + "</div><h1>" + esc(site.title) + "</h1>" +
+                (look.tagline.empty() ? "" : "<p>" + esc(look.tagline) + "</p>") + "</div></section>";
+        if (world && !world->description.empty()) home += "<div class=\"intro\">" + prose(world->description, view.entries(), {}) + "</div>";
+        std::string chips;
+        for (const auto& k : entryKinds()) {
+            int c = 0;
+            for (const Entry* e : view.entries()) c += e->kind == k;
+            if (c) chips += "<a class=\"k-" + k + "\" href=\"#" + k + "\"><i></i>" + esc(entryKindPlural(k)) + " <small>" + std::to_string(c) + "</small></a>";
+        }
+        if (options.glossary) chips += "<a href=\"glossary.html\">Glossary</a>";
+        if (!site.langs.empty()) chips += "<a href=\"languages.html\">Languages <small>" + std::to_string(site.langs.size()) + "</small></a>";
+        home += "<div class=\"chips\">" + chips + "</div>";
+        for (const auto& k : entryKinds()) {
+            std::string items;
+            int c = 0;
+            for (const Entry* e : ordered)
+                if (e->kind == k) {
+                    ++c;
+                    items += look.cards ? site.card(*e) : "<li><a href=\"" + pageName(e->id) + "\">" + esc(e->name) + "</a></li>";
+                }
+            if (!items.empty())
+                home += "<h2 class=\"kindhead k-" + k + "\" id=\"" + k + "\">" + esc(entryKindPlural(k)) + "<small>" + std::to_string(c) + "</small></h2>" +
+                        (look.cards ? "<div class=\"cards\">" + items + "</div>" : "<ul class=\"list\">" + items + "</ul>");
+        }
+        if (!site.write("index.html", site.page(site.title, home))) { error = site.error; return false; }
     }
-    if (!site.write("index.html", site.page(view.title(), home))) { error = site.error; return false; }
-    // Glossary: every name and other name, A to Z.
-    struct G { std::string key, name; const Entry* e; bool alias; };
-    std::vector<G> g;
-    auto key = [](std::string s) {
-        for (auto& c : s) c = (char)std::tolower((unsigned char)c);
-        if (s.rfind("the ", 0) == 0) s = s.substr(4);
-        return s;
-    };
-    for (const Entry* e : view.entries()) {
-        g.push_back({key(e->name), e->name, e, false});
-        for (auto& a : e->aliases) if (!a.empty()) g.push_back({key(a), a, e, true});
+
+    // Glossary: every name and other name, A to Z, with a row of letters to jump to.
+    int extra = 1;
+    if (options.glossary) {
+        struct G { std::string key, name; const Entry* e; bool alias; };
+        std::vector<G> g;
+        auto key = [](std::string s) {
+            for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+            if (s.rfind("the ", 0) == 0) s = s.substr(4);
+            return s;
+        };
+        for (const Entry* e : view.entries()) {
+            g.push_back({key(e->name), e->name, e, false});
+            for (auto& a : e->aliases) if (!a.empty()) g.push_back({key(a), a, e, true});
+        }
+        std::sort(g.begin(), g.end(), [](const G& a, const G& b) { return a.key < b.key; });
+        std::string body, letters;
+        char letter = 0;
+        body += "<dl>";
+        for (auto& x : g) {
+            const char l0 = x.key.empty() ? '#' : (char)std::toupper((unsigned char)x.key[0]);
+            const char l = std::isalpha((unsigned char)l0) ? l0 : '#';
+            if (l != letter) {
+                letter = l;
+                const std::string id = l == '#' ? "other" : std::string(1, (char)std::tolower((unsigned char)l));
+                body += "</dl><div class=\"letter\" id=\"" + id + "\">" + std::string(1, l) + "</div><dl>";
+                letters += "<a href=\"#" + id + "\">" + std::string(1, l) + "</a>";
+            }
+            body += "<dt><a href=\"" + pageName(x.e->id) + "\">" + esc(x.name) + "</a>";
+            if (!x.alias && !x.e->pronunciation.empty()) body += " <span class=\"said\">(" + esc(x.e->pronunciation) + ")</span>";
+            body += "</dt><dd>" + (x.alias ? "See " + esc(x.e->name) + "."
+                                           : esc(entryKindLabel(x.e->kind)) + (x.e->summary.empty() || !view.shows(*x.e, "summary") ? std::string() : ". " + esc(x.e->summary))) +
+                    "</dd>";
+        }
+        body += "</dl>";
+        if (!site.write("glossary.html", site.page("Glossary \xC2\xB7 " + site.title, "<h1>Glossary</h1><div class=\"letters\">" + letters + "</div>" + body, "glossary"))) {
+            error = site.error;
+            return false;
+        }
+        ++extra;
     }
-    std::sort(g.begin(), g.end(), [](const G& a, const G& b) { return a.key < b.key; });
-    std::string gl = "<h1>Glossary</h1><dl>";
-    char letter = 0;
-    for (auto& x : g) {
-        const char l = x.key.empty() ? '#' : (char)std::toupper((unsigned char)x.key[0]);
-        if (l != letter) { letter = l; gl += "</dl><div class=\"letter\">" + std::string(1, std::isalpha((unsigned char)l) ? l : '#') + "</div><dl>"; }
-        gl += "<dt><a href=\"" + pageName(x.e->id) + "\">" + esc(x.name) + "</a>";
-        if (!x.alias && !x.e->pronunciation.empty()) gl += " <span class=\"said\">(" + esc(x.e->pronunciation) + ")</span>";
-        gl += "</dt><dd>" + (x.alias ? "see " + esc(x.e->name)
-                                     : esc(entryKindLabel(x.e->kind)) + (x.e->summary.empty() || !view.shows(*x.e, "summary") ? std::string() : ". " + esc(x.e->summary))) +
-              "</dd>";
+
+    // Languages: each a dictionary, with a box to find a word.
+    if (!site.langs.empty()) {
+        std::string body = "<h1>Languages</h1>";
+        if (site.langs.size() > 1) {
+            body += "<div class=\"chips\">";
+            for (size_t i = 0; i < site.langs.size(); ++i) body += "<a href=\"#lang" + std::to_string(i) + "\">" + esc(site.langs[i].name) + " <small>" + std::to_string(site.langs[i].words.size()) + "</small></a>";
+            body += "</div>";
+        }
+        for (size_t i = 0; i < site.langs.size(); ++i) {
+            const auto& L = site.langs[i];
+            const std::string tid = "lang" + std::to_string(i);
+            bool hasPart = false, hasSay = false, hasNotes = false;
+            for (auto& w : L.words) { hasPart |= !w.part.empty(); hasSay |= !w.pronunciation.empty(); hasNotes |= !w.notes.empty(); }
+            body += "<section class=\"lang\" id=\"" + tid + "\"><h2>" + esc(L.name) + "</h2><div class=\"meta\">" + std::to_string(L.words.size()) +
+                    (L.words.size() == 1 ? " word" : " words") + "</div>" + (L.notes.empty() ? "" : prose(L.notes, view.entries(), {}));
+            body += "<input class=\"filter\" type=\"search\" placeholder=\"Find a word or meaning\" data-for=\"t" + tid + "\" aria-label=\"Find a word in " + esc(L.name) + "\">";
+            body += "<table id=\"t" + tid + "\"><thead><tr><th>Word</th>" + std::string(hasSay ? "<th>Said</th>" : "") + (hasPart ? "<th>Part</th>" : "") +
+                    "<th>Meaning</th>" + (hasNotes ? "<th>Notes</th>" : "") + "</tr></thead><tbody>";
+            for (auto& w : L.words)
+                body += "<tr><td>" + esc(w.word) + "</td>" + (hasSay ? "<td class=\"ipa\">" + esc(w.pronunciation) + "</td>" : "") +
+                        (hasPart ? "<td>" + esc(w.part) + "</td>" : "") + "<td>" + esc(w.meaning) + "</td>" + (hasNotes ? "<td>" + esc(w.notes) + "</td>" : "") + "</tr>";
+            body += "</tbody></table></section>";
+        }
+        if (!site.write("languages.html", site.page("Languages \xC2\xB7 " + site.title, body, "languages"))) { error = site.error; return false; }
+        ++extra;
     }
-    gl += "</dl>";
-    if (!site.write("glossary.html", site.page("Glossary - " + view.title(), gl))) { error = site.error; return false; }
-    if (pages) *pages = n + 2;
+    if (pages) *pages = n + extra;
     return true;
 }
 
@@ -394,6 +878,7 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
         if (options.readersGuide) if (const Book* b = lib.book(options.upTo)) s.subtitle = "A reader's guide to " + b->title;
     }
     auto addPicture = [&](const std::string& blob) {
+        if (!options.pictures) return false;
         if (blob.empty() || s.picturePaths.count(blob)) return !blob.empty() && s.pictureSizes.count(blob);
         const std::string path = lib.blobPath(blob);
         const auto size = pictureSize(readFile(path));
@@ -443,7 +928,7 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                 bool first = true;
                 for (auto& p : paragraphs(text)) { para(p, first ? "first" : "body"); first = false; }
             }
-            if (e->kind == "character") {
+            if (e->kind == "character" && options.family) {
                 const auto f = lib.familyOf(e->id);
                 std::vector<std::pair<std::string, std::string>> fam;
                 auto names = [&](const std::vector<Id>& ids) {
@@ -467,7 +952,7 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                     }
                 }
             }
-            if (const auto rel = relationsOf(lib, view, *e); !rel.empty()) {
+            if (const auto rel = options.family ? relationsOf(lib, view, *e) : decltype(relationsOf(lib, view, *e)){}; !rel.empty()) {
                 d.heading(2);
                 d.text("Relationships");
                 d.endBlock();
@@ -509,8 +994,61 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
             s.sections.push_back(std::move(ch));
         }
     }
+    // The languages, each a dictionary: word, how it's said, part of speech, meaning.
+    if (options.languages) {
+        const auto langs = languagesOf(lib, options.worldId, options.worldId.empty() ? options.bookId : Id{});
+        if (!langs.empty()) {
+            typeset::Source::Section part;
+            part.kind = NodeKind::Part;
+            part.title = "Languages";
+            part.content = doc::emptyDoc();
+            s.sections.push_back(part);
+        }
+        for (const auto& L : langs) {
+            doc::Builder d;
+            bool first = true;
+            for (auto& p : paragraphs(L.notes)) {
+                d.paragraph(first ? "first" : "body");
+                d.text(p);
+                d.endBlock();
+                first = false;
+            }
+            std::string letter;
+            for (auto& w : L.words) {
+                // A heading for each new first letter (by its first character, whatever the script).
+                std::string l;
+                if (!w.word.empty()) {
+                    const unsigned char c = (unsigned char)w.word[0];
+                    const size_t n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+                    l = w.word.substr(0, n);
+                    if (n == 1) l[0] = (char)std::toupper((unsigned char)l[0]);
+                }
+                if (L.words.size() > 30 && l != letter && !l.empty() && std::isalpha((unsigned char)l[0])) {
+                    letter = l;
+                    d.heading(3);
+                    d.text(l);
+                    d.endBlock();
+                }
+                d.paragraph("first");
+                d.text(w.word, doc::Builder::Strong);
+                if (!w.pronunciation.empty()) d.text("  " + w.pronunciation, doc::Builder::Em);
+                if (!w.part.empty()) d.text("  " + w.part, doc::Builder::Em);
+                if (!w.meaning.empty()) d.text("  \xE2\x80\x94 " + w.meaning);
+                if (!w.notes.empty()) d.text(". " + w.notes);
+                d.endBlock();
+            }
+            if (d.empty()) continue;
+            typeset::Source::Section ch;
+            ch.kind = NodeKind::Chapter;
+            ch.matter = 2;
+            ch.title = L.name;
+            ch.content = d.toJson();
+            ch.words = d.words();
+            s.sections.push_back(std::move(ch));
+        }
+    }
     // The glossary, at the back.
-    {
+    if (options.glossary) {
         doc::Builder d;
         struct G { std::string key, name, line; };
         std::vector<G> g;

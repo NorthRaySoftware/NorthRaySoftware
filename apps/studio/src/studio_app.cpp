@@ -242,7 +242,7 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
     libraryNote_.clear();
     for (auto& n : r.notes)
         if (n.find("cloud-sync") != std::string::npos) libraryNote_ = w(n);
-    view_ = View::AllBooks;
+    view_ = View::Worlds;
     viewId_.clear();
     focus_ = {};
     ws_ = Workspace::Library;
@@ -839,7 +839,7 @@ void StudioApp::trashFocused() {
     }
     if (!ok) { flash(L"Couldn't move that to the Trash.", 6); return; }
     recentlyTrashed_.push_back(focus_.id);
-    if ((view_ == View::World || view_ == View::Series || view_ == View::Book) && viewId_ == focus_.id) goTo(View::AllBooks);
+    if ((view_ == View::World || view_ == View::Series || view_ == View::Book) && viewId_ == focus_.id) goTo(View::Worlds);
     else setFocus({});
     flash(L"Moved “" + what + L"” to the Trash. Ctrl+Z puts it back.", 8);
 }
@@ -1225,7 +1225,7 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
             const Book* b = lib_->book(viewId_);
             if (b && !lib_->seriesOfBook(b->id).empty()) goTo(View::Series, lib_->seriesOfBook(b->id)[0]->id);
             else if (b && !b->worldId.empty()) goTo(View::World, b->worldId);
-            else goTo(View::AllBooks);
+            else goTo(View::Worlds);
             return true;
         }
     }
@@ -1819,6 +1819,8 @@ void StudioApp::loadFields() {
         }
     } else if (focus_.kind == Focus::Language) {
         loadLanguageFields();
+    } else if (focus_.kind == Focus::Share) {
+        loadShareFields();
     } else if (focus_.kind == Focus::Entry) {
         if (const Entry* e = lib_->entry(focus_.id)) {
             setFieldText(FName, e->name);
@@ -1927,6 +1929,8 @@ void StudioApp::commitFields() {
         if (changed) saveBoards(bj);
     } else if (f.kind == Focus::Language) {
         commitLanguageFields(f);
+    } else if (f.kind == Focus::Share) {
+        commitShareFields();
     } else if (f.kind == Focus::Entry) {
         if (const Entry* x = lib_->entry(f.id)) {
             Entry n = *x;

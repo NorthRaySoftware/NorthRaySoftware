@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.38.0",
+      "date": "2026-11-19",
+      "notes": [
+        "Share the bible is now a page in Worldbuilding where you choose everything first: a website or a PDF, for you or as a reader's guide, what goes in (pictures and maps, family and relationships, the glossary, languages), and for a website its theme (Parchment, Clean, Night sky, Grimoire, Atlas), light or dark, colour, typefaces, title and tagline, cards or lists, search and kind colours, with a sketch of the look as you choose. The choices are kept with the world.",
+        "The bible website is redesigned: a home page with the title over your banner and picture cards for every entry, entry pages with a side box of picture, details, family and relationships, previous and next links, search on every page, a glossary with letters to jump to, and pages that fit phones.",
+        "Your languages are in the shared bible: a Languages page on the website with a dictionary for each and a box to find a word, and a Languages part in the PDF.",
+        "Seven more cover layouts: Arch, Medallion, Sidebar, Stacked, Starfield, Ornate and Modern.",
+        "Writing Studio opens on Your worlds: a card for each world with its banner, description, counts and covers, and one for books outside any world.",
+        "Race, realm and type of place offer only what you've made or written, with New race, New realm or plane and Write a new one at the foot of their menus."
+      ]
+    },
+    {
       "version": "0.37.0",
       "date": "2026-11-19",
       "notes": [

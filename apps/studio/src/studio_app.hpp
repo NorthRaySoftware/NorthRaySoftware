@@ -14,6 +14,7 @@
 #include "studio/ebook.hpp"
 #include "studio/artwork.hpp"
 #include "studio/import.hpp"
+#include "studio/bible_export.hpp"
 #include "studio/library.hpp"
 #include "studio/typeset.hpp"
 #include "studio/publish.hpp"
@@ -32,7 +33,7 @@ namespace nrs {
 using namespace cjui;
 using studio::Id;
 
-enum class View { AllBooks, World, Series, Independent, Trash, Book, Settings, Artwork };
+enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Settings, Artwork };
 // The workspace tabs along the top. Import is the preview shown before an import.
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
@@ -50,7 +51,7 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share } kind = None;
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
@@ -228,6 +229,7 @@ private:
     void drawStatusBar(const Rect& r);
     void drawPanel(const Rect& r);
     float pageAllBooks(const Rect& r);
+    float pageWorlds(const Rect& r);   // the start page: a card for each world (0.38)
     float pageWorld(const Rect& r);
     float pageSeries(const Rect& r);
     float pageIndependent(const Rect& r);
@@ -433,6 +435,15 @@ public:
     bool isListField(HWND field) const;
 private:
     void watchFieldPastes();
+    // Share the bible (studio_share.cpp).
+    void loadShare();
+    void saveShare();
+    void drawShare(const Rect& r);
+    void drawSharePreview(const Rect& r);
+    void drawSharePanel(const Rect& r);
+    void loadShareFields();
+    void commitShareFields();
+    void makeSharedBible();
     bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
     void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
     bool undoEntryPaste();
@@ -590,6 +601,15 @@ private:
         std::string beat;          // Structure: the beat selected
     } pl_;
     // Worldbuilding
+    // Share the bible (0.38): the choices, kept with the world.
+    struct ShareState {
+        bool pdf = false, guide = false;
+        Id upTo;
+        bool pictures = true, family = true, languages = true, glossary = true;
+        studio::bible::Look look;
+        int preset = 0;
+        std::string font;
+    };
     struct PasteUndo {
         Id entry;
         studio::Entry before;
@@ -639,6 +659,9 @@ private:
         std::map<std::string, std::pair<float, float>> boardDragPos;   // live position while dragging
         float boardDragW = 0;
         std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
+        bool share = false;                   // the Share the bible page (0.38)
+        std::string shareKey;                 // whose choices are loaded
+        ShareState shareState;
     } wb_;
     // Publishing
     struct PublishState {

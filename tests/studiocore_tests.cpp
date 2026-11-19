@@ -1603,6 +1603,59 @@ static void testBibleExport() {
         for (auto& sec : guide.sections) if (sec.content.find("Tom's heir") != std::string::npos || sec.title == "The Ghost") leak = true;
         CHECK(!leak && guide.subtitle == "A reader's guide to Book One");
     }
+    // Languages and the look (0.38): a dictionary page and a part in the PDF; themes, typefaces and choices kept.
+    {
+        studio::conlang::Language L;
+        L.id = "lang1";
+        L.name = "Telvani";
+        L.notes = "The old tongue.";
+        L.words = {{"veyth'ar", "light", "noun", "VAY-thar", ""}, {"sel-amar", "river", "noun", "", "poetic"}};
+        lib->setSetting("conlangs:world:" + world, studio::conlang::toJson({L}));
+        CHECK(bible::languagesOf(*lib, world, {}).size() == 1);
+        bible::Look look;
+        look.theme = "night";
+        look.headings = "crimson";
+        look.tagline = "Where the light <broke>";
+        look.accent = "#123456";
+        CHECK(bible::lookFromJson(bible::toJson(look)).tagline == look.tagline && bible::lookFromJson(bible::toJson(look)).theme == "night");
+        CHECK(bible::lookFromJson("{\"theme\":\"nope\",\"accent\":\"red\",\"mode\":\"x\"}").theme == "parchment");
+        CHECK(bible::lookFromJson("{\"accent\":\"red\"}").accent.empty() && bible::lookFromJson("junk").mode == "auto");
+        const std::string out = dir + "/site-look";
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, out, err, &pages, look, appFolder("fonts")));
+        CHECK(pages == 7);
+        const std::string langs = read(out + "/languages.html");
+        CHECK(langs.find("Telvani") != std::string::npos && langs.find("veyth'ar") != std::string::npos && langs.find("VAY-thar") != std::string::npos);
+        CHECK(langs.find("class=\"filter\"") != std::string::npos);
+        const std::string css = read(out + "/style.css");
+        CHECK(css.find("#0b1120") != std::string::npos && css.find("#123456") != std::string::npos && css.find("@font-face") != std::string::npos);
+        CHECK(std::filesystem::exists(out + "/fonts/crimson-text/CrimsonText-Regular.ttf") && std::filesystem::exists(out + "/fonts/crimson-text/OFL.txt"));
+        CHECK(read(out + "/search.js").find("Ada Wren") != std::string::npos && std::filesystem::exists(out + "/site.js"));
+        const std::string home = read(out + "/index.html");
+        CHECK(home.find("Where the light &lt;broke&gt;") != std::string::npos && home.find("class=\"card") != std::string::npos && home.find("languages.html") != std::string::npos);
+        // Without languages, glossary, family or pictures.
+        bible::Options o{world, {}, false, {}};
+        o.languages = o.glossary = o.family = o.pictures = false;
+        bible::Look plain;
+        plain.cards = false;
+        plain.search = false;
+        const std::string out2 = dir + "/site-plain";
+        CHECK(bible::exportWebsite(*lib, o, out2, err, &pages, plain));
+        CHECK(pages == 5 && !std::filesystem::exists(out2 + "/languages.html") && !std::filesystem::exists(out2 + "/glossary.html"));
+        CHECK(read(out2 + "/e-" + ada + ".html").find("Lives in") == std::string::npos && !std::filesystem::exists(out2 + "/search.js"));
+        CHECK(read(out2 + "/e-" + cliff + ".html").find("class=\"pin\"") == std::string::npos);
+        // In the PDF: a Languages part with a chapter per language.
+        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "CJ Philip");
+        bool part = false, chapter = false;
+        for (auto& sec : src.sections) {
+            part |= sec.kind == NodeKind::Part && sec.title == "Languages";
+            chapter |= sec.title == "Telvani" && sec.content.find("veyth'ar") != std::string::npos && sec.content.find("light") != std::string::npos;
+        }
+        CHECK(part && chapter);
+        auto noLang = bible::printableSource(*lib, o, "x", "y");
+        CHECK(std::none_of(noLang.sections.begin(), noLang.sections.end(), [](auto& sec) { return sec.title == "Languages" || sec.title == "Glossary"; }));
+    }
 }
 
 static void testBibleTidy() {

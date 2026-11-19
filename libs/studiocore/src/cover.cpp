@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <sstream>
 
 #include "stb/stb_image.h"         // implemented in typeset_output.cpp
@@ -27,6 +28,13 @@ const std::vector<Layout>& layouts() {
         {"picture", "Picture", "Your picture fills the cover; the words sit over shaded top and bottom."},
         {"band", "Picture and band", "Your picture above a coloured band holding the title and author."},
         {"minimal", "Minimal", "Plain paper, a large title and a fine rule."},
+        {"arch", "Arch", "Your picture in a tall arched window, the title beneath."},
+        {"medallion", "Medallion", "Your picture in a ringed circle between the title and the author."},
+        {"sidebar", "Sidebar", "Your picture fills the cover; a coloured column down the left holds the words."},
+        {"stacked", "Stacked", "No picture: the title's words stacked large, filling the cover between thick rules."},
+        {"starfield", "Starfield", "A night sky of stars over a glow; your picture, if any, along the horizon."},
+        {"ornate", "Ornate", "A wide decorated border with corner pieces, the title framed inside."},
+        {"modern", "Modern", "Your picture fills the cover; the title at the foot, set to the left."},
     };
     return l;
 }
@@ -79,6 +87,50 @@ struct Canvas {
         fill(x0, y0 + t, x0 + t, y1 - t, c, a);
         fill(x1 - t, y0 + t, x1, y1 - t, c, a);
     }
+    // A filled circle, its edge smoothed.
+    void disc(double cx, double cy, double r, Colour c, double a = 1) {
+        for (int y = (int)std::floor(cy - r - 1); y <= (int)std::ceil(cy + r + 1); ++y)
+            for (int x = (int)std::floor(cx - r - 1); x <= (int)std::ceil(cx + r + 1); ++x) {
+                const double d = std::hypot(x + 0.5 - cx, y + 0.5 - cy);
+                const double cover = std::clamp(r + 0.5 - d, 0.0, 1.0);
+                if (cover > 0) blend(x, y, c, a * cover);
+            }
+    }
+    // A ring of thickness `t` at radius `r` (smoothed), drawn only above `maxY` and between `minX` and `maxX`
+    // (an arch's sides are drawn as straight lines down from there).
+    void ring(double cx, double cy, double r, double t, Colour c, double maxY = 1e9, double minX = -1e9, double /*maxX*/ = 1e9, double a = 1) {
+        const double r0 = r - t / 2, r1 = r + t / 2;
+        const int yEnd = (int)std::min<double>(h, std::min(maxY, cy + r1 + 1));
+        for (int y = std::max(0, (int)(cy - r1 - 1)); y < yEnd; ++y)
+            for (int x = std::max(0, (int)(cx - r1 - 1)); x <= std::min(w - 1, (int)(cx + r1 + 1)); ++x) {
+                if (y > cy && maxY < 1e8) continue;
+                const double d = std::hypot(x + 0.5 - cx, y + 0.5 - cy);
+                const double cover = std::clamp(std::min(d - r0 + 0.5, r1 + 0.5 - d), 0.0, 1.0);
+                if (cover > 0) blend(x, y, c, a * cover);
+            }
+        if (maxY < 1e8 && minX > -1e8) {   // an arch: straight sides from the middle down
+            fill((int)(cx - r1), (int)cy, (int)(cx - r0), (int)maxY, c, a);
+            fill((int)(cx + r0), (int)cy, (int)(cx + r1), (int)maxY, c, a);
+            fill((int)(cx - r1), (int)maxY - (int)t, (int)(cx + r1), (int)maxY, c, a);
+        }
+    }
+    // A square turned on its corner, `size` from point to point.
+    void diamond(double cx, double cy, double size, Colour c, double a = 1) {
+        const double half = size / 2;
+        for (int y = (int)(cy - half - 1); y <= (int)(cy + half + 1); ++y)
+            for (int x = (int)(cx - half - 1); x <= (int)(cx + half + 1); ++x) {
+                const double d = std::fabs(x + 0.5 - cx) + std::fabs(y + 0.5 - cy);
+                const double cover = std::clamp(half + 0.5 - d, 0.0, 1.0);
+                if (cover > 0) blend(x, y, c, a * cover);
+            }
+    }
+    // A soft horizontal glow centred on `y`, `spread` pixels each way.
+    void glow(double y, double spread, Colour c, double a) {
+        for (int yy = std::max(0, (int)(y - spread)); yy < std::min(h, (int)(y + spread)); ++yy) {
+            const double t = 1 - std::fabs(yy - y) / spread;
+            for (int x = 0; x < w; ++x) blend(x, yy, c, a * t * t);
+        }
+    }
     // Shading from `a0` at y0 to `a1` at y1.
     void shade(int y0, int y1, Colour c, double a0, double a1) {
         for (int y = std::max(0, y0); y < std::min(h, y1); ++y) {
@@ -90,7 +142,8 @@ struct Canvas {
 };
 
 // A picture scaled to fill the box (cropped on its longer side), drawn into it.
-bool drawPicture(Canvas& cv, const std::string& path, int bx, int by, int bw, int bh, double focusY) {
+bool drawPicture(Canvas& cv, const std::string& path, int bx, int by, int bw, int bh, double focusY,
+                 const std::function<bool(int, int)>& inside = {}) {
     std::ifstream in(studio::detail::u8path(path), std::ios::binary);
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -117,6 +170,7 @@ bool drawPicture(Canvas& cv, const std::string& path, int bx, int by, int bw, in
                 }
             const int tx = bx + x, ty = by + y;
             if (tx < 0 || ty < 0 || tx >= cv.w || ty >= cv.h) continue;
+            if (inside && !inside(tx, ty)) continue;
             std::uint8_t* q = &cv.px[((size_t)ty * cv.w + tx) * 3];
             for (int c = 0; c < 3; ++c) q[c] = (std::uint8_t)std::lround(sum[c] / cnt);
         }
@@ -319,6 +373,196 @@ bool drawFront(Canvas& cv, const Spec& sp, const std::string& fontsFolder, Resul
         cv.fill((int)(W / 2 - 140 * u), (int)(end + 90 * u), (int)(W / 2 + 140 * u), (int)(end + 96 * u), accent);
         if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(66 * u), 0.0, end + 210 * u, ink);
         smallLine(author, reg, (float)(74 * u), 0.18, H * 0.86, ink);
+    } else if (layout == "arch") {
+        // A tall arched window holding the picture (or a deeper shade of the background), the title beneath.
+        const double ax0 = 230 * u, ax1 = W - 230 * u, ay0 = H * 0.12, ay1 = H * 0.60;
+        const double rad = (ax1 - ax0) / 2, cx = W / 2.0, cy = ay0 + rad;
+        auto inArch = [&](int x, int y) {
+            if (x < ax0 || x >= ax1 || y < ay0 || y >= ay1) return false;
+            if (y >= cy) return true;
+            const double dx = x - cx, dy = y - cy;
+            return dx * dx + dy * dy <= rad * rad;
+        };
+        if (picture) {
+            if (!drawPicture(cv, sp.picturePath, (int)ax0, (int)ay0, (int)(ax1 - ax0), (int)(ay1 - ay0), sp.focusY, inArch)) {
+                r.error = "The picture couldn't be read.";
+                return false;
+            }
+        } else {
+            const Colour deeper{bg.r * 0.72, bg.g * 0.72, bg.b * 0.72};
+            for (int y = (int)ay0; y < (int)ay1; ++y)
+                for (int x = (int)ax0; x < (int)ax1; ++x) if (inArch(x, y)) cv.blend(x, y, deeper, 1);
+        }
+        cv.ring(cx, cy, rad + 14 * u, 5 * u, accent, ay1, ax0 - 14 * u, ax1 + 14 * u);
+        smallLine(upperCase(sp.series), reg, (float)(38 * u), 0.22, H * 0.075, accent);
+        const double end = titleBlock(H * 0.645, W - 240 * u, (float)(170 * u), 2, ink, 0.05);
+        if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(60 * u), 0.0, end + 120 * u, ink);
+        smallLine(author, reg, (float)(70 * u), 0.18, H * 0.93, accent);
+    } else if (layout == "medallion") {
+        // The title above, a round picture in the middle with a ring, the author below; fine rules between.
+        const double cx = W / 2.0, cy = H * 0.56, rad = 430 * u;
+        smallLine(upperCase(sp.series), reg, (float)(38 * u), 0.22, H * 0.07, accent);
+        const double end = titleBlock(H * 0.10, W - 240 * u, (float)(170 * u), 2, ink, 0.05);
+        (void)end;
+        auto inCircle = [&](int x, int y) { const double dx = x - cx, dy = y - cy; return dx * dx + dy * dy <= rad * rad; };
+        if (picture) {
+            if (!drawPicture(cv, sp.picturePath, (int)(cx - rad), (int)(cy - rad), (int)(2 * rad), (int)(2 * rad), sp.focusY, inCircle)) {
+                r.error = "The picture couldn't be read.";
+                return false;
+            }
+        } else {
+            const Colour deeper{bg.r * 0.72, bg.g * 0.72, bg.b * 0.72};
+            for (int y = (int)(cy - rad); y < (int)(cy + rad); ++y)
+                for (int x = (int)(cx - rad); x < (int)(cx + rad); ++x) if (inCircle(x, y)) cv.blend(x, y, deeper, 1);
+        }
+        cv.ring(cx, cy, rad + 16 * u, 6 * u, accent);
+        cv.ring(cx, cy, rad + 34 * u, 2 * u, accent, 1e9, -1e9, 1e9, 0.7);
+        cv.fill((int)(120 * u), (int)(cy - 1.5 * u), (int)(cx - rad - 60 * u), (int)(cy + 1.5 * u), accent, 0.8);
+        cv.fill((int)(cx + rad + 60 * u), (int)(cy - 1.5 * u), W - (int)(120 * u), (int)(cy + 1.5 * u), accent, 0.8);
+        if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(60 * u), 0.0, cy + rad + 140 * u, ink);
+        smallLine(author, reg, (float)(70 * u), 0.18, H * 0.93, ink);
+    } else if (layout == "sidebar") {
+        // The picture fills the cover; a column down the left in the background colour holds the words, left-aligned.
+        if (picture && !drawPicture(cv, sp.picturePath, 0, 0, W, H, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
+        const int colW = (int)(W * 0.46);
+        cv.fill(0, 0, colW, H, bg, picture ? 0.92 : 1.0);
+        cv.fill(colW, 0, colW + (int)(10 * u), H, accent);
+        const double lx = 90 * u, maxW = colW - 150 * u;
+        if (!sp.series.empty()) {
+            float s = (float)(34 * u);
+            const auto lines = wr.fit(reg, upperCase(sp.series), (float)maxW, s, s * 0.6f, 3, 0.2, s);
+            for (size_t i = 0; i < lines.size(); ++i) wr.line(reg, lines[i], s, 0.2, lx, H * 0.09 + i * s * 1.3, accent, false);
+        }
+        float size = 0;
+        const int face = sp.titleCaps ? reg : bold;
+        const auto lines = wr.fit(face, title.empty() ? std::string("Untitled") : title, (float)maxW, (float)(150 * u), (float)(50 * u), 6, 0.03, size);
+        double y = H * 0.20 + size * 0.78;
+        for (auto& l : lines) { wr.line(face, l, size, 0.03, lx, y, ink, false); y += size * 1.1; }
+        cv.fill((int)lx, (int)(y + 10 * u), (int)(lx + 160 * u), (int)(y + 16 * u), accent);
+        if (!sp.subtitle.empty()) {
+            float s = (float)(54 * u);
+            const auto sl = wr.fit(ital, sp.subtitle, (float)maxW, s, s * 0.6f, 4, 0, s);
+            for (size_t i = 0; i < sl.size(); ++i) wr.line(ital, sl[i], s, 0, lx, y + 120 * u + i * s * 1.25, ink, false);
+        }
+        {
+            float s = (float)(58 * u);
+            const auto al = wr.fit(reg, author, (float)maxW, s, s * 0.6f, 2, 0.14, s);
+            for (size_t i = 0; i < al.size(); ++i) wr.line(reg, al[i], s, 0.14, lx, H * 0.92 - (al.size() - 1 - i) * s * 1.25, ink, false);
+        }
+    } else if (layout == "stacked") {
+        // Type as the picture: the title's words stacked, each as wide as the cover allows, between thick rules.
+        smallLine(author, reg, (float)(64 * u), 0.2, H * 0.085, accent);
+        cv.fill((int)(110 * u), (int)(H * 0.12), W - (int)(110 * u), (int)(H * 0.12 + 12 * u), ink);
+        std::vector<std::string> words;
+        {
+            std::istringstream in(title.empty() ? std::string("Untitled") : title);
+            for (std::string w; in >> w;) words.push_back(w);
+        }
+        // Short words join the next ("OF THE") so no line is a lone small word.
+        std::vector<std::string> lines;
+        for (size_t i = 0; i < words.size(); ++i) {
+            if (!lines.empty() && (words[i].size() <= 3 || lines.back().size() <= 3) && lines.size() >= 1 && words[i].size() + lines.back().size() < 9)
+                lines.back() += " " + words[i];
+            else lines.push_back(words[i]);
+        }
+        if (lines.size() > 6) {
+            float s = 0;
+            lines = wr.fit(sp.titleCaps ? reg : bold, title, (float)(W - 240 * u), (float)(200 * u), (float)(60 * u), 6, 0.0, s);
+        }
+        const int face = sp.titleCaps ? reg : bold;
+        const double top = H * 0.16, bottom = H * (sp.subtitle.empty() ? 0.86 : 0.80);
+        std::vector<float> sizes;
+        double total = 0;
+        for (auto& l : lines) {
+            const float w100 = wr.width(face, l, 100, 0.02);
+            float s = (float)std::min(420.0 * u, (W - 240 * u) / std::max(1.0f, w100) * 100);
+            sizes.push_back(s);
+            total += s * 0.92;
+        }
+        const double room = bottom - top;
+        const double k = total > room ? room / total : 1.0;
+        double y = top + (room - total * k) / 2;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const float s = (float)(sizes[i] * k);
+            y += s * 0.80;
+            wr.line(face, lines[i], s, 0.02, W / 2.0, y, i % 2 ? accent : ink);
+            y += s * 0.12;
+        }
+        cv.fill((int)(110 * u), (int)(bottom + 20 * u), W - (int)(110 * u), (int)(bottom + 32 * u), ink);
+        if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(60 * u), 0.0, bottom + 130 * u, ink);
+        smallLine(upperCase(sp.series), reg, (float)(36 * u), 0.22, H * 0.95, accent);
+    } else if (layout == "starfield") {
+        // A night sky: the background deepening upwards, scattered stars, a glow of the accent along the horizon.
+        const Colour deep{bg.r * 0.45, bg.g * 0.45, bg.b * 0.45};
+        cv.shade(0, (int)(H * 0.7), deep, 1.0, 0.0);
+        if (picture) {
+            const int py0 = (int)(H * 0.62);
+            if (!drawPicture(cv, sp.picturePath, 0, py0, W, H - py0, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
+            cv.shade(py0, (int)(py0 + 260 * u), bg, 1.0, 0.0);
+            cv.shade((int)(H * 0.84), H, bg, 0.0, 0.85);
+        }
+        std::uint32_t seed = 2166136261u;
+        for (char c : sp.title) seed = (seed ^ (unsigned char)c) * 16777619u;
+        auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0; };
+        for (int i = 0; i < 420; ++i) {
+            const double x = rnd() * W, y = rnd() * H * 0.62, b = 0.25 + 0.75 * rnd() * rnd();
+            const double rr = (b > 0.8 ? 3.2 : b > 0.5 ? 2.2 : 1.4) * u;
+            cv.disc(x, y, rr, ink, b);
+            if (b > 0.85) cv.disc(x, y, rr * 4, ink, 0.07);
+        }
+        cv.glow(H * 0.62, 240 * u, accent, 0.35);
+        smallLine(upperCase(sp.series), reg, (float)(38 * u), 0.24, H * 0.09, accent);
+        const double end = titleBlock(H * 0.17, W - 220 * u, (float)(200 * u), 3, ink, 0.06);
+        if (!sp.subtitle.empty()) smallLine(sp.subtitle, ital, (float)(62 * u), 0.0, end + 130 * u, ink);
+        smallLine(author, reg, (float)(72 * u), 0.2, H * 0.93, ink);
+    } else if (layout == "ornate") {
+        // A wide border with corner pieces and a diamond at each side's middle, the title in a panel.
+        const int m = (int)(60 * u), t = (int)(26 * u);
+        cv.fill(m, m, W - m, m + t, accent);
+        cv.fill(m, H - m - t, W - m, H - m, accent);
+        cv.fill(m, m, m + t, H - m, accent);
+        cv.fill(W - m - t, m, W - m, H - m, accent);
+        cv.frame(m + t + (int)(16 * u), m + t + (int)(16 * u), W - m - t - (int)(16 * u), H - m - t - (int)(16 * u), std::max(1, (int)(3 * u)), accent, 0.85);
+        const double cs = 110 * u;
+        for (int cx : {m + t / 2, W - m - t / 2})
+            for (int cy : {m + t / 2, H - m - t / 2}) {
+                cv.diamond(cx, cy, cs, accent, 1.0);
+                cv.diamond(cx, cy, cs * 0.55, bg, 1.0);
+                cv.diamond(cx, cy, cs * 0.3, accent, 1.0);
+            }
+        for (auto [cx, cy] : std::initializer_list<std::pair<double, double>>{{W / 2.0, m + t / 2.0}, {W / 2.0, H - m - t / 2.0}, {m + t / 2.0, H / 2.0}, {W - m - t / 2.0, H / 2.0}}) {
+            cv.diamond(cx, cy, 50 * u, accent, 1.0);
+            cv.diamond(cx, cy, 24 * u, bg, 1.0);
+        }
+        if (picture) {
+            const int px0 = (int)(250 * u), pw = W - 2 * px0, py0 = (int)(H * 0.48), ph = (int)(H * 0.30);
+            if (!drawPicture(cv, sp.picturePath, px0, py0, pw, ph, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
+            cv.frame(px0 - (int)(8 * u), py0 - (int)(8 * u), px0 + pw + (int)(8 * u), py0 + ph + (int)(8 * u), (int)(5 * u), accent);
+        }
+        smallLine(upperCase(sp.series), reg, (float)(36 * u), 0.22, H * 0.15, accent);
+        const double end = titleBlock(H * (picture ? 0.19 : 0.27), W - 420 * u, (float)(180 * u), 3, ink, 0.06);
+        if (!sp.subtitle.empty() && !picture) smallLine(sp.subtitle, ital, (float)(62 * u), 0.0, end + 150 * u, ink);
+        if (!sp.subtitle.empty() && picture) smallLine(sp.subtitle, ital, (float)(54 * u), 0.0, H * 0.44, ink);
+        smallLine(author, reg, (float)(70 * u), 0.2, H * 0.86, ink);
+    } else if (layout == "modern") {
+        // The picture fills the cover; the words sit at the foot, left-aligned, over a deep shade.
+        if (picture && !drawPicture(cv, sp.picturePath, 0, 0, W, H, sp.focusY)) { r.error = "The picture couldn't be read."; return false; }
+        if (!picture) cv.shade(0, H, Colour{bg.r * 0.6, bg.g * 0.6, bg.b * 0.6}, 0.0, 1.0);
+        cv.shade((int)(H * 0.45), H, bg, 0.0, 0.92);
+        cv.shade(0, (int)(H * 0.14), bg, 0.6, 0.0);
+        const double lx = 110 * u, maxW = W - 220 * u;
+        if (!sp.series.empty()) wr.line(reg, upperCase(sp.series), (float)(36 * u), 0.22, lx, H * 0.07, accent, false);
+        float size = 0;
+        const int face = sp.titleCaps ? reg : bold;
+        const auto lines = wr.fit(face, title.empty() ? std::string("Untitled") : title, (float)maxW, (float)(190 * u), (float)(60 * u), 3, 0.02, size);
+        const double lead = size * 1.06;
+        const double authorY = H * 0.935;
+        double subH = sp.subtitle.empty() ? 0 : 110 * u;
+        double y = authorY - 140 * u - subH - (lines.size() - 1) * lead;
+        cv.fill((int)lx, (int)(y - size * 0.95), (int)(lx + 200 * u), (int)(y - size * 0.95 + 12 * u), accent);
+        for (auto& l : lines) { wr.line(face, l, size, 0.02, lx, y, ink, false); y += lead; }
+        if (!sp.subtitle.empty()) wr.line(ital, sp.subtitle, (float)(58 * u), 0, lx, y - lead + 100 * u, ink, false);
+        wr.line(reg, author, (float)(62 * u), 0.18, lx, authorY, accent, false);
     } else {
         // Classic: a double frame, the title in the upper half, a short rule, the author at the foot.
         cv.frame((int)(70 * u), (int)(70 * u), W - (int)(70 * u), H - (int)(70 * u), (int)(7 * u), accent);

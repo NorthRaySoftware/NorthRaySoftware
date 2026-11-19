@@ -232,8 +232,9 @@ void StudioApp::drawFrame(float W, float H) {
     if (!lib_) h = pageEmpty(page);
     else if (ws_ == Workspace::Import) h = pageImport(page);
     else switch (view_) {
+        case View::Worlds: h = pageWorlds(page); break;
         case View::AllBooks: h = pageAllBooks(page); break;
-        case View::World: h = lib_->world(viewId_) ? pageWorld(page) : pageAllBooks(page); break;
+        case View::World: h = lib_->world(viewId_) ? pageWorld(page) : pageWorlds(page); break;
         case View::Series: h = lib_->seriesById(viewId_) ? pageSeries(page) : pageAllBooks(page); break;
         case View::Independent: h = pageIndependent(page); break;
         case View::Trash: h = pageTrash(page); break;
@@ -338,7 +339,7 @@ void StudioApp::drawTopBar(const Rect& r) {
                     ws_ = Workspace::Library;
                     if (!wb_.world.empty()) goTo(View::World, wb_.world); else goTo(View::Book, wb_.book);
                 }
-                else if (view_ == View::Settings) goTo(View::AllBooks);
+                else if (view_ == View::Settings) goTo(View::Worlds);
             }
             else if ((t.milestone == 8 && planning) || t.milestone == 9) {
                 Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
@@ -496,6 +497,7 @@ void StudioApp::drawSidebar(const Rect& r) {
         y += 22;
     };
 
+    row("side:worlds", 0, L"Worlds", std::to_wstring(lib_->liveWorlds().size()), view_ == View::Worlds, [this] { goTo(View::Worlds); });
     row("side:all", 0, L"All books", std::to_wstring(lib_->liveBooks().size()), view_ == View::AllBooks,
         [this] { goTo(View::AllBooks); });
 
@@ -896,6 +898,140 @@ float StudioApp::pageAllBooks(const Rect& r) {
         return y - r.y;
     }
     y += bookCollection({r.x, y, r.w, 0}, books, "all", {}, false, false);
+    return y - r.y;
+}
+
+// The start page (0.38): the author's worlds as cards (banner or colour, name, description, what's in it, a few
+// covers), then books outside any world as one more card. An empty library shows the first-run page.
+float StudioApp::pageWorlds(const Rect& r) {
+    const auto worlds = lib_->liveWorlds();
+    if (worlds.empty() && lib_->liveBooks().empty()) return pageAllBooks(r);
+    float y = r.y;
+    size_t indie = lib_->standaloneBooksIn({}).size();
+    for (auto* s : lib_->seriesIn({})) indie += lib_->booksInSeries(s->id).size();
+    y += pageHeader(r, L"AUTHOR LIBRARY", L"Your worlds",
+                    worlds.empty() ? L"No worlds yet. A world holds a series' books and their shared bible."
+                                   : plural(worlds.size(), L"world", L"worlds") + L", " + plural(lib_->liveBooks().size(), L"book", L"books") + L" in all.");
+    if (!libraryNote_.empty()) {
+        const float h = gfx_.measureHeight(libraryNote_, std::min(r.w, 700.0f) - 28, Font::Small);
+        gfx_.fillRounded({r.x, y, std::min(r.w, 700.0f), h + 20}, 3, pal_.sunken);
+        gfx_.text(libraryNote_, {r.x + 14, y + 10, std::min(r.w, 700.0f) - 28, h + 4}, Font::Small, pal_.ink);
+        y += h + 36;
+    }
+    {
+        float bx = r.x, bw = 0;
+        smallButton("worlds:new", bx, y, L"New world", [this] { newWorld(); }, &bw);
+        bx += bw + 8;
+        smallButton("worlds:book", bx, y, L"New book", [this] { newBook({}, {}); }, &bw);
+        bx += bw + 8;
+        smallButton("worlds:import", bx, y, L"Import a book...", [this] { startImport({}); }, &bw);
+        bx += bw + 8;
+        smallButton("worlds:all", bx, y, L"All books", [this] { goTo(View::AllBooks); }, &bw);
+        y += 48;
+    }
+    const float gap = 20;
+    const int cols = std::max(1, (int)((r.w + gap) / (420 + gap)));
+    const float cw = (r.w - gap * (cols - 1)) / cols, ch = 326;
+    int i = 0;
+    auto cardAt = [&](int n) { return Rect{r.x + (n % cols) * (cw + gap), y + (n / cols) * (ch + gap), cw, ch}; };
+    std::vector<Id> order;
+    for (auto* wd : worlds) order.push_back(wd->id);
+    for (auto* wd : worlds) {
+        const Rect c = cardAt(i++);
+        const std::string id = "worlds:card:" + wd->id;
+        addHit(id, c, [this, wid = wd->id] { goTo(View::World, wid); });
+        addDrop({Drop::ToWorld, c, wd->id, {}, false, false, {}});
+        const float hv = hoverAmount(id);
+        const Color accent = wd->accent.empty() ? hexColor("#2D4A6E") : hexColor(wd->accent, hexColor("#2D4A6E"));
+        gfx_.fillRounded({c.x, c.y + 3 * hv, c.w, c.h}, 10, hexColor("#000000").withAlpha(0.06f + 0.06f * hv));
+        gfx_.fillRounded(c, 10, pal_.surface);
+        // The banner: its picture, or its colour with soft bands.
+        const Rect ban{c.x, c.y, c.w, 128};
+        gfx_.pushClip(c);
+        if (wd->bannerBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(wd->bannerBlob)), ban, true)) {
+            gfx_.fillRounded({ban.x, ban.y, ban.w, ban.h + 12}, 10, accent);
+            for (int k = 0; k < 5; ++k) gfx_.line(ban.x, ban.y + 24 + k * 22, ban.right(), ban.y + 4 + k * 22, hexColor("#FFFFFF").withAlpha(0.06f), 12);
+        }
+        gfx_.fill({ban.x, ban.bottom() - 46, ban.w, 46}, hexColor("#000000").withAlpha(0.32f));
+        gfx_.popClip();
+        float tx = c.x + 18;
+        if (!wd->logoBlob.empty() && gfx_.drawImage(w(lib_->blobPath(wd->logoBlob)), {tx, ban.bottom() - 42, 36, 36}, false)) tx += 46;
+        gfx_.text(w(wd->name), {tx, ban.bottom() - 42, c.right() - tx - 14, 36}, Font::SerifTitle, hexColor("#F4F1EA"), {Align::Left, false, true, true});
+        // What's in it.
+        const auto series = lib_->seriesIn(wd->id);
+        std::vector<const Book*> books;
+        for (auto* s : series) for (auto* b : lib_->booksInSeries(s->id)) if (std::find(books.begin(), books.end(), b) == books.end()) books.push_back(b);
+        for (auto* b : lib_->standaloneBooksIn(wd->id)) if (std::find(books.begin(), books.end(), b) == books.end()) books.push_back(b);
+        const size_t entries = lib_->entriesOf(wd->id).size();
+        std::wstring meta = plural(books.size(), L"book", L"books");
+        if (!series.empty()) meta = plural(series.size(), L"series", L"series") + L"  \u00B7  " + meta;
+        if (entries) meta += L"  \u00B7  " + plural(entries, L"bible entry", L"bible entries");
+        float iy = ban.bottom() + 12;
+        gfx_.text(meta, {c.x + 18, iy, c.w - 36, 18}, Font::Small, accent.mix(pal_.ink, pal_.dark ? 0.55f : 0.25f), {Align::Left, false, true, true});
+        iy += 24;
+        // A few covers, then the description beside them.
+        float cx = c.x + 18;
+        const float covH = 108, covW = covH * 2 / 3;
+        size_t shown = 0;
+        for (auto* b : books) {
+            if (shown == 3) break;
+            drawCover({cx, iy, covW, covH}, *b);
+            cx += covW + 8;
+            ++shown;
+        }
+        if (books.size() > 3) {
+            gfx_.text(L"+" + std::to_wstring(books.size() - 3), {cx - 2, iy + covH - 20, 40, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
+            cx += 30;
+        }
+        const float dx = shown ? cx + 8 : c.x + 18, dw = c.right() - 18 - dx;
+        if (!wd->description.empty() && dw > 80) {
+            gfx_.pushClip({dx, iy, dw, covH});
+            gfx_.text(w(wd->description), {dx, iy, dw, covH}, Font::Small, pal_.inkMuted);
+            gfx_.popClip();
+        } else if (books.empty() && dw > 80)
+            gfx_.text(L"No books yet.", {dx, iy, dw, 20}, Font::Small, pal_.inkFaint);
+        // The way into its bible.
+        const float fy = c.bottom() - 40;
+        gfx_.line(c.x + 14, fy, c.right() - 14, fy, pal_.rule);
+        {
+            const std::string bid = "worlds:bible:" + wd->id;
+            const Rect br{c.x + 14, fy + 6, 150, 28};
+            addHit(bid, br, [this, wid = wd->id] { openWorldbuilding(wid, {}); });
+            gfx_.text(L"Worldbuilding \u203A", br, Font::SmallStrong, pal_.ribbon.mix(pal_.ink, 0.3f * hoverAmount(bid)), {Align::Left, false, true, true});
+            if (focused(bid)) focusRing(br);
+        }
+        gfx_.text(L"Open the world \u203A", {c.right() - 180, fy + 6, 166, 28}, Font::Small, pal_.inkFaint, {Align::Right, false, true, true});
+        gfx_.strokeRounded(c, 10, hv > 0.01f ? pal_.rule.mix(accent, hv) : pal_.rule, 1 + hv);
+        if (focused(id)) focusRing(c);
+    }
+    (void)order;
+    // Books outside any world.
+    if (indie) {
+        const Rect c = cardAt(i++);
+        const std::string id = "worlds:indie";
+        addHit(id, c, [this] { goTo(View::Independent); });
+        addDrop({Drop::ToIndependent, c, {}, {}, false, false, {}});
+        const float hv = hoverAmount(id);
+        gfx_.fillRounded(c, 10, pal_.surface.mix(pal_.sunken, 0.5f));
+        gfx_.strokeRounded(c, 10, pal_.rule.mix(pal_.ribbon, hv), 1 + hv);
+        gfx_.text(L"OUTSIDE ANY WORLD", {c.x + 18, c.y + 18, c.w - 36, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        gfx_.text(L"Independent books", {c.x + 18, c.y + 38, c.w - 36, 34}, Font::SerifTitle, pal_.ink, {Align::Left, false, true, true});
+        gfx_.text(plural(indie, L"book", L"books") + L": nonfiction, collections, anything set nowhere in particular.", {c.x + 18, c.y + 80, c.w - 36, 40},
+                  Font::Small, pal_.inkMuted);
+        float cx = c.x + 18;
+        size_t shown = 0;
+        std::vector<const Book*> books = lib_->standaloneBooksIn({});
+        for (auto* s : lib_->seriesIn({})) for (auto* b : lib_->booksInSeries(s->id)) books.push_back(b);
+        for (auto* b : books) {
+            if (shown == 4 || cx + 72 > c.right() - 18) break;
+            drawCover({cx, c.y + 130, 72, 108}, *b);
+            cx += 80;
+            ++shown;
+        }
+        if (focused(id)) focusRing(c);
+    }
+    const int rows = (i + cols - 1) / cols;
+    y += rows * (ch + gap);
     return y - r.y;
 }
 

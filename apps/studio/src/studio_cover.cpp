@@ -302,7 +302,7 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
         gfx_.text(t, {cx, cy, cwid, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         cy += 24;
     };
-    // Layout: four small cards.
+    // Layout: a small card for each, two to a row.
     label(L"LAYOUT");
     {
         const auto& ls = cover::layouts();
@@ -318,7 +318,7 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
             gfx_.text(w(ls[i].label), {lr.x + 12, lr.y, lr.w - 20, lh}, on ? Font::SmallStrong : Font::Small, pal_.ink, {Align::Left, false, true, true});
             if (focused(id)) focusRing(lr);
         }
-        cy += 2 * (lh + gap) + 2;
+        cy += (float)((ls.size() + 1) / 2) * (lh + gap) + 2;
         for (const auto& l : ls)
             if (cv_.spec.layout == l.id) cy += gfx_.text(w(l.description), {cx, cy, cwid, 40}, Font::Small, pal_.inkFaint) + 18;
     }

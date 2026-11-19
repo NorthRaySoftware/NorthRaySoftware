@@ -81,13 +81,9 @@ static const std::vector<Facet>& allFacets() {
          {L"Female", L"Male", L"Non-binary", L"Genderfluid", L"Agender", L"Intersex", L"Not applicable", L"Unknown", L"Other"}, false},
         // Races: only the author's own (the bible's Races, and races written on characters), never a built-in list.
         {"race", L"Race", "Race", {"race", "species", "people", "kin"}, {}, true},
-        {"realm", L"Realm or plane", "Realm", {"realm", "plane", "world of origin", "realm/plane"},
-         {L"Mortal world", L"Heaven", L"Hell", L"Underworld", L"Purgatory", L"Fae realm", L"Spirit world", L"Dream world",
-          L"Astral plane", L"Elemental plane", L"The Void", L"Other"}, true},
-        {"type", L"Type of place", "Type", {"type", "kind of place", "place type"},
-         {L"City", L"Town", L"Village", L"Kingdom or country", L"Region", L"Castle or fortress", L"Building", L"Room", L"Forest",
-          L"Mountain", L"River or lake", L"Sea or ocean", L"Island", L"Desert", L"Cave or dungeon", L"Ruin", L"Road or path",
-          L"Planet", L"Other"}, false},
+        // Realms and types of place: likewise only what the author has made or written (0.38).
+        {"realm", L"Realm or plane", "Realm", {"realm", "plane", "world of origin", "realm/plane"}, {}, true},
+        {"type", L"Type of place", "Type", {"type", "kind of place", "place type"}, {}, true},
         {"ctype", L"Type of creature", "Type", {"type", "kind of creature", "creature type"},
          {L"Beast", L"Monster", L"Dragon", L"Undead", L"Spirit", L"Animal", L"Bird", L"Sea creature", L"Insect", L"Plant",
           L"Construct", L"Other"}, false},
@@ -307,6 +303,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.checks = false;
     wb_.glossary = false;
     wb_.languages = false;
+    wb_.share = false;
     if (wb_.entry != id) {
         wb_.panelScroll = 0;
         wb_.section.clear();
@@ -520,7 +517,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && wb_.familyRoot.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -628,9 +625,11 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const std::string id = "side:wb:share";
         const Rect rr{x, y, wd, 30};
         addHit(id, rr, [this] { shareBible(); });
+        const bool sel = wb_.share;
         const float hv = hoverAmount(id);
-        if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Share the bible\u2026", {tx0, rr.y, cw - 30, rr.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Share the bible", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
         y += 32;
     }
@@ -704,6 +703,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
     if (!wb_.board.empty()) { drawBoard(r); return; }
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
+    if (wb_.share) { drawShare(r); return; }
     if (wb_.checks) { drawChecks(r); return; }
     if (wb_.glossary) { drawGlossary(r); return; }
     if (wb_.languages) { drawLanguages(r); return; }
@@ -1405,6 +1405,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (wb_.languages) { drawLanguagePanel(r); return; }
+    if (wb_.share) { drawSharePanel(r); return; }
     if (const Entry* ce = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry)) {
         // The section written in the panel: the one picked, else the first of the template.
         const auto secs = lib_->entrySections(*ce);
@@ -1486,20 +1487,35 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 const size_t n = items.size();
                 items.push_back(L"Not set");
                 if (f->key == "race") items.push_back(L"New race\u2026");
+                else if (f->key == "realm") items.push_back(L"New realm or plane\u2026");
+                else if (f->openList) items.push_back(L"Write a new one\u2026");
                 const std::wstring now = w(facetOf(*x, *f));
                 int checked = now.empty() ? (int)n : -1;
                 for (size_t i = 0; i < n; ++i) if (items[i] == now) checked = (int)i;
                 const int i = popupAt(hwnd(), items, checked);
                 if (i < 0 || i == checked) return;
                 commitFields();
-                if (f->key == "race" && i == (int)n + 1) {
-                    // A new race: made in the bible, opened with its name ready to type. Choose it on the
-                    // character afterwards.
-                    const Id rid = lib_->createEntry(wb_.world, wb_.book, "race", "New race");
+                if ((f->key == "race" || f->key == "realm") && i == (int)n + 1) {
+                    // A new race or realm: made in the bible, opened with its name ready to type. Choose it on
+                    // the entry afterwards.
+                    const bool race = f->key == "race";
+                    const Id rid = lib_->createEntry(wb_.world, wb_.book, f->key, race ? "New race" : "New realm");
                     if (rid.empty()) return;
                     openEntry(rid);
                     focusFieldSoon_ = FName;
-                    flash(L"Name the race, then choose it on the character.", 6);
+                    flash(race ? L"Name the race, then choose it on the character." : L"Name the realm, then choose it on the entry.", 6);
+                    return;
+                }
+                if (f->openList && i == (int)n + 1) {
+                    // Anything else (a type of place): a line in the details, ready to finish.
+                    Entry u = *lib_->entry(wb_.entry);
+                    u.details = withFacet(u, *f, std::string());
+                    u.details += (u.details.empty() || u.details.back() == '\n' ? "" : "\n") + f->written + ": ";
+                    lib_->updateEntry(u);
+                    loadedFocus_ = {Focus::None, "-", ""};
+                    focusFieldSoon_ = FSynopsis;
+                    flash(L"Write it after \u201c" + w(f->written) + L": \u201d in the details.", 6);
+                    invalidate();
                     return;
                 }
                 Entry u = *lib_->entry(wb_.entry);
@@ -2802,88 +2818,5 @@ void StudioApp::drawGlossary(const Rect& r) {
 }
 
 // ------------------------------------------------------------- sharing
-
-// The bible as a website (a folder of pages) or a printable PDF, typeset like a book: everything, or a
-// reader's guide that keeps to what readers know by the end of a chosen book.
-void StudioApp::shareBible() {
-    commitFields();
-    const int what = popupAt(hwnd(), {L"A website (a folder of linked pages)…", L"A printable bible (PDF)…"});
-    if (what < 0) return;
-    const auto books = bible::booksInOrder(*lib_, wb_.world, wb_.book);
-    std::vector<std::wstring> scope{L"Everything (your whole bible, with your notes)"};
-    for (const Id& b : books)
-        if (const studio::Book* bk = lib_->book(b)) scope.push_back(L"A reader's guide up to the end of " + w(bk->title));
-    int which = 0;
-    if (scope.size() > 1) {
-        which = popupAt(hwnd(), scope);
-        if (which < 0) return;
-    }
-    bible::Options o{wb_.world, wb_.world.empty() ? wb_.book : Id{}, which > 0, which > 0 ? books[(size_t)which - 1] : Id{}};
-    std::wstring name;
-    if (const World* wo = lib_->world(wb_.world)) name = w(wo->name);
-    else if (const studio::Book* bk = lib_->book(wb_.book)) name = w(bk->title);
-    if (what == 0) {
-        IFileOpenDialog* dlg = nullptr;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
-        DWORD opts = 0;
-        dlg->GetOptions(&opts);
-        dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-        dlg->SetTitle(L"Choose a folder for the website (a new, empty one is best)");
-        std::string folder;
-        if (SUCCEEDED(dlg->Show(hwnd()))) {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(dlg->GetResult(&item))) {
-                PWSTR p = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { folder = narrow(p); CoTaskMemFree(p); }
-                item->Release();
-            }
-        }
-        dlg->Release();
-        if (folder.empty()) return;
-        std::string err;
-        int pages = 0;
-        SetCursor(LoadCursorW(nullptr, IDC_WAIT));
-        if (!bible::exportWebsite(*lib_, o, folder, err, &pages)) {
-            cjui::messageBox(hwnd(), w("The website couldn't be made.\n\n" + err).c_str(), L"Share the bible", MB_OK | MB_ICONWARNING);
-            return;
-        }
-        flash(L"Made " + std::to_wstring(pages) + L" pages. Its index.html opens it; the whole folder can go online as it is.", 8);
-        ShellExecuteW(hwnd(), L"open", w(folder + "\\index.html").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        return;
-    }
-    IFileSaveDialog* dlg = nullptr;
-    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
-    COMDLG_FILTERSPEC spec[] = {{L"PDF", L"*.pdf"}};
-    dlg->SetFileTypes(1, spec);
-    dlg->SetDefaultExtension(L"pdf");
-    dlg->SetFileName(((o.readersGuide ? name + L" reader's guide" : name + L" bible") + L".pdf").c_str());
-    std::string path;
-    if (SUCCEEDED(dlg->Show(hwnd()))) {
-        IShellItem* item = nullptr;
-        if (SUCCEEDED(dlg->GetResult(&item))) {
-            PWSTR p = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = narrow(p); CoTaskMemFree(p); }
-            item->Release();
-        }
-    }
-    dlg->Release();
-    if (path.empty()) return;
-    std::string author;
-    for (const Id& b : books) if (const studio::Book* bk = lib_->book(b)) { author = !bk->penName.empty() ? bk->penName : bk->author; if (!author.empty()) break; }
-    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
-    const auto src = bible::printableSource(*lib_, o, narrow(o.readersGuide ? name + L": A Reader's Guide" : L"The " + name + L" Bible"), author);
-    typeset::Design design = typeset::presets()[0].design;
-    design.chaptersOnRecto = false;   // entry after entry, not each on a right-hand page
-    design.chapterSinkLines = std::min(design.chapterSinkLines, 3);
-    const auto book = typeset::typesetBook(src, design, typesetResources());
-    std::string err;
-    if (book.pages.empty() || !typeset::writePdf(book, path, err)) {
-        cjui::messageBox(hwnd(), w("The PDF couldn't be made.\n\n" + (err.empty() ? std::string("Nothing to set.") : err)).c_str(), L"Share the bible",
-                         MB_OK | MB_ICONWARNING);
-        return;
-    }
-    flash(L"Made a " + std::to_wstring(book.pages.size()) + L"-page PDF.", 6);
-    ShellExecuteW(hwnd(), L"open", w(path).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-}
 
 }  // namespace nrs

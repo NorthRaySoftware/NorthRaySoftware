@@ -940,9 +940,8 @@ void StudioApp::restorePlace() {
         writingBook_ = b->id;
         currentNode_ = n && !n->deleted && n->bookId == b->id ? n->id : Id{};
         openWriting(b->id);
-    } else {
-        goTo(View::Book, b->id);
     }
+    // Otherwise the library opens on its worlds (the start page).
 }
 
 // -------------------------------------------------------------------- import

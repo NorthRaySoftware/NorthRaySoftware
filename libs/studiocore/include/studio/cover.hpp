@@ -10,7 +10,8 @@ namespace studio::cover {
 struct Spec {
     // "classic" (a coloured cover with a double frame), "picture" (a picture filling it, the words over
     // shaded top and bottom), "band" (the picture above a coloured band with the words), "minimal"
-    // (plain paper, a large title and a rule).
+    // (plain paper, a large title and a rule), "arch", "medallion", "sidebar", "stacked", "starfield", "ornate", "modern"
+    // (see layouts() for each).
     std::string layout = "classic";
     std::string title, subtitle, author;
     std::string series;                 // a line above the title ("Book Three of The Alvora Chronicles")

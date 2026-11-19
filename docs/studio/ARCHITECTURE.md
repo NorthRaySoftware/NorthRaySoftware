@@ -415,6 +415,50 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.38.0: sharing the bible, more covers, worlds first (19 Nov 2026)
+
+CJ asked for a nicer bible website with styling chosen before export, languages in the website and PDF, more cover
+layouts, worlds on the start page, and races, realms and the like only from what he adds.
+
+- **bible_export**: `Options` gains `pictures`, `family`, `languages`, `glossary` (website and PDF). `Look` (theme,
+  mode auto/light/dark, accent, heading and body typefaces, title, tagline, cards, search, kindColours) with
+  `toJson`/`lookFromJson` (unknown themes and bad colours fall back). Five themes (`themeDefs`: a light and dark
+  palette, default typefaces, capitals for Grimoire; Night sky is dark either way, with a CSS star field) and eight
+  typefaces (`fontDefs`: system stacks, and Crimson Text, Gentium Book Plus and Courier Prime copied from the app's
+  fonts folder with their OFL and `@font-face`). `websiteCss(look)` builds the stylesheet from CSS variables (kind
+  colours as `--k-<kind>`; a custom accent is mixed towards white in dark mode). The site: a sticky header with kinds,
+  glossary, languages and a search box (`search.js` holds the names, other names, kinds and summaries; `site.js`
+  filters them as you type, arrow keys and Enter, `/` to focus, and filters dictionary tables); the home page's hero
+  (banner or an accent gradient), description, kind chips and cards (picture or initials, summary clamped); entry
+  pages with a breadcrumb, sections (bulleted lines become lists), notes per book, map with pins, gallery, notes, and
+  an infobox aside (portrait, details, family, relationships grouped by label), previous and next of the same kind;
+  a glossary with a letter bar; `languages.html` (a section per language, columns only when used, a filter box).
+  Responsive below 860 px; print styles. `languagesOf` reads `conlangs:world:<id>`/`conlangs:book:<id>`.
+  `printableSource` adds a Languages part (a chapter per language: notes, then each word with pronunciation, part and
+  meaning, letter headings over 30 words) and leaves out what's switched off.
+- **App** (`studio_share.cpp`): Worldbuilding › Share the bible is a page (`wb_.share`, `Focus::Share`), choices in
+  `ShareState` kept as `bible-share:world:<id>` (or `:book:`). Make (segmented), who it's for (chooser: you, or a
+  reader's guide per book), what goes in (tick chips), theme cards drawn from `themeColours`, light/dark, colour
+  swatches (theme's, world's, eight more; own colour typed in the panel's FAccent), heading and text typefaces, cards
+  or lists, search and kind colours; a sketch of the site (`drawSharePreview`: header, banner with the world's banner
+  picture, chips, character cards with their pictures) beside the choices when wide, below them otherwise. The panel
+  edits the title (FName) and tagline (FDescription). For a PDF: the typesetting preset and typeface.
+- **Covers** (`cover.cpp`): seven more layouts (arch, medallion, sidebar, stacked, starfield, ornate, modern), with
+  `Canvas::disc`, `ring` (also an arch's straight sides), `diamond`, `glow`, and `drawPicture` taking an `inside`
+  mask (arch and circle). The designer lists layouts two to a row for any number.
+- **Start page**: `View::Worlds` (`pageWorlds`) is the default view and the first sidebar row: a card per world
+  (banner or accent with bands, logo, name, counts of series, books and bible entries, three covers, the description,
+  Worldbuilding and Open links) and one for independent books. `restorePlace` reopens Writing only; otherwise the
+  library opens on worlds.
+- **Facets**: realm and type of place have no built-in options (like race since 0.32.1): the bible's Races and Realms
+  and values already written. "New realm or plane…" creates a Realm entry; "Write a new one…" adds a "Type: " line to
+  the details and focuses it.
+- Tested: core (1120 checks: themes, looks round-tripped and repaired, the site with languages, bundled fonts, search
+  data, cards and the tagline; a plain site without the optional parts; the PDF's Languages part); the five themes
+  rendered in Chromium at 1280 px light and dark (home, entry, search, languages) with no script errors; all eleven
+  covers rendered with and without a picture; Studio in Wine (Your worlds, Share the bible's choices, the sketch
+  following theme and tagline).
+
 ## 0.37.0: pasting, and choice sections (19 Nov 2026)
 
 CJ asked for better pasting, for world bible sections that can be text or buttons, and to paste a whole character

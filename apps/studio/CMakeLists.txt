@@ -11,7 +11,7 @@ add_executable(WritingStudio WIN32
   src/studio_typeset.cpp
   src/studio_preview.cpp
   src/studio_publish.cpp
-  src/studio_world.cpp src/studio_languages.cpp src/studio_paste.cpp
+  src/studio_world.cpp src/studio_languages.cpp src/studio_paste.cpp src/studio_share.cpp
   src/studio_boards.cpp
   src/studio_plan.cpp
   src/studio_plot.cpp
