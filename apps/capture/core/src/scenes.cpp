@@ -1,5 +1,7 @@
 #include "ncap/scenes.hpp"
 
+#include "ncap/pointer.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -605,6 +607,16 @@ bool SceneCollection::setItemKey(const Id& sceneId, const Id& itemId, const keyi
     return true;
 }
 
+bool SceneCollection::setItemPointer(const Id& sceneId, const Id& itemId, const pointer::Style& p) {
+    SceneItem* it = const_cast<SceneItem*>(item(sceneId, itemId));
+    if (!it) return false;
+    if (!(it->pointer == p)) {
+        it->pointer = p;
+        ++changes_;
+    }
+    return true;
+}
+
 bool SceneCollection::moveItem(const Id& sceneId, const Id& itemId, int delta) {
     Scene* s = sceneMut(sceneId);
     if (!s) return false;
@@ -745,6 +757,7 @@ std::string SceneCollection::toJson() const {
                                             {"crop", {t.cropLeft, t.cropTop, t.cropRight, t.cropBottom}}, {"opacity", t.opacity}, {"flipH", t.flipH}, {"flipV", t.flipV}}}});
             if (i.border.on) items.back()["border"] = json::parse(border::toJson(i.border));
             if (!(i.key == keying::Key{})) items.back()["key"] = json::parse(keying::toJson(i.key));
+            if (!(i.pointer == pointer::Style{})) items.back()["pointer"] = json::parse(pointer::toJson(i.pointer));
             if (!i.follow.item.empty())
                 items.back()["follow"] = {{"item", i.follow.item}, {"x", i.follow.x}, {"y", i.follow.y}, {"w", i.follow.w}, {"h", i.follow.h},
                                           {"rotation", i.follow.rotation}};
@@ -816,6 +829,7 @@ bool SceneCollection::fromJson(const std::string& text) {
                 }
                 if (i.contains("border") && i["border"].is_object()) it.border = border::fromJson(i["border"].dump());
                 if (i.contains("key") && i["key"].is_object()) it.key = keying::fromJson(i["key"].dump());
+                if (i.contains("pointer") && i["pointer"].is_object()) it.pointer = pointer::fromJson(i["pointer"].dump());
                 if (i.contains("follow") && i["follow"].is_object()) {
                     const json& f = i["follow"];
                     auto num = [&](const char* k, float lo, float hi, float d) {

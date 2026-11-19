@@ -36,6 +36,8 @@ LONGLONG frequency() {
     return f;
 }
 
+bool wantsClicks(const Items& items, int depth = 0);   // an item wants click rings (below)
+
 // Texture coordinates for an item: its crop, then its mirroring.
 void itemUv(const Transform& t, float sw, float sh, Pt uv[4]) {
     float u0 = t.cropLeft / sw, u1 = 1 - t.cropRight / sw, v0 = t.cropTop / sh, v1 = 1 - t.cropBottom / sh;
@@ -111,6 +113,7 @@ bool Engine::start(HWND parent, int outputFps, std::wstring& error) {
 void Engine::stop() {
     quit_ = true;
     if (thread_.joinable()) thread_.join();
+    stopPointerHook();
     if (preview_) DestroyWindow(preview_);
     preview_ = nullptr;
 }
@@ -228,6 +231,7 @@ void Engine::frame() {
             }
         }
     }
+    pollPointer(wantsClicks(s.items) || (s.studio && wantsClicks(s.previewItems)));
     const bool timed = tm.disjoint && !tm.pending;
     if (timed) {
         gpu_.context()->Begin(tm.disjoint.Get());
@@ -433,7 +437,129 @@ void Engine::composeItems(const Items& items, Target& into, int w, int h, int de
         } else {
             gpu_.drawTexture(v, corners, uv, op, opaque);
         }
+        if (it.pointer.on && it.source) drawPointer(it, sw, sh);
     }
+}
+
+// Clicks are caught by a low-level mouse hook on a thread of its own (polling the buttons once a frame misses
+// quick clicks). It only reports where a button went down; it never changes or blocks anything, and it runs only
+// while some item wants click rings.
+namespace {
+struct ClickHook {
+    std::mutex m;
+    std::vector<pointer::Ring> pending;
+    std::thread thread;
+    DWORD threadId = 0;
+    static ClickHook& get() {
+        static ClickHook h;
+        return h;
+    }
+    static LRESULT CALLBACK proc(int code, WPARAM wp, LPARAM lp) {
+        if (code == HC_ACTION && (wp == WM_LBUTTONDOWN || wp == WM_RBUTTONDOWN)) {
+            const auto* ms = reinterpret_cast<const MSLLHOOKSTRUCT*>(lp);
+            ClickHook& h = get();
+            std::lock_guard<std::mutex> l(h.m);
+            if (h.pending.size() < 64) h.pending.push_back({(long long)GetTickCount64(), (float)ms->pt.x, (float)ms->pt.y, wp == WM_RBUTTONDOWN});
+        }
+        return CallNextHookEx(nullptr, code, wp, lp);
+    }
+    void start() {
+        if (thread.joinable()) return;
+        std::atomic<DWORD> id{0};
+        thread = std::thread([&id] {
+            MSG msg;
+            PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);   // make the queue before saying we're ready
+            HHOOK hook = SetWindowsHookExW(WH_MOUSE_LL, proc, GetModuleHandleW(nullptr), 0);
+            id = GetCurrentThreadId();
+            while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            }
+            if (hook) UnhookWindowsHookEx(hook);
+        });
+        while (!id) Sleep(1);
+        threadId = id;
+    }
+    void stop() {
+        if (!thread.joinable()) return;
+        PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+        thread.join();
+        std::lock_guard<std::mutex> l(m);
+        pending.clear();
+    }
+};
+
+bool wantsClicks(const Items& items, int depth) {
+    for (auto& it : items) {
+        if (it.visible && it.pointer.on && it.pointer.clicks) return true;
+        if (it.nestedItems && depth < 4 && wantsClicks(*it.nestedItems, depth + 1)) return true;
+    }
+    return false;
+}
+}  // namespace
+
+void Engine::pollPointer(bool clicks) {
+    CURSORINFO ci{sizeof ci};
+    cursorKnown_ = GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING);
+    if (cursorKnown_) cursor_ = ci.ptScreenPos;
+    const long long now = (long long)GetTickCount64();
+    ClickHook& hook = ClickHook::get();
+    if (clicks) {
+        hookWanted_ = now;
+        hook.start();
+    } else if (now - hookWanted_ > 5000) {
+        hook.stop();
+    }
+    std::vector<pointer::Ring> fresh;
+    {
+        std::lock_guard<std::mutex> l(hook.m);
+        fresh.swap(hook.pending);
+    }
+    for (auto& r : fresh) rings_.press(r.startMs, r.x, r.y, r.right);
+    rings_.prune(now);
+}
+
+void Engine::stopPointerHook() { ClickHook::get().stop(); }
+
+ID3D11ShaderResourceView* Engine::pointerPicture(bool ring, const pointer::Rgba& c) {
+    const std::uint64_t key = ((std::uint64_t)ring << 32) | ((std::uint64_t)c.r << 16) | ((std::uint64_t)c.g << 8) | c.b;
+    auto it = pointerPics_.find(key);
+    if (it != pointerPics_.end()) return it->second.srv.Get();
+    if (pointerPics_.size() > 32) pointerPics_.clear();
+    constexpr int n = 128;
+    std::vector<unsigned char> px = ring ? pointer::ringPixels(n) : pointer::discPixels(n);
+    for (std::size_t i = 0; i < px.size(); i += 4) {   // white to the colour (BGRA)
+        px[i] = c.b;
+        px[i + 1] = c.g;
+        px[i + 2] = c.r;
+    }
+    Target& t = pointerPics_[key];
+    if (!t.ensure(gpu_.device(), n, n)) return nullptr;
+    gpu_.context()->UpdateSubresource(t.tex.Get(), 0, nullptr, px.data(), n * 4, 0);
+    return t.srv.Get();
+}
+
+void Engine::drawPointer(const DrawItem& it, float sw, float sh) {
+    RECT area{};
+    if (!it.source->screenArea(area)) return;
+    const float aw = (float)(area.right - area.left), ah = (float)(area.bottom - area.top);
+    const float op = std::clamp(it.transform.opacity, 0.0f, 1.0f);
+    const Pt uv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    auto disc = [&](ID3D11ShaderResourceView* pic, float dx, float dy, float diameter, float alpha) {
+        float cx, cy, scale;
+        if (!pic || alpha <= 0 ||
+            !pointer::toCanvas(it.transform, sw, sh, (float)area.left, (float)area.top, aw, ah, dx, dy, cx, cy, scale))
+            return;
+        const float r = diameter * scale * (sw / aw) / 2;   // source pixels per desktop pixel, then canvas
+        const Pt c[4] = {{cx - r, cy - r}, {cx + r, cy - r}, {cx + r, cy + r}, {cx - r, cy + r}};
+        gpu_.drawTexture(pic, c, uv, alpha * op, false);
+    };
+    const long long now = (long long)GetTickCount64();
+    if (it.pointer.clicks)
+        for (auto& r : rings_.all()) {
+            const pointer::RingLook look = pointer::ringAt(it.pointer, now - r.startMs);
+            disc(pointerPicture(true, r.right ? it.pointer.second : it.pointer.colour), r.x, r.y, look.diameter, look.alpha);
+        }
+    if (cursorKnown_ && it.pointer.strength > 0)
+        disc(pointerPicture(false, it.pointer.colour), (float)cursor_.x, (float)cursor_.y, it.pointer.size, it.pointer.strength / 100.0f);
 }
 
 void Engine::compose(const Snapshot& s) {

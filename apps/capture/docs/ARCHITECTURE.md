@@ -1559,3 +1559,37 @@ parts in `core/live` (tested).
 - Tested in Wine: scheduled go-live firing (then failing for want of an encoder, as expected here), Be right back on and
   off, scene muting and its mixer label, the settings section, the report page (from a sample file, since nothing can
   stream here). Not testable here: a real stream's report collection, recording alongside, chapters in a real MP4.
+
+## 58. Pointer, time-lapse, notes, destinations (released as 0.12.0, 19 Nov 2026)
+
+The second batch of CJ's feature answers.
+
+- Pointer highlight: `core/pointer` (tested): `Style` on a SceneItem (JSON "pointer": on, size 12-240 source pixels,
+  halo strength, clicks, colour, second colour for right clicks), `toCanvas` (a desktop point through the item's area,
+  picture size, crop, mirroring, size and rotation to the canvas; false outside or cropped away), click `Rings`
+  (450 ms, growing from half to twice the halo, fading; at most 16), and the white disc and ring pictures.
+  `VideoSource::screenArea` gives the desktop rectangle a picture shows: Display (its monitor), Window (DWM extended
+  frame bounds) and Region (the monitor's plus its rectangle). The engine draws, after each item with the highlight
+  on, its click rings and the halo with drawTexture from small per-colour textures. The pointer comes from
+  GetCursorInfo once a frame; clicks from a WH_MOUSE_LL hook on its own thread (it only notes where a button went
+  down, never blocks; polling the buttons once a frame missed quick clicks), started while any shown item wants click
+  rings and stopped 5 s after none does. Item menu › Highlight the pointer.
+- Time-lapse: Settings.timelapse (0 off; 1, 2, 5, 10, 30 s) → RecordSettings.timelapse. The recorder takes the first
+  composed frame of each interval (live::timelapseFrame) and numbers them one after another on the output frame grid;
+  no audio tracks; " time-lapse" in the file name. live::timelapseWords ("An hour becomes 1 min (60× faster)").
+  Not run here (no encoder).
+- Notes panel (Layout::Notes, capture_notes.cpp): Write is a multi-line EDIT (no scroll bar, wheel scrolls via a
+  subclass), placed in the panel each frame and hidden when the panel isn't drawn or the ask card is open; saved to
+  <state>\notes.txt (UTF-8, through a temporary file) 0.9 s after typing stops and on close. Read draws the text with
+  cjui's new Gfx::textSized (any size, cached formats) on a dark card, scrolled by a 16 ms timer at one of seven speeds
+  (settings notesSpeed, notesSize), the wheel scrolls it, a marker a third of the way down, faded edges; drawn
+  play/pause and top icons (symbol characters aren't in every font).
+- What each destination gets (capture_destview.cpp): a page with a card per destination: host only (nothing before
+  an @, never a key), state and live figures, the picture (canvas, fps, its bitrate, encodes shared by bitrate), the
+  sound (its bus, the bus's live meter: the window now keeps meters for all eight buses, and what's on that mix).
+- Do not disturb: researched. Windows.UI.Shell.FocusSessionManager can start Focus (which turns on Do not disturb)
+  only with a Limited Access Feature token from Microsoft, so Capture doesn't switch it: a reminder when going live
+  (settings dndReminder, on) and a button opening ms-settings:notifications, where Windows' own automatic rules are.
+- Tested in Wine: the halo and a click ring on a display capture, the menus; typing notes (saved to notes.txt and
+  loaded at start), Read scrolling by itself; the destinations page with live meters; the settings rows. Not testable
+  here: time-lapse files, the pointer over a real window capture (Wine has no WGC).

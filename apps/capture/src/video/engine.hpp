@@ -11,6 +11,7 @@
 #include "video/sources.hpp"
 
 #include "ncap/placement.hpp"
+#include "ncap/pointer.hpp"
 #include "ncap/transition.hpp"
 
 #include <dxgi1_2.h>
@@ -37,6 +38,7 @@ struct DrawItem {
     bool visible = true;
     border::Style border;
     keying::Key key;
+    pointer::Style pointer;   // the pointer and clicks highlighted on a screen capture
     // A scene shown inside this one: its id and items (composed at canvas size, then placed like a source).
     Id nested;
     std::shared_ptr<const Items> nestedItems;
@@ -127,6 +129,10 @@ private:
     void frame();
     void compose(const Snapshot& s);
     void composeItems(const Items& items, Target& into, int w, int h, int depth);
+    void drawPointer(const DrawItem& it, float sw, float sh);   // after the item, when its pointer highlight is on
+    void pollPointer(bool clicks);                              // once a frame: where the pointer is, new clicks
+    void stopPointerHook();
+    ID3D11ShaderResourceView* pointerPicture(bool ring, const pointer::Rgba& c);
     void updateSources(const Items& items, std::set<VideoSource*>& done, int depth);
     void drawFit(Target& t, const Fit& f);
     void present(const Snapshot& s);
@@ -158,6 +164,12 @@ private:
     Target from_, to_, studio_;     // a transition's two scenes; studio mode's preview
     std::map<Id, Target> nested_;   // scenes shown inside others, composed once a frame
     std::set<Id> nestedDone_;
+    // The pointer highlight (video thread).
+    POINT cursor_{};
+    bool cursorKnown_ = false;
+    long long hookWanted_ = 0;
+    pointer::Rings rings_;
+    std::map<std::uint64_t, Target> pointerPics_;   // by colour and kind
     // The running transition (video thread).
     Id lastProgram_;
     Items lastItems_, fromItems_;

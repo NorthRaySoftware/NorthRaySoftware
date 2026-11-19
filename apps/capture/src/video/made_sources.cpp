@@ -593,9 +593,17 @@ public:
             h_ = out_.h;
         }
         setStatus(L"Part of the display · " + sizeText(w_, h_) + L" at " + std::to_wstring(x0) + L", " + std::to_wstring(y0));
+        area_ = {x0, y0, x1, y1};
+    }
+    bool screenArea(RECT& r) const override {
+        RECT m{};
+        if (!display_ || !hasPicture_ || !display_->screenArea(m)) return false;
+        r = {m.left + area_.left, m.top + area_.top, m.left + area_.right, m.top + area_.bottom};
+        return true;
     }
 
 private:
+    RECT area_{};
     std::shared_ptr<VideoSource> display_;
     std::wstring monitor_;
     int rx_ = 0, ry_ = 0, rw_ = 640, rh_ = 360;

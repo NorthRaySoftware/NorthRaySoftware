@@ -5,6 +5,7 @@
 
 #include "nlohmann/json.hpp"
 
+#include <dwmapi.h>
 #include <dxgi1_2.h>
 #include <mfapi.h>
 #include <mfidl.h>
@@ -399,6 +400,12 @@ public:
         }
     }
 
+    bool screenArea(RECT& r) const override {
+        if (!open_ || !hasPicture_) return false;
+        r = rect_;
+        return true;
+    }
+
 private:
     void picture() {
         hasPicture_ = true;
@@ -696,6 +703,15 @@ private:
         hwnd_ = nullptr;
     }
 
+public:
+    bool screenArea(RECT& r) const override {
+        if (!hwnd_ || !hasPicture_ || minimised_) return false;
+        // The window as it's seen (without the invisible resizing borders), which is what's captured.
+        if (FAILED(DwmGetWindowAttribute(hwnd_, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof r)) && !GetWindowRect(hwnd_, &r)) return false;
+        return r.right > r.left && r.bottom > r.top;
+    }
+
+private:
     WindowIdentity wanted_;
     std::string method_ = "auto";
     bool cursor_ = true;

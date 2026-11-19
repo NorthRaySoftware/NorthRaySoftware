@@ -390,9 +390,28 @@ private:
     void setSoundboardSounds(const Id& source, const std::vector<audio::SoundboardSound>& sounds);
     void addSoundboard();
     void drawSoundboardPanel(const cjui::Rect& body);
+    // The Notes panel and teleprompter (capture_notes.cpp).
+    void createNotes();
+    void drawNotesPanel(const cjui::Rect& body);
+    void notesChanged();
+    void saveNotes();
+    bool notesTimer(UINT_PTR id);
+    bool notesWheel(float x, float y, float lines);
+    void setTelePlaying(bool on);
+    std::wstring notesPath() const;
+    HWND notesEdit_ = nullptr;
+    HFONT notesFont_ = nullptr;
+    float notesFontScale_ = 0;
+    bool notesDrawn_ = false, notesRead_ = false, notesDirty_ = false, loadingNotes_ = false, telePlaying_ = false;
+    std::wstring notesText_;
+    cjui::Rect notesBody_;
+    float teleScroll_ = 0, teleMax_ = 0;
+    ULONGLONG teleLast_ = 0;
     void soundboardMenu(const Id& source, std::size_t i);
     // Green screen (capture_key.cpp).
     std::vector<cjui::MenuItem> keyMenuItems(const SceneItem& item);
+    std::vector<cjui::MenuItem> pointerMenuItems(const SceneItem& item);
+    bool pointerCommand(UINT cmd, const Id& item);
     bool keyCommand(UINT cmd, const Id& item);
     bool keyPickClick(float x, float y);
     void keyPickTick();
@@ -417,6 +436,9 @@ private:
     float drawLiveSettings(float x, float y0, float colW);   // Settings › Streaming › Your stream
     float drawBrbButton(float x, float y, float w);
     void openReport(int index);               // 0 = the newest saved
+    void openDestView();                      // what each destination gets (capture_destview.cpp)
+    void drawDestView(const cjui::Rect& area);
+    bool destViewOpen_ = false;
     void drawReport(const cjui::Rect& area);
     std::vector<std::wstring> reportFiles() const;   // newest first
     std::wstring reportsFolder() const;
@@ -469,6 +491,7 @@ private:
     };
     std::map<Id, AudioLive> audio_;           // by source id
     audio::Meter mixLeft_, mixRight_, monLeft_, monRight_;
+    audio::Meter busLeft_[8], busRight_[8];   // every bus, for what each destination gets
     std::vector<routing::Warning> warnings_;
     std::map<Id, std::vector<std::string>> carried_;   // desktop sources: the apps they carry now
     std::vector<std::pair<Id, cjui::Rect>> audioRows_;

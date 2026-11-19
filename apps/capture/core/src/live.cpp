@@ -89,9 +89,16 @@ std::string durationWords(double seconds) {
     const long long s = std::max(0LL, (long long)std::llround(seconds));
     char b[48];
     if (s >= 3600) std::snprintf(b, sizeof b, "%lld h %lld min", s / 3600, s / 60 % 60);
+    else if (s >= 60 && s % 60 == 0) std::snprintf(b, sizeof b, "%lld min", s / 60);
     else if (s >= 60) std::snprintf(b, sizeof b, "%lld min %lld s", s / 60, s % 60);
     else std::snprintf(b, sizeof b, "%lld s", s);
     return b;
+}
+
+std::string timelapseWords(double interval, int fps) {
+    if (interval <= 0 || fps <= 0) return "";
+    const double out = 3600.0 / interval / fps;   // seconds of video from an hour
+    return "An hour becomes " + durationWords(out) + " (" + std::to_string((int)std::lround(interval * fps)) + "× faster)";
 }
 
 // --- Collector ---

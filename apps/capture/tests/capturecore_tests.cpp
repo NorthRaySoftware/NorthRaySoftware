@@ -24,6 +24,7 @@
 #include "ncap/gif.hpp"
 #include "ncap/hotkeys.hpp"
 #include "ncap/live.hpp"
+#include "ncap/pointer.hpp"
 #include "ncap/scene_templates.hpp"
 #include "ncap/visualiser.hpp"
 #include "ncap/routing.hpp"
@@ -625,6 +626,69 @@ static void testOAuth() {
     CHECK(!o::parseRedirect("POST /?code=a&state=st8 HTTP/1.1", "st8").isCallback);
 }
 
+static void testPointer() {
+    std::printf("pointer\n");
+    namespace pt = ncap::pointer;
+    pt::Style s;
+    CHECK(!s.on && pt::fromJson(pt::toJson(s)) == s);
+    s.on = true;
+    s.size = 80;
+    s.colour = {255, 0, 0, 255};
+    CHECK(pt::fromJson(pt::toJson(s)) == s);
+    CHECK(pt::fromJson(R"({"size":9999,"strength":-5,"colour":"nope","on":"yes"})").size == 240);
+    CHECK(pt::fromJson(R"({"size":9999,"strength":-5})").strength == 0 && !pt::fromJson("junk").on);
+
+    // A 1920x1080 display at desktop (1920, 0), shown at half size at (100, 50).
+    ncap::Transform t;
+    t.x = 100;
+    t.y = 50;
+    t.width = 960;
+    t.height = 540;
+    float cx = 0, cy = 0, sc = 0;
+    CHECK(pt::toCanvas(t, 1920, 1080, 1920, 0, 1920, 1080, 1920 + 960, 540, cx, cy, sc) && near(cx, 580) && near(cy, 320) && near(sc, 0.5f));
+    CHECK(!pt::toCanvas(t, 1920, 1080, 1920, 0, 1920, 1080, 100, 540, cx, cy, sc));   // on another monitor
+    CHECK(pt::toCanvas(t, 1920, 1080, 1920, 0, 1920, 1080, 1920, 0, cx, cy, sc) && near(cx, 100) && near(cy, 50));
+    // Cropped: the left 480 pixels cut off; the item is the rest at its own size.
+    ncap::Transform c;
+    c.cropLeft = 480;
+    CHECK(!pt::toCanvas(c, 1920, 1080, 0, 0, 1920, 1080, 100, 100, cx, cy, sc));
+    CHECK(pt::toCanvas(c, 1920, 1080, 0, 0, 1920, 1080, 480, 0, cx, cy, sc) && near(cx, 0) && near(cy, 0) && near(sc, 1));
+    // Mirrored left-right.
+    ncap::Transform m;
+    m.flipH = true;
+    CHECK(pt::toCanvas(m, 1920, 1080, 0, 0, 1920, 1080, 0, 0, cx, cy, sc) && near(cx, 1920) && near(cy, 0));
+    // Rotated 90 degrees about its centre: the top-left corner goes to the top right.
+    ncap::Transform r;
+    r.width = 1000;
+    r.height = 1000;
+    r.rotation = 90;
+    CHECK(pt::toCanvas(r, 1000, 1000, 0, 0, 1000, 1000, 0, 0, cx, cy, sc) && near(cx, 1000) && near(cy, 0));
+    // A picture at a different size from its area (scaled capture).
+    CHECK(pt::toCanvas(ncap::Transform{}, 960, 540, 0, 0, 1920, 1080, 1920 - 2, 1080 - 2, cx, cy, sc) && near(cx, 959, 0.1f) && near(cy, 539, 0.1f));
+
+    // Rings: grow and fade, then gone; at most 16 kept; pruned.
+    const pt::RingLook a = pt::ringAt(s, 0), b = pt::ringAt(s, pt::kRingMs / 2), z = pt::ringAt(s, pt::kRingMs);
+    CHECK(near(a.diameter, 40) && a.alpha > 0.85f && b.diameter > a.diameter && b.alpha < a.alpha && z.alpha == 0);
+    pt::Rings rings;
+    for (int i = 0; i < 20; ++i) rings.press(1000 + i, (float)i, 0, i % 2);
+    CHECK(rings.all().size() == 16 && rings.all().front().x == 4);
+    rings.prune(1000 + 19 + pt::kRingMs);
+    CHECK(rings.all().empty());
+    // Pictures: the disc full in the middle and clear at the corners; the ring clear in the middle and full on its band.
+    const auto disc = pt::discPixels(64), ring = pt::ringPixels(64);
+    CHECK(disc.size() == 64 * 64 * 4 && disc[(32 * 64 + 32) * 4 + 3] == 255 && disc[3] == 0);
+    CHECK(ring[(32 * 64 + 32) * 4 + 3] == 0 && ring[(32 * 64 + 4) * 4 + 3] > 200 && ring[3] == 0);
+
+    // Kept on a scene item, and copied with the collection.
+    ncap::SceneCollection col;
+    const ncap::Id sc0 = col.addScene("S");
+    const ncap::Id src = col.addSource(ncap::SourceKind::Display, "Display", "{}");
+    const ncap::Id it = col.addItem(sc0, src);
+    CHECK(col.setItemPointer(sc0, it, s));
+    ncap::SceneCollection back;
+    CHECK(back.fromJson(col.toJson()) && back.item(sc0, it) && back.item(sc0, it)->pointer == s);
+}
+
 static void testLive() {
     std::printf("live\n");
     namespace lv = ncap::live;
@@ -642,7 +706,9 @@ static void testLive() {
     CHECK(lv::stampText(lv::addMinutes(s, -19 * 60 - 1)) == "2026-11-21T23:59");
     lv::Stamp y{2026, 12, 31, 23, 30};
     CHECK(lv::stampText(lv::addMinutes(y, 45)) == "2027-01-01T00:15");
-    CHECK(lv::durationWords(40) == "40 s" && lv::durationWords(725) == "12 min 5 s" && lv::durationWords(5040) == "1 h 24 min" && lv::durationWords(-3) == "0 s");
+    CHECK(lv::timelapseWords(2, 30) == "An hour becomes 1 min (60\u00D7 faster)" && lv::timelapseWords(10, 60) == "An hour becomes 6 s (600\u00D7 faster)");
+    CHECK(lv::timelapseWords(0, 30).empty() && lv::timelapseFrame(4.9, 5) == 0 && lv::timelapseFrame(5.0, 5) == 1 && lv::timelapseFrame(1, 0) == -1);
+    CHECK(lv::durationWords(40) == "40 s" && lv::durationWords(725) == "12 min 5 s" && lv::durationWords(120) == "2 min" && lv::durationWords(5040) == "1 h 24 min" && lv::durationWords(-3) == "0 s");
 
     // A report: samples bucketed every 5 s, scene times, destinations adding up, and a JSON round trip.
     lv::Collector c;
@@ -2890,6 +2956,7 @@ int main() {
     testOAuth();
     testTransitions();
     testLive();
+    testPointer();
     testNesting();
     testSourceUtil();
     testSceneFiles();

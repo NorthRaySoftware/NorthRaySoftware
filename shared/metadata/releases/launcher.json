@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.101.0",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Capture 0.12.0: the pointer and clicks highlighted, time-lapse recording, a Notes panel with a teleprompter, what each destination gets, and a Do not disturb reminder."
+      ]
+    },
+    {
       "version": "0.100.0",
       "date": "2026-11-18",
       "notes": [

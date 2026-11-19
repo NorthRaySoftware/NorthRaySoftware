@@ -39,6 +39,10 @@ struct Settings {
     int recordKbps = 20000;           // video bitrate for recordings
     unsigned recordTracks = 0x0F;     // bit n-1 = recording track n (1-4 by default)
     bool recordMp4 = true;
+    bool dndReminder = true;           // remind about Windows' Do not disturb when going live
+    int notesSpeed = 2;                // the teleprompter's speed (0-6)
+    float notesSize = 32;              // its text size
+    double timelapse = 0;              // seconds between frames for a time-lapse recording (0: off)
     bool preLiveChecklist = false;           // Start streaming shows the pre-live checklist first
     std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
     std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)

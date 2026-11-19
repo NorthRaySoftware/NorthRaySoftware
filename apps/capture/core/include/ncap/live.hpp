@@ -76,5 +76,9 @@ private:
 std::string toJson(const Report& r);
 bool fromJson(const std::string& text, Report& out);
 std::string durationWords(double seconds);   // "1 h 24 min", "12 min 5 s", "40 s"
+// Time-lapse (0.12): one frame every `interval` seconds, played at `fps`. How long an hour of real time becomes,
+// in words ("An hour becomes 1 min 12 s"), and which frame a moment `elapsed` seconds in belongs to.
+std::string timelapseWords(double interval, int fps);
+inline long long timelapseFrame(double elapsed, double interval) { return interval > 0 && elapsed >= 0 ? (long long)(elapsed / interval) : -1; }
 
 }  // namespace ncap::live

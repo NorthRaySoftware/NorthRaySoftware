@@ -9,6 +9,7 @@
 
 #include "ncap/border.hpp"
 #include "ncap/keying.hpp"
+#include "ncap/pointer_style.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -68,6 +69,7 @@ struct SceneItem {
     bool locked = false;
     border::Style border;   // rounded corners, a ring and a glow (off unless set)
     keying::Key key;        // green screen (off unless set)
+    pointer::Style pointer; // the pointer and clicks highlighted (screen captures; off unless set)
     // Following another item in the same scene (a facecam frame around its camera): kept at the same place
     // relative to it, as fractions of its size, and turned with it.
     struct Follow {
@@ -141,6 +143,7 @@ public:
     bool setItemLocked(const Id& scene, const Id& item, bool locked);
     bool setItemBorder(const Id& scene, const Id& item, const border::Style& b);
     bool setItemKey(const Id& scene, const Id& item, const keying::Key& k);
+    bool setItemPointer(const Id& scene, const Id& item, const pointer::Style& p);
     // `item` keeps its place relative to `target` (both in `scene`, both with a size set, not following each
     // other round in a circle): moving or resizing the target moves it; moving it itself updates where it
     // sits. False with `error` if it can't.

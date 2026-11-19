@@ -145,6 +145,7 @@ video::Items CaptureWindow::buildItems(const Id& sceneId, int depth) const {
         d.transform = i.transform;
         d.border = i.border;
         d.key = i.key;
+        d.pointer = i.pointer;
         d.visible = i.visible;
         const Source* src = scenes_.source(i.source);
         if (src && src->kind == SourceKind::Scene) {

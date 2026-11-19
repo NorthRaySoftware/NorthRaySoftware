@@ -43,6 +43,7 @@ void CaptureWindow::startRecording() {
     rs.video.constantBitrate = false;
     rs.video.encoder = settings_.recordEncoder;
     rs.audioKbps = settings_.audioKbps;
+    rs.timelapse = settings_.timelapse;
     rs.tracks.clear();
     // Each track's name says what's on it, for editors that show track names.
     for (int t = 1; t <= 6; ++t) {
@@ -226,6 +227,27 @@ float CaptureWindow::drawRecordingSettings(float x, float y0, float colW) {
             if (focused(id)) focusRing(chip);
             cx += 39;
         }
+        y += std::max(h, 34.0f) + 14;
+    }
+    {
+        const std::wstring note = settings_.timelapse > 0
+                                      ? L"Recordings are time-lapses: one frame every " + widen(live::durationWords(settings_.timelapse)) + L", no sound. " +
+                                            widen(live::timelapseWords(settings_.timelapse, settings_.outputFps)) + L"."
+                                      : L"Off: recordings are ordinary. Turn it on for drawing or building sessions sped up.";
+        const float h = row(L"Time-lapse", note, 380);
+        const double v[] = {0, 1, 2, 5, 10, 30};
+        int sel = -1;
+        for (int i = 0; i < 6; ++i)
+            if (std::fabs(settings_.timelapse - v[i]) < 0.01) sel = i;
+        segmented("rec:timelapse", {x + colW - 360, y - 2, 360, 32}, {L"Off", L"1 s", L"2 s", L"5 s", L"10 s", L"30 s"}, sel, [this](int i) {
+            if (recorder_.active()) {
+                flash(L"Stop recording to change this.", 4);
+                return;
+            }
+            const double vv[] = {0, 1, 2, 5, 10, 30};
+            settings_.timelapse = vv[i];
+            settings_.save(settingsPath_);
+        });
         y += std::max(h, 34.0f) + 14;
     }
     {

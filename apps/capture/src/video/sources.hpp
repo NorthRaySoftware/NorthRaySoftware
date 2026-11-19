@@ -42,6 +42,8 @@ public:
     virtual std::shared_ptr<audio::Ring> sound() { return nullptr; }
     virtual void command(const std::string&) {}
     virtual double length() const { return 0; }   // media: the current file's length in seconds (0 unknown)
+    // Screen captures: the desktop rectangle the picture shows (video thread), for the pointer highlight.
+    virtual bool screenArea(RECT&) const { return false; }
 
     // Any thread.
     int width() const { return w_.load(); }

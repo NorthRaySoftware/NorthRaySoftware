@@ -27,6 +27,7 @@ namespace {
 enum : UINT {
     CmdKeyOff = 6900, CmdKeyGreen, CmdKeyBlue, CmdKeyPick, CmdKeyCustom,
     CmdKeySim0 = 6910, CmdKeySoft0 = 6920, CmdKeySpill0 = 6930,
+    CmdPtrOff = 6950, CmdPtrOn, CmdPtrClicks, CmdPtrColour, CmdPtrSecond, CmdPtrSize0 = 6960, CmdPtrStrength0 = 6970,
 };
 const int kSims[] = {20, 30, 40, 50, 60}, kSofts[] = {2, 5, 8, 15, 25}, kSpills[] = {0, 25, 50, 75, 100};
 
@@ -61,6 +62,68 @@ std::vector<MenuItem> CaptureWindow::keyMenuItems(const SceneItem& item) {
     m.push_back(MenuItem::sub(L"Edge softness", soft));
     m.push_back(MenuItem::sub(L"Take out the green tint (spill)", spill));
     return m;
+}
+
+// --- the pointer highlight (0.12) ---
+
+namespace {
+const int kPtrSizes[] = {32, 48, 72, 100}, kPtrStrengths[] = {0, 20, 35, 55};
+}
+
+std::vector<MenuItem> CaptureWindow::pointerMenuItems(const SceneItem& item) {
+    const pointer::Style& p = item.pointer;
+    std::vector<MenuItem> m;
+    m.push_back(MenuItem::item(L"Off", CmdPtrOff, {}, true, !p.on));
+    m.push_back(MenuItem::item(L"On", CmdPtrOn, L"a halo round the pointer", true, p.on));
+    m.push_back(MenuItem::item(L"Rings when you click", CmdPtrClicks, L"right clicks in the second colour", true, p.clicks));
+    m.push_back(MenuItem::sep());
+    std::vector<MenuItem> size, strength;
+    static const wchar_t* sizeNames[] = {L"Small", L"Medium", L"Large", L"Very large"};
+    static const wchar_t* strengthNames[] = {L"None (clicks only)", L"Faint", L"Medium", L"Strong"};
+    for (int i = 0; i < 4; ++i) {
+        size.push_back(MenuItem::item(sizeNames[i], CmdPtrSize0 + (UINT)i, {}, true, std::lround(p.size) == kPtrSizes[i]));
+        strength.push_back(MenuItem::item(strengthNames[i], CmdPtrStrength0 + (UINT)i, {}, true, std::lround(p.strength) == kPtrStrengths[i]));
+    }
+    m.push_back(MenuItem::sub(L"Size", size));
+    m.push_back(MenuItem::sub(L"Halo", strength));
+    m.push_back(MenuItem::item(L"Colour…", CmdPtrColour, widen(sourceutil::colourText(p.colour))));
+    m.push_back(MenuItem::item(L"Right-click colour…", CmdPtrSecond, widen(sourceutil::colourText(p.second))));
+    return m;
+}
+
+bool CaptureWindow::pointerCommand(UINT cmd, const Id& itemId) {
+    if (cmd < CmdPtrOff || cmd >= CmdPtrStrength0 + 4) return false;
+    const Id scene = scenes_.current();
+    const SceneItem* item = scenes_.item(scene, itemId);
+    if (!item) return true;
+    pointer::Style p = item->pointer;
+    if (cmd == CmdPtrColour || cmd == CmdPtrSecond) {
+        const bool second = cmd == CmdPtrSecond;
+        askText(second ? L"Right-click colour (#RRGGBB)" : L"Pointer colour (#RRGGBB)", widen(sourceutil::colourText(second ? p.second : p.colour)),
+                [this, scene, itemId, second](const std::wstring& v) {
+                    sourceutil::Rgba c;
+                    if (!sourceutil::parseColour(narrow(v), c)) {
+                        flash(L"Type a colour like #FFD640.", 5);
+                        return;
+                    }
+                    const SceneItem* it = scenes_.item(scene, itemId);
+                    if (!it) return;
+                    pointer::Style np = it->pointer;
+                    (second ? np.second : np.colour) = {c.r, c.g, c.b, 255};
+                    np.on = true;
+                    scenes_.setItemPointer(scene, itemId, np);
+                    scenesChanged();
+                });
+        return true;
+    }
+    if (cmd == CmdPtrOff) p.on = false;
+    else if (cmd == CmdPtrOn) p.on = true;
+    else if (cmd == CmdPtrClicks) p.clicks = !p.clicks, p.on = true;
+    else if (cmd >= CmdPtrSize0 && cmd < CmdPtrSize0 + 4) p.size = (float)kPtrSizes[cmd - CmdPtrSize0], p.on = true;
+    else if (cmd >= CmdPtrStrength0) p.strength = (float)kPtrStrengths[cmd - CmdPtrStrength0], p.on = true;
+    scenes_.setItemPointer(scene, itemId, p);
+    scenesChanged();
+    return true;
 }
 
 bool CaptureWindow::keyCommand(UINT cmd, const Id& itemId) {

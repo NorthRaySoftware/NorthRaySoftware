@@ -821,6 +821,9 @@ void CaptureWindow::itemExtraItems(const SceneItem& item, std::vector<MenuItem>&
     menu.push_back(MenuItem::sub(L"Opacity", op));
     menu.push_back(MenuItem::item(L"Border…", CmdBorder, item.border.on ? L"on" : L"rounded corners, a ring, a glow"));
     menu.push_back(MenuItem::sub(L"Green screen", keyMenuItems(item)));
+    if (const Source* src = scenes_.source(item.source);
+        src && (src->kind == SourceKind::Display || src->kind == SourceKind::Window || src->kind == SourceKind::Region))
+        menu.push_back(MenuItem::sub(L"Highlight the pointer", pointerMenuItems(item)));
     menu.push_back(MenuItem::item(L"Duplicate", CmdDuplicate, L"the same source"));
     const Scene* sc = scenes_.scene(scenes_.current());
     if (!sc) return;
@@ -876,6 +879,7 @@ bool CaptureWindow::itemExtraCommand(UINT cmd, const Id& itemId) {
     if (!item || cmd < CmdOpacity0) return false;
     const Id scene = scenes_.current();
     if (keyCommand(cmd, itemId)) return true;
+    if (pointerCommand(cmd, itemId)) return true;
     if (cmd == CmdBorder) {
         openBorder(itemId);
         return true;

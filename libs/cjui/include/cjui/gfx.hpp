@@ -96,6 +96,10 @@ public:
     float text(const std::wstring& s, const Rect& r, Font f, Color c, TextOpts o = {});
     float measureHeight(const std::wstring& s, float width, Font f);
     float measureWidth(const std::wstring& s, Font f);
+    // Text at any size (DIPs, 8-200) in the UI face, regular or semibold: for big reading text such as a
+    // teleprompter. Returns the height used.
+    float textSized(const std::wstring& s, const Rect& r, float size, bool strong, Color c, TextOpts o = {});
+    float measureSized(const std::wstring& s, float width, float size, bool strong);
 
     // Images (PNG, JPEG, GIF, BMP, TIFF, WebP where Windows has the codec), decoded
     // with WIC and cached per path. `cover` fills dst and crops the overflow
@@ -123,6 +127,8 @@ private:
     std::vector<Rect> text_, lastText_;
     IDWriteTextFormat* format(Font f);
     IDWriteTextLayout* layout(const std::wstring& s, float w, float h, Font f, const TextOpts& o);
+    IDWriteTextLayout* layoutWith(IDWriteTextFormat* tf, const std::wstring& s, float w, float h, const TextOpts& o);
+    IDWriteTextFormat* sizedFormat(float size, bool strong);
     ID2D1SolidColorBrush* brush(Color c);
     bool createTarget();
     void discardTarget();
@@ -134,6 +140,7 @@ private:
     ID2D1HwndRenderTarget* rt_ = nullptr;
     ID2D1SolidColorBrush* brush_ = nullptr;
     std::map<Font, IDWriteTextFormat*> formats_;
+    std::map<int, IDWriteTextFormat*> sized_;   // by size in tenths, negative for semibold
     struct CachedImage { ID2D1Bitmap* bitmap = nullptr; unsigned w = 0, h = 0; bool failed = false; };
     std::map<std::wstring, CachedImage> images_;
     IWICImagingFactory* wic_ = nullptr;

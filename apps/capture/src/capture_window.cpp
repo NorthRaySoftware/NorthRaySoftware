@@ -93,6 +93,7 @@ CaptureWindow::CaptureWindow(Settings& settings, std::wstring settingsPath, std:
 CaptureWindow::~CaptureWindow() {
     if (askFont_) DeleteObject(askFont_);
     if (askBrush_) DeleteObject(askBrush_);
+    if (notesFont_) DeleteObject(notesFont_);
 }
 
 bool CaptureWindow::create(HINSTANCE inst, int show) {
@@ -114,6 +115,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     ask_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd(), nullptr, inst, nullptr);
     SetWindowSubclass(ask_, quietEditProc, 1, 0);
     SendMessageW(ask_, EM_SETLIMITTEXT, 120, 0);
+    createNotes();
     applyTheme();
     // The window shows at once, saying it's opening, while the scenes, video and sound start (0.10.32).
     starting_ = true;
@@ -142,6 +144,7 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
 }
 
 void CaptureWindow::onDestroy() {
+    saveNotes();
     streamer_.stop();
     recorder_.stop();   // the file is finished properly even when the window closes mid-recording
     recordTick();
@@ -537,6 +540,7 @@ void CaptureWindow::openSettings(bool on) {
     wizardOpen_ = false;
     checklistOpen_ = false;
     reportOpen_ = false;
+    destViewOpen_ = false;
     libraryOpen_ = false;
     setupTestOpen_ = false;
     if (hkListening_) {
@@ -638,6 +642,7 @@ bool CaptureWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
 }
 
 bool CaptureWindow::onMouseDown(float x, float y) {
+    if (notesEdit_ && GetFocus() == notesEdit_) SetFocus(hwnd());   // a click elsewhere: keys go back to the window
     if (asking_) {
         if (askCard_.contains(x, y)) return false;
         endAsk(false);
@@ -822,6 +827,7 @@ bool CaptureWindow::onRightClick(float x, float y) {
 }
 
 bool CaptureWindow::onWheel(float x, float y, float lines) {
+    if (!settingsOpen_ && !asking_ && notesWheel(x, y, lines)) return true;
     if (settingsOpen_ || asking_ || !mixerBody_.contains(x, y)) return false;
     mixerScroll_ = std::clamp(mixerScroll_ + lines * 16, 0.0f, std::max(0.0f, mixerContentH_ - mixerBody_.h));
     invalidate();
@@ -844,6 +850,18 @@ LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
         handled = true;
         return 0;
     }
+    if (msg == WM_COMMAND && (HWND)lp == notesEdit_ && notesEdit_ && HIWORD(wp) == EN_CHANGE) {
+        notesChanged();
+        handled = true;
+        return 0;
+    }
+    if (msg == WM_CTLCOLOREDIT && notesEdit_ && (HWND)lp == notesEdit_) {
+        HDC dc = (HDC)wp;
+        SetTextColor(dc, toColorRef(pal_.ink));
+        SetBkColor(dc, toColorRef(pal_.sunken));
+        handled = true;
+        return (LRESULT)askBrush_;
+    }
     if (msg == WM_CTLCOLOREDIT && (HWND)lp == ask_) {
         HDC dc = (HDC)wp;
         SetTextColor(dc, toColorRef(pal_.ink));
@@ -856,6 +874,7 @@ LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) 
 }
 
 void CaptureWindow::onTimer(UINT_PTR id) {
+    if (notesTimer(id)) return;
     if (id == kStatsTimer) {
         usage_ = sampler_.sample();
         checkPendingFits();
@@ -944,6 +963,7 @@ void CaptureWindow::drawAsk(float W, float H) {
 
 void CaptureWindow::drawFrame(float W, float H) {
     gfx_.clear(pal_.paper);
+    notesDrawn_ = false;
     if (starting_) {   // the first paint, before anything has loaded
         gfx_.text(L"NorthRay Capture", {0, H / 2 - 40, W, 34}, Font::Title, pal_.ink, {Align::Center, false, false, true});
         gfx_.text(L"Opening your scenes\u2026", {0, H / 2, W, 24}, Font::Body, pal_.inkMuted, {Align::Center, false, false, true});
@@ -973,7 +993,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     // and so does a panel when it's shown; none when Windows' animations are off.
     const std::string page = !settingsOpen_ ? "main"
                              : !designFor_.empty() ? "design" : !filtersFor_.empty() ? "filters" : wizardOpen_ ? "wizard"
-                             : checklistOpen_ ? "checklist" : reportOpen_ ? "report" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
+                             : checklistOpen_ ? "checklist" : reportOpen_ ? "report" : destViewOpen_ ? "destinations" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
     if (page != lastPage_) {
         lastPage_ = page;
         setAnim("#pagefade", 0.0f);
@@ -986,6 +1006,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         else if (wizardOpen_) drawWizard(body);
         else if (checklistOpen_) drawChecklist(body);
         else if (reportOpen_) drawReport(body);
+        else if (destViewOpen_) drawDestView(body);
         else if (setupTestOpen_) drawSetupTest(body);
         else if (libraryOpen_) drawLibrary(body);
         else drawSettings(body);
@@ -1035,6 +1056,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     drawStatusBar({0, H - kStatusH, W, kStatusH});
     drawToast({0, kTopH, W, H - kTopH - kStatusH});
     if (asking_) drawAsk(W, H);
+    if (!notesDrawn_ && notesEdit_ && IsWindowVisible(notesEdit_)) ShowWindow(notesEdit_, SW_HIDE);   // the Notes panel isn't showing its text box
     if (previewInner_.w <= 0) previewLive_ = false;
     placePreview();
     pushSnapshot();
@@ -1238,6 +1260,7 @@ void CaptureWindow::drawPanel(int panel, const Rect& r) {
         case Layout::Controls: drawControls(body); break;
         case Layout::Chat: drawChatPanel(body); break;
         case Layout::Soundboard: drawSoundboardPanel(body); break;
+        case Layout::Notes: drawNotesPanel(body); break;
         default: break;
     }
     clearHitClip();
@@ -1426,7 +1449,7 @@ void CaptureWindow::drawControls(const Rect& b) {
         gfx_.fillRounded(r, 8, rec ? red.withAlpha(0.22f + 0.1f * hv) : pal_.ink.withAlpha((pal_.dark ? 0.07f : 0.05f) + 0.05f * hv));
         gfx_.strokeRounded(r, 8, rec ? red : pal_.rule.mix(pal_.ink, 0.3f * hv), 1);
         gfx_.circle(r.x + 20, r.y + r.h / 2, 6, rec ? red : red.withAlpha(0.8f), true);
-        std::wstring label = rec ? L"Stop recording" : L"Start recording";
+        std::wstring label = rec ? L"Stop recording" : settings_.timelapse > 0 ? L"Start time-lapse" : L"Start recording";
         gfx_.text(label, {r.x + 36, r.y, r.w - 44, r.h}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
         if (rec) {
             const output::RecordStatus st = recorder_.status();

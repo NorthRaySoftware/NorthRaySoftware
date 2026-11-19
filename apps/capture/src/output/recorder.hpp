@@ -29,6 +29,7 @@ struct RecordSettings {
     std::vector<std::string> trackNames; // shown by editors and players ("Track 1 (everything)")
     int audioKbps = 160;
     std::string profile = "Default";   // names the file: "<profile> 2026-11-15 14-00-05"
+    double timelapse = 0;                // seconds between frames (0: an ordinary recording); no sound when set
 };
 
 struct RecordStatus {

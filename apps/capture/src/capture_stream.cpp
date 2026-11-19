@@ -291,6 +291,7 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
     // The destinations, each with its own state; click one to start or stop just that one.
     const bool show = settings_.destinations.size() > 1 || on;
     if (!show) return y;
+    bool destLinkAfter = false;
     for (std::size_t i = 0; i < settings_.destinations.size(); ++i) {
         if (y + 30 > bottom) break;
         const auto& d = settings_.destinations[i];
@@ -343,8 +344,16 @@ float CaptureWindow::drawStreamControls(float x, float y, float w, float bottom)
         gfx_.text(name, {r.x + 22, r.y, nw, r.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
         gfx_.text(right, {r.x + 22 + nw + 8, r.y, r.w - nw - 38, r.h}, Font::Small,
                   known && st.state == output::DestinationStatus::Failed ? kBad : pal_.inkMuted, {Align::Right, false, true, true});
+        destLinkAfter = true;
         if (focused(hid)) focusRing(r);
         y += 30;
+    }
+    if (destLinkAfter && y + 24 <= bottom) {   // what each one gets (0.12)
+        const Rect l{x + 8, y, w - 8, 22};
+        addHit("ctl:destview", l, [this] { openDestView(); });
+        const float hv = hoverAmount("ctl:destview");
+        gfx_.text(L"What each destination gets \u203A", l, Font::Small, pal_.inkMuted.mix(pal_.ink, hv), {Align::Left, false, true, true});
+        y += 24;
     }
     return y + 8;
 }

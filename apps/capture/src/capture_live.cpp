@@ -16,6 +16,7 @@
 #include "log.hpp"
 #include "video/design_render.hpp"
 
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <algorithm>
@@ -116,6 +117,7 @@ void CaptureWindow::liveStateCheck() {
     wasStreaming_ = on;
     if (on) {
         streamStartTick_ = GetTickCount64();
+        if (settings_.dndReminder) flash(L"You're live. Reminder: turn on Do not disturb (Windows + N, then the bell) so pop-ups stay off stream.", 8);
         report_.begin(nowStamp(), liveSceneName());
         if (settings_.recordWhileStreaming && !recorder_.active()) {
             startRecording();
@@ -411,6 +413,33 @@ float CaptureWindow::drawLiveSettings(float x, float y0, float colW) {
             settings_.sceneChapters = !settings_.sceneChapters;
             settings_.save(settingsPath_);
         });
+    // Do not disturb (0.12). Windows lets only apps approved by Microsoft turn Focus or Do not disturb on (a
+    // "limited access feature"), so Capture can't switch it itself: it reminds you, and opens Windows' settings.
+    row("live:dnd", L"Remind me about Do not disturb",
+        L"When you go live, a reminder to turn on Windows' Do not disturb (the bell in the notification area, or Windows + N) so pop-ups "
+        L"don't appear on stream. Windows doesn't let Capture turn it on itself.",
+        settings_.dndReminder, [this] {
+            settings_.dndReminder = !settings_.dndReminder;
+            settings_.save(settingsPath_);
+        });
+    {
+        gfx_.text(L"Windows can turn it on by itself", {x, y, colW - 260, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        const float h = 24 + gfx_.text(L"In Windows' notification settings, \u201CTurn on do not disturb automatically\u201D has rules for when "
+                                       L"you're playing a game or using an app full screen.",
+                                       {x, y + 24, colW - 260, 80}, Font::Small, pal_.inkMuted);
+        button("live:dndopen", {x + colW - 240, y, 240, 30}, L"Open notification settings", [] {
+            ShellExecuteW(nullptr, L"open", L"ms-settings:notifications", nullptr, nullptr, SW_SHOWNORMAL);
+        });
+        y += std::max(h, 34.0f) + 12;
+    }
+    // What each destination gets.
+    {
+        gfx_.text(L"What each destination gets", {x, y, colW - 200, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        const float h = 24 + gfx_.text(L"Each destination's picture, bitrate, sound mix (with its meter) and, while live, how it's doing.",
+                                       {x, y + 24, colW - 200, 80}, Font::Small, pal_.inkMuted);
+        button("live:destview", {x + colW - 170, y, 170, 30}, L"Show me", [this] { openDestView(); });
+        y += std::max(h, 34.0f) + 12;
+    }
     // Reports.
     {
         const auto files = reportFiles();

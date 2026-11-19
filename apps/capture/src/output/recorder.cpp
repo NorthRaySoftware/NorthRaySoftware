@@ -1,5 +1,7 @@
 #include "output/recorder.hpp"
 
+#include "ncap/live.hpp"
+
 #include "ncap/mkv.hpp"
 #include "ncap/profiles.hpp"
 
@@ -87,7 +89,8 @@ bool Recorder::start(video::Engine& engine, audio::Mixer& mixer, const RecordSet
     engine_ = &engine;
     mixer_ = &mixer;
     s_ = s;
-    if (s_.tracks.empty()) s_.tracks = {1};
+    if (s_.timelapse > 0) s_.tracks.clear(), s_.trackNames.clear();   // a time-lapse has no sound
+    else if (s_.tracks.empty()) s_.tracks = {1};
     if (s_.tracks.size() > 6) s_.tracks.resize(6);
     SHCreateDirectoryExW(nullptr, s_.folder.c_str(), nullptr);
     const std::uint64_t free = freeSpace(s_.folder);
@@ -123,6 +126,7 @@ bool Recorder::start(video::Engine& engine, audio::Mixer& mixer, const RecordSet
                             MultiByteToWideChar(CP_UTF8, 0, n.data(), (int)n.size(), w.data(), len);
                             return w;
                         }();
+    if (s_.timelapse > 0) base += L" time-lapse";
     std::wstring path = base + L".mkv";
     for (int k = 2; GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES && k < 100; ++k) path = base + L" (" + std::to_wstring(k) + L").mkv";
     {
@@ -159,7 +163,9 @@ void Recorder::frame(ID3D11Texture2D* canvas, LONGLONG qpc) {
     std::lock_guard<std::mutex> busy(frameM_);   // the recorder thread waits for this before closing the encoder
     if (stopping_ || !video_) return;
     // The frame's place on the constant grid.
-    const std::int64_t index = (std::int64_t)((double)(qpc - t0_) * s_.video.fps / (double)freq_ + 0.5);
+    // A time-lapse takes the first frame of each interval and places them one after another.
+    const std::int64_t index = s_.timelapse > 0 ? (std::int64_t)live::timelapseFrame((double)(qpc - t0_) / (double)freq_, s_.timelapse)
+                                                : (std::int64_t)((double)(qpc - t0_) * s_.video.fps / (double)freq_ + 0.5);
     if (index <= lastFrame_) return;   // composed twice in one frame's time
     std::uint64_t gap = lastFrame_ < 0 ? 0 : (std::uint64_t)(index - lastFrame_ - 1);
     lastFrame_ = index;

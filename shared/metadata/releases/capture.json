@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.12.0",
+      "date": "2026-11-19",
+      "notes": [
+        "Highlight the pointer (right-click a display, window or screen-region source): a soft halo round the pointer and a ring from each click, right clicks in a second colour. Size, halo strength and colours to choose.",
+        "Time-lapse recording (Settings › Recording): one frame every 1, 2, 5, 10 or 30 seconds, played back at your frame rate, with no sound. The record button says Start time-lapse while it's on.",
+        "A Notes panel (Layout › Notes): write your talking points or script; it's saved as you type. Read shows them large and scrolls them like a teleprompter, at the speed and size you choose. Only you see it.",
+        "What each destination gets: a page with each stream destination's picture, bitrate, shared encode, sound mix with its live meter, and how it's doing while live. From Controls or Settings › Streaming.",
+        "Do not disturb: Windows only lets Microsoft-approved apps switch it on, so Capture reminds you when you go live and opens Windows' notification settings, where it can turn on by itself for games or full-screen apps."
+      ]
+    },
+    {
       "version": "0.11.0",
       "date": "2026-11-18",
       "notes": [

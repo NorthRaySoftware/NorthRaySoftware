@@ -286,6 +286,11 @@ void CaptureWindow::meterTick() {
     visualiserTick();
     const double now = seconds();
     for (auto& [id, lv] : mixer_.takeLevels()) {
+        for (int b = 0; b < 8; ++b)
+            if (id == audio::Mixer::busKey(b)) {
+                busLeft_[b].feed(lv.left, now);
+                busRight_[b].feed(lv.right, now);
+            }
         if (id == audio::Mixer::busKey(0)) {
             mixLeft_.feed(lv.left, now);
             mixRight_.feed(lv.right, now);

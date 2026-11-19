@@ -45,6 +45,8 @@ void Gfx::shutdown() {
     discardTarget();
     for (auto& [k, f] : formats_) release(f);
     formats_.clear();
+    for (auto& [k, f] : sized_) release(f);
+    sized_.clear();
     release(ellipsis_);
     release(wic_);
     release(dw_);
@@ -384,8 +386,49 @@ IDWriteTextFormat* Gfx::format(Font f) {
     return tf;
 }
 
-IDWriteTextLayout* Gfx::layout(const std::wstring& s, float w, float h, Font f, const TextOpts& o) {
-    IDWriteTextFormat* tf = format(f);
+IDWriteTextFormat* Gfx::sizedFormat(float size, bool strong) {
+    size = std::clamp(size, 8.0f, 200.0f);
+    const int key = (int)std::lround(size * 10) * (strong ? -1 : 1);
+    auto it = sized_.find(key);
+    if (it != sized_.end()) return it->second;
+    if (sized_.size() > 24) {   // sizes come and go (a size slider): keep only a few
+        for (auto& [k, f] : sized_) release(f);
+        sized_.clear();
+    }
+    IDWriteTextFormat* body = format(Font::Body);   // the UI face chosen there (Variable or plain Segoe UI)
+    wchar_t family[100] = L"Segoe UI";
+    if (body) body->GetFontFamilyName(family, 100);
+    IDWriteTextFormat* tf = nullptr;
+    dw_->CreateTextFormat(family, nullptr, strong ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL,
+                          DWRITE_FONT_STRETCH_NORMAL, size, L"en-gb", &tf);
+    sized_[key] = tf;
+    return tf;
+}
+
+float Gfx::textSized(const std::wstring& s, const Rect& r, float size, bool strong, Color c, TextOpts o) {
+    if (s.empty()) return 0;
+    IDWriteTextLayout* tl = layoutWith(sizedFormat(size, strong), s, r.w, o.centerVertically ? r.h : 100000.0f, o);
+    if (!tl) return 0;
+    DWRITE_TEXT_METRICS m{};
+    tl->GetMetrics(&m);
+    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), o.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
+    tl->Release();
+    return m.height;
+}
+
+float Gfx::measureSized(const std::wstring& s, float w, float size, bool strong) {
+    if (s.empty()) return 0;
+    IDWriteTextLayout* tl = layoutWith(sizedFormat(size, strong), s, w, 100000.0f, {});
+    if (!tl) return 0;
+    DWRITE_TEXT_METRICS m{};
+    tl->GetMetrics(&m);
+    tl->Release();
+    return m.height;
+}
+
+IDWriteTextLayout* Gfx::layout(const std::wstring& s, float w, float h, Font f, const TextOpts& o) { return layoutWith(format(f), s, w, h, o); }
+
+IDWriteTextLayout* Gfx::layoutWith(IDWriteTextFormat* tf, const std::wstring& s, float w, float h, const TextOpts& o) {
     IDWriteTextLayout* tl = nullptr;
     if (!tf || FAILED(dw_->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, std::max(1.0f, w), std::max(1.0f, h), &tl)))
         return nullptr;
