@@ -434,6 +434,15 @@ public:
     Id createEntry(const Id& worldId, const Id& bookId, const std::string& kind, const std::string& name);
     bool updateEntry(const Entry& e);
     bool trashEntry(const Id& id);                     // restore() brings it back
+    // Starting the bible again (0.38.1): every live entry of the world (or independent book) to the Trash, in one go;
+    // with `everything`, its languages, image boards, page templates and the Checks, kinds and sharing choices too.
+    // `undoBibleReset` brings it all back (the entries from the Trash, the rest as it was).
+    struct BibleReset {
+        std::vector<Id> trashed;
+        std::vector<std::pair<std::string, std::string>> settings;   // key -> value before
+    };
+    bool resetBible(const Id& worldId, const Id& bookId, bool everything, BibleReset& out);
+    bool undoBibleReset(const BibleReset& reset);
     std::vector<EntryLink> linksOf(const Id& entryId) const;   // both directions, as stored
     // Tidying the bible. An entry already there by this name (any case, either apostrophe), of `kind` if given.
     const Entry* findEntryNamed(const Id& worldId, const Id& bookId, const std::string& name, const std::string& kind = {}) const;

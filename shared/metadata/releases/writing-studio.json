@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.38.1",
+      "date": "2026-11-19",
+      "notes": [
+        "A whole page pasted onto an entry now replaces what was there, part by part: the name, other names, how it's said, the summary, the details, each section and book's notes it has, the notes, and the relationships of each kind it lists. Parts it doesn't have are left alone, and Undo the paste (Ctrl+Z) still puts everything back, links included.",
+        "Reset the bible, at the foot of the Worldbuilding sidebar: move every entry to the Trash, or start completely afresh (languages, image boards, page templates and choices too). A backup is made first and Ctrl+Z takes it back."
+      ]
+    },
+    {
       "version": "0.38.0",
       "date": "2026-11-19",
       "notes": [

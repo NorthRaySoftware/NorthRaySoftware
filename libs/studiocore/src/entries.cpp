@@ -537,6 +537,43 @@ bool Library::trashEntry(const Id& id) {
     return true;
 }
 
+bool Library::resetBible(const Id& worldId, const Id& bookId, bool everything, BibleReset& out) {
+    out = {};
+    const Id bookScope = worldId.empty() ? bookId : Id{};
+    if (worldId.empty() ? !book(bookId) : !world(worldId)) { error_ = "No such world or book."; return false; }
+    std::vector<std::string> keys;
+    if (everything) {
+        const std::string scope = worldId.empty() ? "book:" + bookId : "world:" + worldId;
+        const std::string sid = worldId.empty() ? bookId : worldId;
+        keys = {"conlangs:" + scope, "boards:" + scope, "bible-share:" + scope, "checks-ok:" + sid, "kind-ok:" + sid};
+        for (const auto& k : entryKinds()) keys.push_back("entry-template:" + worldId + ":" + k);
+    }
+    if (!begin()) return false;
+    for (const Entry* e : entriesOf(worldId, bookScope)) {
+        Entry n = *e;
+        n.deleted = now();
+        if (!saveEntry(n)) { rollback(); return false; }
+        out.trashed.push_back(n.id);
+    }
+    for (const auto& k : keys) {
+        const std::string v = setting(k);
+        if (v.empty()) continue;
+        out.settings.push_back({k, v});
+        if (!setSetting(k, std::string())) { rollback(); return false; }
+    }
+    if (!commit()) return false;
+    const Time t = now();
+    for (const Id& id : out.trashed) if (Entry* e = entryMut(id)) e->deleted = t;
+    return true;
+}
+
+bool Library::undoBibleReset(const BibleReset& reset) {
+    bool ok = true;
+    for (const Id& id : reset.trashed) ok = restore(id) && ok;
+    for (const auto& [k, v] : reset.settings) ok = setSetting(k, v) && ok;
+    return ok;
+}
+
 std::vector<EntryLink> Library::linksOf(const Id& id) const {
     std::vector<EntryLink> out;
     for (auto& l : links_) {

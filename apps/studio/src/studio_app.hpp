@@ -447,6 +447,8 @@ private:
     bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
     void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
     bool undoEntryPaste();
+    void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)
+    bool undoBibleReset();
     void setFieldText(Field f, const std::string& utf8);
     std::string fieldText(Field f) const;
     float panelField(const Rect& r, float y, const std::wstring& label, Field f, float h = 30);
@@ -613,7 +615,7 @@ private:
     struct PasteUndo {
         Id entry;
         studio::Entry before;
-        std::vector<studio::EntryLink> added;
+        std::vector<studio::EntryLink> added, removed;
         bool created = false;   // the entry was made by the paste
     };
     struct WorldState {
@@ -659,6 +661,7 @@ private:
         std::map<std::string, std::pair<float, float>> boardDragPos;   // live position while dragging
         float boardDragW = 0;
         std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
+        std::optional<studio::Library::BibleReset> resetUndo;   // the last reset, to take back (0.38.1)
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;

@@ -2249,17 +2249,27 @@ static void testEntryPaste() {
         Entry x = *lib->entry(t);
         x.details = "Eyes: blue\nHeight: tall";
         x.setSection("Abilities & powers", "Swordsman.");
+        x.setSection("Backstory & goals", "Kept: the paste has no such section.");
         CHECK(lib->updateEntry(x));
     }
+    const Id oldFriend = lib->createEntry(world, {}, "character", "Old Friend");
+    const Id pupil = lib->createEntry(world, {}, "character", "A Pupil");
+    CHECK(lib->addLink(t, oldFriend, "Friend of") && lib->addLink(t, pupil, "Mentor of"));
     pa::Report r;
     CHECK(pa::apply(*lib, t, tom, {b1, b2}, r));
+    CHECK(lib->entry(t)->section("Backstory & goals") == "Kept: the paste has no such section.");
+    {
+        const auto ls = lib->linksOf(t);
+        CHECK(std::none_of(ls.begin(), ls.end(), [&](const EntryLink& l) { return l.to == oldFriend; }));   // friends replaced
+        CHECK(std::any_of(ls.begin(), ls.end(), [&](const EntryLink& l) { return l.to == pupil && l.label == "Mentor of"; }));   // not named: kept
+    }
     const Entry& e = *lib->entry(t);
     CHECK(e.name == "Thomas Terrance Smith" && r.name && e.aliases.size() == 12);
     CHECK(e.details.find("Eyes: forest green") != std::string::npos && e.details.find("Eyes: blue") == std::string::npos);
-    CHECK(e.details.find("Height: tall") != std::string::npos);
+    CHECK(e.details.find("Height: tall") == std::string::npos);   // the pasted details replace the old ones
     CHECK(e.section("Appearance & personality").find("brown hair") != std::string::npos);
     CHECK(e.section("Appearance & personality").find("warm, loyal") != std::string::npos);
-    CHECK(e.section("Abilities & powers").rfind("Swordsman.\n\nTom is a trained", 0) == 0);
+    CHECK(e.section("Abilities & powers").rfind("Tom is a trained", 0) == 0 && e.section("Abilities & powers").find("Swordsman.") == std::string::npos);
     CHECK(e.section("History").find("Silverbrick") != std::string::npos);
     CHECK(e.bookNote(b1).find("Gir-Garhm") != std::string::npos && e.bookNote(b2).rfind("Tom stabs", 0) == 0);
     CHECK(e.notes.find("Book 5:\nTom is the father") != std::string::npos && r.unmatchedBooks.size() == 1);
@@ -2281,7 +2291,7 @@ static void testEntryPaste() {
     const Id s2 = lib->createEntry(world, {}, "magic", "Light");
     pa::Report r2;
     CHECK(pa::apply(*lib, s2, light, {b1, b2}, r2));
-    CHECK(lib->entry(s2)->name == "Light" && lib->entry(s2)->aliases[0] == "Light Magic");
+    CHECK(lib->entry(s2)->name == "Light Magic" && lib->entry(s2)->aliases.size() == 2 && lib->entry(s2)->aliases[0] == "Light");
     CHECK(lib->entry(s2)->section("How it works").find("many forms") != std::string::npos);
     // A choice section from the template is still a section a paste can fill.
     CHECK(lib->setEntryTemplate(world, "place", parseEntryTemplate("Description\nStatus: Thriving | Ruined | Lost\nHistory")));
@@ -2298,6 +2308,23 @@ static void testEntryPaste() {
         CHECK(pa::apply(*lib, xe, odd, {b1, b2}, rx));
         CHECK(lib->entry(xe)->bookNote(b1).empty() && lib->entry(xe)->bookNote(b2) == "Other." && rx.unmatchedBooks.size() == 1);
         CHECK(lib->entry(xe)->notes.find("The Lost Tome (Book 1):\nSomething.") != std::string::npos);
+    }
+    // Starting the bible again, and taking that back.
+    {
+        const Id w2 = lib->createWorld("Second");
+        const Id keep = lib->createEntry(w2, {}, "place", "Elsewhere");
+        const std::size_t before = lib->entriesOf(world).size();
+        lib->setSetting("conlangs:world:" + world, "{\"languages\":[{\"id\":\"l\",\"name\":\"X\",\"words\":[{\"word\":\"a\"}]}]}");
+        Library::BibleReset rs;
+        CHECK(lib->resetBible(world, {}, false, rs) && rs.trashed.size() == before && rs.settings.empty());
+        CHECK(lib->entriesOf(world).empty() && lib->entriesOf(w2).size() == 1 && lib->entry(keep));
+        CHECK(!lib->setting("conlangs:world:" + world).empty());   // entries only: the languages stay
+        CHECK(lib->undoBibleReset(rs) && lib->entriesOf(world).size() == before);
+        Library::BibleReset all;
+        CHECK(lib->resetBible(world, {}, true, all) && lib->entriesOf(world).empty());
+        CHECK(lib->setting("conlangs:world:" + world).empty() && lib->entryTemplate(world, "place") == defaultEntryTemplate("place"));
+        CHECK(lib->undoBibleReset(all) && lib->entriesOf(world).size() == before && !lib->setting("conlangs:world:" + world).empty());
+        CHECK(lib->entryTemplate(world, "place").size() == 3);   // its own template back
     }
     CHECK(lib->entry(tv)->name == "Telvana" && lib->entry(tv)->bookNote(b1).find("Telvana\xE2\x80\x99s cliffs") != std::string::npos);
     lib.reset();

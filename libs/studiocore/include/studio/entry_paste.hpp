@@ -6,7 +6,7 @@
 // template section whose title has that word, "Appearance & personality", else a section of their own); "Notes per
 // book" to each book's notes (matched by title, or "Book 2" by reading order); "Family" and "Relationships" lines to
 // links with entries already in the bible ("Parents: Ralph Smith" -> Child of Ralph Smith), and the rest to the
-// details; "Notes" and "Spoilers" to the private notes.
+// details; "Notes" and "Spoilers" to the private notes. What's pasted replaces what was there (0.38.1).
 //
 // Headings can be Markdown (## Summary, **Summary**), a line ending in a colon, or a known word on its own line.
 // Anything before the first part recognised (a chat's "Here's the entry…") is left out.
@@ -44,9 +44,11 @@ struct Report {
     std::string words() const;                 // "the name, 3 other names, the summary, 18 details, …"
 };
 
-// Puts a parsed page onto an entry. Empty fields are filled; written ones get the new text after theirs (lines
-// already there aren't repeated, and a detail with the same label is replaced). `booksInOrder` is the world's books
-// in reading order, for "Book 2". False with the library's error if the entry couldn't be saved.
+// Puts a parsed page onto an entry. Each part the paste has replaces that part of the entry: the name, other names,
+// how it's said, summary, details (all of them), each section and each book's notes it names, the notes, and the
+// relationships of each kind it lists (old links of that kind go). Parts the paste doesn't have are left as they were.
+// `booksInOrder` is the world's books in reading order, for "Book 2". False with the library's error if the entry
+// couldn't be saved.
 bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& report);
 
 // The relationship a pasted label stands for, read from an entry of `kind` ("Parents" -> "Child of"); "" if none.

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.104.1",
+      "date": "2026-11-19",
+      "notes": [
+        "NorthRay Writing Studio 0.38.1: a pasted bible page replaces what was there; Reset the bible."
+      ]
+    },
+    {
       "version": "0.104.0",
       "date": "2026-11-19",
       "notes": [

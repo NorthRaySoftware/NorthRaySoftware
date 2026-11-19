@@ -415,6 +415,20 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.38.1: pasting replaces, Reset the bible (19 Nov 2026)
+
+- `paste::apply` replaces instead of merging: each part the page has replaces the entry's (name, other names,
+  pronunciation, summary, all the details, each section and each matched book's notes, the notes); several headings
+  for one template section are still put together. Relationship kinds the page lists (after `relationFor`) lose their
+  old links (either direction) and take the pasted ones; kinds it doesn't list are kept. The app's `PasteUndo` keeps
+  the links removed as well as added, so Undo puts them back.
+- `Library::resetBible(world, book, everything, BibleReset&)`: every live entry trashed in one transaction; with
+  `everything`, the settings `conlangs:`, `boards:`, `bible-share:`, `checks-ok:`, `kind-ok:` and each kind's
+  `entry-template:` are cleared, their old values kept in the `BibleReset`; `undoBibleReset` restores both. The app
+  (`resetBible` in studio_paste.cpp): "Reset the bible…" at the foot of the Worldbuilding sidebar, a choice of entries
+  only or everything, a confirmation, a backup (and its copy to the backup folder) first, then Ctrl+Z
+  (`wb_.resetUndo`) to take it back. Tested in core (1132 checks) and in Wine (both ways, and undone).
+
 ## 0.38.0: sharing the bible, more covers, worlds first (19 Nov 2026)
 
 CJ asked for a nicer bible website with styling chosen before export, languages in the website and PDF, more cover

@@ -439,26 +439,19 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
     const Entry* cur = lib.entry(entryId);
     if (!cur) return false;
     Entry e = *cur;
-    // The name: taken when the page still has its "New character" name; otherwise a different one is another name.
-    if (!page.name.empty() && key(page.name) != key(e.name)) {
-        if (e.name.empty() || startsWith(e.name, "New ")) { e.name = page.name; r.name = true; }
-        else if (std::none_of(e.aliases.begin(), e.aliases.end(), [&](const std::string& a) { return key(a) == key(page.name); })) {
-            e.aliases.push_back(page.name);
-            ++r.aliases;
-        }
+    // What's pasted replaces what was there, part by part; parts the paste doesn't have are left alone.
+    if (!page.name.empty() && page.name != e.name) { e.name = page.name; r.name = true; }
+    if (!page.aliases.empty()) {
+        std::vector<std::string> al;
+        for (auto& a : page.aliases)
+            if (key(a) != key(e.name) && std::none_of(al.begin(), al.end(), [&](const std::string& x) { return key(x) == key(a); })) al.push_back(a);
+        if (al != e.aliases) { e.aliases = al; r.aliases = (int)al.size(); }
     }
-    for (auto& a : page.aliases)
-        if (key(a) != key(e.name) && std::none_of(e.aliases.begin(), e.aliases.end(), [&](const std::string& x) { return key(x) == key(a); })) {
-            e.aliases.push_back(a);
-            ++r.aliases;
-        }
     if (!page.pronunciation.empty() && page.pronunciation != e.pronunciation) { e.pronunciation = page.pronunciation; r.pronunciation = true; }
-    if (!page.summary.empty()) {
-        const std::string m = mergeText(e.summary, page.summary);
-        if (m != e.summary) { e.summary = m; r.summary = true; }
-    }
+    if (!page.summary.empty() && page.summary != e.summary) { e.summary = page.summary; r.summary = true; }
 
-    // Sections: into the template's, by title or a part of one; else their own.
+    // Sections: into the template's, by title or a part of one; else their own. Several headings going into one
+    // section ("Appearance" and "Personality" into "Appearance & personality") are put together.
     std::vector<std::string> titles;
     for (auto& [t, text] : lib.entrySections(e)) titles.push_back(t);
     std::vector<std::pair<std::string, std::string>> into;   // title -> text gathered from the paste
@@ -476,10 +469,8 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
         for (auto& x : into) if (x.first == target) { x.second = mergeText(x.second, text); found = true; }
         if (!found) into.emplace_back(target, text);
     }
-    for (auto& [t, text] : into) {
-        const std::string m = mergeText(e.section(t), text);
-        if (m != e.section(t)) { e.setSection(t, m); ++r.sections; }
-    }
+    for (auto& [t, text] : into)
+        if (e.section(t) != text) { e.setSection(t, text); ++r.sections; }
 
     // Notes for each book.
     std::vector<const Book*> books;
@@ -509,18 +500,19 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
         const bool titled = !tk.empty() && tk.rfind("book", 0) != 0;
         if (!hit && !titled && n >= 1 && n <= (int)books.size()) hit = books[(size_t)n - 1];
         if (hit) {
-            const std::string merged = mergeText(e.bookNote(hit->id), text);
-            if (merged != e.bookNote(hit->id)) { e.setBookNote(hit->id, merged); ++r.bookNotes; }
+            if (e.bookNote(hit->id) != text) { e.setBookNote(hit->id, text); ++r.bookNotes; }
         } else {
             extraNotes = mergeText(extraNotes, (label.empty() ? std::string() : label + ":\n") + text);
             if (!label.empty()) r.unmatchedBooks.push_back(label);
         }
     }
 
-    // Details, with family and relationship lines that aren't links.
-    std::string details = page.details;
+    // Details: the pasted ones replace them all; family and relationship lines that aren't links replace lines with
+    // their label.
+    std::string details = page.details.empty() ? e.details : page.details;
     struct NewLink { Id to; std::string label; };
     std::vector<NewLink> links;
+    std::vector<std::string> relabels;   // relationships the paste sets, so the old ones of that kind go
     const auto others = lib.entriesOf(e.worldId, e.worldId.empty() ? e.bookId : Id{});
     auto findNamed = [&](const std::string& nm) -> const Entry* {
         std::string n = nm;
@@ -539,8 +531,10 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
         }
         return only;
     };
+    std::string leftover;
     for (auto& [label, value] : page.relations) {
         const std::string rel = relationFor(e.kind, label);
+        if (!rel.empty() && std::find(relabels.begin(), relabels.end(), rel) == relabels.end()) relabels.push_back(rel);
         std::vector<std::string> rest;
         for (auto& nm : splitNames(value)) {
             const Entry* o = rel.empty() ? nullptr : findNamed(nm);
@@ -550,17 +544,32 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
         if (!rest.empty()) {
             std::string v;
             for (auto& x : rest) v += (v.empty() ? "" : ", ") + x;
-            details += (details.empty() ? "" : "\n") + label + ": " + v;
+            leftover += (leftover.empty() ? "" : "\n") + label + ": " + v;
         }
     }
-    if (!details.empty()) e.details = mergeDetails(e.details, details, r.details);
+    int changedLines = 0;
+    if (!leftover.empty()) details = mergeDetails(details, leftover, changedLines);
+    if (details != e.details) {
+        int n = 0;
+        std::istringstream in(details);
+        for (std::string l; std::getline(in, l);) n += !trim(l).empty();
+        e.details = details;
+        r.details = std::max(1, n);
+    }
     std::string notes = page.notes;
     if (!extraNotes.empty()) notes = mergeText(notes, extraNotes);
-    if (!notes.empty()) {
-        const std::string m = mergeText(e.notes, notes);
-        if (m != e.notes) { e.notes = m; r.notes = 1; }
-    }
+    if (!notes.empty() && notes != e.notes) { e.notes = notes; r.notes = 1; }
     if (!lib.updateEntry(e)) return false;
+
+    // Relationships: of each kind the paste names, the old links go and the pasted ones come in.
+    for (const EntryLink& x : lib.linksOf(e.id)) {
+        const bool mine = x.from == e.id;
+        const std::string asMine = mine ? x.label : reverseRelation(x.label);
+        if (std::find(relabels.begin(), relabels.end(), asMine) == relabels.end()) continue;
+        const Id other = mine ? x.to : x.from;
+        const bool kept = std::any_of(links.begin(), links.end(), [&](const NewLink& l) { return l.to == other && l.label == asMine; });
+        if (!kept) lib.removeLink(x.from, x.to, x.label);
+    }
     const auto existing = lib.linksOf(e.id);
     for (auto& l : links) {
         const bool have = std::any_of(existing.begin(), existing.end(), [&](const EntryLink& x) {

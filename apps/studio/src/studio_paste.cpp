@@ -5,8 +5,10 @@
 // pages and documents go. A whole page pasted onto an entry (a character sheet with Name, Summary, Details, sections,
 // notes per book, family and relationships; see studio/entry_paste) is spread over the entry instead: onto the open
 // entry from any of its boxes or with Ctrl+V on its page, or as a new entry with Ctrl+V on the bible's cards.
-// Ctrl+Z (or "Undo" in the panel) puts the entry back as it was, links and all.
+// What's pasted replaces what was there, part by part. Ctrl+Z (or "Undo the paste" in the panel) puts the entry
+// back as it was, links and all.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 #include "studio/entry_paste.hpp"
 
@@ -176,10 +178,16 @@ void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool 
     for (auto& l : lib_->linksOf(entryId))
         if (std::none_of(linksBefore.begin(), linksBefore.end(), [&](const EntryLink& x) { return x.from == l.from && x.to == l.to && x.label == l.label; }))
             undo.added.push_back(l);
+    for (auto& l : linksBefore)   // links of a kind the paste replaced
+        if (lib_->entry(l.from) && lib_->entry(l.to)) {
+            const auto now = lib_->linksOf(entryId);
+            if (std::none_of(now.begin(), now.end(), [&](const EntryLink& x) { return x.from == l.from && x.to == l.to && x.label == l.label; }))
+                undo.removed.push_back(l);
+        }
     const std::string said = report.words();
     if (said.empty()) { flash(L"Everything you pasted is already on this page.", 5); return; }
     wb_.pasteUndo = undo;
-    std::wstring msg = L"Filled in " + w(said) + L".";
+    std::wstring msg = L"Replaced " + w(said) + L" with what you pasted.";
     if (!report.unmatchedBooks.empty())
         msg += L" Notes for " + w(report.unmatchedBooks[0]) + (report.unmatchedBooks.size() > 1 ? L" and others" : L"") +
                L" went to the notes (no book of that name).";
@@ -197,6 +205,7 @@ bool StudioApp::undoEntryPaste() {
     wb_.pasteUndo.reset();
     if (!lib_->entry(u.entry)) return false;
     for (auto& l : u.added) lib_->removeLink(l.from, l.to, l.label);
+    for (auto& l : u.removed) lib_->addLink(l.from, l.to, l.label);
     if (u.created) {
         lib_->trashEntry(u.entry);
         if (wb_.entry == u.entry) openEntry({});
@@ -206,6 +215,68 @@ bool StudioApp::undoEntryPaste() {
         flash(L"The page is back as it was before the paste.", 5);
     }
     loadedFocus_ = {Focus::None, "-", ""};
+    invalidate();
+    return true;
+}
+
+// ------------------------------------------------------------------ starting the bible again
+
+void StudioApp::resetBible() {
+    if (!lib_) return;
+    commitFields();
+    const auto entries = lib_->entriesOf(wb_.world, wb_.world.empty() ? wb_.book : Id{});
+    std::wstring name;
+    if (const World* wo = lib_->world(wb_.world)) name = w(wo->name);
+    else if (const studio::Book* bk = lib_->book(wb_.book)) name = w(bk->title);
+    HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_STRING, 1, (L"Move all " + std::to_wstring(entries.size()) + L" entries to the Trash").c_str());
+    AppendMenuW(m, MF_STRING, 2, L"Start afresh: entries, languages, boards and templates");
+    POINT pt;
+    GetCursorPos(&pt);
+    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
+    DestroyMenu(m);
+    if (cmd < 1) return;
+    const bool everything = cmd == 2;
+    const std::wstring q = L"Reset " + name + L"'s bible?\n\n" +
+                           (everything ? L"All " + std::to_wstring(entries.size()) +
+                                             L" entries go to the Trash, and its languages, image boards, page templates and Checks and sharing "
+                                             L"choices are cleared."
+                                       : L"All " + std::to_wstring(entries.size()) + L" entries go to the Trash. Its languages, image boards and templates stay.") +
+                           L"\n\nA backup of the whole library is made first, and Ctrl+Z takes the reset back straight away. Your books' text "
+                           L"isn't touched.";
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Reset the bible", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
+    std::string err;
+    if (!lib_->backup(err, 20)) {
+        cjui::messageBox(hwnd(), w("The backup couldn't be made, so nothing was reset.\n\n" + err).c_str(), L"Reset the bible", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    mirrorBackups();
+    studio::Library::BibleReset rs;
+    if (!lib_->resetBible(wb_.world, wb_.world.empty() ? wb_.book : Id{}, everything, rs)) {
+        flash(w("Couldn't reset the bible: " + lib_->lastError()), 8);
+        return;
+    }
+    wb_.resetUndo = rs;
+    wb_.pasteUndo.reset();
+    openEntry({});
+    wb_.kind.clear();
+    wb_.facet.clear();
+    wb_.shareKey.clear();
+    wb_.mentionsFor.clear();
+    if (everything) sendView();   // the languages are gone from the spell checker too
+    flash(L"The bible is empty: " + std::to_wstring(rs.trashed.size()) + L" entries are in the Trash. Ctrl+Z puts everything back.", 10);
+    SetFocus(hwnd());
+    invalidate();
+}
+
+bool StudioApp::undoBibleReset() {
+    if (!wb_.resetUndo || !lib_) return false;
+    const studio::Library::BibleReset rs = *wb_.resetUndo;
+    wb_.resetUndo.reset();
+    lib_->undoBibleReset(rs);
+    wb_.shareKey.clear();
+    sendView();
+    flash(L"The bible is back: " + std::to_wstring(rs.trashed.size()) + L" entries restored.", 5);
     invalidate();
     return true;
 }
