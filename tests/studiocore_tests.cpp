@@ -1585,6 +1585,28 @@ static void testFamilyKinds() {
         const auto cf = lib->familyOf(cara);
         CHECK(cf.how.count(ana) && cf.how.at(ana) == "twin" && cf.how.at(ralph) == "adoptive" && cf.how.at(dag) == "step");
     }
+    // Importing with "replace all their text": what the page doesn't say goes; the picture stays (0.46).
+    {
+        Entry a = *lib->entry(ana);
+        a.summary = "Old summary.";
+        a.details = "Gender: Female\nEyes: green";
+        a.notes = "Old notes.";
+        a.aliases = {"Annie"};
+        a.imageBlob = "abc123";
+        a.setSection("History", "Old history.");
+        lib->updateEntry(a);
+        lib->addLink(ana, ralph, "Friend of");
+        const std::vector<pa::Batch> pages{{"character", "Ana Bright", "Name: Ana Bright\nSummary\nA new summary.\n\nFamily\nTwin: Bo Bright\n"}};
+        pa::Import imp;
+        CHECK(pa::importPages(*lib, world, {}, pages, {}, imp, true));
+        const Entry* n = lib->entry(ana);
+        CHECK(n && n->summary == "A new summary." && n->details.empty() && n->notes.empty() && n->aliases.empty() && n->section("History").empty());
+        CHECK(n && n->imageBlob == "abc123");
+        bool friendLink = false, twin = false;
+        for (auto& l : lib->linksOf(ana)) { friendLink |= l.label == "Friend of"; twin |= l.label == "Twin of"; }
+        CHECK(!friendLink && twin);
+        CHECK(imp.updated.size() == 1 && imp.before[0].summary == "Old summary." && imp.linksBefore[0].size() >= 2);
+    }
     // Two families of one surname are told apart.
     const Id old1 = person("Hal Smith", "Gender: Male");
     const Id kid1 = person("Ned Smith", "Gender: Male");
@@ -1851,7 +1873,7 @@ static void testBibleExport() {
         std::string err;
         int pages = 0;
         CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, out, err, &pages));
-        CHECK(pages == 6);
+        CHECK(pages == 8);
         const std::string a = read(out + "/e-" + ada + ".html");
         CHECK(a.find("Ada Wren") != std::string::npos && a.find("AH-dah") != std::string::npos);
         CHECK(a.find("&lt;and&gt;") != std::string::npos);                          // escaped
@@ -1870,7 +1892,7 @@ static void testBibleExport() {
         std::string err;
         int pages = 0;
         CHECK(bible::exportWebsite(*lib, {world, {}, true, b1}, out, err, &pages));
-        CHECK(pages == 5);   // the Ghost isn't met until Book Two
+        CHECK(pages == 7);   // the Ghost isn't met until Book Two
         CHECK(!std::filesystem::exists(out + "/e-" + ghost + ".html"));
         const std::string a = read(out + "/e-" + ada + ".html");
         CHECK(a.find("s heir") == std::string::npos && a.find("Private author note.") == std::string::npos && a.find("Finds the ledger.") == std::string::npos);
@@ -1919,7 +1941,7 @@ static void testBibleExport() {
         std::string err;
         int pages = 0;
         CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, out, err, &pages, look, appFolder("fonts")));
-        CHECK(pages == 7);
+        CHECK(pages == 9);   // and a page for each of the two kinds
         const std::string langs = read(out + "/languages.html");
         CHECK(langs.find("Telvani") != std::string::npos && langs.find("veyth'ar") != std::string::npos && langs.find("VAY-thar") != std::string::npos);
         CHECK(langs.find("class=\"filter\"") != std::string::npos);
@@ -1937,7 +1959,7 @@ static void testBibleExport() {
         plain.search = false;
         const std::string out2 = dir + "/site-plain";
         CHECK(bible::exportWebsite(*lib, o, out2, err, &pages, plain));
-        CHECK(pages == 5 && !std::filesystem::exists(out2 + "/languages.html") && !std::filesystem::exists(out2 + "/glossary.html"));
+        CHECK(pages == 7 && !std::filesystem::exists(out2 + "/languages.html") && !std::filesystem::exists(out2 + "/glossary.html"));
         CHECK(read(out2 + "/e-" + ada + ".html").find("Lives in") == std::string::npos && !std::filesystem::exists(out2 + "/search.js"));
         CHECK(read(out2 + "/e-" + cliff + ".html").find("class=\"pin\"") == std::string::npos);
         // In the PDF: a Languages part with a chapter per language.

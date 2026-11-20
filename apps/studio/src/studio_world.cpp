@@ -1957,6 +1957,9 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         panelHeading(c, y, L"PAGES FROM ELSEWHERE", false);
         linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
         y += 30;
+        linkText("wb:pasteall", c.x, y, L"Replace all its text with what you've copied", [this] { pasteFromClipboard(true); });
+        tooltip("wb:pasteall", L"Everything written on this page goes and the copied page takes its place; its picture, gallery and map stay. Ctrl+Z puts it back.");
+        y += 30;
         linkText("wb:blank", c.x, y, L"Copy a blank page to fill in", [this] { copyBlankPage(); });
         y += 30;
         y += gfx_.text(L"Or press Ctrl+V on this page with a copied page: what it has replaces what's here.", {c.x, y + 2, c.w, 40}, Font::Small,

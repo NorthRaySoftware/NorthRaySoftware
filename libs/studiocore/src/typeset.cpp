@@ -1458,8 +1458,27 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             used = std::min(capacity, used + f.lines);
             continue;
         }
-        const int need = f.kind == Flow::Picture ? f.lines : f.line.lines;
+        int need = f.kind == Flow::Picture ? f.lines : f.line.lines;
         bool breakHere = used + need > capacity;
+        // A picture just short of the room left on the page (under a chapter's heading, say) is made a little smaller
+        // to stay, rather than leaving the heading alone and the picture on the next page (0.46): down to 70%.
+        if (breakHere && f.kind == Flow::Picture && used > 0) {
+            const int capLines = f.caption.runs.empty() ? 0 : 1;
+            const int room = capacity - used - 1 - capLines, had = f.lines - 1 - capLines;
+            if (room >= 4 && had > 0 && room >= had * 0.7) {
+                Flow& g = flow[i];
+                const float s = (float)(room * d.leading) / g.pic.h;
+                if (s < 1) {
+                    const float ow = g.pic.w;
+                    g.pic.w *= s;
+                    g.pic.h *= s;
+                    g.pic.x += g.pic.crop.align == "left" ? 0 : g.pic.crop.align == "right" ? ow - g.pic.w : (ow - g.pic.w) / 2;
+                    g.lines = room + 1 + capLines;
+                    need = g.lines;
+                    breakHere = used + need > capacity;
+                }
+            }
+        }
         if (f.kind == Flow::Line && !breakHere && used + need == capacity) {
             // The last line of the page.
             if (f.count > 1 && f.index == 0) breakHere = true;                       // orphan: a paragraph's first line alone

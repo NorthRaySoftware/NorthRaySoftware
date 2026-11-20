@@ -103,7 +103,12 @@ struct Import {
 // Brings pages into a world's bible (or an independent book's: `world` empty). Each page goes onto the entry of
 // its name and kind (else any kind of that name), or a new one. All the new entries are made first, so pages
 // naming each other link up. False with the library's error if one couldn't be saved; what was done is in `out`.
+// `replaceAll` (0.46): an entry already in the bible has all its text cleared first (see clearEntryText), so it ends up
+// with only what its page says; its pictures stay.
 bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
-                 Import& out);
+                 Import& out, bool replaceAll = false);
+// Clears everything written on an entry (0.46): other names, how it's said, summary, details, sections, notes per book,
+// notes, spoilers, and every relationship and family link it has. Its name, kind, picture, gallery and map stay.
+bool clearEntryText(Library& lib, const Id& entryId);
 
 }  // namespace studio::paste

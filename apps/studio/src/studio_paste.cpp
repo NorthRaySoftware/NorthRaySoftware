@@ -135,7 +135,7 @@ bool StudioApp::pastedIntoField(HWND h, const std::wstring& text) {
     return true;
 }
 
-bool StudioApp::pasteFromClipboard() {
+bool StudioApp::pasteFromClipboard(bool replaceAll) {
     if (!lib_ || ws_ != Workspace::Worldbuilding || !wb_.board.empty() || wb_.languages) return false;
     std::wstring text;
     if (!clipboardText(hwnd(), text)) return false;
@@ -144,7 +144,7 @@ bool StudioApp::pasteFromClipboard() {
         flash(L"To fill a page from what you've copied, it needs parts like Name:, Summary and Details on lines of their own.", 7);
         return true;
     }
-    if (!wb_.entry.empty()) { pasteEntryPage(wb_.entry, t, false); return true; }
+    if (!wb_.entry.empty()) { pasteEntryPage(wb_.entry, t, false, replaceAll); return true; }
     // On the cards, several pages: each its own entry.
     if (paste::looksLikeManyPages(t)) { importPagesText(t, L"what you copied"); return true; }
     // On the cards: a new entry, of the kind chosen (the kind shown, if one is).
@@ -170,7 +170,7 @@ bool StudioApp::pasteFromClipboard() {
     return true;
 }
 
-void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool created) {
+void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool created, bool replaceAll) {
     commitFields();
     const Entry* e = lib_->entry(entryId);
     if (!e) return;
@@ -182,6 +182,8 @@ void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool 
     const paste::Page page = paste::parse(text);
     paste::Report report;
     std::vector<Id> order = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+    // Replacing the whole page: everything written goes first (the pictures stay), then the page fills it (0.46).
+    if (replaceAll && !paste::clearEntryText(*lib_, entryId)) { flash(w("Couldn't clear the page: " + lib_->lastError()), 8); return; }
     if (!paste::apply(*lib_, entryId, page, order, report)) { flash(w("Couldn't fill the page: " + lib_->lastError()), 8); return; }
     for (auto& l : lib_->linksOf(entryId))
         if (std::none_of(linksBefore.begin(), linksBefore.end(), [&](const EntryLink& x) { return x.from == l.from && x.to == l.to && x.label == l.label; }))
@@ -194,9 +196,9 @@ void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool 
                 undo.removed.push_back(l);
         }
     const std::string said = report.words();
-    if (said.empty()) { flash(L"Everything you pasted is already on this page.", 5); return; }
+    if (said.empty() && !replaceAll) { flash(L"Everything you pasted is already on this page.", 5); return; }
     wb_.pasteUndo = undo;
-    std::wstring msg = L"Replaced " + w(said) + L" with what you pasted.";
+    std::wstring msg = replaceAll ? L"The page now has only what you pasted (its pictures kept)." : L"Replaced " + w(said) + L" with what you pasted.";
     if (!report.unmatchedBooks.empty())
         msg += L" Notes for " + w(report.unmatchedBooks[0]) + (report.unmatchedBooks.size() > 1 ? L" and others" : L"") +
                L" went to the notes (no book of that name).";
@@ -465,6 +467,24 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         q += L"\n\n" + std::to_wstring(existing) + (existing == 1 ? L" of them has the name of an entry already in the bible: its"
                                                                  : L" of them have the names of entries already in the bible: their") +
              L" parts on the page replace what's there, as a paste does.";
+    // Entries already there: update what the pages have, or replace all their text (their pictures kept) (0.46).
+    bool replaceAll = false;
+    if (existing > 0) {
+        std::vector<cjui::MenuItem> how{
+            cjui::MenuItem::item(L"Update entries already in the bible: each part on a page replaces that part, the rest is kept", 1),
+            cjui::MenuItem::item(L"Replace all their text with the pages (keep their pictures, gallery and map)", 2)};
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT c = cjui::showMenu(hwnd(), how, pt, pal_);
+        if (!c) return;
+        replaceAll = c == 2;
+        if (replaceAll) {
+            const size_t at = q.rfind(L"\n\n");
+            q = q.substr(0, at) + L"\n\n" + std::to_wstring(existing) +
+                (existing == 1 ? L" of them is already in the bible: all its text" : L" of them are already in the bible: all their text") +
+                L" (other names, summary, details, sections, notes, spoilers, family and relationships) is replaced by the page. Pictures, galleries and maps stay.";
+        }
+    }
     q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
     if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     std::string err;
@@ -474,7 +494,8 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
     }
     mirrorBackups();
     paste::Import imp;
-    const bool ok = paste::importPages(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{}, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), imp);
+    const bool ok = paste::importPages(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{}, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), imp,
+                                       replaceAll);
     wb_.importUndo = imp;
     wb_.pasteUndo.reset();
     wb_.mentionsFor.clear();

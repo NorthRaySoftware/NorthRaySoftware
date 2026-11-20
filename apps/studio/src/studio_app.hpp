@@ -480,8 +480,8 @@ private:
     std::string fontUrl(const std::string& path) const;
     // The world's typefaces for the editor: [{id, name, faces: {regular, italic, bold, boldItalic}}].
     nlohmann::json editorFonts(const Id& book) const;   // preview lines, by family, style, colour, size and text
-    bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
-    void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
+    bool pasteFromClipboard(bool replaceAll = false);   // Ctrl+V on a bible page or the cards; replaceAll: the page's text all replaced (0.46)
+    void pasteEntryPage(const Id& entryId, const std::string& text, bool created, bool replaceAll = false);
     bool undoEntryPaste();
     void copyBlankPage();     // a template for the open entry's kind, on the clipboard
     void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)

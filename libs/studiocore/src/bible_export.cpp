@@ -535,7 +535,20 @@ dl dt{font-weight:600;margin-top:.9em}dl dd{margin:0;color:var(--muted)}
 .lang .ipa{color:var(--muted);font-style:italic}
 input.filter{font:15px var(--bf);padding:7px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);margin:6px 0 12px;width:280px;max-width:100%}
 footer{max-width:1120px;margin:0 auto;padding:0 24px 40px;color:var(--faint);font-size:13px}
-@media (max-width:860px){.layout{grid-template-columns:1fr}.infobox{position:static;order:-1}.top{padding:10px 16px}main{padding:20px 16px 70px}.hero .in{padding:26px 22px}#q{width:160px}}
+.ehead{margin-bottom:18px}
+.kin{color:var(--faint);font-size:.85em;white-space:nowrap}
+.treelink{display:inline-block;margin-top:10px;font-size:14px;color:var(--accent);text-decoration:none}
+.treelink:hover{text-decoration:underline}
+.kindhead a{color:inherit;text-decoration:none}.kindhead a:hover{color:var(--accent)}
+.more{display:inline-block;margin-top:14px;font-size:15px;color:var(--accent);text-decoration:none;font-weight:600}
+.more:hover{text-decoration:underline}
+.kindtitle small,.subhead small{font:14px var(--bf);color:var(--faint)}
+.subhead{font-size:1.3em;margin:34px 0 14px}
+.treewrap{overflow-x:auto;background:#fff;border-radius:12px;border:1px solid var(--rule);padding:6px;scrollbar-width:thin}
+.treewrap img{display:block;max-width:none;height:auto}
+.treenote{font-size:13px;color:var(--faint);margin-top:6px}
+section.tree{margin:28px 0 40px;scroll-margin-top:80px}
+@media (max-width:860px){.layout{grid-template-columns:1fr}.infobox{position:static;order:-1}.top{padding:10px 16px;flex-wrap:wrap}.top nav{order:3;flex-basis:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}.top nav::-webkit-scrollbar{display:none}main{padding:20px 16px 70px}.hero .in{padding:26px 22px}#q{width:160px}}
 @media print{.top,.search,.pager,.letters{display:none}body{background:#fff;color:#000}.card{break-inside:avoid}}
 )CSS";
     if (night)
@@ -552,6 +565,30 @@ footer{max-width:1120px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
 
 namespace {
 
+// What a relative is, in words, from their gender line and the kind of link: "twin sister", "stepfather", "adopted son"
+// ("" for a plain parent, partner, brother, sister or child) (0.46). `role`: 0 parent, 1 partner, 2 sibling, 3 child.
+std::string kinWord(const Entry& o, int role, const std::string& how) {
+    if (how.empty() || role == 1) return {};
+    std::string g;
+    for (auto& [label, value] : detailLines(o.details)) {
+        std::string l = label;
+        for (auto& c : l) c = (char)std::tolower((unsigned char)c);
+        if (l == "gender" || l == "sex" || l == "gender or sex" || l == "gender/sex") { g = value; break; }
+    }
+    for (auto& c : g) c = (char)std::tolower((unsigned char)c);
+    const int sex = g.find("female") != std::string::npos || g.find("woman") != std::string::npos || g == "f" ? 1
+                  : g.find("male") != std::string::npos || g.find("man") != std::string::npos || g == "m" ? 0 : 2;
+    const char* base = role == 0 ? (sex == 1 ? "mother" : sex == 0 ? "father" : "parent")
+                     : role == 2 ? (sex == 1 ? "sister" : sex == 0 ? "brother" : "sibling")
+                                 : (sex == 1 ? "daughter" : sex == 0 ? "son" : "child");
+    if (how == "twin") return std::string("twin ") + base;
+    if (how == "half") return std::string("half-") + base;
+    if (how == "step") return std::string("step") + base;
+    if (how == "foster") return std::string("foster ") + base;
+    if (how == "adoptive") return (role == 3 ? std::string("adopted ") : std::string("adoptive ")) + base;
+    return {};
+}
+
 struct Site {
     const Library& lib;
     const View& view;
@@ -562,6 +599,11 @@ struct Site {
     std::map<std::string, std::string> pictures;   // blob -> "images/<blob>.<ext>" ("" = couldn't)
     std::vector<std::pair<std::string, std::string>> trees;   // family trees (0.45): title -> "images/familytree-<id>.png"
     std::string error;
+    // 0.46: each tree's anchor and picture width (at 1x), and the tree each person is in (anchor, title).
+    std::vector<std::pair<std::string, int>> treeInfo;
+    std::map<Id, std::pair<std::string, std::string>> treeOf;
+    // A kind's own page.
+    static std::string kindPage(const std::string& kind) { return "kind-" + kind + ".html"; }
 
     std::string picture(const std::string& blob) {
         if (blob.empty() || !view.options().pictures) return {};
@@ -584,7 +626,7 @@ struct Site {
         std::set<std::string> kinds;
         for (const Entry* e : view.entries()) kinds.insert(e->kind);
         for (const auto& k : entryKinds())
-            if (kinds.count(k)) nav += "<a href=\"index.html#" + k + "\"" + (here == k ? " class=\"on\"" : "") + ">" + esc(entryKindPlural(k)) + "</a>";
+            if (kinds.count(k)) nav += "<a href=\"" + kindPage(k) + "\"" + (here == k ? " class=\"on\"" : "") + ">" + esc(entryKindPlural(k)) + "</a>";
         if (view.options().glossary) nav += "<a href=\"glossary.html\"" + std::string(here == "glossary" ? " class=\"on\"" : "") + ">Glossary</a>";
         if (!langs.empty()) nav += "<a href=\"languages.html\"" + std::string(here == "languages" ? " class=\"on\"" : "") + ">Languages</a>";
         if (!trees.empty()) nav += "<a href=\"families.html\"" + std::string(here == "families" ? " class=\"on\"" : "") + ">Family trees</a>";
@@ -623,13 +665,14 @@ struct Site {
 
     std::string entryPage(const Entry& e, const Entry* prev, const Entry* next) {
         const auto& shown = view.entries();
-        std::string main, aside;
-        main += "<div class=\"kind\">" + esc(entryKindLabel(e.kind)) + "</div><h1>" + esc(e.name) + "</h1>";
-        if (!e.pronunciation.empty()) main += "<div class=\"said\">Said \xE2\x80\x9C" + esc(e.pronunciation) + "\xE2\x80\x9D</div>";
+        std::string head, main, aside;
+        // The name and what it's called sit above the text and the box (so on a phone the name comes first) (0.46).
+        head += "<div class=\"kind\">" + esc(entryKindLabel(e.kind)) + "</div><h1>" + esc(e.name) + "</h1>";
+        if (!e.pronunciation.empty()) head += "<div class=\"said\">Said \xE2\x80\x9C" + esc(e.pronunciation) + "\xE2\x80\x9D</div>";
         if (!e.aliases.empty()) {
             std::string a;
             for (auto& x : e.aliases) a += (a.empty() ? "" : ", ") + std::string("\xE2\x80\x9C") + esc(x) + "\xE2\x80\x9D";
-            main += "<div class=\"also\">Also known as " + a + "</div>";
+            head += "<div class=\"also\">Also known as " + a + "</div>";
         }
         if (!e.summary.empty() && view.shows(e, "summary")) main += "<p class=\"lead\">" + linked(e.summary, shown, e.id) + "</p>";
         for (auto& [t, text] : lib.entrySections(e)) {
@@ -677,17 +720,27 @@ struct Site {
             if (e.kind == "character") {
                 const auto f = lib.familyOf(e.id);
                 std::string fam;
-                auto row = [&](const char* label, const std::vector<Id>& ids) {
+                auto row = [&](const char* label, const std::vector<Id>& ids, int role) {
                     std::string names;
                     for (const Id& i : ids)
-                        if (const Entry* o = lib.entry(i); o && view.shows(i)) names += (names.empty() ? "" : ", ") + std::string("<a href=\"") + pageName(i) + "\">" + esc(o->name) + "</a>";
+                        if (const Entry* o = lib.entry(i); o && view.shows(i)) {
+                            // What kind, when not plain: twin sister, stepfather, adopted son (0.46).
+                            std::string kw;
+                            if (auto h = f.how.find(i); h != f.how.end() && role != 1) kw = kinWord(*o, role, h->second);
+                            names += (names.empty() ? "" : ", ") + std::string("<a href=\"") + pageName(i) + "\">" + esc(o->name) + "</a>" +
+                                     (kw.empty() ? "" : " <small class=\"kin\">" + esc(kw) + "</small>");
+                        }
                     if (!names.empty()) fam += "<tr><td>" + std::string(label) + "</td><td>" + names + "</td></tr>";
                 };
-                row("Parents", f.parents);
-                row("Partners", f.partners);
-                row("Brothers and sisters", f.siblings);
-                row("Children", f.children);
-                if (!fam.empty()) aside += "<h4>Family</h4><table>" + fam + "</table>";
+                row("Parents", f.parents, 0);
+                row("Partners", f.partners, 1);
+                row("Brothers and sisters", f.siblings, 2);
+                row("Children", f.children, 3);
+                if (!fam.empty()) {
+                    aside += "<h4>Family</h4><table>" + fam + "</table>";
+                    if (auto t = treeOf.find(e.id); t != treeOf.end())
+                        aside += "<a class=\"treelink\" href=\"families.html#" + t->second.first + "\">" + esc(t->second.second) + ": see the tree \xE2\x80\xBA</a>";
+                }
             }
             if (const auto rel = relationsOf(lib, view, e); !rel.empty()) {
                 // One row per relationship, names together.
@@ -711,9 +764,9 @@ struct Site {
             if (next) pager += "<a class=\"next\" href=\"" + pageName(next->id) + "\"><small>Next \xE2\x80\xBA</small>" + esc(next->name) + "</a>";
             pager += "</nav>";
         }
-        const std::string crumbs = "<div class=\"crumbs\"><a href=\"index.html\">" + esc(title) + "</a> \xE2\x80\xBA <a href=\"index.html#" + e.kind + "\">" +
+        const std::string crumbs = "<div class=\"crumbs\"><a href=\"index.html\">" + esc(title) + "</a> \xE2\x80\xBA <a href=\"" + kindPage(e.kind) + "\">" +
                                    esc(entryKindPlural(e.kind)) + "</a></div>";
-        return page(e.name + " \xC2\xB7 " + title, crumbs + "<article class=\"k-" + e.kind + "\"><div class=\"layout\"><div class=\"main\">" + main +
+        return page(e.name + " \xC2\xB7 " + title, crumbs + "<article class=\"k-" + e.kind + "\"><header class=\"ehead\">" + head + "</header><div class=\"layout\"><div class=\"main\">" + main +
                                                     "</div><aside class=\"infobox\">" + aside + "</aside></div>" + pager + "</article>",
                     e.kind);
     }
@@ -766,7 +819,20 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
             if (!pic.ok) continue;
             const std::string rel = "images/familytree-" + fg.root + ".png";
             if (!writeFile(folder + "/" + rel, pic.png)) continue;
-            site.trees.push_back({familytree::title(lib, fg.root, true), rel});
+            const std::string t = familytree::title(lib, fg.root, true), anchor = "tree-" + fg.root;
+            site.trees.push_back({t, rel});
+            site.treeInfo.push_back({anchor, pic.width / 2});
+            for (const auto& p : lib.familyLayout(fg.root, 150, true).people)
+                if (!p.inLaw && !site.treeOf.count(p.id)) site.treeOf[p.id] = {anchor, t};
+        }
+        // Married in: their partner's family's tree, when they have none of their own.
+        for (const auto& fg : lib.families(options.worldId, options.worldId.empty() ? options.bookId : Id{})) {
+            if (!options.family || options.readersGuide || options.treeFonts.empty()) break;
+            const auto it = std::find_if(site.treeInfo.begin(), site.treeInfo.end(), [&](auto& ti) { return ti.first == "tree-" + fg.root; });
+            if (it == site.treeInfo.end()) continue;
+            const std::string t = familytree::title(lib, fg.root, true);
+            for (const auto& p : lib.familyLayout(fg.root, 150, true).people)
+                if (p.inLaw && !site.treeOf.count(p.id)) site.treeOf[p.id] = {it->first, t};
         }
 
     // The stylesheet, with the typefaces the look needs copied in.
@@ -825,6 +891,7 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
     }
 
     // Home: the world's banner and words, then everything by kind.
+    int kindPages = 0;
     {
         std::string home;
         const std::string banner = world ? site.picture(world->bannerBlob) : std::string();
@@ -836,25 +903,72 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
         for (const auto& k : entryKinds()) {
             int c = 0;
             for (const Entry* e : view.entries()) c += e->kind == k;
-            if (c) chips += "<a class=\"k-" + k + "\" href=\"#" + k + "\"><i></i>" + esc(entryKindPlural(k)) + " <small>" + std::to_string(c) + "</small></a>";
+            if (c) chips += "<a class=\"k-" + k + "\" href=\"" + Site::kindPage(k) + "\"><i></i>" + esc(entryKindPlural(k)) + " <small>" + std::to_string(c) + "</small></a>";
         }
         if (options.glossary) chips += "<a href=\"glossary.html\">Glossary</a>";
         if (!site.langs.empty()) chips += "<a href=\"languages.html\">Languages <small>" + std::to_string(site.langs.size()) + "</small></a>";
         if (!site.trees.empty()) chips += "<a href=\"families.html\">Family trees <small>" + std::to_string(site.trees.size()) + "</small></a>";
         home += "<div class=\"chips\">" + chips + "</div>";
+        // On the home page, each kind's first few (those with a picture or a summary first); the rest on its own page (0.46).
+        const size_t homeCount = 8;
         for (const auto& k : entryKinds()) {
+            std::vector<const Entry*> of;
+            for (const Entry* e : ordered) if (e->kind == k) of.push_back(e);
+            if (of.empty()) continue;
+            std::vector<const Entry*> pick = of;
+            std::stable_partition(pick.begin(), pick.end(), [&](const Entry* e) {
+                return (!e->imageBlob.empty() && options.pictures) || (!e->summary.empty() && view.shows(*e, "summary"));
+            });
+            if (pick.size() > homeCount) pick.resize(homeCount);
             std::string items;
-            int c = 0;
-            for (const Entry* e : ordered)
-                if (e->kind == k) {
-                    ++c;
-                    items += look.cards ? site.card(*e) : "<li><a href=\"" + pageName(e->id) + "\">" + esc(e->name) + "</a></li>";
-                }
-            if (!items.empty())
-                home += "<h2 class=\"kindhead k-" + k + "\" id=\"" + k + "\">" + esc(entryKindPlural(k)) + "<small>" + std::to_string(c) + "</small></h2>" +
-                        (look.cards ? "<div class=\"cards\">" + items + "</div>" : "<ul class=\"list\">" + items + "</ul>");
+            for (const Entry* e : pick) items += look.cards ? site.card(*e) : "<li><a href=\"" + pageName(e->id) + "\">" + esc(e->name) + "</a></li>";
+            home += "<h2 class=\"kindhead k-" + k + "\" id=\"" + k + "\"><a href=\"" + Site::kindPage(k) + "\">" + esc(entryKindPlural(k)) + "</a><small>" +
+                    std::to_string(of.size()) + "</small></h2>" + (look.cards ? "<div class=\"cards\">" + items + "</div>" : "<ul class=\"list\">" + items + "</ul>");
+            if (of.size() > pick.size()) {
+                std::string plural = entryKindPlural(k);
+                if (!plural.empty()) plural[0] = (char)std::tolower((unsigned char)plural[0]);
+                home += "<a class=\"more k-" + k + "\" href=\"" + Site::kindPage(k) + "\">All " + std::to_string(of.size()) + " " + esc(plural) + " \xE2\x80\xBA</a>";
+            }
         }
         if (!site.write("index.html", site.page(site.title, home))) { error = site.error; return false; }
+        // A page per kind: every entry, A to Z (characters by gender or sex when most have it written) (0.46).
+        for (const auto& k : entryKinds()) {
+            std::vector<const Entry*> of;
+            for (const Entry* e : ordered) if (e->kind == k) of.push_back(e);
+            if (of.empty()) continue;
+            std::sort(of.begin(), of.end(), [](const Entry* a, const Entry* b) { return a->name < b->name; });
+            auto block = [&](const std::vector<const Entry*>& list) {
+                std::string items;
+                for (const Entry* e : list) items += look.cards ? site.card(*e) : "<li><a href=\"" + pageName(e->id) + "\">" + esc(e->name) + "</a></li>";
+                return look.cards ? "<div class=\"cards\">" + items + "</div>" : "<ul class=\"list\">" + items + "</ul>";
+            };
+            std::string body = "<div class=\"crumbs\"><a href=\"index.html\">" + esc(site.title) + "</a></div><h1 class=\"kindtitle k-" + k + "\">" +
+                               esc(entryKindPlural(k)) + " <small>" + std::to_string(of.size()) + "</small></h1>";
+            std::map<std::string, std::vector<const Entry*>> byGender;
+            int withGender = 0;
+            if (k == "character")
+                for (const Entry* e : of) {
+                    std::string g, glabel;
+                    for (auto& [label, value] : detailLines(e->details)) {
+                        std::string l = label;
+                        for (auto& c : l) c = (char)std::tolower((unsigned char)c);
+                        if (l == "gender" || l == "sex" || l == "gender or sex" || l == "gender/sex") { g = value; glabel = label; break; }
+                    }
+                    if (!g.empty() && view.shows(*e, "detail:" + glabel)) ++withGender; else g.clear();
+                    byGender[g].push_back(e);
+                }
+            if (k == "character" && byGender.size() > 1 && withGender * 2 >= (int)of.size()) {
+                for (auto& [g, list] : byGender) {
+                    if (g.empty()) continue;
+                    body += "<h2 class=\"subhead\">" + esc(g) + " <small>" + std::to_string(list.size()) + "</small></h2>" + block(list);
+                }
+                if (byGender.count("")) body += "<h2 class=\"subhead\">Not said <small>" + std::to_string(byGender[""].size()) + "</small></h2>" + block(byGender[""]);
+            } else {
+                body += block(of);
+            }
+            if (!site.write(Site::kindPage(k), site.page(std::string(entryKindPlural(k)) + " \xC2\xB7 " + site.title, body, k))) { error = site.error; return false; }
+            ++kindPages;
+        }
     }
 
     // Glossary: every name and other name, A to Z, with a row of letters to jump to.
@@ -927,13 +1041,22 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
     // Family trees: a page with each family's tree, the picture opening at full size.
     if (!site.trees.empty()) {
         std::string body = "<h1>Family trees</h1>";
-        for (auto& [t, rel] : site.trees)
-            body += "<section class=\"tree\"><h2>" + esc(t) + "</h2><a href=\"" + rel + "\"><img src=\"" + rel + "\" alt=\"" + esc(t) +
-                    " family tree\" loading=\"lazy\" style=\"max-width:100%;height:auto;border-radius:10px\"></a></section>";
+        // At their own size, moved across when wider than the page; the picture opens on its own (0.46).
+        if (site.trees.size() > 1) {
+            body += "<div class=\"chips\">";
+            for (size_t i = 0; i < site.trees.size(); ++i) body += "<a href=\"#" + site.treeInfo[i].first + "\">" + esc(site.trees[i].first) + "</a>";
+            body += "</div>";
+        }
+        for (size_t i = 0; i < site.trees.size(); ++i) {
+            const auto& [t, rel] = site.trees[i];
+            body += "<section class=\"tree\" id=\"" + site.treeInfo[i].first + "\"><h2>" + esc(t) + "</h2><div class=\"treewrap\"><a href=\"" + rel +
+                    "\" title=\"Open the picture on its own\"><img src=\"" + rel + "\" alt=\"" + esc(t) + " family tree\" loading=\"lazy\" width=\"" +
+                    std::to_string(site.treeInfo[i].second) + "\"></a></div>" + (site.treeInfo[i].second > 1000 ? "<div class=\"treenote\">Wider than the page: move across it, or open the picture on its own.</div>" : "") + "</section>";
+        }
         if (!site.write("families.html", site.page("Family trees \xC2\xB7 " + site.title, body, "families"))) { error = site.error; return false; }
         ++extra;
     }
-    if (pages) *pages = n + extra;
+    if (pages) *pages = n + extra + kindPages;
     return true;
 }
 

@@ -948,8 +948,25 @@ std::string documentPagesText(const std::vector<std::pair<std::string, std::stri
 
 bool looksLikeManyPages(const std::string& text) { return splitPages(text, "character").size() >= 2; }
 
+bool clearEntryText(Library& lib, const Id& entryId) {
+    const Entry* e = lib.entry(entryId);
+    if (!e) return false;
+    Entry x = *e;
+    x.aliases.clear();
+    x.pronunciation.clear();
+    x.summary.clear();
+    x.details.clear();
+    x.sections.clear();
+    x.bookNotes.clear();
+    x.notes.clear();
+    x.revealed.clear();
+    if (!lib.updateEntry(x)) return false;
+    for (const EntryLink& l : lib.linksOf(entryId)) lib.removeLink(l.from, l.to, l.label);
+    return true;
+}
+
 bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
-                 Import& out) {
+                 Import& out, bool replaceAll) {
     const Id scopeBook = world.empty() ? book : Id{};
     std::vector<Id> target(pages.size());
     std::set<Id> seen;
@@ -973,6 +990,9 @@ bool importPages(Library& lib, const Id& world, const Id& book, const std::vecto
         seen.insert(id);
         out.made.push_back(id);
     }
+    if (replaceAll)
+        for (const Id& id : out.updated)
+            if (!clearEntryText(lib, id)) return false;
     std::set<Id> changed;
     for (size_t i = 0; i < pages.size(); ++i) {
         Report r;
