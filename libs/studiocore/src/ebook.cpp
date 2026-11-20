@@ -1,5 +1,9 @@
 // Ebook HTML from the manuscript's document model.
 #include "studio/ebook.hpp"
+#include "studio/fonts.hpp"
+#include "internal.hpp"
+#include <functional>
+#include <filesystem>
 
 #include <algorithm>
 #include <cmath>
@@ -55,6 +59,14 @@ void inlineHtml(const json& content, std::string& out) {
                 else if (mt == "sup") { o = "<sup>"; c = "</sup>"; }
                 else if (mt == "sub") { o = "<sub>"; c = "</sub>"; }
                 else if (mt == "code") { o = "<code>"; c = "</code>"; }
+                else if (mt == "font") {
+                    // A world's own typeface (0.41); the id was checked when the document was saved.
+                    std::string fam = m.contains("attrs") && m["attrs"].is_object() ? m["attrs"].value("family", "") : "";
+                    if (!fam.empty() && fam.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos) {
+                        o = "<span class=\"ff ff-" + fam + "\">";
+                        c = "</span>";
+                    }
+                }
                 else if (mt == "link") {
                     const std::string href = m.contains("attrs") ? m["attrs"].value("href", "") : "";
                     // Only web and mail links: nothing that runs or reaches into the reader's files.
@@ -374,6 +386,56 @@ h1.numeral span.chaptitle { font-style: italic; font-size: 0.85em; }
 span.leadin { font-variant: small-caps; letter-spacing: 0.05em; }
 span.dropcap { float: left; font-size: 3.4em; line-height: 0.82; margin: 0.06em 0.08em 0 0; }
 )CSS";
+}
+
+
+std::vector<std::string> fontsUsed(const typeset::Source& src) {
+    std::vector<std::string> out;
+    std::function<void(const json&)> walk = [&](const json& n) {
+        if (n.is_object()) {
+            if (n.contains("marks") && n["marks"].is_array())
+                for (const json& m : n["marks"])
+                    if (m.is_object() && m.value("type", "") == "font" && m.contains("attrs") && m["attrs"].is_object()) {
+                        const std::string f = m["attrs"].value("family", "");
+                        if (!f.empty() && std::find(out.begin(), out.end(), f) == out.end()) out.push_back(f);
+                    }
+            if (n.contains("content")) walk(n["content"]);
+        } else if (n.is_array()) {
+            for (const json& c : n) walk(c);
+        }
+    };
+    for (const auto& sec : src.sections) {
+        if (sec.content.find("\"font\"") == std::string::npos) continue;
+        walk(json::parse(sec.content, nullptr, false));
+    }
+    return out;
+}
+
+std::string worldFontCss(const std::string& fontsFolders, const std::string& id, const std::function<std::string(const std::string& path)>& url) {
+    if (id.empty() || id.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") != std::string::npos) return {};
+    const std::string dir = studio::fonts::familyFolder(fontsFolders, id);
+    if (dir.empty()) return {};
+    namespace fs = std::filesystem;
+    std::string css;
+    std::error_code ec;
+    std::vector<std::string> files;
+    for (auto& e : fs::directory_iterator(detail::u8path(dir), ec)) files.push_back(detail::fromPath(e.path()));
+    std::sort(files.begin(), files.end());
+    struct W { const char* suffix; const char* weight; const char* style; };
+    for (const W& w : {W{"-Regular.ttf", "normal", "normal"}, W{"-Italic.ttf", "normal", "italic"}, W{"-Bold.ttf", "bold", "normal"},
+                       W{"-BoldItalic.ttf", "bold", "italic"}}) {
+        const std::string suf = w.suffix;
+        for (const std::string& f : files) {
+            const std::string name = detail::fromPath(detail::u8path(f).filename());
+            if (name.size() <= suf.size() || name.compare(name.size() - suf.size(), suf.size(), suf) != 0) continue;
+            if (suf == "-Italic.ttf" && name.size() > 15 && name.compare(name.size() - 15, 15, "-BoldItalic.ttf") == 0) continue;
+            css += "@font-face { font-family: \"NR F " + id + "\"; font-weight: " + w.weight + "; font-style: " + w.style + "; src: url(\"" +
+                   url(f) + "\"); }\n";
+        }
+    }
+    if (css.empty()) return {};
+    css += "span.ff-" + id + " { font-family: \"NR F " + id + "\", serif; }\n";
+    return css;
 }
 
 }  // namespace studio::ebook

@@ -133,6 +133,16 @@ json cleanInline(const json& n, std::vector<std::string>* problems) {
                     }
                     continue;
                 }
+                if (mt == "font") {
+                    // A world's own typeface on these words (runes, handwriting: 0.41): its family id.
+                    const std::string fam = m.contains("attrs") && m["attrs"].is_object() ? m["attrs"].value("family", "") : "";
+                    if (!fam.empty() && fam.size() <= 64 && fam.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos &&
+                        !seen.count("font")) {
+                        seen.insert("font");
+                        marks.push_back({{"type", "font"}, {"attrs", {{"family", fam}}}});
+                    }
+                    continue;
+                }
                 if (!kMarks.count(mt) || seen.count(mt)) continue;
                 seen.insert(mt);
                 if (mt == "link") {

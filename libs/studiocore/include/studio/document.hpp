@@ -14,7 +14,8 @@
 //                  cropX, cropY, cropW, cropH (0..1), width (of the text width, 0.1..1), align (left/right)
 //   text           text, marks[]
 //   hard_break
-//   marks: em, strong, underline, smallcaps, strike, sup, sub, code, link (attrs.href)
+//   marks: em, strong, underline, smallcaps, strike, sup, sub, code, link (attrs.href),
+//          font (attrs.family: a world's own typeface's id, for runes or handwriting; 0.41)
 //
 // Styles are semantic ("Body", "Epigraph"): the look comes from the book's
 // design, so changing a style restyles the whole book.

@@ -370,6 +370,7 @@ void StudioApp::sendView() {
             }
         msg["style"]["languages"] = langs;
     }
+    msg["fonts"] = editorFonts(writingBook_);   // the world's typefaces, for words set in them (0.41)
     editor_.send(msg.dump());
 }
 

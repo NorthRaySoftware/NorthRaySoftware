@@ -57,7 +57,10 @@ void StudioApp::sendPreview() {
     Id ebookEdition;
     for (const Edition* e : lib_->editionsOf(pv_.book)) if (e->kind == "ebook") { ebookEdition = e->id; break; }
     const ebook::Style pvStyle = ebookStyleFor(pv_.book, ebookEdition, nullptr);
-    const std::string pvCss = ebook::stylesheet(pvStyle);
+    std::string pvCss = ebook::stylesheet(pvStyle);
+    // World typefaces set on words (runes, handwriting: 0.41), from the library's fonts host.
+    for (const std::string& id : ebook::fontsUsed(src))
+        pvCss += ebook::worldFontCss(fontFoldersFor(pv_.book), id, [this](const std::string& p) { return fontUrl(p); });
     const auto content = ebook::build(src, [](const std::string& h) {
         return "https://objects.nrstudio.localhost/" + h.substr(0, 2) + "/" + h.substr(2);
     }, pvStyle);

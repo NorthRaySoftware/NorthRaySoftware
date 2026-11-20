@@ -6,6 +6,7 @@
 #include "studio/document.hpp"
 
 #include <algorithm>
+#include <set>
 #include <cctype>
 #include <cmath>
 #include <cwctype>
@@ -88,9 +89,10 @@ namespace {
 struct Span {
     std::string text;
     bool bold = false, italic = false, smallCaps = false, underline = false, strike = false, sup = false, sub = false;
+    std::string font;              // a world's own typeface for these words (runes, handwriting: 0.41); "" = the book's
     bool sameStyle(const Span& o) const {
         return bold == o.bold && italic == o.italic && smallCaps == o.smallCaps && underline == o.underline && strike == o.strike &&
-               sup == o.sup && sub == o.sub;
+               sup == o.sup && sub == o.sub && font == o.font;
     }
 };
 
@@ -134,6 +136,7 @@ void inlineSpans(const json& content, std::vector<Span>& out, const Span& base) 
                 else if (mt == "strike") s.strike = true;
                 else if (mt == "sup") s.sup = true;
                 else if (mt == "sub") s.sub = true;
+                else if (mt == "font" && m.contains("attrs") && m["attrs"].is_object()) s.font = m["attrs"].value("family", "");
             }
         if (!s.text.empty()) out.push_back(std::move(s));
     }
@@ -425,10 +428,11 @@ std::string upper(const std::string& s) {
 
 class Shaper {
 public:
-    Shaper(const Family& fam, std::string lang) : fam_(fam), lang_(std::move(lang)) {}
+    Shaper(const Family& fam, std::string lang, std::string fontsFolder = {})
+        : fam_(fam), lang_(std::move(lang)), fontsFolder_(std::move(fontsFolder)) {}
     Style style(const Span& s, float size) const {
         Style st;
-        st.face = fam_.pick(s.bold, s.italic);
+        st.face = familyFor(s.font).pick(s.bold, s.italic);
         st.size = size;
         if (s.sup || s.sub) { st.size = size * 0.65f; st.rise = s.sup ? -size * 0.33f : size * 0.15f; }
         st.smallCaps = s.smallCaps;
@@ -445,9 +449,25 @@ public:
         return cache_.emplace(std::move(key), shape(st.face, t, st.size, st.smallCaps && !st.fakeSmallCaps, lang_)).first->second;
     }
     float width(const Style& st, const std::string& text) { return get(st, text).width; }
+    // Typefaces asked for on words but not found (the font was removed from the world).
+    const std::set<std::string>& missing() const { return missing_; }
 private:
+    // The book's family, or a world's own one named on the words (opened once).
+    const Family& familyFor(const std::string& id) const {
+        if (id.empty()) return fam_;
+        auto it = others_.find(id);
+        if (it == others_.end()) {
+            Family f;
+            if (!openFamily(fontsFolder_, id, f)) { missing_.insert(id); f = fam_; }
+            it = others_.emplace(id, f).first;
+        }
+        return it->second;
+    }
     const Family& fam_;
     std::string lang_;
+    std::string fontsFolder_;
+    mutable std::unordered_map<std::string, Family> others_;
+    mutable std::set<std::string> missing_;
     std::unordered_map<std::string, Shaped> cache_;
 };
 
@@ -1065,7 +1085,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         if (d.hyphenate && !hyph.load(base + ".pat.txt", base + ".hyp.txt"))
             book.warnings.push_back("No hyphenation patterns for " + lang + ", so words aren't hyphenated.");
     }
-    Shaper shaper(fam, lang);
+    Shaper shaper(fam, lang, res.fontsFolder);
     Setter set(shaper, book, &hyph, d, measure);
     const float fs = (float)d.fontSize;
 
@@ -1531,6 +1551,9 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
     }
     if (looseParas) book.warnings.push_back(std::to_string(looseParas) + (looseParas == 1 ? " paragraph is" : " paragraphs are") +
                                             " set looser than usual (long words or narrow columns).");
+    for (const std::string& f : shaper.missing())
+        book.warnings.push_back("Some words are marked for the typeface \"" + f + "\", which isn't in this world's fonts any more, so they're "
+                                "set in the book's own.");
     book.ok = true;
     return book;
 }

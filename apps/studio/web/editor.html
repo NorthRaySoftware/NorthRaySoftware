@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://objects.nrstudio.localhost; font-src 'self'; connect-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://objects.nrstudio.localhost; font-src 'self' https://worldfonts.nrstudio.localhost; connect-src 'self'">
 <title>Manuscript</title>
 <link rel="stylesheet" href="editor.css">
 </head>
@@ -14,6 +14,7 @@
   <button id="i" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
   <button id="u" title="Underline (Ctrl+U)" aria-label="Underline"><u>U</u></button>
   <button id="sc" title="Small capitals (Ctrl+Shift+K)" aria-label="Small capitals" class="sc-btn">Sc</button>
+  <button id="fontbtn" title="Set the selected words in one of this world's fonts: runes, symbols, handwriting" aria-label="Typeface for these words" aria-haspopup="true" aria-expanded="false" hidden><span class="fb-glyph">Ff</span></button>
   <span class="sep"></span>
   <button id="break" title="Scene break (Ctrl+Enter)" aria-label="Scene break">&#x2042;</button>
   <button id="quote" title="Block quote" aria-label="Block quote">&#x201C;</button>
@@ -36,6 +37,7 @@
   <span id="count" aria-live="polite"></span>
   <span id="saved" aria-live="polite"></span>
 </div>
+<div id="fontmenu" hidden role="menu" aria-label="Typeface for these words"></div>
 <div id="viewmenu" role="dialog" aria-label="Writing view" hidden>
   <div class="vm-label">Font</div>
   <div class="vm-row">

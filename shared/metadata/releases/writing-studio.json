@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.41.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Set words in your world's fonts as you write: select runes, symbols, a character's handwriting or a letter, and choose a typeface from the new Ff button on the editor's toolbar. The words show in that font in Writing, on the typeset pages and PDFs, and in the ebook and its preview (inside the EPUB when the font's licence allows).",
+        "Words in a world font aren't spell-checked or given style hints, since they're not English.",
+        "If a font is removed from the world, its words go back to the book's own typeface, and Typesetting says so."
+      ]
+    },
+    {
       "version": "0.40.0",
       "date": "2026-11-20",
       "notes": [

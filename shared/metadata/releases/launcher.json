@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.107.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.41.0: set words in your world's fonts as you write."
+      ]
+    },
+    {
       "version": "0.106.0",
       "date": "2026-11-20",
       "notes": [

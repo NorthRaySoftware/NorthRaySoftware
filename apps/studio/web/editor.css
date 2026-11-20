@@ -378,3 +378,18 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .ProseMirror p.s-sfx { margin-left: 1em; font-weight: 700; letter-spacing: .03em; }
 .ProseMirror .cs-name { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
 .ProseMirror p.s-page.is-empty::after, .ProseMirror p.s-panel:empty::after { content: ""; }
+
+/* A world's own typefaces on words (0.41): the menu, and its items each shown in their own font. */
+#fontmenu { position: fixed; top: 44px; z-index: 10; width: 288px; padding: 10px 10px 8px; background: var(--page);
+  border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18); font: 13px/1.35 var(--ui);
+  animation: vm-in .12s ease-out both; max-height: 60vh; overflow: auto; scrollbar-width: none; }
+#fontmenu::-webkit-scrollbar { display: none; }
+#fontmenu[hidden] { display: none; }
+.fm-item { display: block; width: 100%; text-align: left; font-size: 18px; color: var(--ink); background: transparent; border: 1px solid transparent;
+  border-radius: 5px; padding: 6px 8px; margin: 1px 0; }
+.fm-item:not([class*="ff-"]) { font: 13px/1.35 var(--ui); padding: 8px; }
+.fm-item:hover { border-color: var(--rule); }
+.fm-item[aria-pressed="true"] { border-color: var(--accent); background: var(--sel); }
+#fontbtn .fb-glyph { font-family: var(--serif); font-style: italic; }
+/* Words in a world typeface: a faint underline so they're easy to find while writing. */
+.ProseMirror .ff { text-decoration: underline dotted color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }

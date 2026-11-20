@@ -2336,6 +2336,71 @@ static void testWorldFonts() {
         CHECK(nf::removeFamily(mine, id, err) && nf::familiesIn(mine).empty());
         CHECK(!nf::removeFamily(mine, id, err) && !err.empty());
     }
+    // A world typeface on words in a chapter (runes, handwriting: 0.41): kept when saved, set in that face on the pages,
+    // in a span with its own @font-face in the ebook; a missing one falls back to the book's with a warning.
+    {
+        const nf::ImportResult again = nf::importFiles(mine, {(app / "gentium-book-plus" / "GentiumBookPlus-Italic.ttf").string()}, bundled);
+        CHECK(again.added.size() == 1);
+        std::string runes;
+        for (auto& f : nf::familiesIn(mine)) if (f.name == "Gentium Book Plus") runes = f.id;
+        CHECK(runes == "gentium-book-plus-2");
+        const std::string docJson = std::string(R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"The door read "},)") +
+                                    R"({"type":"text","text":"Veyth ar sel","marks":[{"type":"font","attrs":{"family":")" + runes + R"("}}]},)" +
+                                    R"({"type":"text","text":" in old letters.","marks":[{"type":"font","attrs":{"family":"../evil"}}]}]}]})";
+        const std::string clean = doc::sanitise(docJson);
+        CHECK(clean.find("\"family\":\"" + runes + "\"") != std::string::npos && clean.find("evil") == std::string::npos);
+        typeset::Source src;
+        src.title = "Runes";
+        src.author = "CJ";
+        typeset::Source::Section sec;
+        sec.title = "One";
+        sec.content = clean;
+        src.sections.push_back(sec);
+        typeset::Design d;
+        const auto book = typeset::typesetBook(src, d, {list, appFolder("hyphenation")});
+        CHECK(book.ok);
+        bool usedWorld = false;
+        for (auto& f : book.fonts) if (f.path.find("world-") != std::string::npos) usedWorld = true;
+        CHECK(usedWorld);
+        const std::string gone = std::string(R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Lost","marks":[{"type":"font","attrs":{"family":"gone-font"}}]}]}]})");
+        typeset::Source src2 = src;
+        src2.sections[0].content = gone;
+        const auto book2 = typeset::typesetBook(src2, d, {list, appFolder("hyphenation")});
+        bool warned = false;
+        for (auto& w : book2.warnings) if (w.find("gone-font") != std::string::npos) warned = true;
+        CHECK(book2.ok && warned);
+        CHECK(studio::ebook::fontsUsed(src).size() == 1 && studio::ebook::fontsUsed(src)[0] == runes);
+        const auto html = studio::ebook::build(src, [](const std::string&) { return std::string(); });
+        CHECK(!html.chapters.empty() && html.chapters.back().html.find("<span class=\"ff ff-" + runes + "\">Veyth ar sel</span>") != std::string::npos);
+        const std::string css = studio::ebook::worldFontCss(list, runes, [](const std::string& p) { return "u/" + fs::path(p).filename().string(); });
+        CHECK(css.find("NR F " + runes) != std::string::npos && css.find("span.ff-" + runes) != std::string::npos);
+        publish::EpubOptions eo;
+        eo.fontsFolder = list;   // no book typeface: just the words' one
+        const auto ep = publish::buildEpub(src, eo);
+        CHECK(ep.ok);
+        if (ep.ok) {
+            mz_zip_archive za{};
+            CHECK(mz_zip_reader_init_mem(&za, ep.bytes.data(), ep.bytes.size(), 0));
+            bool font = false, licence = false;
+            std::string style;
+            for (mz_uint i = 0; i < mz_zip_reader_get_num_files(&za); ++i) {
+                char name[512];
+                mz_zip_reader_get_filename(&za, i, name, sizeof name);
+                const std::string n = name;
+                if (n.rfind("OEBPS/fonts/" + runes + "/", 0) == 0 && n.size() > 4 && n.substr(n.size() - 4) == ".ttf") font = true;
+                if (n == "OEBPS/fonts/" + runes + "/OFL.txt") licence = true;
+                if (n == "OEBPS/style.css") {
+                    size_t sz = 0;
+                    void* p = mz_zip_reader_extract_to_heap(&za, i, &sz, 0);
+                    if (p) { style.assign((const char*)p, sz); mz_free(p); }
+                }
+            }
+            mz_zip_reader_end(&za);
+            CHECK(font && licence && style.find("NR F " + runes) != std::string::npos);
+        }
+        std::string err;
+        CHECK(nf::removeFamily(mine, runes, err));
+    }
     // Two weights for one style: the one nearer regular kept, the other reported.
     {
         const fs::path two = fs::path(dir) / "two";

@@ -110,6 +110,12 @@ export const schema = new Schema({
     sup: { excludes: "sub", parseDOM: [{ tag: "sup" }], toDOM: () => ["sup", 0] },
     sub: { excludes: "sup", parseDOM: [{ tag: "sub" }], toDOM: () => ["sub", 0] },
     code: { parseDOM: [{ tag: "code" }], toDOM: () => ["code", 0] },
+    // A world's own typeface on these words: runes, symbols, a character's handwriting (0.41). By the family's id.
+    font: {
+      attrs: { family: {} },
+      parseDOM: [{ tag: "span[data-font]", getAttrs: (d) => (/^[a-z0-9-]{1,64}$/.test(d.dataset.font) ? { family: d.dataset.font } : false) }],
+      toDOM: (m) => ["span", { class: "ff ff-" + m.attrs.family, "data-font": m.attrs.family }, 0],
+    },
     // Where a comment sits in the text. Its words live in the library, by id.
     // Several can overlap, so a comment doesn't exclude another one.
     comment: {
@@ -598,10 +604,20 @@ let pausedRules = new Set();
 let hintCount = 0;
 let rehintTimer = null;
 
+// Each text block's words for hints and spelling. Words in a world typeface (runes, handwriting) are left out as
+// spaces of the same length, so positions still line up: they're not English to check.
 function textBlocks(doc) {
   const out = [];
   doc.descendants((n, pos) => {
-    if (n.isTextblock) { out.push({ text: n.textBetween(0, n.content.size, " ", " "), pos: pos + 1 }); return false; }
+    if (n.isTextblock) {
+      let text = "";
+      n.forEach((c) => {
+        if (c.isText) text += c.marks.some((m) => m.type === M.font) ? " ".repeat(c.text.length) : c.text;
+        else text += " ".repeat(c.nodeSize);
+      });
+      out.push({ text, pos: pos + 1 });
+      return false;
+    }
     return true;
   });
   return out;
@@ -827,6 +843,98 @@ function syncViewMenu() {
   });
   menu.querySelectorAll("input[type=checkbox]").forEach((el) => { el.checked = !!viewSettings[el.name]; });
   document.getElementById("viewbtn").setAttribute("aria-pressed", viewSettings.focus || viewSettings.typewriter ? "true" : "false");
+}
+
+// ------------------------------------------------------- world typefaces (0.41)
+// The world's own fonts, sent by the app: [{id, name, faces: {regular, italic, bold, boldItalic}}] (URLs on the
+// library's font host). Each is loaded with the FontFace API (the page's CSP keeps out inline styles, not this) and
+// given a class rule, so words marked with it show in it as you write.
+let worldFonts = [];
+const loadedFonts = new Set();
+
+function setWorldFonts(list) {
+  worldFonts = (Array.isArray(list) ? list : []).filter((f) => f && /^[a-z0-9-]{1,64}$/.test(f.id));
+  const sheet = [...document.styleSheets].find((s) => { try { return !!s.cssRules; } catch { return false; } });
+  for (const f of worldFonts) {
+    const key = f.id + "|" + JSON.stringify(f.faces || {});
+    if (loadedFonts.has(key)) continue;
+    loadedFonts.add(key);
+    const family = "NR F " + f.id;
+    const faces = f.faces || {};
+    for (const [k, weight, style] of [["regular", "400", "normal"], ["italic", "400", "italic"], ["bold", "700", "normal"], ["boldItalic", "700", "italic"]]) {
+      const url = faces[k];
+      if (typeof url !== "string" || !url.startsWith("https://worldfonts.nrstudio.localhost/")) continue;
+      try {
+        const face = new FontFace(family, `url("${url}")`, { weight, style });
+        document.fonts.add(face);
+        face.load().catch(() => {});
+      } catch {}
+    }
+    if (sheet) { try { sheet.insertRule(`.ff-${f.id} { font-family: "${family}", var(--text-font, serif); }`, sheet.cssRules.length); } catch {} }
+  }
+  const btn = document.getElementById("fontbtn");
+  if (btn) btn.hidden = worldFonts.length === 0;
+}
+
+// Sets the selection (or what's typed next) in a world typeface, or back in the book's own (id "").
+function setWordsFont(id) {
+  if (!view) return;
+  const { state } = view;
+  const { from, to, empty } = state.selection;
+  let tr = state.tr;
+  if (empty) {
+    tr = id ? tr.addStoredMark(M.font.create({ family: id })) : tr.removeStoredMark(M.font);
+  } else {
+    tr = tr.removeMark(from, to, M.font);
+    if (id) tr = tr.addMark(from, to, M.font.create({ family: id }));
+  }
+  view.dispatch(tr);
+  view.focus();
+}
+
+function buildFontMenu() {
+  const btn = document.getElementById("fontbtn"), menu = document.getElementById("fontmenu");
+  if (!btn || !menu) return;
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (!menu.hidden) { close(); return; }
+    // Which typeface the selection is in now.
+    let cur = "";
+    if (view) {
+      const { $from, from, to, empty } = view.state.selection;
+      const marks = empty ? (view.state.storedMarks || $from.marks()) : [];
+      if (!empty) view.state.doc.nodesBetween(from, to, (n) => { const m = n.isText && n.marks.find((x) => x.type === M.font); if (m) cur = m.attrs.family; });
+      else { const m = marks.find((x) => x.type === M.font); if (m) cur = m.attrs.family; }
+    }
+    menu.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "vm-label";
+    head.textContent = "Set these words in";
+    menu.append(head);
+    const item = (id, label, cls) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "fm-item" + (cls ? " " + cls : "");
+      b.textContent = label;
+      b.setAttribute("aria-pressed", id === cur ? "true" : "false");
+      b.addEventListener("mousedown", (ev) => { ev.preventDefault(); close(); setWordsFont(id); });
+      menu.append(b);
+    };
+    item("", "The book's own typeface");
+    for (const f of worldFonts) item(f.id, String(f.name || f.id), "ff-" + f.id);
+    const note = document.createElement("div");
+    note.className = "vm-note";
+    note.textContent = "For runes, symbols, handwriting or a letter. Add fonts in Worldbuilding \u203A Fonts.";
+    menu.append(note);
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    const r = btn.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 300)) + "px";
+    menu.style.top = (r.bottom + 6) + "px";
+  });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
 }
 
 const toggleFocus = () => { changeView({ focus: !viewSettings.focus }); return true; };
@@ -1278,6 +1386,7 @@ function receive(msg) {
       if (!(msg.settings.v >= 2)) { if (msg.settings.hints !== "off") viewSettings.hints = "full"; viewSettings.v = 2; }
     }
     if ("names" in msg) { setNames(msg.names); setEntries(msg.names); }
+    if ("fonts" in msg) setWorldFonts(msg.fonts);
     if (msg.style && typeof msg.style === "object") {
       if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
       style = { scope: String(msg.style.scope || ""), name: String(msg.style.name || "this book"), label: String(msg.style.label || "this book"),
@@ -1306,6 +1415,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 
 buildToolbar();
 buildViewMenu();
+buildFontMenu();
 initNameCard(send);
 const styleApi = {
   view: () => viewSettings,

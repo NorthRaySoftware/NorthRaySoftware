@@ -287,6 +287,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     ebook::Style style = options.style;
     std::vector<std::pair<std::string, std::string>> fontFiles;   // href -> bytes
     std::string fontCss, fontName, fontLicence, licenceFile = "OFL.txt";
+    std::vector<std::pair<std::string, std::string>> worldLicences;   // href -> text
     bool ofl = true;
     if (!options.fontsFolder.empty() && !options.fontId.empty()) {
         namespace fs = std::filesystem;
@@ -323,6 +324,37 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
                 fontLicence = readAll(detail::fromPath(dir / "LICENSE.txt"));
                 licenceFile = "LICENSE.txt";
                 ofl = false;
+            }
+        }
+    }
+
+    // World typefaces set on words (runes, handwriting: 0.41): each inside the ebook when its licence allows, under
+    // fonts/<id>/, with its licence file; otherwise the words show in the reader's font.
+    if (!options.fontsFolder.empty()) {
+        for (const std::string& id : ebook::fontsUsed(src)) {
+            std::vector<std::pair<std::string, std::string>> mine;
+            bool refused = false;
+            const std::string css = ebook::worldFontCss(options.fontsFolder, id, [&](const std::string& path) {
+                const std::string bytes = readAll(path);
+                if (bytes.empty() || !fontMayBeEmbedded(bytes)) { refused = true; return std::string(); }
+                const std::string href = "fonts/" + id + "/" + detail::fromPath(detail::u8path(path).filename());
+                mine.push_back({href, bytes});
+                return href;
+            });
+            if (css.empty()) {
+                r.notes.push_back("Words are marked for the typeface \"" + id + "\", which isn't in this world's fonts, so they show in the reader's font.");
+                continue;
+            }
+            if (refused) {
+                r.notes.push_back("The typeface \"" + id + "\" doesn't allow being put inside an ebook, so its words show in the reader's font.");
+                continue;
+            }
+            fontCss += css;
+            for (auto& f : mine) fontFiles.push_back(f);
+            const std::string dir = studio::fonts::familyFolder(options.fontsFolder, id);
+            for (const char* lic : {"OFL.txt", "LICENSE.txt"}) {
+                const std::string text = readAll(detail::fromPath(detail::u8path(dir) / lic));
+                if (!text.empty()) { worldLicences.push_back({"fonts/" + id + "/" + lic, text}); break; }
             }
         }
     }
@@ -547,6 +579,8 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     int fontNo = 0;
     for (const auto& f : fontFiles) manifest += "<item id=\"font" + std::to_string(++fontNo) + "\" href=\"" + f.first + "\" media-type=\"font/ttf\"/>\n";
     if (!fontLicence.empty()) manifest += "<item id=\"fontlicence\" href=\"fonts/" + licenceFile + "\" media-type=\"text/plain\"/>\n";
+    for (size_t i = 0; i < worldLicences.size(); ++i)
+        manifest += "<item id=\"fontlicence" + std::to_string(i + 2) + "\" href=\"" + worldLicences[i].first + "\" media-type=\"text/plain\"/>\n";
     int n = 0;
     for (const auto& [path, e] : files) manifest += "<item id=\"img" + std::to_string(++n) + "\" href=\"" + path + "\" media-type=\"" + e.mime + "\"/>\n";
     r.pictures = n;
@@ -574,6 +608,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     zip.add("OEBPS/style.css", fontCss + ebook::stylesheet(style) + kEpubCss);
     for (const auto& [href, bytes] : fontFiles) zip.add("OEBPS/" + href, bytes, true);
     if (!fontLicence.empty()) zip.add("OEBPS/fonts/" + licenceFile, fontLicence);
+    for (const auto& [href, text] : worldLicences) zip.add("OEBPS/" + href, text);
     for (const auto& [href, x] : docs) zip.add("OEBPS/" + href, x);
     if (!cover.bytes.empty()) zip.add("OEBPS/images/cover." + cover.ext, cover.bytes, cover.ext == "png");
     // JPEGs are already compressed; PNGs and GIFs gain a little.

@@ -238,10 +238,8 @@ void StudioApp::exportEpub() {
     pub::EpubOptions o;
     std::string fontId;
     o.style = ebookStyleFor(pb_.book, e->id, &fontId);
-    if (!fontId.empty()) {
-        o.fontsFolder = fontFoldersFor(pb_.book);
-        o.fontId = fontId;
-    }
+    o.fontsFolder = fontFoldersFor(pb_.book);   // also for world typefaces set on words (0.41)
+    if (!fontId.empty()) o.fontId = fontId;
     const auto r = pub::writeEpub(pub::editionSource(*lib_, *e), narrow(path), o);
     if (!r.ok) {
         cjui::messageBox(hwnd(), w("The EPUB couldn't be written.\n\n" + r.error).c_str(), L"Export EPUB", MB_OK | MB_ICONWARNING);

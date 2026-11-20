@@ -54,6 +54,12 @@ Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& pictur
 // One document's body (document JSON) as HTML, without the chapter title.
 std::string documentHtml(const std::string& docJson, const PictureUrl& pictureUrl);
 
+// The world typefaces set on words in a book (font marks: runes, handwriting; 0.41), each id once, in order of use.
+std::vector<std::string> fontsUsed(const typeset::Source& src);
+// The CSS for one of them: an @font-face per style file (`url` gives each file's URL from its path) and the class the
+// words carry (span.ff-<id>). "" when the family isn't found.
+std::string worldFontCss(const std::string& fontsFolders, const std::string& id, const std::function<std::string(const std::string& path)>& url);
+
 // The reading stylesheet shared by the preview and the EPUB.
 std::string stylesheet(const Style& style = {});
 

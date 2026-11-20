@@ -11,6 +11,7 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <filesystem>
 
 namespace nrs {
 
@@ -263,6 +264,47 @@ void StudioApp::commitFontFields(const Focus& f) {
     const std::string own = ownFontsFolder(wb_.world, wb_.book);
     for (auto& fam : fonts::familiesIn(own))
         if (fam.id == f.id && fam.name != name) fonts::renameFamily(own, f.id, name);
+}
+
+std::string StudioApp::fontUrl(const std::string& path) const {
+    if (!lib_) return {};
+    auto under = [&](const std::wstring& base, const char* host) -> std::string {
+        std::wstring p = widen(path), b = base;
+        for (auto& c : p) if (c == L'/') c = L'\\';
+        for (auto& c : b) if (c == L'/') c = L'\\';
+        if (!b.empty() && b.back() != L'\\') b += L'\\';
+        if (p.size() <= b.size() || _wcsnicmp(p.c_str(), b.c_str(), b.size()) != 0) return {};
+        std::string rel = narrow(p.substr(b.size()));
+        for (auto& c : rel) if (c == '\\') c = '/';
+        return std::string("https://") + host + "/" + rel;
+    };
+    std::string u = under(widen(lib_->folder()) + L"\\fonts", "worldfonts.nrstudio.localhost");
+    if (u.empty()) u = under(exeDir() + L"\\fonts", "fonts.nrstudio.localhost");
+    return u;
+}
+
+nlohmann::json StudioApp::editorFonts(const Id& book) const {
+    nlohmann::json out = nlohmann::json::array();
+    const studio::Book* b = lib_ ? lib_->book(book) : nullptr;
+    if (!b) return out;
+    const std::string own = ownFontsFolder(b->worldId, b->worldId.empty() ? b->id : Id{});
+    for (const auto& f : fonts::familiesIn(own)) {
+        nlohmann::json faces = nlohmann::json::object();
+        const std::string dir = fonts::familyFolder(own, f.id);
+        std::error_code ec;
+        for (auto& e : std::filesystem::directory_iterator(std::filesystem::path(widen(dir)), ec)) {
+            const std::string n = narrow(e.path().filename().wstring());
+            auto ends = [&](const char* s) { const std::string t = s; return n.size() > t.size() && n.compare(n.size() - t.size(), t.size(), t) == 0; };
+            const std::string url = fontUrl(narrow(e.path().wstring()));
+            if (url.empty()) continue;
+            if (ends("-BoldItalic.ttf")) faces["boldItalic"] = url;
+            else if (ends("-Italic.ttf")) faces["italic"] = url;
+            else if (ends("-Bold.ttf")) faces["bold"] = url;
+            else if (ends("-Regular.ttf")) faces["regular"] = url;
+        }
+        out.push_back({{"id", f.id}, {"name", f.name}, {"faces", faces}});
+    }
+    return out;
 }
 
 }  // namespace nrs

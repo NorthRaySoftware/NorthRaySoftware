@@ -415,6 +415,32 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.41.0: words in a world's fonts (20 Nov 2026)
+
+CJ: the world's fonts are for use within chapters, for runes, symbols or handwriting.
+
+- **Document**: a `font` mark, `attrs.family` = a world family's id (`[a-z0-9-]{1,64}`, checked by the sanitiser;
+  one per text run).
+- **Typesetting**: `Span::font`; `Shaper` takes the font folders and opens a marked family once (`familyFor`), picking
+  its style by bold and italic; a family that isn't there falls back to the book's and is reported in
+  `Book::warnings`. The PDF embeds and subsets whatever faces the display list uses, so nothing else changed.
+- **Ebook**: marked words become `<span class="ff ff-<id>">`; `ebook::fontsUsed(src)` lists the ids;
+  `ebook::worldFontCss(folders, id, url)` writes an @font-face per style ("NR F <id>") and the class rule. The EPUB
+  embeds each under `fonts/<id>/` with its licence when `fontMayBeEmbedded` allows (a note otherwise);
+  `EpubOptions::fontsFolder` is now always set by the app. The ebook preview adds the same CSS with URLs from
+  `fontUrl()` (the library's fonts host).
+- **Editor**: the `font` mark (`span.ff.ff-<id>[data-font]`); the view message carries `fonts` (`editorFonts(book)`:
+  id, name and each style's URL on `worldfonts.nrstudio.localhost`, now in editor.html's font-src); `setWorldFonts`
+  loads them with the FontFace API and adds a class rule with CSSOM (the CSP keeps out inline styles, not these). The
+  toolbar's Ff button (shown when the world has fonts) opens `#fontmenu`: "The book's own typeface" and each family,
+  named in its own font; the selection gets the mark (or the stored mark, for what's typed next). `textBlocks` blanks
+  marked words, so spelling and hints skip them; marked words have a faint dotted underline while writing.
+- Tested in core (1317 checks: the mark kept and a bad id dropped, a page set with the world face in its fonts, the
+  missing-font warning, the ebook span and CSS, an EPUB with only the words' font and its licence) and the editor in
+  Chromium (the button and menu, the mark applied, the font loaded and used, spelling marks cleared). Inside the app
+  the editor needs WebView2, so on Windows.
+
+
 ## 0.40.0: a world's own fonts (20 Nov 2026)
 
 - **studiocore/fonts** (`fonts.hpp`, `fonts.cpp`): font folders are a list, "app fonts|world fonts" (`folders`,

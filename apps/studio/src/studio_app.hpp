@@ -468,7 +468,11 @@ private:
     void commitFontFields(const Focus& f);
     float drawFontSample(const std::string& folders, const std::string& id, const std::string& style, const std::string& text, float x,
                          float y, float px, float maxW);
-    std::map<std::string, studio::fonts::Sample> fontSamples_;   // preview lines, by family, style, colour, size and text
+    std::map<std::string, studio::fonts::Sample> fontSamples_;
+    // A font file's URL in the app's web pages: the library's fonts host or the app's (0.41); "" if neither.
+    std::string fontUrl(const std::string& path) const;
+    // The world's typefaces for the editor: [{id, name, faces: {regular, italic, bold, boldItalic}}].
+    nlohmann::json editorFonts(const Id& book) const;   // preview lines, by family, style, colour, size and text
     bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
     void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
     bool undoEntryPaste();
