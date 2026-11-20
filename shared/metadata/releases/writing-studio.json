@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.48.2",
+      "date": "2026-11-20",
+      "notes": [
+        "The bible's website names each relative by what they are, as the PDF does: Father, Wife or Partner, Twin sister, Half-brother, Stepson, with names of one kind together."
+      ]
+    },
+    {
       "version": "0.48.1",
       "date": "2026-11-20",
       "notes": [

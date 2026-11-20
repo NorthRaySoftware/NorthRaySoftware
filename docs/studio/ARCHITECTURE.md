@@ -415,6 +415,11 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.2: the same on the website (20 Nov 2026)
+
+- `familyLines(lib, view, entry)` (bible_export) builds the labelled lines once; the PDF's Family and the website's
+  family box both use it (the website's names are links). Tested on Tom's and Ralph's pages.
+
 ## 0.48.1: family by kind in the bible's PDF (20 Nov 2026)
 
 - `printableSource`: a character's Family lists each relative under what they are (from `kinWord` and the gender

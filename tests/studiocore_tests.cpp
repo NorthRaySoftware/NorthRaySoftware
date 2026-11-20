@@ -1609,6 +1609,19 @@ static void testFamilyKinds() {
         CHECK(ralphPage.find("Wives: ") != std::string::npos && ralphPage.find("Stepson: ") != std::string::npos &&
               ralphPage.find("Adopted daughter: ") != std::string::npos);
         CHECK(lilliaPage.find("Adoptive father: ") != std::string::npos && lilliaPage.find("Adoptive mother: ") != std::string::npos);
+        // And the website's box (0.48.2).
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, bible::Options{world, {}, false, {}}, dir + "/site", err, &pages));
+        bool twin = false, wives = false;
+        for (auto& f : std::filesystem::directory_iterator(dir + "/site")) {
+            if (!f.is_regular_file() || f.path().extension() != ".html") continue;
+            std::ifstream in(f.path());
+            const std::string h((std::istreambuf_iterator<char>(in)), {});
+            if (h.find("<title>Tom Smith") != std::string::npos) twin = h.find("<td>Twin sister</td>") != std::string::npos && h.find("<td>Half-sister</td>") != std::string::npos;
+            if (h.find("<title>Ralph Smith") != std::string::npos) wives = h.find("<td>Wives</td>") != std::string::npos && h.find("<td>Stepson</td>") != std::string::npos;
+        }
+        CHECK(twin && wives);
     }
     // Reverse wordings of the new relationships.
     CHECK(studio::reverseRelation("Twin of") == "Twin of" && studio::reverseRelation("Adoptive parent of") == "Adopted child of" &&
@@ -1945,7 +1958,7 @@ static void testBibleExport() {
         CHECK(a.find("&lt;and&gt;") != std::string::npos);                          // escaped
         CHECK(a.find("<a href=\"e-" + cliff + ".html\">Highcliff</a>") != std::string::npos);   // linked
         CHECK(a.find("s heir") != std::string::npos && a.find("Private author note.") != std::string::npos && a.find("Finds the ledger.") != std::string::npos);
-        CHECK(a.find("Parents") != std::string::npos && a.find("Lives in") != std::string::npos);
+        CHECK((a.find("<td>Parent</td>") != std::string::npos || a.find("Mother") != std::string::npos || a.find("Father") != std::string::npos) && a.find("Lives in") != std::string::npos);
         const std::string c = read(out + "/e-" + cliff + ".html");
         CHECK(c.find("class=\"pin\"") != std::string::npos && c.find("The Ghost") != std::string::npos && c.find("left:50.00%;top:25.00%") != std::string::npos);
         CHECK(read(out + "/glossary.html").find("Captain Wren") != std::string::npos);

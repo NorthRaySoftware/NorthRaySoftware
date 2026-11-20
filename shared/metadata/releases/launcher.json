@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.114.2",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.48.2: family named by what each relative is on the bible's website too."
+      ]
+    },
+    {
       "version": "0.114.1",
       "date": "2026-11-20",
       "notes": [
