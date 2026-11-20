@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.3: the places outline (20 Nov 2026)
+
+- Places' cards view has Cards / Outline (`wb_.placesOutline`). `drawPlacesOutline`: places and realms by their
+  `placePath` parent, realms first then A to Z, rows indented 26 px a level with a drawn chevron (`wb_.collapsed`), the
+  type facet and the count inside. Rows are `wb:tree:` drag sources and `Drop::KindOf` targets; while dragging, a strip
+  at the foot takes the place out of everything. `setKindOf` hands places and realms to `setPlaceIn`, which refuses a
+  loop (`placePath` of the new parent), removes the place's up-links (Located in / Part of, and Contains / Includes to
+  it) to places and realms, and makes "Located in". Tested in Wine (Akunda dragged into Highcliff and back out).
+
 ## 0.48.2: the same on the website (20 Nov 2026)
 
 - `familyLines(lib, view, entry)` (bible_export) builds the labelled lines once; the PDF's Family and the website's

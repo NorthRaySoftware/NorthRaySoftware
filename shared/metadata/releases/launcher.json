@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.114.3",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.48.3: a places outline, with places dragged inside one another."
+      ]
+    },
+    {
       "version": "0.114.2",
       "date": "2026-11-20",
       "notes": [

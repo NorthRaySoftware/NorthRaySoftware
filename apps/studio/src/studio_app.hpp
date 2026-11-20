@@ -324,6 +324,8 @@ private:
     void addRelationship();
     void addMembers();
     float drawCreatureTree(const Rect& m, float y);
+    float drawPlacesOutline(const Rect& m, float y);
+    void setPlaceIn(const Id& place, const Id& parent);
     // Family trees (studio_world.cpp): a character's family on their page, the whole tree as a page.
     float drawFamilySection(const Rect& m, float y, const studio::Entry& e);
     void drawFamilyTree(const Rect& r);
@@ -675,6 +677,7 @@ private:
         std::string kind;          // the kind shown ("" = everything)
         std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
         std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
+        bool placesOutline = false;       // Places as an outline (0.48.3): continents > nations > cities, dragged to nest
         std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)
         std::string section;       // the page section being written in the panel

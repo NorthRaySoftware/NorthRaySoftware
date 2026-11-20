@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.48.3",
+      "date": "2026-11-20",
+      "notes": [
+        "Places can be shown as an outline: realms and places with the places inside them beneath, folding open and shut, each with its type and how many are inside.",
+        "Drag a place onto another place or a realm to put it inside; drag it onto the strip at the foot to take it out of everything."
+      ]
+    },
+    {
       "version": "0.48.2",
       "date": "2026-11-20",
       "notes": [

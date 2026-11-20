@@ -987,7 +987,26 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 y += th + 34 + 20;
             }
         }
-        if (wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
+        if (wb_.kind == "place" && findWords.empty() && wb_.facet.empty()) {
+            // Cards or the outline (0.48.3).
+            float lx = m.x;
+            for (int i = 0; i < 2; ++i) {
+                const std::wstring t = i == 0 ? L"Cards" : L"Outline";
+                const bool on = wb_.placesOutline == (i == 1);
+                const float tw2 = gfx_.measureWidth(t, Font::Small) + 26;
+                const Rect b{lx, y, tw2, 28};
+                const std::string id = i == 0 ? "wb:plview0" : "wb:plview1";
+                addHit(id, b, [this, i] { wb_.placesOutline = i == 1; invalidate(); });
+                gfx_.fillRounded(b, 6, on ? pal_.surface : pal_.sunken.withAlpha(0.5f * hoverAmount(id)));
+                if (on) gfx_.strokeRounded(b, 6, pal_.rule);
+                gfx_.text(t, b, Font::Small, on ? pal_.ink : pal_.inkMuted, {Align::Center, false, false, true});
+                lx += tw2 + 4;
+            }
+            y += 44;
+        }
+        if (wb_.kind == "place" && wb_.placesOutline && findWords.empty() && wb_.facet.empty()) {
+            y = drawPlacesOutline(m, y);
+        } else if (wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
             y = drawCreatureTree(m, y);
         } else if (list.empty() && !findWords.empty()) {
             y += gfx_.text(L"Nothing in the bible matches \u201C" + w(find_) + L"\u201D" + (wb_.kind.empty() ? L"." : L" among the " + w(entryKindPlural(wb_.kind)) + L"."),
@@ -2212,6 +2231,7 @@ void StudioApp::tidyBibles() {
 void StudioApp::setKindOf(const Id& entryId, const Id& parent) {
     const Entry* x = lib_->entry(entryId);
     if (!x) return;
+    if (x->kind == "place" || x->kind == "realm") { setPlaceIn(entryId, parent); return; }   // the places outline (0.48.3)
     if (!parent.empty()) {
         const Entry* p = lib_->entry(parent);
         if (!p || p->kind != "creature") return;
@@ -2228,6 +2248,111 @@ void StudioApp::setKindOf(const Id& entryId, const Id& parent) {
         flash(w(x->name) + L" is now a kind of " + w(p->name) + L".", 4);
     } else flash(w(x->name) + L" is now a species of its own.", 4);
     invalidate();
+}
+
+// A place moved inside another (or a realm), or to the top ("" ): its old "Located in" / "Part of" (and the other
+// side's "Contains" / "Includes") go, and "Located in" the new one is made. Never inside itself or its own places.
+void StudioApp::setPlaceIn(const Id& placeId, const Id& parent) {
+    const Entry* x = lib_->entry(placeId);
+    if (!x) return;
+    if (!parent.empty()) {
+        const Entry* p = lib_->entry(parent);
+        if (!p || (p->kind != "place" && p->kind != "realm")) return;
+        if (p->id == placeId) return;
+        for (const Entry* up : placePath(*lib_, *p))
+            if (up->id == placeId) { flash(L"A place can't go inside one of its own places.", 5); return; }
+    }
+    commitFields();
+    for (const EntryLink& l : lib_->linksOf(placeId)) {
+        const bool up = (l.from == placeId && (l.label == "Located in" || l.label == "Part of")) ||
+                        (l.to == placeId && (l.label == "Contains" || l.label == "Includes"));
+        if (!up) continue;
+        const Entry* o = lib_->entry(l.from == placeId ? l.to : l.from);
+        if (o && (o->kind == "place" || o->kind == "realm")) lib_->removeLink(l.from, l.to, l.label);
+    }
+    if (!parent.empty()) lib_->addLink(placeId, parent, "Located in");
+    if (const Entry* p = lib_->entry(parent)) {
+        wb_.collapsed.erase(p->id);
+        flash(w(x->name) + L" is now in " + w(p->name) + L".", 4);
+    } else flash(w(x->name) + L" is now a place of its own (in nowhere else).", 4);
+    invalidate();
+}
+
+// Places as an outline: each with the places inside it beneath, indented; realms come first, holding the places in them.
+// Drag a place onto another to put it inside, or onto the strip at the foot to take it out of everything.
+float StudioApp::drawPlacesOutline(const Rect& m, float y) {
+    const auto all = lib_->entriesOf(wb_.world, wb_.book);
+    std::map<Id, std::vector<const Entry*>> kids;
+    std::vector<const Entry*> roots;
+    for (const Entry* e : all) {
+        if (e->kind != "place" && e->kind != "realm") continue;
+        const auto path = placePath(*lib_, *e);
+        if (path.empty()) roots.push_back(e); else kids[path.back()->id].push_back(e);
+    }
+    auto byName = [](const Entry* a, const Entry* b) { return a->name < b->name; };
+    std::stable_sort(roots.begin(), roots.end(), [&](const Entry* a, const Entry* b) {
+        if ((a->kind == "realm") != (b->kind == "realm")) return a->kind == "realm";   // realms first
+        return byName(a, b);
+    });
+    for (auto& [k, v] : kids) std::sort(v.begin(), v.end(), byName);
+    std::function<int(const Entry*)> count = [&](const Entry* e) {
+        int n = 0;
+        if (auto it = kids.find(e->id); it != kids.end()) for (const Entry* c : it->second) n += 1 + count(c);
+        return n;
+    };
+    gfx_.text(L"Drag a place onto another to put it inside; onto the strip at the foot to take it out.", {m.x, y, m.w, 20}, Font::Small, pal_.inkFaint,
+              {Align::Left, false, true});
+    y += 30;
+    const float rowH = 34;
+    std::function<void(const Entry*, int)> row = [&](const Entry* e, int depth) {
+        if (depth > 10) return;
+        const int n = count(e);
+        const Rect r{m.x + depth * 26.0f, y, m.w - depth * 26.0f, rowH - 4};
+        const std::string id = "wb:tree:" + e->id;
+        addHit(id, r, [this, eid = e->id] { openEntry(eid); });
+        addDrop({Drop::KindOf, r, e->id, {}, false, false, {}});
+        const float hv = hoverAmount(id);
+        const cjui::Color kc = kindColor(e->kind, pal_.dark);
+        gfx_.fillRounded(r, 6, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+        gfx_.strokeRounded(r, 6, pal_.rule.mix(kc, 0.4f * hv));
+        gfx_.fill({r.x + 1, r.y + 6, 3, r.h - 12}, kc);
+        float tx = r.x + 12;
+        const bool open = !wb_.collapsed.count(e->id);
+        if (n > 0) {
+            const std::string tid = "wb:pltog:" + e->id;
+            const Rect tb{tx - 2, r.y + 3, 22, r.h - 6};
+            addHit(tid, tb, [this, eid = e->id] { if (!wb_.collapsed.erase(eid)) wb_.collapsed.insert(eid); invalidate(); }, false);
+            const float cx = tb.x + 11, cy = tb.y + tb.h / 2;
+            const cjui::Color cc = pal_.inkMuted.mix(pal_.ink, hoverAmount(tid));
+            if (open) { gfx_.line(cx - 4, cy - 2, cx, cy + 2, cc, 1.6f); gfx_.line(cx, cy + 2, cx + 4, cy - 2, cc, 1.6f); }
+            else { gfx_.line(cx - 2, cy - 4, cx + 2, cy, cc, 1.6f); gfx_.line(cx + 2, cy, cx - 2, cy + 4, cc, 1.6f); }
+        }
+        tx += 24;
+        const std::wstring nm = w(e->name);
+        gfx_.text(nm, {tx, r.y, r.w - (tx - r.x) - 180, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        // Its type (a nation, a city) or "realm", and how many places are inside it.
+        std::wstring right = e->kind == "realm" ? L"realm" : w(facetOf(*e, *findFacet("type")));
+        for (auto& c : right) c = (wchar_t)towlower(c);
+        if (n > 0) right += (right.empty() ? L"" : L"  \u00B7  ") + std::to_wstring(n) + (n == 1 ? L" inside" : L" inside");
+        if (!e->mapBlob.empty()) right += (right.empty() ? L"" : L"  \u00B7  ") + std::wstring(L"map");
+        gfx_.text(right, {r.right() - 180, r.y, 168, r.h}, Font::Small, pal_.inkFaint, {Align::Right, false, true, true});
+        if (focused(id)) focusRing(r);
+        y += rowH;
+        if (open)
+            if (auto it = kids.find(e->id); it != kids.end())
+                for (const Entry* c : it->second) row(c, depth + 1);
+    };
+    for (const Entry* e : roots) row(e, 0);
+    // Out of everything: a strip to drop on while dragging.
+    y += 6;
+    if (drag_.active && drag_.kind == DragState::Entry) {
+        const Rect zone{m.x, y, m.w, 40};
+        gfx_.strokeRounded(zone, 8, pal_.ribbon.withAlpha(0.6f), 1.4f);
+        gfx_.text(L"Drop here to take it out of everything", zone, Font::Small, pal_.inkMuted, {Align::Center, false, false, true});
+        addDrop({Drop::KindOf, zone, Id{}, {}, false, false, {}});
+        y += 50;
+    }
+    return y + 20;
 }
 
 void StudioApp::addKindUnder(const Id& parent) {
