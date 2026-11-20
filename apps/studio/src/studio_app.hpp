@@ -429,6 +429,10 @@ private:
     bool smallButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> act, float* w = nullptr);
     std::vector<const studio::Book*> filteredBooks(std::vector<const studio::Book*> in) const;
     std::wstring seriesLine(const studio::Book& b) const;
+    Color bookStatusColour(studio::BookStatus s) const;
+    float statusTag(float x, float y, studio::BookStatus s, float maxW);   // returns its width
+    std::wstring wordsText(std::int64_t n) const;                           // "12,340 words"
+    float booksTotals(float x, float y, const std::vector<const studio::Book*>& books, float maxW);
 
     // Native text fields in the properties panel
     void createFields();

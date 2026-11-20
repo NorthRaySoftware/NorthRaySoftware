@@ -415,6 +415,21 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.44.0: the Library polished (20 Nov 2026)
+
+- `bookStatusColour(BookStatus)` (a colour per status, light and dark) and `statusTag(x, y, status, maxW)`: a
+  tinted pill with a dot. `wordsText(n)` ("12,340 words", "No words yet").
+- **Shelf** (`bookCard`, rows now cover × 1.5 + 84): the series number, the title, the status tag, the word count,
+  and a 3 px bar under the cover towards `bookTarget` (in the ribbon colour once reached).
+- **List** (`bookRow`): Title (centred when there's no subtitle), Series (the name, "Book N" beneath, "and N more"
+  for a book in several), Status (tag), Words, Changed. `seriesLine` reads "Name · Book N".
+- **World and series pages**: `booksTotals` under the description or header: books, words, last changed.
+- **Book panel**: an at-a-glance box (words, chapters, last changed; with a target, a bar and "N% of …").
+- `panelImage`: an empty picture is a 48 px (wide) or 96 × 60 box reading "No picture yet".
+- Tested in Wine: a world page with totals and the list, All books as list (series and numbers, words, tags) and
+  shelf (tags, words, the target bar on Dragonfall), the book panel's box, the shorter empty picture boxes.
+
+
 ## 0.43.0: Worldbuilding polished (20 Nov 2026)
 
 CJ asked for the same polish as Writing's bar for each part of the Studio, one at a time; Worldbuilding first.

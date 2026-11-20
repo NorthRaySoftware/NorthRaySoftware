@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.110.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.44.0: a polished Library, with word counts, progress and status tags."
+      ]
+    },
+    {
       "version": "0.109.0",
       "date": "2026-11-20",
       "notes": [

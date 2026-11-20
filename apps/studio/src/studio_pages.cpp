@@ -638,9 +638,21 @@ std::wstring StudioApp::seriesLine(const Book& b) const {
         const Membership* m = lib_->membership(s->id, b.id);
         if (!out.empty()) out += L"; ";
         out += w(s->name);
-        if (m && !m->number.empty()) out += L" " + w(m->number);
+        if (m && !m->number.empty()) out += L" \u00B7 Book " + w(m->number);
     }
     return out;
+}
+
+// Totals under a world's or series' title (0.44): books, words, and when one was last worked on. Returns the height.
+float StudioApp::booksTotals(float x, float y, const std::vector<const Book*>& books, float maxW) {
+    if (books.empty()) return 0;
+    std::int64_t words = 0;
+    Time last = 0;
+    for (const Book* b : books) { words += b->wordCount; last = std::max(last, b->modified); }
+    std::wstring t = std::to_wstring(books.size()) + (books.size() == 1 ? L" book" : L" books") + L"  \u00B7  " + wordsText(words);
+    if (last) t += L"  \u00B7  changed " + cjui::formatRelative((cj::UtcSeconds)last, cjui::nowUtc());
+    gfx_.text(t, {x, y, maxW, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+    return 26;
 }
 
 float StudioApp::pageHeader(const Rect& r, const std::wstring& kicker, const std::wstring& title, const std::wstring& sub) {
@@ -727,6 +739,35 @@ void StudioApp::drawCover(const Rect& r, const Book& b) {
                   {Align::Center, false, true});
 }
 
+// A book's status as a small coloured tag (0.44): a dot and the name, tinted by how far along it is.
+Color StudioApp::bookStatusColour(BookStatus s) const {
+    static const char* light[] = {"#8A8F9C", "#6C63C9", "#2F7FD0", "#C27A1A", "#B4507A", "#1F9C6E", "#1C7A55", "#8A8F9C"};
+    static const char* dark[] = {"#A6ABB8", "#A49CF0", "#6FA9F0", "#F0B252", "#E68AB0", "#52D1A0", "#5CC995", "#A6ABB8"};
+    const int i = std::clamp((int)s, 0, 7);
+    return hexColor((pal_.dark ? dark : light)[i]);
+}
+
+float StudioApp::statusTag(float x, float y, BookStatus s, float maxW) {
+    const std::wstring t = w(label(s));
+    const Color c = bookStatusColour(s);
+    const float tw = std::min(gfx_.measureWidth(t, Font::Small) + 24, maxW);
+    const Rect tag{x, y, tw, 20};
+    gfx_.fillRounded(tag, 10, c.withAlpha(pal_.dark ? 0.18f : 0.12f));
+    gfx_.circle(tag.x + 9, tag.y + 10, 3, c, true);
+    gfx_.text(t, {tag.x + 16, tag.y, tag.w - 20, tag.h}, Font::Small, c.mix(pal_.ink, 0.35f), {Align::Left, false, true, true});
+    return tw;
+}
+
+std::wstring StudioApp::wordsText(std::int64_t n) const {
+    if (n <= 0) return L"No words yet";
+    std::wstring d = std::to_wstring(n), out;
+    for (size_t i = 0; i < d.size(); ++i) {
+        if (i && (d.size() - i) % 3 == 0) out += L',';
+        out += d[i];
+    }
+    return out + (n == 1 ? L" word" : L" words");
+}
+
 void StudioApp::bookCard(const Rect& r, const Book& b, const Id& seriesId, const std::string& hitId) {
     const bool sel = focus_.kind == Focus::Book && focus_.id == b.id;
     addHit(hitId, r, [this, id = b.id, seriesId] { setFocus({Focus::Book, id, seriesId}); });
@@ -743,16 +784,23 @@ void StudioApp::bookCard(const Rect& r, const Book& b, const Id& seriesId, const
                                    (m->kind != Instalment::Novel ? (m->number.empty() ? L"" : L" · ") + w(label(m->kind)) : L"");
             if (!k.empty()) { gfx_.text(k, {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true}); y += 17; }
         }
+    // Progress towards the book's target, as a thin bar under the cover.
+    if (const std::int64_t target = bookTarget(b.id); target > 0) {
+        const float f = std::clamp((float)b.wordCount / (float)target, 0.0f, 1.0f);
+        gfx_.fillRounded({cover.x, cover.bottom() + 3, cover.w, 3}, 1.5f, pal_.sunken);
+        if (f > 0) gfx_.fillRounded({cover.x, cover.bottom() + 3, std::max(3.0f, cover.w * f), 3}, 1.5f, f >= 1 ? pal_.ribbon : bookStatusColour(b.status));
+    }
     gfx_.text(w(b.title), {r.x, y, r.w, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-    gfx_.text(w(label(b.status)), {r.x, y + 20, r.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+    statusTag(r.x, y + 23, b.status, r.w);
+    gfx_.text(wordsText(b.wordCount), {r.x, y + 46, r.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
     if (focused(hitId)) focusRing(cover);
 }
 
 void StudioApp::bookRow(const Rect& r, const Book& b, const Id& seriesId, const std::string& hitId, bool header) {
-    const float c1 = r.w * 0.36f, c2 = r.w * 0.24f, c3 = r.w * 0.14f, c4 = r.w * 0.12f;
+    const float c1 = r.w * 0.34f, c2 = r.w * 0.26f, c3 = r.w * 0.16f, c4 = r.w * 0.12f;
     if (header) {
         float x = r.x + 44;
-        for (auto [t, wd] : std::initializer_list<std::pair<const wchar_t*, float>>{{L"TITLE", c1 - 44}, {L"SERIES", c2}, {L"STATUS", c3}, {L"GENRE", c4}, {L"CHANGED", 200}}) {
+        for (auto [t, wd] : std::initializer_list<std::pair<const wchar_t*, float>>{{L"TITLE", c1 - 44}, {L"SERIES", c2}, {L"STATUS", c3}, {L"WORDS", c4}, {L"CHANGED", 200}}) {
             gfx_.text(t, {x, r.y, wd, r.h}, Font::Label, pal_.inkFaint, {Align::Left, false, true, true});
             x += wd;
         }
@@ -766,12 +814,31 @@ void StudioApp::bookRow(const Rect& r, const Book& b, const Id& seriesId, const 
     drawCover({r.x + 10, r.y + 5, 26, 38}, b);
     float x = r.x + 44;
     const std::wstring sub = !b.subtitle.empty() ? w(b.subtitle) : !b.penName.empty() ? w(b.penName) : w(b.author);
-    gfx_.text(w(b.title), {x, r.y + 6, c1 - 50, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-    gfx_.text(sub, {x, r.y + 25, c1 - 50, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+    // The title centred in the row, or over its subtitle when it has one.
+    if (sub.empty()) {
+        gfx_.text(w(b.title), {x, r.y, c1 - 50, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+    } else {
+        gfx_.text(w(b.title), {x, r.y + 5, c1 - 50, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        gfx_.text(sub, {x, r.y + 24, c1 - 50, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+    }
     x += c1 - 44;
-    gfx_.text(seriesLine(b), {x, r.y, c2 - 10, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += c2;
-    gfx_.text(w(label(b.status)), {x, r.y, c3 - 10, r.h}, Font::Small, pal_.ink, {Align::Left, false, true, true}); x += c3;
-    gfx_.text(w(b.genre), {x, r.y, c4 - 10, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += c4;
+    // The series, with the book's number under it (so a long series name never hides it).
+    {
+        const auto ss = lib_->seriesOfBook(b.id);
+        const Membership* mb = ss.empty() ? nullptr : lib_->membership(ss.front()->id, b.id);
+        if (ss.empty()) {
+            gfx_.text(L"\u2014", {x, r.y, c2 - 10, r.h}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
+        } else if (mb && !mb->number.empty()) {
+            gfx_.text(w(ss.front()->name), {x, r.y + 6, c2 - 10, 18}, Font::Small, pal_.ink, {Align::Left, false, true});
+            gfx_.text(L"Book " + w(mb->number) + (ss.size() > 1 ? L" \u00B7 and " + std::to_wstring(ss.size() - 1) + L" more" : L""),
+                      {x, r.y + 24, c2 - 10, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+        } else {
+            gfx_.text(w(ss.front()->name), {x, r.y, c2 - 10, r.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+        }
+        x += c2;
+    }
+    statusTag(x, r.y + (r.h - 20) / 2, b.status, c3 - 10); x += c3;
+    gfx_.text(b.wordCount > 0 ? wordsText(b.wordCount) : L"\u2014", {x, r.y, c4 - 10, r.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += c4;
     gfx_.text(cjui::formatRelative((cj::UtcSeconds)b.modified, cjui::nowUtc()), {x, r.y, r.right() - x - 8, r.h}, Font::Small,
               pal_.inkFaint, {Align::Left, false, true, true});
     gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
@@ -797,7 +864,7 @@ float StudioApp::bookCollection(const Rect& r, const std::vector<const Book*>& b
     if (settings_.gallery) {
         const float cw = 132, gap = 26;
         const int perRow = std::max(1, (int)((r.w + gap) / (cw + gap)));
-        const float rowH = cw * 1.5f + 62;
+        const float rowH = cw * 1.5f + 84;   // number, title, status, words
         for (size_t i = 0; i < books.size(); ++i) {
             const Rect cr{r.x + (i % perRow) * (cw + gap), r.y + (i / perRow) * (rowH + 18), cw, rowH};
             bookCard(cr, *books[i], seriesId, "book:" + books[i]->id + suffix + "@" + listKey);
@@ -1054,7 +1121,12 @@ float StudioApp::pageWorld(const Rect& r) {
     gfx_.text(w(wd.name), {tx, banner.bottom() - 36, banner.w - 60, 32}, Font::SerifTitle, hexColor("#F4F1EA"), {Align::Left, false, true});
     y = banner.bottom() + 16;
     if (!wd.description.empty())
-        y += gfx_.text(w(wd.description), {r.x, y, std::min(r.w, 720.0f), 400}, Font::Body, pal_.ink) + 14;
+        y += gfx_.text(w(wd.description), {r.x, y, std::min(r.w, 720.0f), 400}, Font::Body, pal_.ink) + 10;
+    {
+        std::vector<const Book*> inWorld;
+        for (const Book* b : lib_->liveBooks()) if (b->worldId == wd.id) inWorld.push_back(b);
+        y += booksTotals(r.x, y, inWorld, r.w) + 6;
+    }
 
     float bx = r.x, bw = 0;
     smallButton("world:newseries", bx, y, L"New series", [this] { newSeries(viewId_); }, &bw); bx += bw + 8;
@@ -1129,6 +1201,7 @@ float StudioApp::pageSeries(const Rect& r) {
     if (coverW) gfx_.drawImage(w(lib_->blobPath(s.coverBlob)), {r.right() - coverW, y, coverW, coverW * 1.5f}, true);
     y += pageHeader({r.x, y, r.w - coverW - 20, 0}, kicker, w(s.name),
                     s.description.empty() ? w(label(s.status)) : w(s.description));
+    y += booksTotals(r.x, y - 6, lib_->booksInSeries(s.id), r.w - coverW - 20);
     const auto books = lib_->booksInSeries(s.id, chrono_);
     float bx = r.x, bw = 0;
     smallButton("series:newbook", bx, y, L"New book in series", [this] { newBook({}, viewId_); }, &bw); bx += bw + 12;
@@ -1319,10 +1392,12 @@ float StudioApp::panelImage(const Rect& r, float y, const std::wstring& lbl, con
                             std::function<void()> clear, bool wide) {
     gfx_.text(lbl, {r.x, y, r.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
     y += 20;
-    const Rect box = wide ? Rect{r.x, y, r.w, r.w * 0.38f} : Rect{r.x, y, 96, 144};
+    // An empty picture is a short box, so the panel isn't mostly blank space (0.44).
+    const bool none = blob.empty();
+    const Rect box = wide ? Rect{r.x, y, r.w, none ? 48.0f : r.w * 0.38f} : Rect{r.x, y, 96, none ? 60.0f : 144.0f};
     if (blob.empty() || !gfx_.drawImage(w(lib_->blobPath(blob)), box, true)) {
         gfx_.fillRounded(box, 3, pal_.sunken);
-        gfx_.text(L"None", box, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+        gfx_.text(L"No picture yet", box, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
     } else {
         gfx_.stroke(box, pal_.rule);
     }
@@ -1455,6 +1530,34 @@ void StudioApp::drawPanel(const Rect& r) {
         const Book* b = lib_->book(focus_.id);
         if (b) {
             heading(L"BOOK", true);
+            {
+                // At a glance (0.44): words, chapters, the target, and when it was last changed.
+                int chapters = 0;
+                for (auto* n : lib_->manuscriptOf(b->id)) if (n->kind == NodeKind::Chapter) ++chapters;
+                const std::int64_t target = bookTarget(b->id);
+                const Rect box{c.x, y, c.w, target > 0 ? 82.0f : 64.0f};
+                gfx_.fillRounded(box, 6, pal_.sunken.mix(pal_.surface, 0.3f));
+                const float col = (box.w - 24) / 3;
+                auto stat = [&](int i, const std::wstring& big, const std::wstring& small) {
+                    const float sx = box.x + 12 + col * i;
+                    gfx_.text(big, {sx, box.y + 10, col - 6, 22}, Font::Heading, pal_.ink, {Align::Left, false, true});
+                    gfx_.text(small, {sx, box.y + 34, col - 6, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                };
+                std::wstring wn = wordsText(b->wordCount);
+                stat(0, b->wordCount > 0 ? wn.substr(0, wn.find(L' ')) : L"0", L"words");
+                stat(1, std::to_wstring(chapters), chapters == 1 ? L"chapter" : L"chapters");
+                stat(2, b->modified ? cjui::formatRelative((cj::UtcSeconds)b->modified, cjui::nowUtc()) : L"\u2014", L"last changed");
+                if (target > 0) {
+                    const float f = std::clamp((float)b->wordCount / (float)target, 0.0f, 1.0f);
+                    const Rect bar{box.x + 12, box.y + 62, box.w - 24, 5};
+                    gfx_.fillRounded(bar, 2.5f, pal_.rule);
+                    if (f > 0) gfx_.fillRounded({bar.x, bar.y, std::max(5.0f, bar.w * f), bar.h}, 2.5f, pal_.ribbon);
+                    gfx_.text(std::to_wstring((int)std::lround(f * 100)) + L"% of " + wordsText(target), {bar.x, box.y + 66, bar.w, 16},
+                              Font::Small, pal_.inkFaint, {Align::Right, false, true});
+                    // the percentage sits under the bar, right-aligned
+                }
+                y += box.h + 14;
+            }
             y = panelField(c, y, L"Title", FName);
             y = panelField(c, y, L"Subtitle", FSubtitle);
             statusButton(w(label(b->status)));

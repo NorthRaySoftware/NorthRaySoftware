@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.44.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Books on the shelf show where they stand: their status as a coloured tag, their word count, and a thin bar under the cover towards the book's word target.",
+        "The list view has a Words column and status tags, and shows the series with the book's number under it.",
+        "A world's and a series' pages give their totals under the title: how many books, how many words, and when one was last changed.",
+        "A book's panel opens with its words, chapters and when it was last changed at a glance, with progress towards its target when it has one.",
+        "Empty pictures in panels (a world's banner and logo, a series' cover) take a short box instead of a large empty one."
+      ]
+    },
+    {
       "version": "0.43.0",
       "date": "2026-11-20",
       "notes": [
