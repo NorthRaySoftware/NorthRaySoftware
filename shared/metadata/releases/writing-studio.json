@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.49.2",
+      "date": "2026-11-20",
+      "notes": [
+        "Planning: double-click a corkboard card to write it.",
+        "Structure: the bar of the book names its chapters where there's room, and each beat's chapter is a drop-down box with the chapter's number and title instead of a heavy button."
+      ]
+    },
+    {
       "version": "0.49.1",
       "date": "2026-11-20",
       "notes": [

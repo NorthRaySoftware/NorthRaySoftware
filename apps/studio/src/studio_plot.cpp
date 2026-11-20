@@ -497,7 +497,13 @@ void StudioApp::drawPlanStructure(const Rect& r) {
                 addHit(sid, s, [this, nid = segs[i].n->id] { selectCard(nid); }, false);
                 const bool sel = pl_.node == segs[i].n->id;
                 gfx_.fill(s, (i % 2 ? pal_.surface : pal_.sunken).mix(pal_.ribbon, sel ? 0.25f : 0.0f));
-                if (s.w > 26) gfx_.text(std::to_wstring(segs[i].no), s, Font::Small, pal_.inkMuted, {Align::Center, false, false, true});
+                // Its number, and its title when there's room (0.49.2).
+                if (s.w > 26) {
+                    std::wstring t = std::to_wstring(segs[i].no);
+                    if (s.w > 90 && !segs[i].n->title.empty()) t += L"  " + w(segs[i].n->title);
+                    gfx_.text(t, s.inset(6, 0), Font::Small, pal_.inkMuted, {Align::Center, false, true, true});
+                }
+                tooltip(sid, std::to_wstring(segs[i].no) + L". " + (segs[i].n->title.empty() ? std::wstring(L"Chapter") : w(segs[i].n->title)));
             }
         }
         gfx_.strokeRounded(bar, 4, pal_.rule);
@@ -532,8 +538,24 @@ void StudioApp::drawPlanStructure(const Rect& r) {
             gfx_.text(w(bt.about), {row.x + 64, row.y + 32, row.w - 330, 36}, Font::Small, pal_.inkMuted, {Align::Left, true, true});
             // Which chapter carries it: chosen, and where it falls by length.
             const float rx = row.right() - 250;
-            std::wstring pick = cn ? (cn->title.empty() ? w(label(cn->kind)) : w(cn->title)) : L"Choose a chapter";
-            button("pl:beatpick:" + bid, {rx, row.y + 12, 236, 30}, pick, [this, bid, segs] {
+            // The chapter that carries it, as a box you drop down (0.49.2), like the other choices in the Studio.
+            int pickNo = 0;
+            if (cn) for (auto& sg : segs) if (sg.n->id == cn->id) pickNo = sg.no;
+            const std::wstring pick = cn ? (pickNo ? std::to_wstring(pickNo) + L"  \u00B7  " : std::wstring()) + (cn->title.empty() ? w(label(cn->kind)) : w(cn->title))
+                                         : L"Choose a chapter\u2026";
+            const Rect pr{rx, row.y + 12, 236, 30};
+            const std::string pid = "pl:beatpick:" + bid;
+            {
+                const float ph = hoverAmount(pid);
+                gfx_.fillRounded(pr, 6, pal_.surface);
+                gfx_.strokeRounded(pr, 6, pal_.rule.mix(pal_.ink, 0.25f * ph));
+                gfx_.text(pick, {pr.x + 10, pr.y, pr.w - 34, pr.h}, Font::Small, cn ? pal_.ink : pal_.inkFaint, {Align::Left, false, true, true});
+                const float cx = pr.right() - 15, cy = pr.y + pr.h / 2;
+                gfx_.line(cx - 4, cy - 2, cx, cy + 2, pal_.inkMuted, 1.4f);
+                gfx_.line(cx, cy + 2, cx + 4, cy - 2, pal_.inkMuted, 1.4f);
+                if (focused(pid)) focusRing(pr);
+            }
+            addHit(pid, pr, [this, bid, segs] {
                 std::vector<MenuItem> items;
                 items.push_back(MenuItem::item(L"None", 1));
                 items.push_back(MenuItem::sep());
@@ -552,7 +574,7 @@ void StudioApp::drawPlanStructure(const Rect& r) {
                 setStructure(pl_.book, s);
                 pl_.beat = bid;
                 invalidate();
-            }, cn != nullptr);
+            });
             std::wstring where = at ? L"By length: chapter " + std::to_wstring(at->no) : L"";
             if (cn && at && cn->id != at->n->id) {
                 int cno = 0;

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.115.2",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.49.2: Planning polish (double-click to write, a clearer structure view)."
+      ]
+    },
+    {
       "version": "0.115.1",
       "date": "2026-11-20",
       "notes": [

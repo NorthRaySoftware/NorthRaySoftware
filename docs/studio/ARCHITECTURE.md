@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.49.2: Planning (20 Nov 2026)
+
+- `selectCard`: a second click on the selected card within 450 ms opens it in Writing.
+- Structure: the length bar draws "N  Title" where a segment is over 90 px (number only over 26 px) with a tooltip;
+  each beat's chapter is a field-like box (surface, rule, drawn chevron, "N · Title" or a faint "Choose a chapter...")
+  opening the same menu. Checked in Wine.
+
 ## 0.49.1: sprints and targets in the outline (20 Nov 2026)
 
 - Editor: `sprint` {end, minutes, done, base}; `#count` is a button opening `#sprintmenu` (10/15/25/45 minutes, or

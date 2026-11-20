@@ -103,6 +103,16 @@ void StudioApp::openPlanning(const Id& bookId) {
 
 void StudioApp::selectCard(const Id& nodeId) {
     commitFields();
+    // A second click on the same card soon after: open it in Writing (0.49.2).
+    static Id lastCard;
+    static DWORD lastAt = 0;
+    const DWORD now = GetTickCount();
+    if (!nodeId.empty() && nodeId == lastCard && now - lastAt < 450 && pl_.node == nodeId) {
+        lastCard.clear();
+        if (const ManuscriptNode* n = lib_->node(nodeId); n && !n->deleted) { writingBook_ = pl_.book; currentNode_ = n->id; openWriting(pl_.book); return; }
+    }
+    lastCard = nodeId;
+    lastAt = now;
     pl_.node = nodeId;
     setFocus(nodeId.empty() ? Focus{Focus::Plan, pl_.book, {}} : Focus{Focus::Node, nodeId, {}});
     invalidate();
@@ -231,7 +241,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     }
     std::wstring sub = std::to_wstring(chapters) + (chapters == 1 ? L" chapter" : L" chapters");
     if (scenes) sub += L", " + std::to_wstring(scenes) + (scenes == 1 ? L" scene" : L" scenes");
-    sub += L". Select a card to plan it; the panel on the right edits it.";
+    sub += L". Select a card to plan it in the panel; double-click to write it.";
     float y = m.y + pageHeader(m, L"PLANNING", w(b->title), sub);
     if (all.empty()) {
         y += gfx_.text(L"No chapters yet.", {m.x, y, cw, 24}, Font::Body, pal_.inkMuted) + 12;
