@@ -62,4 +62,48 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
 // The relationship a pasted label stands for, read from an entry of `kind` ("Parents" -> "Child of"); "" if none.
 std::string relationFor(const std::string& kind, const std::string& label);
 
+// ---------------------------------------------------------------- many pages at once (0.39)
+//
+// A file or a paste holding a whole bible, or a good part of one: pages one after another. Each page starts at a
+// "Name:" line, or at a Markdown title ("# Tom Smith"). What kind the pages are comes from a heading naming a kind
+// ("# Characters", "**Places**", "== Creatures ==", "Realms:"), from a "Kind: Place" line in the page, or from the
+// kind chosen for the import. Text before the first page is left out, and so are lines between pages that are only
+// rules (---, ===).
+
+// The kind a word names ("Characters", "people", "Magic systems" -> "character", "character", "magic"); "" if none.
+std::string kindNamed(const std::string& word);
+
+struct Batch {
+    std::string kind;    // the entry kind
+    std::string name;    // as the page gives it
+    std::string text;    // the page, as paste::parse reads it
+};
+
+// The pages in text. Pages without a name are left out.
+std::vector<Batch> splitPages(const std::string& text, const std::string& defaultKind);
+
+// A Word or OpenDocument file's sections (as the importer splits it: title and document JSON) as text for splitPages,
+// headings kept as Markdown. The importer's own title for text before the first heading ("Front matter") is left out.
+std::string documentPagesText(const std::vector<std::pair<std::string, std::string>>& sections);
+
+// Whether text holds more than one page.
+bool looksLikeManyPages(const std::string& text);
+
+struct Import {
+    std::vector<Id> made;                         // entries made for the pages
+    std::vector<Id> updated;                      // entries the pages replaced parts of
+    std::vector<Entry> before;                    // each updated entry as it was (same order)
+    std::vector<std::vector<EntryLink>> linksBefore;
+    std::vector<Id> extra;                        // entries made for names on the pages that are no page of their own
+    int links = 0;
+    int unchanged = 0;                            // pages already there as they are
+    std::string words() const;                    // "12 new entries, 3 updated, 40 links"
+};
+
+// Brings pages into a world's bible (or an independent book's: `world` empty). Each page goes onto the entry of
+// its name and kind (else any kind of that name), or a new one. All the new entries are made first, so pages
+// naming each other link up. False with the library's error if one couldn't be saved; what was done is in `out`.
+bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
+                 Import& out);
+
 }  // namespace studio::paste

@@ -37,6 +37,9 @@ std::string emptyDoc();
 std::string sanitise(const std::string& docJson, std::vector<std::string>* problems = nullptr);
 std::int64_t wordCount(const std::string& docJson);
 std::string plainText(const std::string& docJson);   // paragraphs separated by blank lines
+// Like plainText, with headings as Markdown ("## Title" for a level 1 heading, one # more than its level when
+// `extraLevel`) and list items as "- " lines.
+std::string outlineText(const std::string& docJson, int extraLevel = 0);
 // Words in a piece of plain UTF-8 text (letters and digits, joined by ' and -).
 std::int64_t countWords(const std::string& text);
 

@@ -1229,6 +1229,7 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'V' && pasteFromClipboard()) return true;
     if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'Z' && undoEntryPaste()) return true;
     if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'Z' && undoBibleReset()) return true;
+    if (ws_ == Workspace::Worldbuilding && ctrl && vk == 'Z' && undoPagesImport()) return true;
     if (ctrl && vk == 'Z') { undoTrash(); return true; }
     if (vk == VK_ESCAPE && drag_.active) { drag_ = {}; return true; }
     if (vk == VK_BACK || (vk == VK_LEFT && (GetKeyState(VK_MENU) & 0x8000))) {

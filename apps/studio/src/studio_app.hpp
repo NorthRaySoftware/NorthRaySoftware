@@ -16,6 +16,7 @@
 #include "studio/import.hpp"
 #include "studio/bible_export.hpp"
 #include "studio/library.hpp"
+#include "studio/entry_paste.hpp"
 #include "studio/typeset.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
@@ -459,6 +460,9 @@ private:
     void copyBlankPage();     // a template for the open entry's kind, on the clipboard
     void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)
     bool undoBibleReset();
+    void importManyPages(bool fromClipboard);   // many bible pages from a file or the clipboard (0.39)
+    void importPagesText(const std::string& text, const std::wstring& from);
+    bool undoPagesImport();
     void setFieldText(Field f, const std::string& utf8);
     std::string fieldText(Field f) const;
     float panelField(const Rect& r, float y, const std::wstring& label, Field f, float h = 30);
@@ -677,6 +681,7 @@ private:
         float boardDragW = 0;
         std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
         std::optional<studio::Library::BibleReset> resetUndo;   // the last reset, to take back (0.38.1)
+        std::optional<studio::paste::Import> importUndo;        // the last pages imported, to take back (0.39)
         bool relationsPage = false;           // the Relationships page (0.38.2)
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded

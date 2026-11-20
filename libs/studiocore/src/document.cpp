@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "studio/document.hpp"
 #include "studio/artwork.hpp"
 
@@ -80,6 +81,29 @@ void blocksText(const json& n, std::string& out) {
         if (!cap.empty()) { if (!out.empty()) out += "\n\n"; out += cap; }
     } else if (n.contains("content") && n["content"].is_array()) {
         for (auto& c : n["content"]) blocksText(c, out);
+    }
+}
+
+void outlineBlocks(const json& n, std::string& out, int extra, bool inList) {
+    const std::string t = n.value("type", "");
+    if (t == "paragraph" || t == "heading") {
+        std::string line;
+        collectText(n, line);
+        if (line.empty()) return;
+        if (!out.empty()) out += inList ? "\n" : "\n\n";
+        if (t == "heading") {
+            const int level = std::clamp(n.contains("attrs") ? n["attrs"].value("level", 1) : 1, 1, 6);
+            out += std::string((size_t)(level + extra), '#') + " ";
+        } else if (inList) {
+            out += "- ";
+        }
+        out += line;
+    } else if (t == "scene_break") {
+        if (!out.empty()) out += "\n\n";
+        out += "---";
+    } else if (n.contains("content") && n["content"].is_array()) {
+        const bool list = t == "bullet_list" || t == "ordered_list" || (inList && t == "list_item");
+        for (auto& c : n["content"]) outlineBlocks(c, out, extra, list);
     }
 }
 
@@ -271,6 +295,13 @@ std::string plainText(const std::string& docJson) {
     json d = json::parse(docJson, nullptr, false);
     std::string out;
     if (d.is_object()) blocksText(d, out);
+    return out;
+}
+
+std::string outlineText(const std::string& docJson, int extraLevel) {
+    json d = json::parse(docJson, nullptr, false);
+    std::string out;
+    if (d.is_object()) outlineBlocks(d, out, extraLevel, false);
     return out;
 }
 

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.105.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.39.0: import many bible pages at once, and a template for every kind of entry in the manual."
+      ]
+    },
+    {
       "version": "0.104.3",
       "date": "2026-11-20",
       "notes": [

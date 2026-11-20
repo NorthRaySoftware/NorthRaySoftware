@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.39.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Import many pages: a whole bible, or a good part of one, from a text, Markdown, Word or OpenDocument file or from what you've copied (Ctrl+V on the cards does it too). Pages start at their Name: lines or title headings; headings such as \u201c# Characters\u201d or a \u201cKind: Place\u201d line say what kind they are. Each page fills the entry of its name or a new one, pages that name each other link up, a backup is made first, and Ctrl+Z takes the whole import back.",
+        "The user manual has a blank page for every kind of entry, ready to fill in and paste or import.",
+        "Lore's \u201cDetails\u201d section, written under its own heading in a pasted page, now goes to that section instead of the detail lines."
+      ]
+    },
+    {
       "version": "0.38.3",
       "date": "2026-11-20",
       "notes": [

@@ -415,6 +415,33 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.39.0: many pages at once, templates for every kind (20 Nov 2026)
+
+- **studiocore/entry_paste**: `kindNamed` (kind words and plurals: Characters, people, Bestiary, Magic systems...);
+  `splitPages(text, defaultKind)` -> `Batch {kind, name, text}`: a page starts at a `Name:` line or a `# Title` line
+  (a `Name:` straight after a title joins it); a kind heading (`# Characters`, `**Places**`, `== Creatures ==`,
+  `Realms:`, PLACES) counts when a page follows it or it's a top-level `#` heading, so a page's own "## Magic" stays
+  a section; `Kind: X` above or in a page sets that page's kind. With no `Name:` lines at all, headings carry the
+  names: the shallowest heading level that isn't a kind or a part of a page is the pages' titles (deeper headings
+  become the page's sections). Preambles and rule lines are left out. `looksLikeManyPages`, and
+  `documentPagesText(sections)` for Word and OpenDocument files (the importer's sections with `doc::outlineText`,
+  new: headings as Markdown, one level deeper than stored, list items as "- "; the importer's "Front matter"
+  title dropped).
+- `importPages(lib, world, book, pages, order, Import&)`: every page's entry found (name and kind, then name) or made
+  first, then each page applied like a paste, so pages naming each other link. `Import` keeps the entries made, those
+  updated with their earlier state and links, the entries made for other names, links and unchanged pages.
+- Parser: a second "Details" heading is a section (Lore's template has a Details part and a Details section).
+- **App** (`studio_paste.cpp`): "Import many pages…" at the foot of the Worldbuilding sidebar (a file: .txt, .md,
+  .docx, .odt, UTF-8 or UTF-16; or the clipboard), and Ctrl+V on the cards with several pages. Pages with no kind get
+  one asked for once; a confirmation counts pages by kind and those matching existing entries; a backup (and its
+  copy) first; `wb_.importUndo` and Ctrl+Z restore updated entries with their links and trash what was made.
+- The manual prints `blankPage` for every kind with a `Kind:` line; a test splits all ten joined together.
+- Tested in core (1275 checks: every kind's blank page filled and read back, the joined templates, mixed pages with
+  headings, Kind: lines, a repeated import changing nothing, Markdown and Word-style heading pages) and in Wine
+  (four pages pasted on the cards, the confirmation, the Vale family appearing, Ctrl+Z taking it back). Word
+  documents were checked through the importer with python-docx files in both styles.
+
+
 ## 0.38.3: family trees that keep families apart (20 Nov 2026)
 
 - **Library** (`family.cpp`): `familyLayout(root, limit, bloodline)` returns each person with `inLaw`. A person's own

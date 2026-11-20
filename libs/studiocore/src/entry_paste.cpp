@@ -1,6 +1,8 @@
 #include "studio/entry_paste.hpp"
+#include "studio/document.hpp"
 
 #include <algorithm>
+#include <set>
 #include <cctype>
 #include <cstdlib>
 #include <regex>
@@ -152,6 +154,7 @@ Page parse(const std::string& raw) {
     size_t bookNote = 0;      // which of p.bookNotes, when in BookNotes
     bool gap = false;
     bool prevBlank = true;
+    bool seenDetails = false;     // a "Details" part already read
     Slot awaiting = Slot::None;   // "Name" on its own line: the value is the next line
     static const std::regex bookLabel(R"(^(.{1,80}?\(\s*book\s+\d+\s*\)|book\s+\d+|book\s+(one|two|three|four|five|six|seven|eight|nine|ten))\s*[.:\-]?\s*(.*)$)",
                                       std::regex::icase);
@@ -234,6 +237,16 @@ Page parse(const std::string& raw) {
         const Slot known = slotOf(key(c));
         if (known != Slot::None && words(c) <= 5) {
             if (known == Slot::Name || known == Slot::Aliases || known == Slot::Say) { awaiting = known; ++p.parts; ++p.known; block = Slot::None; continue; }
+            if (known == Slot::Details && seenDetails) {
+                // A second "Details": a section of that name (Lore's template has one), not more detail lines.
+                std::string t = c;
+                while (!t.empty() && (t.back() == ':' || t.back() == ' ')) t.pop_back();
+                p.sections.emplace_back(t, std::string());
+                section = p.sections.size() - 1;
+                startBlock(Slot::Section);
+                continue;
+            }
+            if (known == Slot::Details) seenDetails = true;
             startBlock(known);
             continue;
         }
@@ -709,6 +722,258 @@ std::string Report::words() const {
     std::string out;
     for (size_t i = 0; i < parts.size(); ++i) out += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];
     return out;
+}
+
+// ---------------------------------------------------------------- many pages at once
+
+std::string kindNamed(const std::string& wordIn) {
+    std::string w = key(wordIn);
+    static const std::vector<std::pair<const char*, const char*>> names = {
+        {"character", "character"}, {"characters", "character"}, {"people", "character"}, {"person", "character"}, {"cast", "character"},
+        {"race", "race"}, {"races", "race"}, {"peoples", "race"}, {"species", "race"},
+        {"creature", "creature"}, {"creatures", "creature"}, {"beasts", "creature"}, {"monsters", "creature"}, {"animals", "creature"},
+        {"bestiary", "creature"},
+        {"place", "place"}, {"places", "place"}, {"locations", "place"}, {"location", "place"}, {"settings", "place"},
+        {"realm", "realm"}, {"realms", "realm"}, {"planes", "realm"}, {"realms and planes", "realm"}, {"realms & planes", "realm"},
+        {"group", "group"}, {"groups", "group"}, {"factions", "group"}, {"organisations", "group"}, {"organizations", "group"},
+        {"guilds", "group"}, {"families", "group"}, {"houses", "group"}, {"orders", "group"},
+        {"thing", "thing"}, {"things", "thing"}, {"objects", "thing"}, {"items", "thing"}, {"artefacts", "thing"},
+        {"artifacts", "thing"}, {"weapons", "thing"}, {"ships", "thing"},
+        {"lore", "lore"}, {"legends", "lore"}, {"myths", "lore"}, {"beliefs", "lore"}, {"religions", "lore"},
+        {"magic", "magic"}, {"magic systems", "magic"}, {"magic and powers", "magic"}, {"magic & powers", "magic"}, {"powers", "magic"},
+        {"spells", "magic"},
+        {"event", "event"}, {"events", "event"}, {"battles", "event"}, {"wars", "event"}, {"timeline", "event"}, {"history", "event"},
+    };
+    for (auto& [n, k] : names) if (w == n) return k;
+    return {};
+}
+
+namespace {
+
+// A heading naming a kind: "# Characters", "**Places**", "== Creatures ==", "Realms:", "PLACES". Marked as a heading,
+// or a plural on its own, so a section called "History" inside a page isn't taken for one.
+std::string kindHeading(const std::string& raw) {
+    std::string l = trim(raw);
+    bool marked = false;
+    if (!l.empty() && l[0] == '#') { while (!l.empty() && l[0] == '#') l.erase(0, 1); marked = true; }
+    for (const char* m : {"==", "--"})
+        if (startsWith(l, m)) {
+            while (!l.empty() && (l[0] == '=' || l[0] == '-')) l.erase(0, 1);
+            while (!l.empty() && (l.back() == '=' || l.back() == '-')) l.pop_back();
+            marked = true;
+        }
+    if (startsWith(l, "**") || startsWith(l, "__")) marked = true;
+    l = withoutEmphasis(trim(l));
+    if (l.empty() || l.size() > 40) return {};
+    if (l.back() == ':') { marked = true; l.pop_back(); }
+    const std::string k = kindNamed(l);
+    if (k.empty()) return {};
+    const std::string w = key(l);
+    const bool plural = w.size() > 1 && (w.back() == 's' || w == "people" || w == "lore" || w == "magic" || w == "species" ||
+                                         w == "cast" || w == "bestiary" || w == "timeline");
+    bool caps = true;
+    for (char c : l) if (std::islower((unsigned char)c)) caps = false;
+    return (marked || plural || caps) ? k : std::string();
+}
+
+// "Name: Tom" -> "Tom"; "Name:" alone -> "" with `bare` set.
+bool nameLine(const std::string& raw, std::string& value, bool& bare) {
+    const std::string l = withoutEmphasis(trim(raw));
+    std::string lab, val;
+    if (!l.empty() && key(l) == "name" && (l.back() == ':' || l == "Name")) { value.clear(); bare = true; return true; }
+    if (!splitField(l, lab, val) || key(lab) != "name") return false;
+    value = trim(val);
+    bare = value.empty();
+    return true;
+}
+
+}  // namespace
+
+std::vector<Batch> splitPages(const std::string& text, const std::string& defaultKind) {
+    std::vector<std::string> lines;
+    {
+        std::string cur;
+        for (size_t i = 0; i <= text.size(); ++i) {
+            if (i == text.size() || text[i] == '\n') { if (!cur.empty() && cur.back() == '\r') cur.pop_back(); lines.push_back(cur); cur.clear(); }
+            else cur += text[i];
+        }
+    }
+    // With no "Name:" lines, pages are marked by headings (a Word document's, or Markdown's): the shallowest level of
+    // heading that isn't a kind ("Characters") or a part of a page ("Summary") is the pages' titles. They become
+    // "# Title", deeper headings "## Heading" (the page's sections), and shallower ones are left out.
+    {
+        bool names = false;
+        int pageLevel = 99;
+        auto headingOf = [](const std::string& l, int& level) -> std::string {
+            const std::string t = trim(l);
+            size_t h = 0;
+            while (h < t.size() && t[h] == '#') ++h;
+            if (h == 0 || h >= t.size() || t[h] != ' ') return {};
+            level = (int)h;
+            return withoutEmphasis(trim(t.substr(h)));
+        };
+        for (auto& l : lines) {
+            std::string v;
+            bool bare = false;
+            if (nameLine(l, v, bare)) { names = true; break; }
+            int level = 0;
+            const std::string hd = headingOf(l, level);
+            if (hd.empty() || !kindNamed(hd).empty() || slotOf(key(hd)) != Slot::None) continue;
+            pageLevel = std::min(pageLevel, level);
+        }
+        if (!names && pageLevel < 99)
+            for (auto& l : lines) {
+                int level = 0;
+                const std::string hd = headingOf(l, level);
+                if (hd.empty()) continue;
+                if (!kindNamed(hd).empty() && level <= pageLevel) l = "# " + hd;
+                else if (level == pageLevel && slotOf(key(hd)) == Slot::None) l = "# " + hd;
+                else if (level > pageLevel || slotOf(key(hd)) != Slot::None) l = "## " + hd;
+                else l.clear();
+            }
+    }
+    struct Open { std::string kind, ownKind, text; bool named = false, fromTitle = false; int since = 0; };
+    std::vector<Open> pages;
+    std::string kind = defaultKind;
+    auto start = [&]() { pages.push_back({kind, {}, {}, false, false, 0}); };
+    auto kindLine = [&](const std::string& t) -> std::string {   // "Kind: Place" -> "place"
+        std::string lab, val;
+        if (splitField(withoutEmphasis(t), lab, val) && (key(lab) == "kind" || key(lab) == "entry kind" || key(lab) == "category"))
+            return kindNamed(val);
+        return {};
+    };
+    // Whether a page starts at the next line with words on it (a Name: line, a "# Title" or a Kind: line).
+    auto pageNext = [&](size_t i) {
+        for (size_t j = i + 1; j < lines.size(); ++j) {
+            const std::string t = trim(lines[j]);
+            if (t.empty() || isSeparator(t)) continue;
+            std::string v;
+            bool bare = false;
+            return nameLine(t, v, bare) || (t.size() > 2 && t[0] == '#' && t[1] == ' ') || !kindLine(t).empty() || !kindHeading(t).empty();
+        }
+        return false;
+    };
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string& raw = lines[i];
+        const std::string t = trim(raw);
+        if (t.empty()) { if (!pages.empty()) pages.back().text += "\n"; continue; }
+        // A heading naming a kind, with a page after it (a page's own "## Magic" section has its text after it instead).
+        if (const std::string k = kindHeading(t); !k.empty() && (pageNext(i) || (t.size() > 2 && t[0] == '#' && t[1] == ' '))) { kind = k; if (!pages.empty()) pages.back().text += "\n"; continue; }
+        // "Kind: Place": the page it's in, or the one it comes just before.
+        if (const std::string k = kindLine(t); !k.empty()) {
+            std::string v;
+            bool bare = false;
+            bool beforeName = false;
+            for (size_t j = i + 1; j < lines.size(); ++j) {
+                const std::string n = trim(lines[j]);
+                if (n.empty()) continue;
+                beforeName = nameLine(n, v, bare) || (n.size() > 2 && n[0] == '#' && n[1] == ' ');
+                break;
+            }
+            if (beforeName) {
+                start();   // the page to come (its Name: line joins it)
+                pages.back().fromTitle = false;
+            } else if (pages.empty()) start();
+            pages.back().ownKind = k;
+            continue;
+        }
+        std::string value;
+        bool bare = false;
+        if (nameLine(t, value, bare)) {
+            const bool fresh = !pages.empty() && pages.back().fromTitle && pages.back().since == 0;
+            if (pages.empty() || (pages.back().named && !fresh)) start();
+            Open& pg = pages.back();
+            if (fresh) pg.text.clear();
+            pg.named = true;
+            pg.fromTitle = false;
+            pg.since = 0;
+            pg.text += raw + "\n";
+            continue;
+        }
+        // "# Tom Smith": a page of that name (## and deeper are the page's own headings).
+        if (t.size() > 2 && t[0] == '#' && t[1] == ' ') {
+            const std::string title = withoutEmphasis(trim(t.substr(2)));
+            if (!title.empty() && title.size() <= 120) {
+                if (pages.empty() || pages.back().named) start();
+                pages.back().named = pages.back().fromTitle = true;
+                pages.back().text = "Name: " + title + "\n";
+                continue;
+            }
+        }
+        if (pages.empty()) continue;   // before the first page
+        if (isSeparator(t)) { pages.back().text += "\n"; continue; }
+        pages.back().text += raw + "\n";
+        ++pages.back().since;
+    }
+    std::vector<Batch> out;
+    for (auto& pg : pages) {
+        if (!pg.named) continue;
+        const Page parsed = parse(pg.text);
+        if (parsed.name.empty()) continue;
+        out.push_back({pg.ownKind.empty() ? pg.kind : pg.ownKind, parsed.name, pg.text});
+    }
+    return out;
+}
+
+std::string documentPagesText(const std::vector<std::pair<std::string, std::string>>& sections) {
+    std::string text;
+    for (size_t i = 0; i < sections.size(); ++i) {
+        const auto& [title, json] = sections[i];
+        if (!title.empty() && !(i == 0 && (title == "Front matter" || title == "Opening"))) text += "# " + title + "\n\n";
+        text += doc::outlineText(json, 1) + "\n\n";
+    }
+    return text;
+}
+
+bool looksLikeManyPages(const std::string& text) { return splitPages(text, "character").size() >= 2; }
+
+bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
+                 Import& out) {
+    const Id scopeBook = world.empty() ? book : Id{};
+    std::vector<Id> target(pages.size());
+    std::set<Id> seen;
+    // Every page's entry first: found, or made, so pages naming each other link.
+    for (size_t i = 0; i < pages.size(); ++i) {
+        const Batch& b = pages[i];
+        const Entry* e = lib.findEntryNamed(world, scopeBook, b.name, b.kind);
+        if (!e) e = lib.findEntryNamed(world, scopeBook, b.name);
+        if (e) {
+            target[i] = e->id;
+            if (seen.insert(e->id).second && std::find(out.made.begin(), out.made.end(), e->id) == out.made.end()) {
+                out.updated.push_back(e->id);
+                out.before.push_back(*e);
+                out.linksBefore.push_back(lib.linksOf(e->id));
+            }
+            continue;
+        }
+        const Id id = lib.createEntry(world, scopeBook, b.kind, b.name);
+        if (id.empty()) return false;
+        target[i] = id;
+        seen.insert(id);
+        out.made.push_back(id);
+    }
+    std::set<Id> changed;
+    for (size_t i = 0; i < pages.size(); ++i) {
+        Report r;
+        if (!apply(lib, target[i], parse(pages[i].text), booksInOrder, r)) return false;
+        out.links += r.links;
+        for (const Id& x : r.created) out.extra.push_back(x);
+        if (!r.words().empty()) changed.insert(target[i]);
+    }
+    for (const Id& id : out.updated) if (!changed.count(id)) ++out.unchanged;
+    return true;
+}
+
+std::string Import::words() const {
+    std::vector<std::string> parts;
+    auto count = [](size_t n, const char* one, const char* many) { return std::to_string(n) + " " + (n == 1 ? one : many); };
+    if (!made.empty()) parts.push_back(count(made.size(), "new entry", "new entries"));
+    if (updated.size() > (size_t)unchanged) parts.push_back(count(updated.size() - unchanged, "entry updated", "entries updated"));
+    if (links) parts.push_back(count((size_t)links, "link", "links"));
+    if (!extra.empty()) parts.push_back(count(extra.size(), "entry made for a name the pages mention", "entries made for names the pages mention"));
+    std::string o;
+    for (size_t i = 0; i < parts.size(); ++i) o += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];
+    return o;
 }
 
 }  // namespace studio::paste

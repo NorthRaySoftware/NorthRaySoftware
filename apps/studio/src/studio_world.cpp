@@ -727,6 +727,8 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
     if (books.empty()) { gfx_.text(L"No books yet.", {tx0, y, cw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false}); y += 24; }
     // Starting again (0.38.1), out of the way at the foot.
     y += 18;
+    linkText("side:wb:import", tx0, y, L"Import many pages\u2026", [this] { importManyPages(false); });
+    y += 30;
     linkText("side:wb:reset", tx0, y, L"Reset the bible\u2026", [this] { resetBible(); });
     y += 30;
     wb_.sideContent = y + wb_.sideScroll - r.y + 20;

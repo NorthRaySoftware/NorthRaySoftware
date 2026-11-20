@@ -11,11 +11,16 @@
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 #include "studio/entry_paste.hpp"
+#include "studio/import.hpp"
+
+#include <shobjidl.h>
 
 #include <commctrl.h>
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
+#include <map>
 
 namespace nrs {
 
@@ -140,6 +145,8 @@ bool StudioApp::pasteFromClipboard() {
         return true;
     }
     if (!wb_.entry.empty()) { pasteEntryPage(wb_.entry, t, false); return true; }
+    // On the cards, several pages: each its own entry.
+    if (paste::looksLikeManyPages(t)) { importPagesText(t, L"what you copied"); return true; }
     // On the cards: a new entry, of the kind chosen (the kind shown, if one is).
     std::string kind = wb_.kind;
     if (kind.empty()) {
@@ -304,6 +311,202 @@ bool StudioApp::undoBibleReset() {
     wb_.shareKey.clear();
     sendView();
     flash(L"The bible is back: " + std::to_wstring(rs.trashed.size()) + L" entries restored.", 5);
+    invalidate();
+    return true;
+}
+
+// ------------------------------------------------------------------ many pages at once (0.39)
+
+namespace {
+
+// Text from a file's bytes: UTF-8 (a BOM taken off) or UTF-16 with a BOM.
+std::string textFromBytes(const std::string& b) {
+    if (b.size() >= 3 && (unsigned char)b[0] == 0xEF && (unsigned char)b[1] == 0xBB && (unsigned char)b[2] == 0xBF) return b.substr(3);
+    if (b.size() >= 2 && ((unsigned char)b[0] == 0xFF && (unsigned char)b[1] == 0xFE || (unsigned char)b[0] == 0xFE && (unsigned char)b[1] == 0xFF)) {
+        const bool be = (unsigned char)b[0] == 0xFE;
+        std::wstring ws;
+        for (size_t i = 2; i + 1 < b.size(); i += 2)
+            ws += (wchar_t)(be ? ((unsigned char)b[i] << 8 | (unsigned char)b[i + 1]) : ((unsigned char)b[i + 1] << 8 | (unsigned char)b[i]));
+        return narrow(ws);
+    }
+    return b;
+}
+
+}  // namespace
+
+void StudioApp::importManyPages(bool fromClipboard) {
+    if (!lib_) return;
+    commitFields();
+    if (!fromClipboard) {
+        HMENU m = CreatePopupMenu();
+        AppendMenuW(m, MF_STRING, 1, L"From a file (text, Markdown, Word or OpenDocument)…");
+        AppendMenuW(m, MF_STRING, 2, L"From what you've copied");
+        POINT pt;
+        GetCursorPos(&pt);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
+        DestroyMenu(m);
+        if (cmd < 1) return;
+        fromClipboard = cmd == 2;
+    }
+    if (fromClipboard) {
+        std::wstring text;
+        if (!clipboardText(hwnd(), text) || text.empty()) { flash(L"There's no text on the clipboard. Copy the pages first.", 6); return; }
+        importPagesText(narrow(text), L"what you copied");
+        return;
+    }
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC types[] = {{L"Bible pages (text, Markdown, Word, OpenDocument)", L"*.txt;*.md;*.markdown;*.text;*.docx;*.odt"},
+                                 {L"All files", L"*.*"}};
+    dlg->SetFileTypes(2, types);
+    dlg->SetTitle(L"Import many bible pages");
+    std::wstring path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = p; CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    std::ifstream f(path.c_str(), std::ios::binary);
+    std::string bytes;
+    if (f) {
+        f.seekg(0, std::ios::end);
+        const auto size = (std::size_t)std::max<std::streamoff>(0, f.tellg());
+        if (size > (64u << 20)) {
+            cjui::messageBox(hwnd(), L"That file is too big to read as bible pages (over 64 MB).", L"Import many pages", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        f.seekg(0);
+        bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    if (bytes.empty()) { cjui::messageBox(hwnd(), L"That file couldn't be read, or it's empty.", L"Import many pages", MB_OK | MB_ICONWARNING); return; }
+    std::string lower = narrow(path);
+    for (auto& c : lower) c = (char)std::tolower((unsigned char)c);
+    auto endsWith = [&](const char* e) { const size_t n = strlen(e); return lower.size() >= n && lower.compare(lower.size() - n, n, e) == 0; };
+    std::string text;
+    if (endsWith(".docx") || endsWith(".odt")) {
+        // A document's headings become "# Heading" lines, so a heading for each kind or each page counts.
+        const std::string name = narrow(path.substr(path.find_last_of(L"\\/") + 1));
+        const studio::import::Plan plan = endsWith(".docx") ? studio::import::readDocx(bytes, name) : studio::import::readOdt(bytes, name);
+        if (!plan.ok) {
+            cjui::messageBox(hwnd(), w("That document couldn't be read.\n\n" + plan.error).c_str(), L"Import many pages", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        std::vector<std::pair<std::string, std::string>> secs;
+        for (auto& sec : plan.sections) secs.emplace_back(sec.title, sec.content);
+        text = paste::documentPagesText(secs);
+    } else {
+        text = textFromBytes(bytes);
+    }
+    importPagesText(text, w(narrow(path.substr(path.find_last_of(L"\\/") + 1))));
+}
+
+void StudioApp::importPagesText(const std::string& text, const std::wstring& from) {
+    std::vector<paste::Batch> pages = paste::splitPages(text, "");
+    if (pages.empty()) {
+        cjui::messageBox(hwnd(),
+                         (L"No pages were found in " + from +
+                          L".\n\nEach page needs to start with a “Name:” line (or a title line such as “# Tom Smith”). A heading such as "
+                          L"“# Characters” or a “Kind: Place” line says what kind the pages are. The manual has a template for every kind.")
+                             .c_str(),
+                         L"Import many pages", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    // Pages with no kind given: ask once for all of them.
+    const size_t kindless = (size_t)std::count_if(pages.begin(), pages.end(), [](const paste::Batch& b) { return b.kind.empty(); });
+    if (kindless > 0) {
+        HMENU m = CreatePopupMenu();
+        const auto& kinds = entryKinds();
+        AppendMenuW(m, MF_STRING | MF_GRAYED, 0,
+                    (std::to_wstring(kindless) + (kindless == 1 ? L" page doesn't say its kind. It's a:" : L" pages don't say their kind. They're:")).c_str());
+        for (size_t i = 0; i < kinds.size(); ++i) AppendMenuW(m, MF_STRING, 1 + (UINT)i, w(entryKindLabel(kinds[i])).c_str());
+        POINT pt;
+        GetCursorPos(&pt);
+        const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
+        DestroyMenu(m);
+        if (cmd < 1) return;
+        for (auto& b : pages) if (b.kind.empty()) b.kind = kinds[(size_t)cmd - 1];
+    }
+    const Id scopeBook = wb_.world.empty() ? wb_.book : Id{};
+    std::map<std::string, int> byKind;
+    int existing = 0;
+    for (auto& b : pages) {
+        ++byKind[b.kind];
+        if (lib_->findEntryNamed(wb_.world, scopeBook, b.name, b.kind) || lib_->findEntryNamed(wb_.world, scopeBook, b.name)) ++existing;
+    }
+    std::wstring kinds;
+    for (const auto& k : entryKinds())
+        if (auto it = byKind.find(k); it != byKind.end()) {
+            std::string label = it->second == 1 ? entryKindLabel(k) : entryKindPlural(k);
+            if (k == "lore" && it->second > 1) label = "lore entries";
+            for (auto& c : label) c = (char)std::tolower((unsigned char)c);
+            kinds += (kinds.empty() ? L"" : L", ") + std::to_wstring(it->second) + L" " + w(label);
+        }
+    std::wstring q = L"Bring " + std::to_wstring(pages.size()) + (pages.size() == 1 ? L" page" : L" pages") + L" from " + from +
+                     L" into the bible?\n\n" + kinds + L".";
+    if (existing > 0)
+        q += L"\n\n" + std::to_wstring(existing) + (existing == 1 ? L" of them has the name of an entry already in the bible: its"
+                                                                 : L" of them have the names of entries already in the bible: their") +
+             L" parts on the page replace what's there, as a paste does.";
+    q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
+    if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    std::string err;
+    if (!lib_->backup(err, 20)) {
+        cjui::messageBox(hwnd(), w("The backup couldn't be made, so nothing was imported.\n\n" + err).c_str(), L"Import many pages", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    mirrorBackups();
+    paste::Import imp;
+    const bool ok = paste::importPages(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{}, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), imp);
+    wb_.importUndo = imp;
+    wb_.pasteUndo.reset();
+    wb_.mentionsFor.clear();
+    loadedFocus_ = {Focus::None, "-", ""};
+    if (!ok) {
+        flash(w("The import stopped part way: " + lib_->lastError() + ". Ctrl+Z takes back what was done."), 10);
+    } else {
+        const std::string said = imp.words();
+        flash(said.empty() ? std::wstring(L"Every page was already in the bible as it is.")
+                           : L"Imported: " + w(said) + L". Ctrl+Z takes it back.",
+              10);
+    }
+    sendView();   // the names, for Writing's links and spell checker
+    SetFocus(hwnd());
+    invalidate();
+}
+
+bool StudioApp::undoPagesImport() {
+    if (!wb_.importUndo || !lib_) return false;
+    const paste::Import imp = *wb_.importUndo;
+    wb_.importUndo.reset();
+    // Entries that were there: as they were, with the links they had.
+    for (size_t i = 0; i < imp.updated.size(); ++i) {
+        const Id& id = imp.updated[i];
+        if (!lib_->entry(id)) continue;
+        lib_->updateEntry(imp.before[i]);
+        const auto& old = imp.linksBefore[i];
+        auto same = [](const EntryLink& a, const EntryLink& b) { return a.from == b.from && a.to == b.to && a.label == b.label; };
+        for (auto& l : lib_->linksOf(id))
+            if (std::none_of(old.begin(), old.end(), [&](const EntryLink& x) { return same(x, l); })) lib_->removeLink(l.from, l.to, l.label);
+        const auto now = lib_->linksOf(id);
+        for (auto& l : old)
+            if (std::none_of(now.begin(), now.end(), [&](const EntryLink& x) { return same(x, l); })) lib_->addLink(l.from, l.to, l.label);
+    }
+    // Entries the import made: to the Trash.
+    for (const Id& id : imp.extra) lib_->trashEntry(id);
+    for (const Id& id : imp.made) lib_->trashEntry(id);
+    if (std::find(imp.made.begin(), imp.made.end(), wb_.entry) != imp.made.end() ||
+        std::find(imp.extra.begin(), imp.extra.end(), wb_.entry) != imp.extra.end())
+        openEntry({});
+    loadedFocus_ = {Focus::None, "-", ""};
+    sendView();
+    flash(L"The import is taken back: " + std::to_wstring(imp.made.size() + imp.extra.size()) + L" entries to the Trash, " +
+              std::to_wstring(imp.updated.size()) + L" put back as they were.",
+          6);
     invalidate();
     return true;
 }

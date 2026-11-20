@@ -2413,6 +2413,139 @@ static void testEntryPaste() {
               fp.sections[0].first == "Backstory & goals" && fp.bookNotes.size() == 1 && fp.relations.size() == 1 && fp.relations[0].first == "Siblings");
         CHECK(pa::blankPage("place", {"Description"}, {}).find("Type: ") != std::string::npos);
     }
+    // Every kind's blank page (the manual prints them): each section filled in comes back as that section, and the
+    // first detail as a detail. Lore has both a Details part and a Details section.
+    for (const char* kind : {"character", "race", "creature", "place", "realm", "group", "thing", "lore", "magic", "event"}) {
+        std::vector<std::string> secs;
+        for (auto& l : defaultEntryTemplate(kind)) { std::string t = l.substr(0, l.find(':')); while (!t.empty() && t.back() == ' ') t.pop_back(); secs.push_back(t); }
+        std::string page = pa::blankPage(kind, secs, {"Book 1"});
+        auto put = [&](const std::string& after, const std::string& text, size_t from = 0) {
+            const size_t at = page.find(after, from);
+            CHECK(at != std::string::npos);
+            if (at != std::string::npos) page.insert(at + after.size(), text);
+        };
+        put("Name: ", "Test name");
+        put("Summary\n", "A summary.");
+        const size_t det = page.find("Details\n") + 8;
+        const size_t colon = page.find(": ", det);
+        page.insert(colon + 2, "first value");
+        size_t from = page.find("Summary\n") + 8;
+        for (const auto& t : secs) {
+            const size_t at = page.find("\n" + t + "\n", t == "Details" ? page.find("Details\n", det) - 1 : from);
+            CHECK(at != std::string::npos);
+            if (at == std::string::npos) continue;
+            page.insert(at + t.size() + 2, "Text for " + t + ".");
+            from = at + 1;
+        }
+        const pa::Page got = pa::parse(page);
+        bool ok = got.name == "Test name" && got.summary == "A summary." && got.details.find("first value") != std::string::npos &&
+                  got.details.find('\n') == std::string::npos && got.sections.size() == secs.size() && got.notes.empty();
+        for (size_t i = 0; ok && i < secs.size(); ++i) ok = got.sections[i].first == secs[i] && got.sections[i].second == "Text for " + secs[i] + ".";
+        if (!ok) std::printf("blank page for %s: %zu sections, details [%s]\n", kind, got.sections.size(), got.details.c_str());
+        CHECK(ok);
+    }
+    // Many pages at once: kinds from headings and Kind: lines, pages from Name: lines and "# Title", pages naming each
+    // other linked, a page's own "## Magic" section kept in it, an import repeated changing nothing.
+    {
+        const std::string many =
+            "Here's the bible you asked for.\n\n"
+            "# Characters\n\n"
+            "Name: Brannoc Vale\nSummary\nA sailor of Highcliff.\n\nFamily\nSiblings: Isolde Vale\n\nRelationships\nLives in: Highcliff\n\n"
+            "## Magic\nHe can't do any.\n\n---\n\n"
+            "Name: Isolde Vale\nSummary\nHis sister.\n\n"
+            "# Places\n\n"
+            "# Highcliff\nSummary\nA harbour town.\nDetails\nType: Town\n\nRelationships\nRuled by: Merrow Quill\n\n"
+            "Kind: Creature\nName: Grey Harrier\nSummary\nA hawk of the cliffs.\n\n"
+            "Name: Skerry Light\nKind: Place\nSummary\nA lighthouse.\n";
+        const auto pages = pa::splitPages(many, "thing");
+        CHECK(pages.size() == 5);
+        if (pages.size() == 5) {
+            CHECK(pages[0].name == "Brannoc Vale" && pages[0].kind == "character" && pages[1].kind == "character");
+            CHECK(pages[2].name == "Highcliff" && pages[2].kind == "place");
+            CHECK(pages[3].name == "Grey Harrier" && pages[3].kind == "creature");
+            CHECK(pages[4].name == "Skerry Light" && pages[4].kind == "place");
+            CHECK(pages[0].text.find("He can't do any.") != std::string::npos && pages[0].text.find("Here's") == std::string::npos);
+        }
+        CHECK(pa::looksLikeManyPages(many) && !pa::looksLikeManyPages("Name: One\nSummary\nJust one."));
+        CHECK(pa::kindNamed("Magic systems") == "magic" && pa::kindNamed("PEOPLE") == "character" && pa::kindNamed("Sailors").empty());
+        pa::Import imp;
+        CHECK(pa::importPages(*lib, world, {}, pages, {}, imp));
+        CHECK(imp.made.size() == 5 && imp.updated.empty());
+        const Entry* bran = lib->findEntryNamed(world, {}, "Brannoc Vale", "character");
+        const Entry* isol = lib->findEntryNamed(world, {}, "Isolde Vale", "character");
+        const Entry* high = lib->findEntryNamed(world, {}, "Highcliff", "place");
+        CHECK(bran && isol && high && lib->findEntryNamed(world, {}, "Grey Harrier", "creature") && lib->findEntryNamed(world, {}, "Skerry Light", "place"));
+        if (bran && isol && high) {
+            bool sib = false, home = false;
+            for (auto& l : lib->linksOf(bran->id)) {
+                if ((l.to == isol->id || l.from == isol->id) && (l.label == "Sibling of")) sib = true;
+                if (l.to == high->id && l.label == "Lives in") home = true;
+            }
+            CHECK(sib && home);
+            CHECK(bran->section("Magic") == "He can't do any." && high->summary == "A harbour town.");
+        }
+        CHECK(imp.extra.size() == 1 && lib->findEntryNamed(world, {}, "Merrow Quill"));
+        CHECK(!imp.words().empty());
+        pa::Import again;
+        CHECK(pa::importPages(*lib, world, {}, pages, {}, again));
+        CHECK(again.made.empty() && again.updated.size() == 5 && again.unchanged == 5 && again.links == 0 && again.extra.empty());
+        // A page that changes one of them replaces just that part; the old entry is kept for undo.
+        pa::Import third;
+        CHECK(pa::importPages(*lib, world, {}, pa::splitPages("# Places\n\nName: Highcliff\nSummary\nA windy harbour town.\n", "thing"), {}, third));
+        CHECK(third.updated.size() == 1 && third.unchanged == 0 && third.before.size() == 1 && third.before[0].summary == "A harbour town.");
+        CHECK(lib->findEntryNamed(world, {}, "Highcliff")->summary == "A windy harbour town.");
+    }
+    // The manual's templates, one after another with a Kind: line each and only the names filled in: one page each, of
+    // the right kind (the blank "Realm:" detail lines aren't kind headings).
+    {
+        std::string all = "Here are my pages.\n\n";
+        const std::vector<std::pair<const char*, const char*>> ks = {{"character", "Character"}, {"race", "Race"}, {"creature", "Creature"},
+                                                                     {"place", "Place"}, {"realm", "Realm"}, {"group", "Group"}, {"thing", "Thing"},
+                                                                     {"lore", "Lore"}, {"magic", "Magic"}, {"event", "Event"}};
+        for (auto& [k, label] : ks) {
+            std::vector<std::string> secs;
+            for (auto& l : defaultEntryTemplate(k)) { std::string t = l.substr(0, l.find(':')); while (!t.empty() && t.back() == ' ') t.pop_back(); secs.push_back(t); }
+            std::string page = pa::blankPage(k, secs, {"Book 1", "Book 2"});
+            page.insert(page.find("Name: ") + 6, std::string("Test ") + k);
+            all += std::string("Kind: ") + label + "\n" + page + "\n";
+        }
+        const auto pages = pa::splitPages(all, "");
+        CHECK(pages.size() == ks.size());
+        {
+            const pa::Page one = pa::parse("Kind: Place\nName: Skerry Light\nOther names: \n\nSummary\nA lighthouse.\n");
+            CHECK(one.name == "Skerry Light" && one.details.empty() && one.summary == "A lighthouse." && one.notes.empty());
+        }
+        for (size_t i = 0; i < pages.size() && i < ks.size(); ++i) {
+            const bool ok = pages[i].kind == ks[i].first && pages[i].name == std::string("Test ") + ks[i].first;
+            if (!ok) std::printf("template page %zu: %s %s\n", i, pages[i].kind.c_str(), pages[i].name.c_str());
+            CHECK(ok);
+        }
+    }
+    // Pages marked by headings only (Markdown, or a Word document's headings): the shallowest heading that isn't a kind
+    // or a part of a page is the pages' titles.
+    {
+        const auto md = pa::splitPages("My notes.\n\n# Characters\n\n## Brannoc Vale\n\n### Summary\nA sailor.\n\n### Appearance\nWeathered.\n\n"
+                                       "## Isolde Vale\n### Summary\nHis sister.\n\n# Places\n## Highcliff\n### Summary\nA town.\n", "");
+        CHECK(md.size() == 3);
+        if (md.size() == 3) {
+            CHECK(md[0].name == "Brannoc Vale" && md[0].kind == "character" && md[2].name == "Highcliff" && md[2].kind == "place");
+            const pa::Page b = pa::parse(md[0].text);
+            CHECK(b.summary == "A sailor." && b.sections.size() == 1 && b.sections[0].first == "Appearance");
+        }
+        doc::Builder front, chars;
+        front.paragraph();
+        front.text("My Alvora bible.");
+        chars.heading(2);
+        chars.text("Brannoc Vale");
+        chars.heading(3);
+        chars.text("Summary");
+        chars.paragraph();
+        chars.text("A sailor.");
+        const std::string text = pa::documentPagesText({{"Front matter", front.toJson()}, {"Characters", chars.toJson()}});
+        CHECK(text.find("Front matter") == std::string::npos && text.find("# Characters") != std::string::npos && text.find("### Brannoc Vale") != std::string::npos);
+        const auto dp = pa::splitPages(text, "");
+        CHECK(dp.size() == 1 && dp[0].name == "Brannoc Vale" && dp[0].kind == "character" && pa::parse(dp[0].text).summary == "A sailor.");
+    }
     // Starting the bible again, and taking that back.
     {
         const Id w2 = lib->createWorld("Second");
