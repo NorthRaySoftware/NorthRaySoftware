@@ -415,6 +415,22 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.50.0: Plot threads, structures and planning as text (20 Nov 2026)
+
+- New portable module `studio/planning.hpp` (src/planning.cpp, tested in `testPlanning`): story structures (eleven built in,
+  plus the author's own per world or independent book in setting `structures:world:<id>` / `structures:book:<id>`), the
+  book's structure (`structure:<book>`: a beat now holds a list of chapters, the old single id is still read, and `notes`
+  per beat), plot threads (`threads:<book>`: threads with id, name, colour, about; and node -> thread ids), and text
+  formats for all three with `importPlanning` / `planningText` (one text: "Structure:" blocks, "Thread:" blocks and the
+  outline with "Book structure:", "Part:/Chapter:/Scene:" or Markdown headings and the fields Viewpoint, Status, Target,
+  Threads, Beat, When). Structures import first, then the outline, then threads, so chapter numbers count new chapters.
+- The app's old in-file templates and `structureOf`/`setStructure` are gone; studio_plot.cpp uses the module. New focus
+  kinds Thread, Beat and Structure (contextSeries = the book) load and save through `loadPlanFields`/`commitPlanFields`;
+  your own structure is edited as text in the panel (FTemplate).
+- `nodeShown` applies the status, viewpoint and thread filters on the corkboard, the timeline and the structure bar.
+- Cards grow a row of thread tags when the book has threads. Before there's text, chapters without a target count as
+  long as the average target on the structure bar.
+
 ## 0.49.2: Planning (20 Nov 2026)
 
 - `selectCard`: a second click on the selected card within 450 ms opens it in Writing.

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.116.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.50.0: plot threads, more and your own story structures, and planning imported and exported as plain text."
+      ]
+    },
+    {
       "version": "0.115.2",
       "date": "2026-11-20",
       "notes": [

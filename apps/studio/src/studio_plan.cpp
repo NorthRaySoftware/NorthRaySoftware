@@ -4,6 +4,7 @@
 // appear in it. The panel edits the selected card, or the book's word target.
 #include "studio_app.hpp"
 #include "cjui/menu.hpp"
+#include "studio/planning.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -198,9 +199,78 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
         for (auto* n : all) if (n->kind != NodeKind::Part && n->status == st) ++c;
         row((int)st, w(label(st)), c, statusColour(st));
     }
+    // Filter by viewpoint (0.49.3): each viewpoint character with their colour, and chapters with none.
+    {
+        std::map<Id, int> povs;
+        int none = 0;
+        for (auto* n : all) if (n->kind != NodeKind::Part) { if (n->povId.empty() || !lib_->entry(n->povId)) ++none; else ++povs[n->povId]; }
+        if (!povs.empty()) {
+            y += 16;
+            gfx_.text(L"VIEWPOINT", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+            y += 24;
+            auto prow = [&](const std::string& key, const std::wstring& label, int count, bool dot, Color c) {
+                const std::string id = "side:pl:pov:" + key;
+                const Rect rr{x, y, wd, 30};
+                addHit(id, rr, [this, key] { pl_.pov = pl_.pov == key ? std::string() : key; pl_.scroll = 0; invalidate(); });
+                const bool sel = pl_.pov == key;
+                const float hv = hoverAmount(id);
+                if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+                else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                float lx = tx0;
+                if (dot) { gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 4, c, true); lx += 16; }
+                gfx_.text(label, {lx, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+                gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+                if (focused(id)) focusRing(rr);
+                y += 32;
+            };
+            std::vector<std::pair<std::wstring, Id>> named;
+            for (auto& [id, c] : povs) if (const Entry* e = lib_->entry(id)) named.push_back({w(e->name), id});
+            std::sort(named.begin(), named.end());
+            for (auto& [nm, id] : named) prow(id, nm, povs[id], true, povColour(id));
+            if (none) prow("-", L"No viewpoint", none, false, pal_.inkFaint);
+        }
+    }
+    // Plot threads (0.50): each with its colour; choose one to see its cards and edit it.
+    {
+        const plan::Threads th = plan::threadsOf(*lib_, pl_.book);
+        y += 16;
+        gfx_.text(L"PLOT THREADS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 24;
+        for (const plan::Thread& t : th.threads) {
+            int count = 0;
+            for (auto* n : all) if (n->kind != NodeKind::Part && th.has(n->id, t.id)) ++count;
+            const std::string id = "side:pl:thread:" + t.id;
+            const Rect rr{x, y, wd, 30};
+            addHit(id, rr, [this, tid = t.id] {
+                const bool again = pl_.thread == tid;
+                pl_.thread = again ? std::string() : tid;
+                pl_.scroll = 0;
+                if (again) selectThread({});
+                else selectThread(tid);
+            });
+            const bool sel = pl_.thread == t.id;
+            const float hv = hoverAmount(id);
+            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            gfx_.fillRounded({tx0, rr.y + rr.h / 2 - 5, 10, 10}, 2, cjui::hexColor(t.colour.c_str()));
+            gfx_.text(w(t.name), {tx0 + 16, rr.y, cw - 46, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+            gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+            if (focused(id)) focusRing(rr);
+            y += 32;
+        }
+        linkText("side:pl:newthread", tx0, y + 4, L"+ New thread", [this] {
+            const ManuscriptNode* sel = lib_->node(pl_.node);
+            newThread(sel && !sel->deleted && sel->kind != NodeKind::Part ? sel->id : Id{});
+        });
+        y += 30;
+    }
     y += 20;
     gfx_.text(L"ALSO", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 24;
+    linkText("side:pl:import", tx0, y, L"Import planning…", [this] { importPlanText(); });
+    y += 26;
+    linkText("side:pl:export", tx0, y, L"Export the plan…", [this] { exportPlanText(); });
+    y += 26;
     linkText("side:pl:write", tx0, y, L"Write", [this] { openWriting(pl_.book); });
     y += 26;
     linkText("side:pl:world", tx0, y, L"The world's bible", [this] {
@@ -257,7 +327,9 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         const Entry* e = lib_->entry(id);
         return e && !e->deleted ? e : nullptr;
     };
-    const float gap = 14, cardW = 232, cardH = 166;
+    // Plot threads (0.50): a row of coloured tags on each card, when the book has any.
+    const plan::Threads threads = plan::threadsOf(*lib_, pl_.book);
+    const float gap = 14, cardW = 232, cardH = threads.threads.empty() ? 166.0f : 188.0f;
     const int cols = std::max(1, (int)((cw + gap) / (cardW + gap)));
     const float cardWid = (cw - gap * (cols - 1)) / cols;
     int col = 0;
@@ -277,7 +349,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         }
         if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; }
         else ++sceneNo;
-        if (pl_.status >= 0 && (int)n->status != pl_.status) continue;
+        if (!nodeShown(n)) continue;
         const Rect cr{m.x + col * (cardWid + gap), y, cardWid, cardH};
         const std::string id = "pl:card:" + n->id;
         addHit(id, cr, [this, nid = n->id] { selectCard(nid); });
@@ -348,6 +420,28 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (hasPov) { gfx_.circle(ix + 4, fy + 9, 4, pc, true); wx += 13; }
             gfx_.text(who, {wx, fy, iw - (wx - ix), 18}, Font::Small, pal_.ink, {Align::Left, false, true});
         }
+        // Its plot threads, as tags.
+        if (auto it = threads.nodes.find(n->id); it != threads.nodes.end()) {
+            float tx = ix;
+            const float ty = cr.y + 142;
+            size_t i = 0;
+            for (; i < it->second.size(); ++i) {
+                const plan::Thread* t = threads.find(it->second[i]);
+                if (!t) continue;
+                const Color tc = cjui::hexColor(t->colour.c_str());
+                const std::wstring nm = w(t->name);
+                const float room = ix + iw - tx - (i + 1 < it->second.size() ? 30.0f : 0.0f);
+                if (room < 40) break;
+                const float tw = std::min(gfx_.measureWidth(nm, Font::Small) + 22, room);
+                const Rect tag{tx, ty, tw, 17};
+                gfx_.fillRounded(tag, 8.5f, tc.withAlpha(pal_.dark ? 0.28f : 0.16f));
+                gfx_.circle(tag.x + 8, tag.y + 8.5f, 3.5f, tc, true);
+                gfx_.text(nm, {tag.x + 15, tag.y, tag.w - 19, tag.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                tx += tw + 5;
+            }
+            if (i < it->second.size())
+                gfx_.text(L"+" + std::to_wstring(it->second.size() - i), {tx, ty, 30, 17}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+        }
         // Length against the target.
         fy = cr.bottom() - 22;
         std::int64_t words = n->wordCount;
@@ -397,7 +491,10 @@ void StudioApp::drawPlanPanel(const Rect& r) {
     float y = r.y + 18 - pl_.panelScroll;
     const ManuscriptNode* n = pl_.node.empty() ? nullptr : lib_->node(pl_.node);
     if (n && n->deleted) n = nullptr;
-    if (n) {
+    if (focus_.kind == Focus::Thread) drawThreadPanel(c, y);
+    else if (focus_.kind == Focus::Beat) drawBeatPanel(c, y);
+    else if (focus_.kind == Focus::Structure) drawOwnStructurePanel(c, y);
+    else if (n) {
         std::wstring kind = w(label(n->kind));
         for (auto& ch : kind) ch = (wchar_t)towupper(ch);
         panelHeading(c, y, kind, true);
@@ -446,6 +543,7 @@ void StudioApp::drawPlanPanel(const Rect& r) {
         }
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
         planPanelExtras(c, y);
+        if (n->kind != NodeKind::Part) cardThreads(c, y);
         // The world's entries that appear in it.
         if (auto it = pl_.appearances.find(n->id); it != pl_.appearances.end() && !it->second.empty()) {
             panelHeading(c, y, L"APPEARING", false);
@@ -493,8 +591,8 @@ void StudioApp::drawPlanPanel(const Rect& r) {
                        L"the middle of a chapter to make a scene part of it.\n\nCharacters from the world's bible are found in the "
                        L"text, so a card shows who appears in it without being told."
                        : pl_.view == 1 ? L"Choose a card to set when it happens. Cards without a time wait below the timeline."
-                       : L"Match each beat to the chapter that carries it. The bar shows the book by length, so you can see whether "
-                         L"a turning point comes early or late.",
+                       : L"Match each beat to the chapters that carry it, and select a beat to keep notes on it for this book. The "
+                         L"bar shows the book by length, so you can see whether a turning point comes early or late.",
                        {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;
     }
     pl_.panelContent = y + pl_.panelScroll - r.y + 20;

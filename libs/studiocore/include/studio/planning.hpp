@@ -1,0 +1,139 @@
+// Writing Studio: planning's own data (0.50): story structures (built in and the author's own), plot threads, and
+// whole outlines as plain text to import and export. Portable and tested.
+//
+// Kept in the library's settings:
+//   "structure:<book>"     {"template": id, "beats": {beat: [node, ...]}, "notes": {beat: text}}   (a beat's value was one
+//                          node id before 0.50; still read)
+//   "structures:<scope>"   [{id, name, about, beats: [{id, name, at, about}]}]   the author's own, per world ("world:<id>")
+//                          or independent book ("book:<id>")
+//   "threads:<book>"       {"threads": [{id, name, colour, about}], "nodes": {node: [thread, ...]}}
+//   "timeline:<book>"      {"unit": ..., "nodes": {node: {"day": n, "when": text}}}   (the timeline's, 0.22)
+#pragma once
+
+#include "studio/library.hpp"
+
+#include <map>
+#include <string>
+#include <vector>
+
+namespace studio::plan {
+
+// ------------------------------------------------------------------ structures
+
+struct Beat { std::string id, name; double at = 0; std::string about; };
+struct Structure {
+    std::string id, name, about;
+    std::vector<Beat> beats;
+    bool own = false;   // the author's, not built in
+};
+const std::vector<Structure>& builtInStructures();
+std::vector<Structure> ownStructures(const Library& lib, const std::string& scope);
+bool setOwnStructures(Library& lib, const std::string& scope, const std::vector<Structure>& list);
+// Built-in first, then the author's; "" if none.
+const Structure* findStructure(const std::vector<Structure>& all, const std::string& id);
+std::vector<Structure> allStructures(const Library& lib, const std::string& scope);
+
+// A structure as text, and back:
+//   Structure: My shape
+//   About: what it's for
+//   0% Opening: what happens here
+//   25% Into the woods: ...
+// (a percentage, the beat's name, a colon, then what it's about; "Beat:" before a line is allowed.)
+std::string structureText(const Structure& s);
+// Several structures in one text are split at each "Structure:" line. Beats are sorted by where they fall; ids are
+// made from the names. Lines that aren't understood are reported in `skipped`.
+std::vector<Structure> parseStructures(const std::string& text, std::vector<std::string>* skipped = nullptr);
+
+// A book's structure: which one, the chapters each beat is carried by, and notes per beat.
+struct BookStructure {
+    std::string templateId;
+    std::map<std::string, std::vector<Id>> beats;
+    std::map<std::string, std::string> notes;
+};
+BookStructure bookStructure(const Library& lib, const Id& book);
+bool setBookStructure(Library& lib, const Id& book, const BookStructure& s);
+
+// ------------------------------------------------------------------ plot threads
+
+struct Thread { std::string id, name, colour, about; };
+struct Threads {
+    std::vector<Thread> threads;
+    std::map<Id, std::vector<std::string>> nodes;   // node -> thread ids
+    const Thread* find(const std::string& id) const;
+    const Thread* named(const std::string& name) const;   // ignoring case
+    bool has(const Id& node, const std::string& thread) const;
+};
+Threads threadsOf(const Library& lib, const Id& book);
+bool setThreads(Library& lib, const Id& book, const Threads& t);
+std::string newThreadId(const Threads& t);
+// A pleasant colour for the n-th thread (a palette that reads on light and dark).
+std::string threadColour(size_t n);
+
+// Threads as text, and back:
+//   Thread: The shards of light
+//   Colour: #C0392B
+//   About: Tom's search for the three shards.
+//   Chapters: 1, 3-5, The Storm Wall
+// Chapters are numbers (in reading order, chapters only), ranges, or titles (scenes by title too).
+std::string threadsText(const Library& lib, const Id& book, const Threads& t);
+struct ThreadImport { int added = 0, updated = 0, tagged = 0; std::vector<std::string> unknown; };
+// Threads of the same name are updated (their chapters are added to); others are added.
+bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out);
+
+// ------------------------------------------------------------------ outlines
+
+// An outline as text (parts, chapters and scenes with their planning), to fill a book or copy one out:
+//   Part: Part One
+//   Chapter: The Forge
+//   Viewpoint: Tom
+//   Status: Draft
+//   Target: 3000
+//   Threads: The shards of light, Tom and Sarrah
+//   When: Day 3            (or any words, "the night of the storm")
+//   Tom finds the ledger... (the synopsis: any other lines)
+//   Scene: Night watch
+// Markdown headings work too: with three levels in use they're parts, chapters and scenes; with two, chapters and
+// scenes; with one, chapters.
+struct OutlineItem {
+    NodeKind kind = NodeKind::Chapter;
+    std::string title, synopsis, viewpoint, status, when;
+    std::int64_t target = 0;
+    std::vector<std::string> threads;
+    std::vector<std::string> beats;   // "Beat: Midpoint": beats of the book's structure this chapter carries
+};
+// `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
+std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);
+std::string outlineText(const Library& lib, const Id& book);
+struct OutlineImport {
+    int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;
+    std::vector<std::string> unknownViewpoints, unknownBeats;
+    std::string structure;   // the structure set by "Book structure:", by name ("" none)
+    bool unknownStructure = false;
+    std::vector<Id> made;
+};
+// Adds the outline at the end of the book: new parts, chapters and scenes with their synopsis, status, target and
+// viewpoint (a character of the book's world, by name or other name), tagged with their threads (made when new) and
+// placed on the timeline ("Day 3" sets the day; other words the description).
+// `scope` is where the author's own structures are kept ("world:<id>" or "book:<id>"), for "Book structure:".
+bool importOutline(Library& lib, const Id& book, const std::string& text, OutlineImport& out, const std::string& scope = {});
+
+// ------------------------------------------------------------------ all of it
+
+// One text with any of the three: structures ("Structure:" blocks), the book's outline ("Book structure:", "Part:",
+// "Chapter:", "Scene:" or headings) and plot threads ("Thread:" blocks), in any order. Structures are read first
+// (one of the same name as the author's own replaces it), then the outline, then the threads (so their chapter
+// numbers count the outline's new chapters).
+struct PlanningImport {
+    OutlineImport outline;
+    ThreadImport threads;
+    int structuresAdded = 0, structuresReplaced = 0;
+    bool any() const;
+};
+bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out);
+// The book's whole plan as such a text: the outline (with its beats), its threads, and the structure it follows when
+// it's the author's own.
+std::string planningText(const Library& lib, const Id& book, const std::string& scope);
+// Where the author's own structures for a book are kept.
+std::string structureScope(const Library& lib, const Id& book);
+
+}  // namespace studio::plan

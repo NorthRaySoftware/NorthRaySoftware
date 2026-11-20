@@ -7,18 +7,23 @@
 // along the line to move it in time. Kept per book as setting "timeline:<book>":
 // {"unit": "day", "nodes": {"<node id>": {"day": 3, "when": "Midsummer"}}}.
 //
-// Structure: a template of beats (three acts, fifteen beats, the hero's journey,
-// seven points, five acts, kishotenketsu) laid over the book by length, each
-// beat matched to a chapter. Kept as setting "structure:<book>":
-// {"template": "three-act", "beats": {"<beat id>": "<node id>"}}.
-// The templates' descriptions were written for NorthRay.
+// Structure: a story shape of beats (the built-in ones, or the author's own) laid
+// over the book by length, each beat carried by one or more chapters and given
+// notes for this book. Plot threads tag chapters and scenes. The data and the
+// plain-text formats are studiocore's (studio/planning.hpp); the built-in shapes'
+// descriptions were written for NorthRay.
 #include "studio_app.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
+#include "studio/planning.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <shobjidl.h>
+#include <sstream>
 
 namespace nrs {
 
@@ -71,85 +76,54 @@ void StudioApp::setTimelineUnit(const Id& bookId, const std::string& unit) {
     lib_->setSetting("timeline:" + bookId, j.dump());
 }
 
-json StudioApp::structureOf(const Id& bookId) const {
-    json j = json::parse(lib_->setting("structure:" + bookId), nullptr, false);
-    return j.is_object() ? j : json::object();
-}
-
-void StudioApp::setStructure(const Id& bookId, const json& s) { lib_->setSetting("structure:" + bookId, s.dump()); }
-
-// --------------------------------------------------------- the templates
+// --------------------------------------------------------- helpers
 
 namespace {
 
-struct Beat { const char* id; const char* name; double at; const char* about; };
-struct Template { const char* id; const char* name; const char* about; std::vector<Beat> beats; };
+using plan::Beat;
+using plan::Structure;
 
-const std::vector<Template>& templates() {
-    static const std::vector<Template> t = {
-        {"three-act", "Three acts", "The classic shape: set up a world and a want, complicate it until everything is at stake, then resolve it.",
-         {{"setup", "Setup", 0.0, "Who we're with, what they want, and the world they want it in."},
-          {"inciting", "Inciting incident", 0.12, "Something happens that the hero can't ignore. The story begins to move."},
-          {"turn1", "First turning point", 0.25, "A decision that can't be undone carries the hero into the new situation of the middle."},
-          {"midpoint", "Midpoint", 0.5, "A reversal or revelation: the goal or the stakes change, and the hero stops reacting and starts acting."},
-          {"turn2", "Second turning point", 0.75, "The worst moment: what the hero relied on fails, and a last, costly choice is made."},
-          {"climax", "Climax", 0.88, "The final confrontation, where the want and the need meet."},
-          {"resolution", "Resolution", 0.97, "The new normal. What changed, and what it cost."}}},
-        {"fifteen", "Fifteen beats", "A detailed beat sheet popularised for screenwriting (Blake Snyder's Save the Cat!) and widely used for novels.",
-         {{"opening", "Opening image", 0.0, "A snapshot of the hero's life before: the 'before' picture."},
-          {"theme", "Theme stated", 0.05, "Someone hints at what the hero must learn, though they don't see it yet."},
-          {"setup", "Setup", 0.06, "The hero's world, flaws and the things that need fixing."},
-          {"catalyst", "Catalyst", 0.1, "The event that knocks life off course."},
-          {"debate", "Debate", 0.15, "Doubt: should the hero go? Can they?"},
-          {"break2", "Break into two", 0.2, "The hero chooses to step into the new world."},
-          {"bstory", "B story", 0.22, "A second thread, often a relationship, that carries the theme."},
-          {"fun", "Fun and games", 0.3, "The promise of the premise: the new world explored."},
-          {"midpoint", "Midpoint", 0.5, "A false victory or false defeat; the stakes rise."},
-          {"closein", "Bad guys close in", 0.55, "Pressure from outside and doubt from within."},
-          {"lost", "All is lost", 0.75, "The low point; something (or someone) is lost."},
-          {"dark", "Dark night of the soul", 0.78, "The hero sits with the loss, and finds the lesson."},
-          {"break3", "Break into three", 0.8, "The answer, from the A and B stories together."},
-          {"finale", "Finale", 0.85, "The hero puts the lesson to work and wins (or loses well)."},
-          {"final", "Final image", 1.0, "The 'after' picture, mirroring the opening."}}},
-        {"hero", "The hero's journey", "Twelve stages of the mythic journey, after Joseph Campbell as set out for writers by Christopher Vogler.",
-         {{"ordinary", "Ordinary world", 0.0, "Home, before the adventure."},
-          {"call", "Call to adventure", 0.08, "A problem or challenge appears."},
-          {"refusal", "Refusal of the call", 0.12, "Fear or duty holds the hero back."},
-          {"mentor", "Meeting the mentor", 0.17, "Advice, a gift or training."},
-          {"threshold", "Crossing the threshold", 0.25, "Into the special world; no way back."},
-          {"tests", "Tests, allies, enemies", 0.35, "Learning the rules of the new world, and who's who."},
-          {"approach", "Approach to the inmost cave", 0.45, "Preparing for the central ordeal."},
-          {"ordeal", "The ordeal", 0.5, "A brush with death, real or figurative."},
-          {"reward", "Reward", 0.6, "The prize claimed: an object, a truth, a reconciliation."},
-          {"road", "The road back", 0.75, "Consequences follow; the way home is dangerous."},
-          {"resurrection", "Resurrection", 0.88, "A final test where everything learned is used."},
-          {"elixir", "Return with the elixir", 0.97, "Home again, changed, bringing something back."}}},
-        {"seven", "Seven points", "Work from the end backwards: the resolution mirrors the hook, with turns and pinches between (after Dan Wells).",
-         {{"hook", "Hook", 0.0, "The starting state, the opposite of the resolution."},
-          {"turn1", "Plot turn 1", 0.15, "The call to adventure: the world changes."},
-          {"pinch1", "Pinch 1", 0.35, "Pressure: the antagonist shows its strength; the hero must act."},
-          {"midpoint", "Midpoint", 0.5, "The hero moves from reaction to action."},
-          {"pinch2", "Pinch 2", 0.65, "Things go wrong; the plan fails, the jaws of defeat."},
-          {"turn2", "Plot turn 2", 0.85, "The hero finds the last piece needed to win."},
-          {"resolution", "Resolution", 1.0, "The climax and the end state."}}},
-        {"five-act", "Five acts", "Gustav Freytag's pyramid, from classical drama: rising to a peak and falling to a close.",
-         {{"exposition", "Exposition", 0.0, "The situation, the people and the conflict to come."},
-          {"rising", "Rising action", 0.2, "Complications build."},
-          {"climax", "Climax", 0.5, "The turning point, at the top of the pyramid."},
-          {"falling", "Falling action", 0.7, "Consequences unwind."},
-          {"denouement", "Dénouement", 0.9, "The knots are untied; the end."}}},
-        {"kishotenketsu", "Kishōtenketsu", "Four parts from East Asian storytelling, built on contrast rather than conflict; also used for four-panel comics.",
-         {{"ki", "Ki (introduction)", 0.0, "Characters and setting."},
-          {"sho", "Shō (development)", 0.25, "The situation develops, without a major change."},
-          {"ten", "Ten (twist)", 0.5, "Something unexpected appears, seemingly unconnected."},
-          {"ketsu", "Ketsu (reconciliation)", 0.75, "The parts come together and make a new sense."}}},
-    };
-    return t;
+std::string withCrLf(const std::string& s) {
+    std::string out;
+    for (char c : s) { if (c == '\n') out += '\r'; out += c; }
+    return out;
 }
 
-const Template* findTemplate(const std::string& id) {
-    for (auto& t : templates()) if (id == t.id) return &t;
-    return nullptr;
+const wchar_t* kColourNames[] = {L"Red", L"Blue", L"Green", L"Amber", L"Purple", L"Teal", L"Pink", L"Olive", L"Slate", L"Copper"};
+
+bool clipboardTextOf(HWND owner, std::wstring& out) {
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(owner)) return false;
+    bool ok = false;
+    if (HANDLE h = GetClipboardData(CF_UNICODETEXT))
+        if (const wchar_t* p = static_cast<const wchar_t*>(GlobalLock(h))) { out = p; GlobalUnlock(h); ok = true; }
+    CloseClipboard();
+    return ok;
+}
+
+bool copyToClipboard(HWND owner, const std::wstring& text) {
+    if (!OpenClipboard(owner)) return false;
+    EmptyClipboard();
+    bool ok = false;
+    if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t))) {
+        if (void* p = GlobalLock(h)) {
+            memcpy(p, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+            GlobalUnlock(h);
+            ok = SetClipboardData(CF_UNICODETEXT, h) != nullptr;
+        }
+        if (!ok) GlobalFree(h);
+    }
+    CloseClipboard();
+    return ok;
+}
+
+// A file's text: UTF-8 (with or without its mark) or UTF-16 with its mark.
+std::string fileText(const std::string& bytes) {
+    if (bytes.size() >= 2 && (unsigned char)bytes[0] == 0xFF && (unsigned char)bytes[1] == 0xFE) {
+        std::wstring ws((bytes.size() - 2) / 2, L'\0');
+        memcpy(ws.data(), bytes.data() + 2, ws.size() * 2);
+        return narrow(ws);
+    }
+    return bytes;
 }
 
 std::wstring dayLabel(const std::string& unit, double d) {
@@ -185,6 +159,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         if (n->kind == NodeKind::Part) continue;
         if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; } else ++sceneNo;
         if (pl_.status >= 0 && (int)n->status != pl_.status) continue;
+        if (!nodeShown(n)) continue;
         const std::wstring lbl = n->kind == NodeKind::Chapter ? L"Ch " + std::to_wstring(chapterNo)
                                                               : std::to_wstring(chapterNo) + L"." + std::to_wstring(sceneNo);
         auto it = times.find(n->id);
@@ -403,25 +378,28 @@ void StudioApp::drawPlanStructure(const Rect& r) {
     const float pad = r.w > 900 ? 36 : 24;
     const float cw = r.w - pad * 2;
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
-    const json st = structureOf(pl_.book);
-    const Template* tp = findTemplate(st.value("template", ""));
+    const std::string scope = plan::structureScope(*lib_, pl_.book);
+    const auto shapes = plan::allStructures(*lib_, scope);
+    const plan::BookStructure bs = plan::bookStructure(*lib_, pl_.book);
+    const Structure* tp = plan::findStructure(shapes, bs.templateId);
     float y = m.y;
     if (!tp) {
         y += pageHeader(m, L"STRUCTURE", w(b->title),
-                        L"Choose a story shape to lay over the book. Its beats are placed by length, so you can see which chapter falls "
-                        L"where, and match each beat to the chapter that carries it. Structures are guides, not rules.");
-        const float gap = 14, cardW = 300, cardH = 150;
+                        L"Choose a story shape to lay over the book, or make your own. Its beats are placed by length, so you can see "
+                        L"which chapter falls where, and match each beat to the chapters that carry it. Structures are guides, not rules.");
+        const float gap = 14, cardH = 150;
+        const float cardW = 300;
         const int cols = std::max(1, (int)((cw + gap) / (cardW + gap)));
         const float wid = (cw - gap * (cols - 1)) / cols;
         int col = 0;
-        for (const Template& t : templates()) {
-            const Rect c{m.x + col * (wid + gap), y, wid, cardH};
-            const std::string id = std::string("pl:tpl:") + t.id;
-            addHit(id, c, [this, tid = std::string(t.id)] {
-                json s = structureOf(pl_.book);
-                s["template"] = tid;
-                s["beats"] = json::object();
-                setStructure(pl_.book, s);
+        auto place = [&]() { const Rect c{m.x + col * (wid + gap), y, wid, cardH}; if (++col == cols) { col = 0; y += cardH + gap; } return c; };
+        for (const Structure& t : shapes) {
+            const Rect c = place();
+            const std::string id = "pl:tpl:" + t.id;
+            addHit(id, c, [this, tid = t.id] {
+                plan::BookStructure s = plan::bookStructure(*lib_, pl_.book);
+                if (s.templateId != tid) { s = {}; s.templateId = tid; }
+                plan::setBookStructure(*lib_, pl_.book, s);
                 pl_.beat.clear();
                 invalidate();
             });
@@ -429,28 +407,76 @@ void StudioApp::drawPlanStructure(const Rect& r) {
             softShadow(c, 6, hv);
             gfx_.fillRounded(c, 6, pal_.surface);
             gfx_.strokeRounded(c, 6, pal_.rule.mix(pal_.ribbon, hv));
-            gfx_.text(w(t.name), {c.x + 18, c.y + 16, c.w - 36, 24}, Font::Heading, pal_.ink, {Align::Left, false, true});
-            gfx_.text(std::to_wstring(t.beats.size()) + L" beats", {c.x + 18, c.y + 16, c.w - 36, 24}, Font::Small, pal_.inkFaint,
-                      {Align::Right, false, false, true});
+            gfx_.text(w(t.name), {c.x + 18, c.y + 16, c.w - 120, 24}, Font::Heading, pal_.ink, {Align::Left, false, true});
+            gfx_.text((t.own ? L"Yours · " : L"") + std::to_wstring(t.beats.size()) + L" beats", {c.x + 18, c.y + 16, c.w - 36, 24},
+                      Font::Small, t.own ? pal_.ribbon : pal_.inkFaint, {Align::Right, false, false, true});
             gfx_.pushClip({c.x, c.y + 46, c.w, c.h - 60});
-            gfx_.text(w(t.about), {c.x + 18, c.y + 48, c.w - 36, c.h - 62}, Font::Small, pal_.inkMuted);
+            gfx_.text(w(t.about.empty() ? std::string("Your own structure.") : t.about), {c.x + 18, c.y + 48, c.w - 36, c.h - 62}, Font::Small, pal_.inkMuted);
             gfx_.popClip();
             // A little map of where its beats fall.
             const float bx = c.x + 18, bw = c.w - 36, by = c.bottom() - 18;
             gfx_.line(bx, by, bx + bw, by, pal_.rule, 2);
             for (const Beat& bt : t.beats) gfx_.circle(bx + (float)bt.at * bw, by, 3.5f, pal_.ribbon, true);
             if (focused(id)) focusRing(c);
-            if (++col == cols) { col = 0; y += cardH + gap; }
+        }
+        // Your own: starts from a simple shape, written as text in the panel.
+        {
+            const Rect c = place();
+            const std::string id = "pl:tpl:new";
+            addHit(id, c, [this, scope] {
+                auto own = plan::ownStructures(*lib_, scope);
+                auto made = plan::parseStructures(
+                    "Structure: My structure\nAbout: What this shape is for.\n"
+                    "0% Beginning: Who, where, and what they want.\n25% The turn: The story changes direction.\n"
+                    "50% The middle: Something is learned or lost.\n75% The low point: Everything is at stake.\n"
+                    "90% The end: How it resolves.\n");
+                if (made.empty()) return;
+                std::set<std::string> taken;
+                for (auto& x : plan::allStructures(*lib_, scope)) taken.insert(x.id);
+                std::string sid = made[0].id;
+                for (int i = 2; taken.count(sid); ++i) sid = made[0].id + "-" + std::to_string(i);
+                made[0].id = sid;
+                own.push_back(made[0]);
+                plan::setOwnStructures(*lib_, scope, own);
+                plan::BookStructure s;
+                s.templateId = sid;
+                plan::setBookStructure(*lib_, pl_.book, s);
+                commitFields();
+                pl_.node.clear();
+                setFocus({Focus::Structure, sid, pl_.book});
+                invalidate();
+            });
+            const float hv = hoverAmount(id);
+            gfx_.fillRounded(c, 6, pal_.surface.withAlpha(0.5f + 0.5f * hv));
+            gfx_.strokeRounded(c, 6, pal_.rule.mix(pal_.ribbon, 0.4f + 0.6f * hv), 1.5f);
+            gfx_.text(L"+ Make your own", {c.x + 18, c.y + 16, c.w - 36, 24}, Font::Heading, pal_.ribbon, {Align::Left, false, true});
+            gfx_.text(L"Start from a simple shape and write your own beats in the panel, as plain text. Or bring them in with "
+                      L"“Import planning” in the sidebar.",
+                      {c.x + 18, c.y + 48, c.w - 36, c.h - 62}, Font::Small, pal_.inkMuted);
+            if (focused(id)) focusRing(c);
         }
         if (col) y += cardH + gap;
     } else {
         y += pageHeader(m, L"STRUCTURE: " + w(tp->name), w(b->title), w(tp->about));
-        linkText("pl:tplchange", m.x, y - 8, L"Choose another structure", [this] {
-            json s = structureOf(pl_.book);
-            s.erase("template");
-            setStructure(pl_.book, s);
+        float lx = m.x, lw = 0;
+        linkText("pl:tplchange", lx, y - 8, L"Choose another structure", [this] {
+            plan::BookStructure s = plan::bookStructure(*lib_, pl_.book);
+            s.templateId.clear();
+            plan::setBookStructure(*lib_, pl_.book, s);
+            pl_.beat.clear();
+            if (focus_.kind == Focus::Beat || focus_.kind == Focus::Structure) selectCard({});
             invalidate();
         });
+        lw = gfx_.measureWidth(L"Choose another structure", Font::Small);
+        lx += lw + 26;
+        if (tp->own)
+            linkText("pl:tpledit", lx, y - 8, L"Edit this structure", [this, sid = tp->id] {
+                commitFields();
+                pl_.node.clear();
+                pl_.beat.clear();
+                setFocus({Focus::Structure, sid, pl_.book});
+                invalidate();
+            });
         y += 22;
         // The book by length: chapters as segments (their words; or their targets, or equal shares, before there's text).
         const auto all = lib_->manuscriptOf(pl_.book);
@@ -466,10 +492,16 @@ void StudioApp::drawPlanStructure(const Rect& r) {
             totalWords += (double)words;
         }
         const bool byWords = totalWords > 0;
+        // Before there's text: by target, and chapters without one as long as the average target.
+        double targets = 0;
+        int withTarget = 0;
+        for (auto& s : segs) if (s.n->targetWords > 0) { targets += (double)s.n->targetWords; ++withTarget; }
+        const double usual = withTarget ? targets / withTarget : 1.0;
         for (auto& s : segs) {
-            if (!byWords) s.w = s.n->targetWords > 0 ? (double)s.n->targetWords : 1.0;
+            if (!byWords) s.w = s.n->targetWords > 0 ? (double)s.n->targetWords : usual;
             total += s.w;
         }
+        auto numberOf = [&](const Id& id) { for (auto& s : segs) if (s.n->id == id) return s.no; return 0; };
         // Where a fraction of the book falls: which chapter.
         auto chapterAt = [&](double at) -> const Seg* {
             if (at <= 0) return segs.empty() ? nullptr : &segs.front();   // the opening is the first chapter, however short
@@ -480,7 +512,15 @@ void StudioApp::drawPlanStructure(const Rect& r) {
             }
             return nullptr;
         };
-        const json assigned = st.contains("beats") && st["beats"].is_object() ? st["beats"] : json::object();
+        // The chapters (still in the book) that carry a beat.
+        auto carriers = [&](const std::string& beat) {
+            std::vector<const ManuscriptNode*> out;
+            auto it = bs.beats.find(beat);
+            if (it != bs.beats.end())
+                for (const Id& id : it->second)
+                    if (const ManuscriptNode* n = lib_->node(id); n && !n->deleted && n->bookId == pl_.book) out.push_back(n);
+            return out;
+        };
         const Rect bar{m.x, y + 40, cw, 34};
         gfx_.text(byWords ? L"The book by length so far" : L"The book (chapters by target, or equal, until there's text)",
                   {m.x, y, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
@@ -496,8 +536,9 @@ void StudioApp::drawPlanStructure(const Rect& r) {
                 const std::string sid = "pl:seg:" + segs[i].n->id;
                 addHit(sid, s, [this, nid = segs[i].n->id] { selectCard(nid); }, false);
                 const bool sel = pl_.node == segs[i].n->id;
-                gfx_.fill(s, (i % 2 ? pal_.surface : pal_.sunken).mix(pal_.ribbon, sel ? 0.25f : 0.0f));
-                // Its number, and its title when there's room (0.49.2).
+                // Dimmed when a filter hides it.
+                const Color base = (i % 2 ? pal_.surface : pal_.sunken).mix(pal_.ribbon, sel ? 0.25f : 0.0f);
+                gfx_.fill(s, nodeShown(segs[i].n) ? base : base.withAlpha(0.35f));
                 if (s.w > 26) {
                     std::wstring t = std::to_wstring(segs[i].no);
                     if (s.w > 90 && !segs[i].n->title.empty()) t += L"  " + w(segs[i].n->title);
@@ -509,7 +550,7 @@ void StudioApp::drawPlanStructure(const Rect& r) {
         gfx_.strokeRounded(bar, 4, pal_.rule);
         for (const Beat& bt : tp->beats) {
             const float bx = bar.x + (float)bt.at * bar.w;
-            const bool has = assigned.contains(bt.id);
+            const bool has = !carriers(bt.id).empty();
             gfx_.line(bx, bar.y - 6, bx, bar.bottom() + 6, has ? pal_.ribbon : pal_.inkFaint, 2);
             gfx_.circle(bx, bar.y - 8, 4, has ? pal_.ribbon : pal_.inkFaint, true);
         }
@@ -518,68 +559,83 @@ void StudioApp::drawPlanStructure(const Rect& r) {
         for (const Beat& bt : tp->beats) {
             const std::string bid = bt.id;
             const Seg* at = segs.empty() ? nullptr : chapterAt(bt.at);
-            const std::string chosen = assigned.value(bid, "");
-            const ManuscriptNode* cn = chosen.empty() ? nullptr : lib_->node(chosen);
-            if (cn && cn->deleted) cn = nullptr;
-            const float rowH = 74;
+            const auto chosen = carriers(bid);
+            auto note = bs.notes.find(bid);
+            const std::wstring noteText = note != bs.notes.end() ? w(note->second) : std::wstring();
+            const float rowH = noteText.empty() ? 74.0f : 96.0f;
             const Rect row{m.x, y, cw, rowH};
             const std::string rid = "pl:beat:" + bid;
-            const bool sel = pl_.beat == bid;
-            addHit(rid, {row.x, row.y, row.w - 250, row.h}, [this, bid, chosen] {
-                pl_.beat = bid;
-                if (!chosen.empty() && lib_->node(chosen)) selectCard(chosen);
-                invalidate();
-            });
+            const bool sel = pl_.beat == bid && focus_.kind == Focus::Beat;
+            addHit(rid, {row.x, row.y, row.w - 250, row.h}, [this, bid] { selectBeat(bid); });
             gfx_.fillRounded(row, 6, sel ? pal_.surface : pal_.surface.withAlpha(0.55f));
             gfx_.strokeRounded(row, 6, sel ? pal_.ribbon : pal_.rule);
             gfx_.text(std::to_wstring((int)std::round(bt.at * 100)) + L"%", {row.x + 14, row.y + 12, 44, 20}, Font::BodyStrong, pal_.ribbon,
                       {Align::Left, false});
             gfx_.text(w(bt.name), {row.x + 64, row.y + 10, row.w - 330, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
             gfx_.text(w(bt.about), {row.x + 64, row.y + 32, row.w - 330, 36}, Font::Small, pal_.inkMuted, {Align::Left, true, true});
-            // Which chapter carries it: chosen, and where it falls by length.
+            if (!noteText.empty()) {
+                std::wstring one;
+                for (wchar_t ch : noteText) one += ch == L'\n' ? L' ' : ch;
+                gfx_.text(L"Your notes: " + one, {row.x + 64, row.y + 70, row.w - 330, 18}, Font::Small, pal_.ink, {Align::Left, false, true});
+            }
+            // The chapters that carry it, chosen from a box you drop down (several allowed, 0.50).
             const float rx = row.right() - 250;
-            // The chapter that carries it, as a box you drop down (0.49.2), like the other choices in the Studio.
-            int pickNo = 0;
-            if (cn) for (auto& sg : segs) if (sg.n->id == cn->id) pickNo = sg.no;
-            const std::wstring pick = cn ? (pickNo ? std::to_wstring(pickNo) + L"  \u00B7  " : std::wstring()) + (cn->title.empty() ? w(label(cn->kind)) : w(cn->title))
-                                         : L"Choose a chapter\u2026";
+            std::wstring pick;
+            if (chosen.size() == 1) {
+                const int n1 = numberOf(chosen[0]->id);
+                pick = (n1 ? std::to_wstring(n1) + L"  ·  " : std::wstring()) + (chosen[0]->title.empty() ? w(label(chosen[0]->kind)) : w(chosen[0]->title));
+            } else if (chosen.size() > 1) {
+                std::vector<int> nums;
+                for (auto* c : chosen) nums.push_back(numberOf(c->id));
+                std::sort(nums.begin(), nums.end());
+                pick = L"Chapters ";
+                for (size_t i = 0; i < nums.size(); ++i) pick += (i ? L", " : L"") + std::to_wstring(nums[i]);
+            } else pick = L"Choose chapters…";
             const Rect pr{rx, row.y + 12, 236, 30};
             const std::string pid = "pl:beatpick:" + bid;
             {
                 const float ph = hoverAmount(pid);
                 gfx_.fillRounded(pr, 6, pal_.surface);
                 gfx_.strokeRounded(pr, 6, pal_.rule.mix(pal_.ink, 0.25f * ph));
-                gfx_.text(pick, {pr.x + 10, pr.y, pr.w - 34, pr.h}, Font::Small, cn ? pal_.ink : pal_.inkFaint, {Align::Left, false, true, true});
+                gfx_.text(pick, {pr.x + 10, pr.y, pr.w - 34, pr.h}, Font::Small, chosen.empty() ? pal_.inkFaint : pal_.ink, {Align::Left, false, true, true});
                 const float cx = pr.right() - 15, cy = pr.y + pr.h / 2;
                 gfx_.line(cx - 4, cy - 2, cx, cy + 2, pal_.inkMuted, 1.4f);
                 gfx_.line(cx, cy + 2, cx + 4, cy - 2, pal_.inkMuted, 1.4f);
                 if (focused(pid)) focusRing(pr);
             }
-            addHit(pid, pr, [this, bid, segs] {
+            std::vector<std::pair<Id, std::wstring>> options;
+            for (auto& sg : segs)
+                options.push_back({sg.n->id, std::to_wstring(sg.no) + L". " + (sg.n->title.empty() ? std::wstring(L"Chapter") : w(sg.n->title))});
+            addHit(pid, pr, [this, bid, options] {
+                plan::BookStructure s = plan::bookStructure(*lib_, pl_.book);
+                auto& v = s.beats[bid];
                 std::vector<MenuItem> items;
-                items.push_back(MenuItem::item(L"None", 1));
+                items.push_back(MenuItem::heading(L"Carried by"));
+                for (size_t i = 0; i < options.size(); ++i)
+                    items.push_back(MenuItem::item(options[i].second, (UINT)(10 + i), {}, true,
+                                                   std::find(v.begin(), v.end(), options[i].first) != v.end()));
                 items.push_back(MenuItem::sep());
-                for (size_t i = 0; i < segs.size(); ++i)
-                    items.push_back(MenuItem::item(std::to_wstring(segs[i].no) + L". " +
-                                                       (segs[i].n->title.empty() ? std::wstring(L"Chapter") : w(segs[i].n->title)),
-                                                   (UINT)(10 + i)));
+                items.push_back(MenuItem::item(L"None", 1, {}, !v.empty()));
                 POINT pt;
                 GetCursorPos(&pt);
                 const UINT c = showMenu(hwnd(), items, pt, pal_);
                 if (!c) return;
-                json s = structureOf(pl_.book);
-                if (!s.contains("beats") || !s["beats"].is_object()) s["beats"] = json::object();
-                if (c == 1) s["beats"].erase(bid);
-                else if (c - 10 < segs.size()) s["beats"][bid] = segs[c - 10].n->id;
-                setStructure(pl_.book, s);
-                pl_.beat = bid;
+                if (c == 1) v.clear();
+                else if (c - 10 < options.size()) {
+                    const Id& id = options[c - 10].first;
+                    auto it = std::find(v.begin(), v.end(), id);
+                    if (it != v.end()) v.erase(it);
+                    else v.push_back(id);
+                }
+                plan::setBookStructure(*lib_, pl_.book, s);
                 invalidate();
             });
             std::wstring where = at ? L"By length: chapter " + std::to_wstring(at->no) : L"";
-            if (cn && at && cn->id != at->n->id) {
-                int cno = 0;
-                for (auto& s : segs) if (s.n->id == cn->id) cno = s.no;
-                if (cno) where += cno < at->no ? L" (yours comes early)" : L" (yours comes late)";
+            if (!chosen.empty() && at) {
+                const int first = numberOf(chosen[0]->id);
+                bool covers = false;
+                for (auto* c : chosen) if (c->id == at->n->id) covers = true;
+                if (!covers && first) where += first < at->no ? L" (yours comes early)" : L" (yours comes late)";
             }
             gfx_.text(where, {rx, row.y + 46, 236, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
             if (focused(rid)) focusRing(row);
@@ -599,8 +655,9 @@ void StudioApp::drawPlanStructure(const Rect& r) {
 
 // A chapter for every beat (title, the beat's guidance as its synopsis, status Outline), each matched to its beat.
 void StudioApp::outlineFromStructure() {
-    const json st = structureOf(pl_.book);
-    const Template* tp = findTemplate(st.value("template", ""));
+    const auto shapes = plan::allStructures(*lib_, plan::structureScope(*lib_, pl_.book));
+    plan::BookStructure bs = plan::bookStructure(*lib_, pl_.book);
+    const Structure* tp = plan::findStructure(shapes, bs.templateId);
     if (!tp) return;
     bool hasChapters = false;
     for (auto* n : lib_->manuscriptOf(pl_.book)) if (n->kind == NodeKind::Chapter) hasChapters = true;
@@ -610,8 +667,6 @@ void StudioApp::outlineFromStructure() {
                     L"Outline from a structure", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
         return;
     commitFields();
-    json s = st;
-    if (!s.contains("beats") || !s["beats"].is_object()) s["beats"] = json::object();
     Id first;
     for (const Beat& bt : tp->beats) {
         const Id id = lib_->createNode(pl_.book, {}, NodeKind::Chapter);
@@ -623,10 +678,10 @@ void StudioApp::outlineFromStructure() {
             u.status = NodeStatus::Outline;
             lib_->updateNode(u);
         }
-        if (!s["beats"].contains(bt.id)) s["beats"][bt.id] = id;
+        if (bs.beats[bt.id].empty()) bs.beats[bt.id].push_back(id);
         if (first.empty()) first = id;
     }
-    setStructure(pl_.book, s);
+    plan::setBookStructure(*lib_, pl_.book, bs);
     pl_.appearances = lib_->appearancesIn(pl_.book);
     if (!first.empty()) selectCard(first);
     flash(L"Added a chapter for each beat. Rename and rewrite them as your story takes shape.", 6);
@@ -662,6 +717,379 @@ void StudioApp::planPanelExtras(const Rect& c, float& y) {
                        L"the card instead of the number.",
                        {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
     }
+}
+
+// ------------------------------------------------------------ plot threads, beats, your structures (0.50)
+
+bool StudioApp::nodeShown(const ManuscriptNode* n) const {
+    if (!n) return false;
+    if (pl_.status >= 0 && (int)n->status != pl_.status) return false;
+    if (!pl_.pov.empty() && (pl_.pov == "-" ? !(n->povId.empty() || !lib_->entry(n->povId)) : n->povId != pl_.pov)) return false;
+    if (!pl_.thread.empty()) {
+        const plan::Threads th = plan::threadsOf(*lib_, pl_.book);
+        if (!th.has(n->id, pl_.thread)) {
+            // A chapter shows when one of its scenes is in the thread.
+            bool inside = false;
+            if (n->kind == NodeKind::Chapter)
+                for (auto& [id, ts] : th.nodes)
+                    if (const ManuscriptNode* c = lib_->node(id); c && !c->deleted && c->parentId == n->id && th.has(id, pl_.thread)) inside = true;
+            if (!inside) return false;
+        }
+    }
+    return true;
+}
+
+void StudioApp::selectThread(const std::string& id) {
+    commitFields();
+    pl_.node.clear();
+    pl_.beat.clear();
+    setFocus(id.empty() ? Focus{Focus::Plan, pl_.book, {}} : Focus{Focus::Thread, id, pl_.book});
+    invalidate();
+}
+
+void StudioApp::selectBeat(const std::string& id) {
+    commitFields();
+    pl_.node.clear();
+    pl_.beat = id;
+    setFocus(id.empty() ? Focus{Focus::Plan, pl_.book, {}} : Focus{Focus::Beat, id, pl_.book});
+    invalidate();
+}
+
+void StudioApp::newThread(const Id& tagNode) {
+    commitFields();
+    plan::Threads th = plan::threadsOf(*lib_, pl_.book);
+    plan::Thread t{plan::newThreadId(th), "", plan::threadColour(th.threads.size()), ""};
+    t.name = "Thread " + std::to_string(th.threads.size() + 1);
+    th.threads.push_back(t);
+    if (!tagNode.empty()) th.nodes[tagNode].push_back(t.id);
+    plan::setThreads(*lib_, pl_.book, th);
+    selectThread(t.id);
+    if (HWND f = fields_[FName]) { SetFocus(f); SendMessageW(f, EM_SETSEL, 0, -1); }
+}
+
+void StudioApp::loadPlanFields() {
+    if (focus_.kind == Focus::Thread) {
+        const plan::Threads th = plan::threadsOf(*lib_, focus_.contextSeries);
+        if (const plan::Thread* t = th.find(focus_.id)) {
+            setFieldText(FName, t->name);
+            setFieldText(FNotes, withCrLf(t->about));
+        }
+    } else if (focus_.kind == Focus::Beat) {
+        const plan::BookStructure bs = plan::bookStructure(*lib_, focus_.contextSeries);
+        auto it = bs.notes.find(focus_.id);
+        setFieldText(FNotes, withCrLf(it != bs.notes.end() ? it->second : std::string()));
+    } else if (focus_.kind == Focus::Structure) {
+        for (auto& s : plan::ownStructures(*lib_, plan::structureScope(*lib_, focus_.contextSeries)))
+            if (s.id == focus_.id) setFieldText(FTemplate, withCrLf(plan::structureText(s)));
+    }
+}
+
+void StudioApp::commitPlanFields(const Focus& f) {
+    if (!lib_->book(f.contextSeries)) return;
+    if (f.kind == Focus::Thread) {
+        plan::Threads th = plan::threadsOf(*lib_, f.contextSeries);
+        for (auto& t : th.threads)
+            if (t.id == f.id) {
+                const std::string nm = fieldText(FName), about = fieldText(FNotes);
+                if ((nm.empty() || nm == t.name) && about == t.about) return;
+                if (!nm.empty()) t.name = nm;
+                t.about = about;
+                plan::setThreads(*lib_, f.contextSeries, th);
+            }
+    } else if (f.kind == Focus::Beat) {
+        plan::BookStructure bs = plan::bookStructure(*lib_, f.contextSeries);
+        const std::string note = fieldText(FNotes);
+        auto it = bs.notes.find(f.id);
+        if ((it == bs.notes.end() ? std::string() : it->second) == note) return;
+        bs.notes[f.id] = note;
+        plan::setBookStructure(*lib_, f.contextSeries, bs);
+    } else if (f.kind == Focus::Structure) {
+        const std::string scope = plan::structureScope(*lib_, f.contextSeries);
+        auto own = plan::ownStructures(*lib_, scope);
+        const std::string text = fieldText(FTemplate);
+        for (auto& s : own) {
+            if (s.id != f.id || plan::structureText(s) == text + (text.empty() || text.back() == '\n' ? "" : "\n")) continue;
+            auto parsed = plan::parseStructures(text);
+            if (parsed.empty()) { flash(L"That structure needs at least one beat, such as “50% Midpoint: what happens”. It wasn't changed.", 8); return; }
+            parsed[0].id = s.id;
+            s = parsed[0];
+            plan::setOwnStructures(*lib_, scope, own);
+            return;
+        }
+    }
+}
+
+// The panel for a plot thread: its name, colour and notes, and where it runs.
+void StudioApp::drawThreadPanel(const Rect& c, float& y) {
+    const plan::Threads th = plan::threadsOf(*lib_, pl_.book);
+    const plan::Thread* t = th.find(focus_.id);
+    if (!t) { selectThread({}); return; }
+    panelHeading(c, y, L"PLOT THREAD", true);
+    y = panelField(c, y, L"Name", FName);
+    int cur = -1;
+    for (int i = 0; i < 10; ++i) if (plan::threadColour(i) == t->colour) cur = i;
+    panelChoice("pl:thcolour", c, y, L"Colour", cur >= 0 ? kColourNames[cur] : w(t->colour), [this, cur, id = t->id] {
+        std::vector<MenuItem> items;
+        for (int i = 0; i < 10; ++i) items.push_back(MenuItem::item(kColourNames[i], (UINT)(i + 1), {}, true, i == cur));
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT k = showMenu(hwnd(), items, pt, pal_);
+        if (!k) return;
+        commitFields();
+        plan::Threads x = plan::threadsOf(*lib_, pl_.book);
+        for (auto& tt : x.threads) if (tt.id == id) tt.colour = plan::threadColour(k - 1);
+        plan::setThreads(*lib_, pl_.book, x);
+        invalidate();
+    });
+    // The swatch beside the choice.
+    gfx_.fillRounded({c.right() - 54, y - 35, 14, 14}, 3, cjui::hexColor(t->colour.c_str()));
+    y = panelField(c, y, L"Notes: what it's about, where it's going", FNotes, 120);
+    panelHeading(c, y, L"WHERE IT RUNS", false);
+    int count = 0, chapterNo = 0;
+    for (const ManuscriptNode* n : lib_->manuscriptOf(pl_.book)) {
+        if (n->kind == NodeKind::Chapter) ++chapterNo;
+        if (!th.has(n->id, t->id)) continue;
+        ++count;
+        if (count > 30) continue;
+        const std::wstring lbl = (n->kind == NodeKind::Chapter ? std::to_wstring(chapterNo) + L". " : n->kind == NodeKind::Scene ? std::to_wstring(chapterNo) + L" \u00B7 " : std::wstring()) +
+                                 (n->title.empty() ? w(label(n->kind)) : w(n->title));
+        linkText("pl:thnode:" + n->id, c.x, y, lbl, [this, id = n->id] { selectCard(id); });
+        y += 24;
+    }
+    if (count > 30) { gfx_.text(L"and " + std::to_wstring(count - 30) + L" more", {c.x, y, c.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false}); y += 24; }
+    if (!count) {
+        y += gfx_.text(L"Not in any chapter or scene yet. Select a card and tick this thread in its panel.", {c.x, y, c.w, 60}, Font::Small,
+                       pal_.inkMuted) + 10;
+    }
+    y += 8;
+    const bool filtered = pl_.thread == t->id;
+    linkText("pl:thfilter", c.x, y, filtered ? L"Show every card again" : L"Show only its cards", [this, id = t->id, filtered] {
+        pl_.thread = filtered ? std::string() : id;
+        pl_.scroll = 0;
+        invalidate();
+    });
+    y += 30;
+    linkText("pl:thdelete", c.x, y, L"Delete this thread", [this, id = t->id, name = t->name] {
+        if (cjui::messageBox(hwnd(), L"Delete the plot thread “" + w(name) + L"”? The chapters and scenes stay as they are; "
+                                     L"only the thread and its tags go.",
+                             L"Delete a plot thread", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+            return;
+        plan::Threads x = plan::threadsOf(*lib_, pl_.book);
+        x.threads.erase(std::remove_if(x.threads.begin(), x.threads.end(), [&](const plan::Thread& tt) { return tt.id == id; }), x.threads.end());
+        plan::setThreads(*lib_, pl_.book, x);
+        if (pl_.thread == id) pl_.thread.clear();
+        focus_ = {};   // nothing to save into
+        selectThread({});
+    });
+    y += 30;
+}
+
+// The panel for a beat: what it is, and notes for this book.
+void StudioApp::drawBeatPanel(const Rect& c, float& y) {
+    const auto shapes = plan::allStructures(*lib_, plan::structureScope(*lib_, pl_.book));
+    const plan::BookStructure bs = plan::bookStructure(*lib_, pl_.book);
+    const Structure* tp = plan::findStructure(shapes, bs.templateId);
+    const Beat* bt = nullptr;
+    if (tp) for (auto& b : tp->beats) if (b.id == focus_.id) bt = &b;
+    if (!bt) { selectBeat({}); return; }
+    panelHeading(c, y, L"BEAT · " + std::to_wstring((int)std::round(bt->at * 100)) + L"% IN", true);
+    y += gfx_.text(w(bt->name), {c.x, y, c.w, 60}, Font::Heading, pal_.ink) + 6;
+    if (!bt->about.empty()) y += gfx_.text(w(bt->about), {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
+    y = panelField(c, y, L"Your notes for this book", FNotes, 150);
+    panelHeading(c, y, L"CARRIED BY", false);
+    int shown = 0;
+    if (auto it = bs.beats.find(bt->id); it != bs.beats.end())
+        for (const Id& id : it->second) {
+            const ManuscriptNode* n = lib_->node(id);
+            if (!n || n->deleted || n->bookId != pl_.book) continue;
+            ++shown;
+            linkText("pl:bnode:" + id, c.x, y, n->title.empty() ? w(label(n->kind)) : w(n->title), [this, id] { selectCard(id); });
+            y += 24;
+        }
+    if (!shown)
+        y += gfx_.text(L"No chapter yet. Choose the chapters that carry it from the box on its row.", {c.x, y, c.w, 60}, Font::Small,
+                       pal_.inkMuted) + 10;
+    y += 8;
+}
+
+// The panel for one of your own structures: the whole of it as text.
+void StudioApp::drawOwnStructurePanel(const Rect& c, float& y) {
+    const std::string scope = plan::structureScope(*lib_, pl_.book);
+    const auto own = plan::ownStructures(*lib_, scope);
+    const Structure* s = plan::findStructure(own, focus_.id);
+    if (!s) { selectCard({}); return; }
+    panelHeading(c, y, L"YOUR STRUCTURE", true);
+    y += gfx_.text(L"Write it as text: its name, what it's for, then a line for each beat, starting with how far into the book it "
+                   L"falls. Lines without a percentage are spaced out evenly.",
+                   {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 10;
+    y = panelField(c, y, L"The structure", FTemplate, 330);
+    y += gfx_.text(L"Structure: The heist\nAbout: A job, a crew, a double-cross.\n0% The job: what they're after\n25% The crew: ...\n"
+                   L"50% The plan goes wrong: ...",
+                   {c.x, y, c.w, 120}, Font::Small, pal_.inkFaint) + 10;
+    y += gfx_.text(L"Changes are kept when you click away. Renaming a beat clears the chapters matched to it.", {c.x, y, c.w, 60},
+                   Font::Small, pal_.inkMuted) + 12;
+    linkText("pl:owndelete", c.x, y, L"Delete this structure", [this, scope, id = s->id, name = s->name] {
+        if (cjui::messageBox(hwnd(), L"Delete your structure “" + w(name) + L"”? Books that follow it go back to choosing one; "
+                                     L"their chapters stay as they are.",
+                             L"Delete a structure", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+            return;
+        auto list = plan::ownStructures(*lib_, scope);
+        list.erase(std::remove_if(list.begin(), list.end(), [&](const Structure& x) { return x.id == id; }), list.end());
+        plan::setOwnStructures(*lib_, scope, list);
+        // Books of this world (or this book) that followed it.
+        for (const Book& bk : lib_->books())
+            if (!bk.deleted && plan::structureScope(*lib_, bk.id) == scope) {
+                plan::BookStructure bs = plan::bookStructure(*lib_, bk.id);
+                if (bs.templateId == id) { bs.templateId.clear(); plan::setBookStructure(*lib_, bk.id, bs); }
+            }
+        focus_ = {};
+        selectCard({});
+    });
+    y += 30;
+}
+
+// A card's plot threads, to tick on and off.
+void StudioApp::cardThreads(const Rect& c, float& y) {
+    const plan::Threads th = plan::threadsOf(*lib_, pl_.book);
+    panelHeading(c, y, L"PLOT THREADS", false);
+    for (const plan::Thread& t : th.threads) {
+        const std::string id = "pl:tick:" + t.id;
+        const bool on = th.has(pl_.node, t.id);
+        const Rect rr{c.x, y, c.w, 26};
+        addHit(id, rr, [this, tid = t.id] {
+            commitFields();
+            plan::Threads x = plan::threadsOf(*lib_, pl_.book);
+            auto& v = x.nodes[pl_.node];
+            auto it = std::find(v.begin(), v.end(), tid);
+            if (it != v.end()) v.erase(it);
+            else v.push_back(tid);
+            plan::setThreads(*lib_, pl_.book, x);
+            invalidate();
+        });
+        const float hv = hoverAmount(id);
+        if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.7f * hv));
+        const Rect box{rr.x + 2, rr.y + 6, 14, 14};
+        gfx_.fillRounded(box, 3, on ? cjui::hexColor(t.colour.c_str()) : pal_.surface);
+        gfx_.strokeRounded(box, 3, cjui::hexColor(t.colour.c_str()), 1.5f);
+        if (on) {
+            gfx_.line(box.x + 3, box.y + 7, box.x + 6, box.y + 10, cjui::hexColor("#FFFFFF"), 1.8f);
+            gfx_.line(box.x + 6, box.y + 10, box.x + 11, box.y + 4, cjui::hexColor("#FFFFFF"), 1.8f);
+        }
+        gfx_.text(w(t.name), {rr.x + 24, rr.y, rr.w - 24, rr.h}, on ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        if (focused(id)) focusRing(rr);
+        y += 28;
+    }
+    if (th.threads.empty())
+        y += gfx_.text(L"Follow a subplot, a relationship or a mystery through the book: make a thread, then tick it on each card it "
+                       L"runs through.",
+                       {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 8;
+    y += 4;
+    linkText("pl:newthread", c.x, y, L"+ New thread", [this] { newThread(pl_.node); });
+    y += 30;
+}
+
+// The whole plan as text: from a file or what's copied, and out again (0.50).
+void StudioApp::importPlanText() {
+    std::vector<MenuItem> items{MenuItem::item(L"From a text file (.txt or .md)…", 1), MenuItem::item(L"From what you've copied", 2)};
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT how = showMenu(hwnd(), items, pt, pal_);
+    if (!how) return;
+    std::string text;
+    if (how == 1) {
+        IFileOpenDialog* dlg = nullptr;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+        COMDLG_FILTERSPEC spec[] = {{L"Text", L"*.txt;*.md;*.markdown;*.text"}};
+        dlg->SetFileTypes(1, spec);
+        dlg->SetTitle(L"Import planning: an outline, plot threads or structures");
+        std::wstring path;
+        if (SUCCEEDED(dlg->Show(hwnd()))) {
+            IShellItem* item = nullptr;
+            if (SUCCEEDED(dlg->GetResult(&item))) {
+                PWSTR p = nullptr;
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = p; CoTaskMemFree(p); }
+                item->Release();
+            }
+        }
+        dlg->Release();
+        if (path.empty()) return;
+        std::ifstream f(path.c_str(), std::ios::binary);
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        if (!f && ss.str().empty()) { cjui::messageBox(hwnd(), L"Couldn't read that file.", L"Import planning", MB_OK | MB_ICONWARNING); return; }
+        text = fileText(ss.str());
+    } else {
+        std::wstring ws;
+        if (!clipboardTextOf(hwnd(), ws) || ws.empty()) { flash(L"There's no text copied. Copy your outline, threads or structure, then try again.", 6); return; }
+        text = narrow(ws);
+    }
+    commitFields();
+    plan::PlanningImport r;
+    plan::importPlanning(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book), text, r);
+    if (!r.any()) {
+        cjui::messageBox(hwnd(), L"Nothing in that text was recognised as planning.\n\nAn outline uses lines such as “Chapter: The Forge” "
+                                 L"(or headings), plot threads start “Thread:” and structures “Structure:”. The manual "
+                                 L"has a template for each.",
+                         L"Import planning", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    auto plural = [](int n, const wchar_t* one, const wchar_t* many) { return std::to_wstring(n) + L" " + (n == 1 ? one : many); };
+    std::vector<std::wstring> made;
+    const auto& o = r.outline;
+    if (o.parts) made.push_back(plural(o.parts, L"part", L"parts"));
+    if (o.chapters) made.push_back(plural(o.chapters, L"chapter", L"chapters"));
+    if (o.scenes) made.push_back(plural(o.scenes, L"scene", L"scenes"));
+    const int newThreads = o.threads + r.threads.added;
+    if (newThreads) made.push_back(plural(newThreads, L"new plot thread", L"new plot threads"));
+    if (r.structuresAdded) made.push_back(plural(r.structuresAdded, L"structure of your own", L"structures of your own"));
+    std::wstring msg;
+    if (!made.empty()) {
+        msg = L"Added ";
+        for (size_t i = 0; i < made.size(); ++i) msg += (i ? (i + 1 == made.size() ? L" and " : L", ") : L"") + made[i];
+        msg += L".";
+    }
+    if (r.structuresReplaced) msg += L"\n\nUpdated " + plural(r.structuresReplaced, L"structure", L"structures") + L" of yours with the same name.";
+    if (r.threads.updated) msg += L"\n\nAdded to " + plural(r.threads.updated, L"thread", L"threads") + L" you already had.";
+    if (!o.structure.empty()) msg += L"\n\nThe book follows " + w(o.structure) + (o.beats ? L", with " + plural(o.beats, L"beat", L"beats") + L" matched." : L".");
+    if (o.unknownStructure) msg += L"\n\nThe structure named on the “Book structure” line isn't one you have, so none was set.";
+    auto listOf = [](const std::vector<std::string>& v) {
+        std::wstring s;
+        for (size_t i = 0; i < v.size() && i < 8; ++i) s += (i ? L", " : L"") + widen(v[i]);
+        if (v.size() > 8) s += L"…";
+        return s;
+    };
+    if (!o.unknownViewpoints.empty()) msg += L"\n\nNo character of that name, so no viewpoint was set: " + listOf(o.unknownViewpoints) + L".";
+    if (!o.unknownBeats.empty()) msg += L"\n\nNot beats of the book's structure: " + listOf(o.unknownBeats) + L".";
+    if (!r.threads.unknown.empty()) msg += L"\n\nThreads named chapters that aren't in the book: " + listOf(r.threads.unknown) + L".";
+    pl_.appearances = lib_->appearancesIn(pl_.book);
+    if (!o.made.empty()) pl_.node.clear();
+    selectCard({});
+    cjui::messageBox(hwnd(), msg.empty() ? std::wstring(L"Done.") : msg, L"Import planning", MB_OK | MB_ICONINFORMATION);
+}
+
+void StudioApp::exportPlanText() {
+    const Book* b = lib_->book(pl_.book);
+    if (!b) return;
+    commitFields();
+    std::vector<MenuItem> items{MenuItem::item(L"Save as a text file…", 1), MenuItem::item(L"Copy it", 2)};
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT how = showMenu(hwnd(), items, pt, pal_);
+    if (!how) return;
+    const std::string text = plan::planningText(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book));
+    if (text.empty()) { flash(L"There's nothing planned yet to export.", 5); return; }
+    if (how == 2) {
+        std::wstring ws = widen(text), crlf;
+        for (wchar_t ch : ws) { if (ch == L'\n') crlf += L'\r'; crlf += ch; }
+        flash(copyToClipboard(hwnd(), crlf) ? L"Copied the plan. Paste it anywhere, or into another book with Import planning." : L"Couldn't copy it.", 5);
+        return;
+    }
+    const std::wstring path = askSavePath(L"Text", L"*.txt", L"txt", w(b->title) + L" - plan", L"Export the plan");
+    if (path.empty()) return;
+    std::ofstream out(path.c_str(), std::ios::binary);
+    out << "\xEF\xBB\xBF" << text;
+    if (!out) { cjui::messageBox(hwnd(), L"Couldn't save the plan there.", L"Export planning", MB_OK | MB_ICONWARNING); return; }
+    flash(L"Saved the plan: outline, plot threads and structure.", 5);
 }
 
 }  // namespace nrs

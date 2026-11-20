@@ -53,7 +53,9 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure } kind = None;
+    // Thread, Beat (0.50): a plot thread or a structure beat (id), of a book (contextSeries). Structure: one of the
+    // author's own (id), of the book whose plan is open (contextSeries).
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
@@ -307,9 +309,20 @@ private:
     void setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime& t);
     std::string timelineUnit(const Id& bookId) const;
     void setTimelineUnit(const Id& bookId, const std::string& unit);
-    nlohmann::json structureOf(const Id& bookId) const;
-    void setStructure(const Id& bookId, const nlohmann::json& s);
     void outlineFromStructure();
+    // Plot threads, beats and your own structures in the panel, and the plan as text (0.50, studio_plot.cpp).
+    void loadPlanFields();
+    void commitPlanFields(const Focus& f);
+    void drawThreadPanel(const Rect& c, float& y);
+    void drawBeatPanel(const Rect& c, float& y);
+    void drawOwnStructurePanel(const Rect& c, float& y);
+    void cardThreads(const Rect& c, float& y);          // a card's threads, to tick
+    void newThread(const Id& tagNode);
+    void selectThread(const std::string& id);
+    void selectBeat(const std::string& id);
+    void importPlanText();
+    void exportPlanText();
+    bool nodeShown(const studio::ManuscriptNode* n) const;   // passes the status, viewpoint and thread filters
     bool planMouseDown(float x, float y);
     bool planMouseMove(float x, float y, bool leftDown);
     bool planMouseUp(float x, float y);
@@ -646,6 +659,8 @@ private:
         Id book;
         Id node;                   // the selected card ("" = the book)
         int status = -1;           // filter: a NodeStatus, or -1 for everything
+        std::string pov;           // filter (0.49.3): a viewpoint character's id, "-" for none, "" for anyone
+        std::string thread;        // filter (0.50): a plot thread's id, or "" for any
         std::map<Id, std::vector<Id>> appearances;   // node -> entries found in its text
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
         int view = 0;              // 0 corkboard, 1 timeline, 2 structure

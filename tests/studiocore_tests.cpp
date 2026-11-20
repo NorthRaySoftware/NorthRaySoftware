@@ -11,6 +11,7 @@
 #include "studio/family_tree.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
+#include "studio/planning.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
 #include "miniz.h"
@@ -3105,6 +3106,137 @@ static void testEntryPaste() {
     fs::remove_all(dir);
 }
 
+static void testPlanning() {
+    const std::string dir = tempLibrary("planning");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id book = lib->createBook("Shards", world);
+    const Id tom = lib->createEntry(world, {}, "character", "Tom Smith");
+    if (Entry e = *lib->entry(tom); true) { e.aliases = {"Tommy"}; lib->updateEntry(e); }
+    lib->createEntry(world, {}, "character", "Sarrah Valen");
+
+    // Built-in structures keep their old ids, and have the new ones.
+    const auto& built = plan::builtInStructures();
+    CHECK(plan::findStructure(built, "three-act") && plan::findStructure(built, "kishotenketsu"));
+    CHECK(plan::findStructure(built, "fichtean") && plan::findStructure(built, "story-circle") && plan::findStructure(built, "four-act"));
+
+    // Own structures from text: percentages, fractions, none (spread evenly), "Beat:" and "|".
+    std::vector<std::string> skipped;
+    auto own = plan::parseStructures(
+        "Structure: Heist\nAbout: The job.\n0% The crew: who's in\nBeat: 50% The plan | how it should go\n100% The getaway\n\n"
+        "Structure: Quick\nOne\nTwo\nThree\n", &skipped);
+    CHECK(own.size() == 2);
+    if (own.size() == 2) {
+        CHECK(own[0].name == "Heist" && own[0].about == "The job." && own[0].beats.size() == 3);
+        CHECK(own[0].beats[1].name == "The plan" && own[0].beats[1].about == "how it should go" && std::abs(own[0].beats[1].at - 0.5) < 1e-9);
+        CHECK(own[0].beats[0].id == "the-crew" && own[0].id == "own-heist");
+        CHECK(own[1].beats.size() == 3 && own[1].beats[0].at == 0.0 && own[1].beats[1].at > 0.3 && own[1].beats[2].at > own[1].beats[1].at && own[1].beats[2].at < 1.0);
+        // Round trip.
+        const auto again = plan::parseStructures(plan::structureText(own[0]));
+        CHECK(again.size() == 1 && again[0].beats.size() == 3 && again[0].beats[2].name == "The getaway" && std::abs(again[0].beats[2].at - 1.0) < 1e-9);
+        plan::setOwnStructures(*lib, "world:" + world, own);
+        const auto all = plan::allStructures(*lib, "world:" + world);
+        CHECK(all.size() == built.size() + 2 && plan::findStructure(all, "own-heist") && plan::findStructure(all, "own-heist")->own);
+    }
+
+    // A book's structure: one chapter (before 0.50) still reads; several and notes save.
+    lib->setSetting("structure:" + book, R"({"template":"three-act","beats":{"setup":"n1"}})");
+    auto bs = plan::bookStructure(*lib, book);
+    CHECK(bs.templateId == "three-act" && bs.beats["setup"] == std::vector<Id>{"n1"});
+    bs.beats["midpoint"] = {"n2", "n3"};
+    bs.notes["midpoint"] = "The ledger.";
+    plan::setBookStructure(*lib, book, bs);
+    bs = plan::bookStructure(*lib, book);
+    CHECK(bs.beats["midpoint"].size() == 2 && bs.notes["midpoint"] == "The ledger.");
+
+    // An outline from text.
+    const std::string outline =
+        "Part: Part One\n"
+        "Chapter: The Forge\nViewpoint: Tom\nStatus: Draft\nTarget: 3,000 words\nThreads: The shards, Love\nWhen: Day 3, at dawn\n"
+        "Tom finds the ledger.\nIt names his mother.\n\nA second paragraph.\n"
+        "Scene: Night watch\nPOV: Tommy\n"
+        "Chapter: The Storm Wall\nViewpoint: Nobody Known\nWhen: the night of the storm\n"
+        "Part: Part Two\nChapter: Ashes\n";
+    plan::OutlineImport oi;
+    CHECK(plan::importOutline(*lib, book, outline, oi));
+    CHECK(oi.parts == 2 && oi.chapters == 3 && oi.scenes == 1 && oi.threads == 2);
+    CHECK(oi.unknownViewpoints == std::vector<std::string>{"Nobody Known"});
+    const auto nodes = lib->manuscriptOf(book);
+    CHECK(nodes.size() == 6);
+    if (nodes.size() == 6) {
+        CHECK(nodes[0]->kind == NodeKind::Part && nodes[1]->title == "The Forge" && nodes[1]->parentId == nodes[0]->id);
+        CHECK(nodes[1]->povId == tom && nodes[1]->targetWords == 3000 && nodes[1]->status == NodeStatus::Draft);
+        CHECK(nodes[1]->synopsis == "Tom finds the ledger.\nIt names his mother.\n\nA second paragraph.");
+        CHECK(nodes[2]->kind == NodeKind::Scene && nodes[2]->parentId == nodes[1]->id && nodes[2]->povId == tom);
+        CHECK(nodes[3]->status == NodeStatus::Outline && nodes[3]->povId.empty());
+        CHECK(nodes[5]->parentId == nodes[4]->id);
+        const auto th = plan::threadsOf(*lib, book);
+        CHECK(th.threads.size() == 2 && th.named("the shards") && th.has(nodes[1]->id, th.named("Love")->id));
+        const auto tl = nlohmann::json::parse(lib->setting("timeline:" + book));
+        CHECK(tl["nodes"][nodes[1]->id]["day"] == 3 && tl["nodes"][nodes[1]->id]["when"] == "at dawn");
+        CHECK(tl["nodes"][nodes[3]->id]["when"] == "the night of the storm" && !tl["nodes"][nodes[3]->id].contains("day"));
+
+        std::vector<Id> ids;
+        for (auto* n : nodes) ids.push_back(n->id);
+        // Out again, and back into another book: the same outline.
+        const std::string text = plan::outlineText(*lib, book);
+        CHECK(text.find("Chapter: The Forge\nViewpoint: Tom Smith\nStatus: Draft\nTarget: 3000\nThreads: The shards, Love\nWhen: Day 3, at dawn\n") != std::string::npos);
+        const Id book2 = lib->createBook("Copy", world);
+        plan::OutlineImport o2;
+        CHECK(plan::importOutline(*lib, book2, text, o2) && o2.chapters == 3 && o2.unknownViewpoints.empty());
+        CHECK(plan::outlineText(*lib, book2) == text);
+
+        // Threads as text: numbers, ranges and titles.
+        plan::ThreadImport ti;
+        CHECK(plan::importThreads(*lib, book, "Thread: Love\nColour: 123456\nAbout: Tom and Sarrah.\nChapters: 2-3, Night watch, 9\n\nThread: Revenge\nChapters: 1\n", ti));
+        CHECK(ti.added == 1 && ti.updated == 1 && ti.unknown == std::vector<std::string>{"9"});
+        const auto th2 = plan::threadsOf(*lib, book);
+        const plan::Thread* love = th2.named("love");
+        CHECK(love && love->colour == "#123456" && love->about == "Tom and Sarrah.");
+        CHECK(love && th2.has(ids[3], love->id) && th2.has(ids[5], love->id) && th2.has(ids[2], love->id));
+        const std::string tt = plan::threadsText(*lib, book, th2);
+        CHECK(tt.find("Thread: Love\nColour: #123456\nAbout: Tom and Sarrah.\nChapters: 1-3, Night watch\n") != std::string::npos);
+    }
+
+    // All three in one text: an own structure, an outline that follows it with beats, and threads by chapter number.
+    {
+        const Id b3 = lib->createBook("All in one", world);
+        const std::string scope = plan::structureScope(*lib, b3);
+        CHECK(scope == "world:" + world);
+        const std::string text =
+            "Book structure: Heist\n\nChapter: The job\nBeat: The crew\nThreads: Money\n\nChapter: The vault\nBeat: The plan, Nothing\n\n"
+            "Thread: Money\nColour: #00AA00\nChapters: 2\n\n"
+            "Structure: Heist\nAbout: Replaced.\n0% The crew: who\n50% The plan: how\n100% The getaway\n";
+        plan::PlanningImport pi;
+        CHECK(plan::importPlanning(*lib, b3, scope, text, pi));
+        CHECK(pi.structuresReplaced == 1 && pi.structuresAdded == 0 && pi.outline.chapters == 2 && pi.outline.structure == "Heist");
+        CHECK(pi.outline.beats == 2 && pi.outline.unknownBeats == std::vector<std::string>{"Nothing"});
+        CHECK(pi.threads.updated == 0 && pi.threads.tagged == 1);
+        const auto own2 = plan::ownStructures(*lib, scope);
+        CHECK(own2.size() == 2 && own2[0].about == "Replaced.");
+        const auto bs3 = plan::bookStructure(*lib, b3);
+        const auto ch = lib->manuscriptOf(b3);
+        CHECK(bs3.templateId == "own-heist" && ch.size() == 2 && bs3.beats.at("the-plan") == std::vector<Id>{ch[1]->id});
+        const auto th3 = plan::threadsOf(*lib, b3);
+        CHECK(th3.threads.size() == 1 && th3.threads[0].colour == "#00AA00" && th3.has(ch[0]->id, "t1") && th3.has(ch[1]->id, "t1"));
+        const std::string all = plan::planningText(*lib, b3, scope);
+        CHECK(all.rfind("Book structure: Heist\n\nChapter: The job\nStatus: Outline\nThreads: Money\nBeat: The crew\n", 0) == 0);
+        CHECK(all.find("Thread: Money\nColour: #00AA00\nChapters: 1, 2\n") != std::string::npos && all.find("Structure: Heist\nAbout: Replaced.\n") != std::string::npos);
+        // Into another world: the structure comes along.
+        const Id w2 = lib->createWorld("Elsewhere");
+        const Id b4 = lib->createBook("Copy", w2);
+        plan::PlanningImport p2;
+        CHECK(plan::importPlanning(*lib, b4, plan::structureScope(*lib, b4), all, p2) && p2.structuresAdded == 1);
+        CHECK(plan::planningText(*lib, b4, plan::structureScope(*lib, b4)) == all);
+    }
+
+    // Markdown headings: two levels are chapters and scenes.
+    const auto md = plan::parseOutline("# The Forge\nSome words.\n## Night watch\n# The Storm\n");
+    CHECK(md.size() == 3 && md[0].kind == NodeKind::Chapter && md[1].kind == NodeKind::Scene && md[0].synopsis == "Some words.");
+    const auto md3 = plan::parseOutline("# One\n## Two\n### Three\n");
+    CHECK(md3.size() == 3 && md3[0].kind == NodeKind::Part && md3[2].kind == NodeKind::Scene);
+}
+
 int main() {
     testEntryPaste();
     testWorldFonts();
@@ -3113,6 +3245,7 @@ int main() {
     testReview();
     testWorldbuilding();
     testPublish();
+    testPlanning();
     testCovers();
     testBibleTidy();
     testEntryPages();

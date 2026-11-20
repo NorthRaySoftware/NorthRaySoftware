@@ -1,0 +1,881 @@
+// Writing Studio: structures, plot threads and outlines as plain text. See studio/planning.hpp.
+#include "studio/planning.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <set>
+#include <sstream>
+
+namespace studio::plan {
+
+using nlohmann::json;
+
+namespace {
+
+std::string trim(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && std::isspace((unsigned char)s[a])) ++a;
+    while (b > a && std::isspace((unsigned char)s[b - 1])) --b;
+    return s.substr(a, b - a);
+}
+
+std::string lower(std::string s) {
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+std::vector<std::string> lines(const std::string& text) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : text) {
+        if (c == '\r') continue;
+        if (c == '\n') { out.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    out.push_back(cur);
+    // A byte-order mark at the start.
+    if (!out.empty() && out[0].rfind("\xEF\xBB\xBF", 0) == 0) out[0] = out[0].substr(3);
+    return out;
+}
+
+// "Label: value" with a label among `names` (any case); the value is trimmed. The label may be bold (**Label:**).
+bool field(const std::string& line, std::initializer_list<const char*> names, std::string& value) {
+    std::string l = trim(line);
+    if (l.rfind("**", 0) == 0) {
+        l = l.substr(2);
+        const size_t e = l.find("**");
+        if (e != std::string::npos) l.erase(e, 2);
+    }
+    const size_t colon = l.find(':');
+    if (colon == std::string::npos || colon == 0) return false;
+    const std::string key = lower(trim(l.substr(0, colon)));
+    for (const char* n : names)
+        if (key == n) { value = trim(l.substr(colon + 1)); return true; }
+    return false;
+}
+
+std::vector<std::string> splitList(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : s) {
+        if (c == ',' || c == ';') { if (!trim(cur).empty()) out.push_back(trim(cur)); cur.clear(); }
+        else cur += c;
+    }
+    if (!trim(cur).empty()) out.push_back(trim(cur));
+    return out;
+}
+
+std::string slug(const std::string& name) {
+    std::string out;
+    for (char c : name) {
+        if (std::isalnum((unsigned char)c)) out += (char)std::tolower((unsigned char)c);
+        else if (!out.empty() && out.back() != '-') out += '-';
+    }
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    return out.empty() ? "beat" : out;
+}
+
+std::string unique(const std::string& base, const std::set<std::string>& taken) {
+    if (!taken.count(base)) return base;
+    for (int i = 2;; ++i) {
+        const std::string s = base + "-" + std::to_string(i);
+        if (!taken.count(s)) return s;
+    }
+}
+
+bool allDigits(const std::string& s) {
+    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit((unsigned char)c); });
+}
+
+std::string percent(double at) {
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%g%%", std::round(at * 1000) / 10);
+    return buf;
+}
+
+json parseObj(const std::string& s) {
+    json j = json::parse(s, nullptr, false);
+    return j.is_object() ? j : json::object();
+}
+
+Structure fromJson(const json& j) {
+    Structure s;
+    s.id = j.value("id", "");
+    s.name = j.value("name", "");
+    s.about = j.value("about", "");
+    s.own = true;
+    if (j.contains("beats") && j["beats"].is_array())
+        for (auto& b : j["beats"])
+            if (b.is_object()) s.beats.push_back({b.value("id", ""), b.value("name", ""), b.value("at", 0.0), b.value("about", "")});
+    return s;
+}
+
+json toJson(const Structure& s) {
+    json beats = json::array();
+    for (auto& b : s.beats) beats.push_back({{"id", b.id}, {"name", b.name}, {"at", b.at}, {"about", b.about}});
+    return {{"id", s.id}, {"name", s.name}, {"about", s.about}, {"beats", beats}};
+}
+
+// Chapters of the story in reading order (not front or back matter): numbered 1, 2, 3...
+std::vector<const ManuscriptNode*> storyChapters(const Library& lib, const Id& book) {
+    std::vector<const ManuscriptNode*> out;
+    for (const ManuscriptNode* n : lib.manuscriptOf(book))
+        if (n->kind == NodeKind::Chapter && n->matter == 0) out.push_back(n);
+    return out;
+}
+
+const char* units[] = {"day", "week", "month", "year"};
+
+}  // namespace
+
+// ------------------------------------------------------------------ structures
+
+const std::vector<Structure>& builtInStructures() {
+    static const std::vector<Structure> all = [] {
+        std::vector<Structure> t = {
+            {"three-act", "Three acts", "The classic shape: set up a world and a want, complicate it until everything is at stake, then resolve it.",
+             {{"setup", "Setup", 0.0, "Who we're with, what they want, and the world they want it in."},
+              {"inciting", "Inciting incident", 0.12, "Something happens that the hero can't ignore. The story begins to move."},
+              {"turn1", "First turning point", 0.25, "A decision that can't be undone carries the hero into the new situation of the middle."},
+              {"midpoint", "Midpoint", 0.5, "A reversal or revelation: the goal or the stakes change, and the hero stops reacting and starts acting."},
+              {"turn2", "Second turning point", 0.75, "The worst moment: what the hero relied on fails, and a last, costly choice is made."},
+              {"climax", "Climax", 0.88, "The final confrontation, where the want and the need meet."},
+              {"resolution", "Resolution", 0.97, "The new normal. What changed, and what it cost."}}},
+            {"four-act", "Four acts", "The middle split in two at the midpoint, so each quarter has its own job: set up, react, act, resolve.",
+             {{"setup", "Act one: setup", 0.0, "The hero's world and want; ends when they're pushed into the story."},
+              {"reaction", "Act two: reaction", 0.25, "The hero responds to the new situation, mostly on the back foot."},
+              {"midpoint", "Midpoint", 0.5, "A discovery or reversal that turns the hero from reacting to acting."},
+              {"action", "Act three: action", 0.5, "The hero takes the fight to the problem; it gets harder and costs more."},
+              {"crisis", "Crisis", 0.75, "Everything falls apart, and the last act begins with a choice."},
+              {"resolution", "Act four: resolution", 0.75, "The climax, and the world after it."}}},
+            {"fifteen", "Fifteen beats", "A detailed beat sheet popularised for screenwriting (Blake Snyder's Save the Cat!) and widely used for novels.",
+             {{"opening", "Opening image", 0.0, "A snapshot of the hero's life before: the 'before' picture."},
+              {"theme", "Theme stated", 0.05, "Someone hints at what the hero must learn, though they don't see it yet."},
+              {"setup", "Setup", 0.06, "The hero's world, flaws and the things that need fixing."},
+              {"catalyst", "Catalyst", 0.1, "The event that knocks life off course."},
+              {"debate", "Debate", 0.15, "Doubt: should the hero go? Can they?"},
+              {"break2", "Break into two", 0.2, "The hero chooses to step into the new world."},
+              {"bstory", "B story", 0.22, "A second thread, often a relationship, that carries the theme."},
+              {"fun", "Fun and games", 0.3, "The promise of the premise: the new world explored."},
+              {"midpoint", "Midpoint", 0.5, "A false victory or false defeat; the stakes rise."},
+              {"closein", "Bad guys close in", 0.55, "Pressure from outside and doubt from within."},
+              {"lost", "All is lost", 0.75, "The low point; something (or someone) is lost."},
+              {"dark", "Dark night of the soul", 0.78, "The hero sits with the loss, and finds the lesson."},
+              {"break3", "Break into three", 0.8, "The answer, from the A and B stories together."},
+              {"finale", "Finale", 0.85, "The hero puts the lesson to work and wins (or loses well)."},
+              {"final", "Final image", 1.0, "The 'after' picture, mirroring the opening."}}},
+            {"hero", "The hero's journey", "Twelve stages of the mythic journey, after Joseph Campbell as set out for writers by Christopher Vogler.",
+             {{"ordinary", "Ordinary world", 0.0, "Home, before the adventure."},
+              {"call", "Call to adventure", 0.08, "A problem or challenge appears."},
+              {"refusal", "Refusal of the call", 0.12, "Fear or duty holds the hero back."},
+              {"mentor", "Meeting the mentor", 0.17, "Advice, a gift or training."},
+              {"threshold", "Crossing the threshold", 0.25, "Into the special world; no way back."},
+              {"tests", "Tests, allies, enemies", 0.35, "Learning the rules of the new world, and who's who."},
+              {"approach", "Approach to the inmost cave", 0.45, "Preparing for the central ordeal."},
+              {"ordeal", "The ordeal", 0.5, "A brush with death, real or figurative."},
+              {"reward", "Reward", 0.6, "The prize claimed: an object, a truth, a reconciliation."},
+              {"road", "The road back", 0.75, "Consequences follow; the way home is dangerous."},
+              {"resurrection", "Resurrection", 0.88, "A final test where everything learned is used."},
+              {"elixir", "Return with the elixir", 0.97, "Home again, changed, bringing something back."}}},
+            {"story-circle", "Story circle", "Eight steps round a circle, from comfort to change and back (after Dan Harmon, from Campbell).",
+             {{"you", "You", 0.0, "A character in their zone of comfort."},
+              {"need", "Need", 0.12, "They want something."},
+              {"go", "Go", 0.25, "They enter an unfamiliar situation."},
+              {"search", "Search", 0.37, "They adapt to it, and struggle."},
+              {"find", "Find", 0.5, "They get what they wanted."},
+              {"take", "Take", 0.62, "They pay a heavy price for it."},
+              {"return", "Return", 0.75, "They go back to the familiar."},
+              {"change", "Change", 0.88, "Having changed."}}},
+            {"seven", "Seven points", "Work from the end backwards: the resolution mirrors the hook, with turns and pinches between (after Dan Wells).",
+             {{"hook", "Hook", 0.0, "The starting state, the opposite of the resolution."},
+              {"turn1", "Plot turn 1", 0.15, "The call to adventure: the world changes."},
+              {"pinch1", "Pinch 1", 0.35, "Pressure: the antagonist shows its strength; the hero must act."},
+              {"midpoint", "Midpoint", 0.5, "The hero moves from reaction to action."},
+              {"pinch2", "Pinch 2", 0.65, "Things go wrong; the plan fails, the jaws of defeat."},
+              {"turn2", "Plot turn 2", 0.85, "The hero finds the last piece needed to win."},
+              {"resolution", "Resolution", 1.0, "The climax and the end state."}}},
+            {"fichtean", "Fichtean curve", "Straight into trouble: a run of rising crises, each worse than the last, to a climax near the end (after John Gardner).",
+             {{"crisis1", "First crisis", 0.0, "Open in the middle of a problem; backstory comes later, in passing."},
+              {"crisis2", "Second crisis", 0.2, "A harder problem, often born of the first one's solution."},
+              {"crisis3", "Third crisis", 0.4, "The stakes climb; what the hero learns along the way is revealed."},
+              {"crisis4", "Fourth crisis", 0.6, "The pressure is nearly unbearable."},
+              {"climax", "Climax", 0.8, "The biggest crisis, and the turning point of the whole story."},
+              {"falling", "Falling action", 0.92, "A short close: the consequences settle."}}},
+            {"five-act", "Five acts", "Gustav Freytag's pyramid, from classical drama: rising to a peak and falling to a close.",
+             {{"exposition", "Exposition", 0.0, "The situation, the people and the conflict to come."},
+              {"rising", "Rising action", 0.2, "Complications build."},
+              {"climax", "Climax", 0.5, "The turning point, at the top of the pyramid."},
+              {"falling", "Falling action", 0.7, "Consequences unwind."},
+              {"denouement", "Dénouement", 0.9, "The knots are untied; the end."}}},
+            {"kishotenketsu", "Kishōtenketsu", "Four parts from East Asian storytelling, built on contrast rather than conflict; also used for four-panel comics.",
+             {{"ki", "Ki (introduction)", 0.0, "Characters and setting."},
+              {"sho", "Shō (development)", 0.25, "The situation develops, without a major change."},
+              {"ten", "Ten (twist)", 0.5, "Something unexpected appears, seemingly unconnected."},
+              {"ketsu", "Ketsu (reconciliation)", 0.75, "The parts come together and make a new sense."}}},
+            {"mystery", "Mystery", "The shape of a whodunit: a crime, an investigation with false leads, and a reveal that was fair all along.",
+             {{"crime", "The crime", 0.0, "The body, the theft, the disappearance: the question the book will answer."},
+              {"detective", "The detective commits", 0.1, "Someone takes the case, and has a reason to see it through."},
+              {"clues", "Clues and suspects", 0.2, "The suspects, their secrets, and the first clues (the real one hidden among them)."},
+              {"twist", "A false solution", 0.5, "A suspect seems guilty, or a second crime upends the theory."},
+              {"danger", "The detective in danger", 0.75, "The culprit pushes back; the stakes become personal."},
+              {"reveal", "The reveal", 0.88, "The truth, explained from the clues the reader already had."},
+              {"aftermath", "Aftermath", 0.97, "Justice, or its failure, and what it cost."}}},
+            {"romance", "Romance", "The beats of a love story: meeting, resisting, falling, breaking apart and choosing each other.",
+             {{"apart", "Apart", 0.0, "Each lead's life, and what's missing from it."},
+              {"meet", "The meeting", 0.08, "They meet; something sparks, or grates."},
+              {"resist", "Resisting", 0.2, "Reasons this can't work, inside and out."},
+              {"falling", "Falling", 0.35, "Time together; the walls come down."},
+              {"together", "Together", 0.5, "A kiss, a night, a promise: they're in it now."},
+              {"doubt", "Doubt", 0.65, "The old wound or the outside pressure returns."},
+              {"breakup", "The break", 0.75, "It falls apart, and it seems for good."},
+              {"grand", "The grand gesture", 0.88, "One of them risks everything to show they've changed."},
+              {"ever", "Together, for good", 0.97, "The happy ending (or the hopeful one)."}}},
+        };
+        return t;
+    }();
+    return all;
+}
+
+std::vector<Structure> ownStructures(const Library& lib, const std::string& scope) {
+    std::vector<Structure> out;
+    const json j = json::parse(lib.setting("structures:" + scope), nullptr, false);
+    if (!j.is_array()) return out;
+    for (auto& s : j)
+        if (s.is_object()) {
+            Structure st = fromJson(s);
+            if (!st.id.empty() && !st.name.empty()) out.push_back(std::move(st));
+        }
+    return out;
+}
+
+bool setOwnStructures(Library& lib, const std::string& scope, const std::vector<Structure>& list) {
+    json j = json::array();
+    for (auto& s : list) j.push_back(toJson(s));
+    return lib.setSetting("structures:" + scope, j.dump());
+}
+
+const Structure* findStructure(const std::vector<Structure>& all, const std::string& id) {
+    for (auto& s : all) if (s.id == id) return &s;
+    return nullptr;
+}
+
+std::vector<Structure> allStructures(const Library& lib, const std::string& scope) {
+    std::vector<Structure> out = builtInStructures();
+    for (auto& s : ownStructures(lib, scope)) out.push_back(std::move(s));
+    return out;
+}
+
+std::string structureText(const Structure& s) {
+    std::string out = "Structure: " + s.name + "\n";
+    if (!s.about.empty()) out += "About: " + s.about + "\n";
+    for (auto& b : s.beats) {
+        out += percent(b.at) + " " + b.name;
+        if (!b.about.empty()) out += ": " + b.about;
+        out += "\n";
+    }
+    return out;
+}
+
+std::vector<Structure> parseStructures(const std::string& text, std::vector<std::string>* skipped) {
+    std::vector<Structure> out;
+    std::vector<std::vector<bool>> placed;   // per structure, per beat: had a percentage
+    std::set<std::string> takenIds;
+    for (const auto& b : builtInStructures()) takenIds.insert(b.id);
+    auto finish = [&] {
+        if (out.empty()) return;
+        Structure& s = out.back();
+        // Beats without a percentage are spread evenly between their neighbours.
+        auto& p = placed.back();
+        const size_t n = s.beats.size();
+        for (size_t i = 0; i < n; ++i) {
+            if (p[i]) continue;
+            size_t j = i;
+            while (j < n && !p[j]) ++j;
+            const double from = i == 0 ? 0.0 : s.beats[i - 1].at;
+            const double to = j < n ? s.beats[j].at : 1.0;
+            const double count = double(j - i);
+            for (size_t k = i; k < j; ++k) {
+                const double step = double(k - i);
+                s.beats[k].at = i == 0 ? from + (to - from) * step / count : from + (to - from) * (step + 1) / (count + 1);
+                p[k] = true;
+            }
+            i = j - 1;
+        }
+        std::stable_sort(s.beats.begin(), s.beats.end(), [](const Beat& a, const Beat& b) { return a.at < b.at; });
+        std::set<std::string> beatIds;
+        for (auto& b : s.beats) { b.id = unique(slug(b.name), beatIds); beatIds.insert(b.id); }
+        if (s.name.empty()) s.name = "My structure";
+        s.id = unique("own-" + slug(s.name), takenIds);
+        takenIds.insert(s.id);
+    };
+    for (const std::string& raw : lines(text)) {
+        std::string l = trim(raw);
+        if (l.empty() || l.rfind("//", 0) == 0) continue;
+        while (!l.empty() && (l[0] == '#' || l[0] == '-' || l[0] == '*' || l[0] == '>')) l = trim(l.substr(1));   // headings, bullets
+        std::string v;
+        if (field(l, {"structure", "template"}, v)) {
+            finish();
+            Structure s;
+            s.name = v;
+            s.own = true;
+            out.push_back(s);
+            placed.emplace_back();
+            continue;
+        }
+        if (out.empty()) {   // beats before any "Structure:" line start one
+            out.push_back(Structure{});
+            out.back().own = true;
+            placed.emplace_back();
+        }
+        Structure& s = out.back();
+        if (field(l, {"about", "description"}, v)) { s.about = v; continue; }
+        if (field(l, {"beat"}, v)) l = v;
+        // An optional percentage (or a fraction 0..1 with a point), then the name, then ": about" or "| about".
+        bool has = false;
+        double at = 0;
+        size_t i = 0;
+        while (i < l.size() && (std::isdigit((unsigned char)l[i]) || l[i] == '.')) ++i;
+        if (i > 0) {
+            const std::string num = l.substr(0, i);
+            size_t k = i;
+            const bool pc = k < l.size() && l[k] == '%';
+            if (pc) ++k;
+            if (k == l.size() || std::isspace((unsigned char)l[k]) || l[k] == ':' || l[k] == '|') {
+                try { at = std::stod(num); has = true; } catch (...) {}
+                if (has) {
+                    if (pc || at > 1.0) at /= 100.0;
+                    at = std::clamp(at, 0.0, 1.0);
+                    l = trim(l.substr(k));
+                    if (!l.empty() && (l[0] == ':' || l[0] == '|')) l = trim(l.substr(1));
+                }
+            }
+        }
+        size_t cut = l.find('|');
+        if (cut == std::string::npos) cut = l.find(':');
+        Beat b;
+        b.name = trim(cut == std::string::npos ? l : l.substr(0, cut));
+        b.about = cut == std::string::npos ? "" : trim(l.substr(cut + 1));
+        b.at = at;
+        if (b.name.empty()) { if (skipped) skipped->push_back(raw); continue; }
+        s.beats.push_back(b);
+        placed.back().push_back(has);
+    }
+    finish();
+    // Drop structures with no beats.
+    out.erase(std::remove_if(out.begin(), out.end(), [](const Structure& s) { return s.beats.empty(); }), out.end());
+    return out;
+}
+
+BookStructure bookStructure(const Library& lib, const Id& book) {
+    BookStructure out;
+    const json j = parseObj(lib.setting("structure:" + book));
+    out.templateId = j.value("template", "");
+    if (j.contains("beats") && j["beats"].is_object())
+        for (auto& [beat, v] : j["beats"].items()) {
+            std::vector<Id> ids;
+            if (v.is_string() && !v.get<std::string>().empty()) ids.push_back(v.get<std::string>());
+            else if (v.is_array())
+                for (auto& x : v) if (x.is_string() && !x.get<std::string>().empty()) ids.push_back(x.get<std::string>());
+            if (!ids.empty()) out.beats[beat] = ids;
+        }
+    if (j.contains("notes") && j["notes"].is_object())
+        for (auto& [beat, v] : j["notes"].items())
+            if (v.is_string() && !v.get<std::string>().empty()) out.notes[beat] = v.get<std::string>();
+    return out;
+}
+
+bool setBookStructure(Library& lib, const Id& book, const BookStructure& s) {
+    json beats = json::object(), notes = json::object();
+    for (auto& [k, v] : s.beats) if (!v.empty()) beats[k] = v;
+    for (auto& [k, v] : s.notes) if (!v.empty()) notes[k] = v;
+    json j = {{"template", s.templateId}, {"beats", beats}};
+    if (!notes.empty()) j["notes"] = notes;
+    return lib.setSetting("structure:" + book, j.dump());
+}
+
+// ------------------------------------------------------------------ plot threads
+
+const Thread* Threads::find(const std::string& id) const {
+    for (auto& t : threads) if (t.id == id) return &t;
+    return nullptr;
+}
+
+const Thread* Threads::named(const std::string& name) const {
+    const std::string n = lower(trim(name));
+    for (auto& t : threads) if (lower(trim(t.name)) == n) return &t;
+    return nullptr;
+}
+
+bool Threads::has(const Id& node, const std::string& thread) const {
+    auto it = nodes.find(node);
+    return it != nodes.end() && std::find(it->second.begin(), it->second.end(), thread) != it->second.end();
+}
+
+Threads threadsOf(const Library& lib, const Id& book) {
+    Threads out;
+    const json j = parseObj(lib.setting("threads:" + book));
+    if (j.contains("threads") && j["threads"].is_array())
+        for (auto& t : j["threads"])
+            if (t.is_object() && !t.value("id", "").empty())
+                out.threads.push_back({t.value("id", ""), t.value("name", ""), t.value("colour", ""), t.value("about", "")});
+    if (j.contains("nodes") && j["nodes"].is_object())
+        for (auto& [node, v] : j["nodes"].items()) {
+            if (!v.is_array()) continue;
+            std::vector<std::string> ids;
+            for (auto& x : v)
+                if (x.is_string() && out.find(x.get<std::string>())) ids.push_back(x.get<std::string>());
+            if (!ids.empty()) out.nodes[node] = ids;
+        }
+    for (size_t i = 0; i < out.threads.size(); ++i)
+        if (out.threads[i].colour.empty()) out.threads[i].colour = threadColour(i);
+    return out;
+}
+
+bool setThreads(Library& lib, const Id& book, const Threads& t) {
+    json threads = json::array(), nodes = json::object();
+    for (auto& x : t.threads) threads.push_back({{"id", x.id}, {"name", x.name}, {"colour", x.colour}, {"about", x.about}});
+    for (auto& [node, ids] : t.nodes) {
+        std::vector<std::string> keep;
+        for (auto& id : ids) if (t.find(id) && std::find(keep.begin(), keep.end(), id) == keep.end()) keep.push_back(id);
+        if (!keep.empty()) nodes[node] = keep;
+    }
+    return lib.setSetting("threads:" + book, json{{"threads", threads}, {"nodes", nodes}}.dump());
+}
+
+std::string newThreadId(const Threads& t) {
+    for (int i = (int)t.threads.size() + 1;; ++i) {
+        const std::string id = "t" + std::to_string(i);
+        if (!t.find(id)) return id;
+    }
+}
+
+std::string threadColour(size_t n) {
+    static const char* palette[] = {"#D9534F", "#2E86C1", "#28A745", "#E08E0B", "#8E44AD", "#16A085", "#D35490", "#7F8C3D", "#5D6D7E", "#C0703A"};
+    return palette[n % (sizeof palette / sizeof *palette)];
+}
+
+std::string threadsText(const Library& lib, const Id& book, const Threads& t) {
+    const auto chapters = storyChapters(lib, book);
+    std::map<Id, int> number;
+    for (size_t i = 0; i < chapters.size(); ++i) number[chapters[i]->id] = (int)i + 1;
+    std::string out;
+    for (auto& th : t.threads) {
+        if (!out.empty()) out += "\n";
+        out += "Thread: " + th.name + "\n";
+        if (!th.colour.empty()) out += "Colour: " + th.colour + "\n";
+        if (!th.about.empty()) out += "About: " + th.about + "\n";
+        std::vector<int> nums;
+        std::vector<std::string> titles;
+        for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
+            if (!t.has(n->id, th.id)) continue;
+            auto it = number.find(n->id);
+            if (it != number.end()) nums.push_back(it->second);
+            else titles.push_back(n->title);
+        }
+        std::vector<std::string> parts;
+        for (size_t i = 0; i < nums.size();) {
+            size_t j = i;
+            while (j + 1 < nums.size() && nums[j + 1] == nums[j] + 1) ++j;
+            parts.push_back(j > i + 1 ? std::to_string(nums[i]) + "-" + std::to_string(nums[j]) : std::to_string(nums[i]));
+            if (j == i + 1) parts.push_back(std::to_string(nums[j]));
+            i = j + 1;
+        }
+        for (auto& s : titles) parts.push_back(s);
+        if (!parts.empty()) {
+            out += "Chapters: ";
+            for (size_t i = 0; i < parts.size(); ++i) out += (i ? ", " : "") + parts[i];
+            out += "\n";
+        }
+    }
+    return out;
+}
+
+namespace {
+// Chapter numbers, ranges or titles to nodes; titles not found go to `unknown`.
+std::vector<Id> resolveChapters(const Library& lib, const Id& book, const std::string& list, std::vector<std::string>& unknown) {
+    const auto chapters = storyChapters(lib, book);
+    std::vector<Id> out;
+    for (const std::string& item : splitList(list)) {
+        std::string a = item, b;
+        const size_t dash = item.find('-');
+        if (dash != std::string::npos) { a = trim(item.substr(0, dash)); b = trim(item.substr(dash + 1)); }
+        if (allDigits(a) && (b.empty() || allDigits(b)) && (dash == std::string::npos || !b.empty())) {
+            int from = std::stoi(a), to = b.empty() ? from : std::stoi(b);
+            if (to < from) std::swap(from, to);
+            bool any = false;
+            for (int k = from; k <= to; ++k)
+                if (k >= 1 && k <= (int)chapters.size()) { out.push_back(chapters[k - 1]->id); any = true; }
+            if (!any) unknown.push_back(item);
+            continue;
+        }
+        const std::string want = lower(item);
+        bool found = false;
+        for (const ManuscriptNode* n : lib.manuscriptOf(book))
+            if (lower(trim(n->title)) == want) { out.push_back(n->id); found = true; break; }
+        if (!found) unknown.push_back(item);
+    }
+    return out;
+}
+
+void tag(Threads& t, const Id& node, const std::string& thread) {
+    auto& v = t.nodes[node];
+    if (std::find(v.begin(), v.end(), thread) == v.end()) v.push_back(thread);
+}
+}  // namespace
+
+bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out) {
+    Threads t = threadsOf(lib, book);
+    std::string current;   // id of the thread being read
+    for (const std::string& raw : lines(text)) {
+        std::string l = trim(raw);
+        while (!l.empty() && (l[0] == '#' || l[0] == '-' || l[0] == '*')) l = trim(l.substr(1));
+        if (l.empty()) continue;
+        std::string v;
+        if (field(l, {"thread", "plot thread", "subplot"}, v)) {
+            if (v.empty()) { current.clear(); continue; }
+            if (const Thread* had = t.named(v)) { current = had->id; ++out.updated; }
+            else {
+                Thread n{newThreadId(t), v, threadColour(t.threads.size()), ""};
+                t.threads.push_back(n);
+                current = n.id;
+                ++out.added;
+            }
+            continue;
+        }
+        if (current.empty()) continue;
+        Thread* th = nullptr;
+        for (auto& x : t.threads) if (x.id == current) th = &x;
+        if (!th) continue;
+        if (field(l, {"colour", "color"}, v)) {
+            if (!v.empty() && v[0] != '#') v = "#" + v;
+            if (v.size() == 7) th->colour = v;
+        } else if (field(l, {"about", "description", "notes"}, v)) {
+            th->about = th->about.empty() ? v : th->about + "\n" + v;
+        } else if (field(l, {"chapters", "scenes", "in"}, v)) {
+            for (const Id& n : resolveChapters(lib, book, v, out.unknown)) {
+                if (!t.has(n, current)) ++out.tagged;
+                tag(t, n, current);
+            }
+        } else {
+            th->about = th->about.empty() ? l : th->about + "\n" + l;
+        }
+    }
+    return setThreads(lib, book, t);
+}
+
+// ------------------------------------------------------------------ outlines
+
+std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure) {
+    const auto ls = lines(text);
+    // Heading levels in use, for markdown outlines.
+    std::set<int> levels;
+    auto headingLevel = [](const std::string& l) {
+        int n = 0;
+        while (n < (int)l.size() && l[n] == '#') ++n;
+        return n > 0 && n < (int)l.size() && l[n] == ' ' ? n : 0;
+    };
+    for (auto& raw : ls) if (int h = headingLevel(trim(raw))) levels.insert(h);
+    std::vector<int> lv(levels.begin(), levels.end());
+    auto kindOfLevel = [&](int h) {
+        const int i = int(std::find(lv.begin(), lv.end(), h) - lv.begin());
+        if (lv.size() >= 3) return i == 0 ? NodeKind::Part : i == 1 ? NodeKind::Chapter : NodeKind::Scene;
+        if (lv.size() == 2) return i == 0 ? NodeKind::Chapter : NodeKind::Scene;
+        return NodeKind::Chapter;
+    };
+
+    std::vector<OutlineItem> out;
+    bool blank = false;
+    for (const std::string& raw : ls) {
+        std::string l = trim(raw);
+        if (l.empty()) { blank = true; continue; }
+        std::string v;
+        std::optional<NodeKind> starts;
+        std::string title;
+        if (int h = headingLevel(l)) {
+            std::string rest = trim(l.substr(h));
+            // "## Chapter: The Forge" in a heading counts by its word.
+            if (field(rest, {"part"}, v)) starts = NodeKind::Part, title = v;
+            else if (field(rest, {"chapter"}, v)) starts = NodeKind::Chapter, title = v;
+            else if (field(rest, {"scene"}, v)) starts = NodeKind::Scene, title = v;
+            else starts = kindOfLevel(h), title = rest;
+        } else if (field(l, {"part"}, v)) starts = NodeKind::Part, title = v;
+        else if (field(l, {"chapter"}, v)) starts = NodeKind::Chapter, title = v;
+        else if (field(l, {"scene"}, v)) starts = NodeKind::Scene, title = v;
+        if (starts) {
+            OutlineItem it;
+            it.kind = *starts;
+            it.title = title;
+            out.push_back(it);
+            blank = false;
+            continue;
+        }
+        if (field(l, {"book structure", "structure used"}, v)) { if (structure) *structure = v; continue; }
+        if (out.empty()) continue;   // text before the first part or chapter
+        OutlineItem& it = out.back();
+        if (field(l, {"viewpoint", "pov", "point of view"}, v)) it.viewpoint = v;
+        else if (field(l, {"status"}, v)) it.status = v;
+        else if (field(l, {"target", "words", "target words"}, v)) {
+            std::string digits;
+            for (char c : v) if (std::isdigit((unsigned char)c)) digits += c; else if (c != ',' && c != ' ' && c != '.') break;
+            if (!digits.empty() && digits.size() < 10) it.target = std::stoll(digits);
+        } else if (field(l, {"threads", "thread", "plot threads"}, v)) {
+            for (auto& s : splitList(v)) it.threads.push_back(s);
+        } else if (field(l, {"beat", "beats"}, v)) {
+            for (auto& x : splitList(v)) it.beats.push_back(x);
+        } else if (field(l, {"when", "time"}, v)) it.when = v;
+        else {
+            if (field(l, {"synopsis", "summary"}, v)) l = v;
+            if (l.empty()) continue;
+            if (!it.synopsis.empty()) it.synopsis += blank ? "\n\n" : "\n";
+            it.synopsis += l;
+        }
+        blank = false;
+    }
+    return out;
+}
+
+std::string outlineText(const Library& lib, const Id& book) {
+    const Threads th = threadsOf(lib, book);
+    const json tl = parseObj(lib.setting("timeline:" + book));
+    std::string unit = tl.value("unit", "day");
+    if (unit != "week" && unit != "month" && unit != "year") unit = "day";
+    // The structure it follows, and which beats each chapter carries.
+    const BookStructure bs = bookStructure(lib, book);
+    const auto all = allStructures(lib, structureScope(lib, book));
+    const Structure* st = findStructure(all, bs.templateId);
+    std::map<Id, std::vector<std::string>> beatsOf;
+    if (st)
+        for (auto& b : st->beats) {
+            auto it = bs.beats.find(b.id);
+            if (it != bs.beats.end()) for (auto& n : it->second) beatsOf[n].push_back(b.name);
+        }
+    std::string out;
+    if (st) out += "Book structure: " + st->name + "\n";
+    for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
+        if (!out.empty()) out += "\n";
+        out += std::string(n->kind == NodeKind::Part ? "Part: " : n->kind == NodeKind::Chapter ? "Chapter: " : "Scene: ") + n->title + "\n";
+        if (!n->povId.empty())
+            if (const Entry* e = lib.entry(n->povId)) out += "Viewpoint: " + e->name + "\n";
+        if (n->kind != NodeKind::Part) out += std::string("Status: ") + label(n->status) + "\n";
+        if (n->targetWords > 0) out += "Target: " + std::to_string(n->targetWords) + "\n";
+        auto it = th.nodes.find(n->id);
+        if (it != th.nodes.end()) {
+            std::string names;
+            for (auto& id : it->second)
+                if (const Thread* t = th.find(id)) names += (names.empty() ? "" : ", ") + t->name;
+            if (!names.empty()) out += "Threads: " + names + "\n";
+        }
+        if (auto b = beatsOf.find(n->id); b != beatsOf.end()) {
+            std::string names;
+            for (auto& x : b->second) names += (names.empty() ? "" : ", ") + x;
+            out += "Beat: " + names + "\n";
+        }
+        if (tl.contains("nodes") && tl["nodes"].is_object() && tl["nodes"].contains(n->id)) {
+            const json& v = tl["nodes"][n->id];
+            std::string when;
+            if (v.contains("day") && v["day"].is_number()) {
+                char buf[32];
+                std::snprintf(buf, sizeof buf, "%g", v["day"].get<double>());
+                std::string u = unit;
+                u[0] = (char)std::toupper((unsigned char)u[0]);
+                when = u + " " + buf;
+            }
+            const std::string words = v.value("when", "");
+            if (!words.empty()) when += (when.empty() ? "" : ", ") + words;
+            if (!when.empty()) out += "When: " + when + "\n";
+        }
+        if (!n->synopsis.empty()) out += n->synopsis + "\n";
+    }
+    return out;
+}
+
+bool importOutline(Library& lib, const Id& book, const std::string& text, OutlineImport& out, const std::string& scopeIn) {
+    const Book* b = lib.book(book);
+    if (!b) return false;
+    std::string structureName;
+    const auto items = parseOutline(text, &structureName);
+    // The structure the book follows: named here, or the one it has.
+    const std::string scope = scopeIn.empty() ? structureScope(lib, book) : scopeIn;
+    const auto structures = allStructures(lib, scope);
+    BookStructure bs = bookStructure(lib, book);
+    bool bsChanged = false;
+    if (!structureName.empty()) {
+        const Structure* found = nullptr;
+        for (auto& x : structures) if (lower(x.name) == lower(structureName) || x.id == structureName) { found = &x; break; }
+        if (found) {
+            if (bs.templateId != found->id) { bs = BookStructure{}; bs.templateId = found->id; }
+            out.structure = found->name;
+            bsChanged = true;
+        } else out.unknownStructure = true;
+    }
+    const Structure* st = findStructure(structures, bs.templateId);
+    if (items.empty()) {
+        if (bsChanged) setBookStructure(lib, book, bs);
+        return bsChanged;
+    }
+    const auto people = lib.entriesOf(b->worldId, b->worldId.empty() ? book : Id{});
+    auto person = [&](const std::string& name) -> Id {
+        const std::string n = lower(trim(name));
+        for (const Entry* e : people) if (lower(e->name) == n) return e->id;
+        for (const Entry* e : people) for (auto& a : e->aliases) if (lower(trim(a)) == n) return e->id;
+        // A first name alone: "Tom" for "Tom Smith", if only one fits.
+        Id one;
+        int count = 0;
+        for (const Entry* e : people) {
+            const std::string en = lower(e->name);
+            if (e->kind == "character" && en.rfind(n + " ", 0) == 0) { one = e->id; ++count; }
+        }
+        return count == 1 ? one : Id{};
+    };
+    Threads th = threadsOf(lib, book);
+    json tl = parseObj(lib.setting("timeline:" + book));
+    if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
+    const bool hadUnit = tl.contains("unit");
+    Id part, chapter;
+    for (const OutlineItem& it : items) {
+        Id parent;
+        if (it.kind == NodeKind::Chapter) parent = part;
+        else if (it.kind == NodeKind::Scene) parent = !chapter.empty() ? chapter : part;
+        Id id = lib.createNode(book, parent, it.kind, it.title);
+        if (id.empty()) id = lib.createNode(book, {}, it.kind, it.title);
+        if (id.empty()) continue;
+        out.made.push_back(id);
+        if (it.kind == NodeKind::Part) { part = id; chapter.clear(); ++out.parts; }
+        else if (it.kind == NodeKind::Chapter) { chapter = id; ++out.chapters; }
+        else ++out.scenes;
+        ManuscriptNode n = *lib.node(id);
+        n.synopsis = it.synopsis;
+        if (!it.status.empty())
+            if (auto s = nodeStatusFrom(lower(trim(it.status)))) n.status = *s;
+        if (it.kind == NodeKind::Part) n.status = NodeStatus::Draft;
+        else if (it.status.empty()) n.status = NodeStatus::Outline;
+        n.targetWords = it.target;
+        if (!it.viewpoint.empty()) {
+            n.povId = person(it.viewpoint);
+            if (n.povId.empty() && std::find(out.unknownViewpoints.begin(), out.unknownViewpoints.end(), it.viewpoint) == out.unknownViewpoints.end())
+                out.unknownViewpoints.push_back(it.viewpoint);
+        }
+        lib.updateNode(n);
+        for (const std::string& name : it.threads) {
+            const Thread* t = th.named(name);
+            if (!t) {
+                th.threads.push_back({newThreadId(th), name, threadColour(th.threads.size()), ""});
+                t = &th.threads.back();
+                ++out.threads;
+            }
+            tag(th, id, t->id);
+        }
+        for (const std::string& name : it.beats) {
+            const Beat* beat = nullptr;
+            if (st) for (auto& x : st->beats) if (lower(x.name) == lower(name) || x.id == name) { beat = &x; break; }
+            if (!beat) {
+                if (std::find(out.unknownBeats.begin(), out.unknownBeats.end(), name) == out.unknownBeats.end()) out.unknownBeats.push_back(name);
+                continue;
+            }
+            auto& v = bs.beats[beat->id];
+            if (std::find(v.begin(), v.end(), id) == v.end()) { v.push_back(id); ++out.beats; bsChanged = true; }
+        }
+        if (!it.when.empty()) {
+            // "Day 3", "Week 2, the storm", or just words.
+            json v = json::object();
+            std::string rest = it.when;
+            const std::string lw = lower(rest);
+            for (const char* u : units) {
+                const std::string un = u;
+                if (lw.rfind(un + " ", 0) != 0) continue;
+                size_t k = un.size() + 1;
+                size_t e = k;
+                while (e < rest.size() && (std::isdigit((unsigned char)rest[e]) || rest[e] == '.' || rest[e] == '-')) ++e;
+                if (e == k) break;
+                try {
+                    v["day"] = std::stod(rest.substr(k, e - k));
+                    if (!hadUnit) tl["unit"] = un;
+                    rest = trim(rest.substr(e));
+                    if (!rest.empty() && (rest[0] == ',' || rest[0] == ';')) rest = trim(rest.substr(1));
+                } catch (...) {}
+                break;
+            }
+            if (!rest.empty()) v["when"] = rest;
+            if (!v.empty()) tl["nodes"][id] = v;
+        }
+    }
+    setThreads(lib, book, th);
+    lib.setSetting("timeline:" + book, tl.dump());
+    if (bsChanged) setBookStructure(lib, book, bs);
+    return !out.made.empty() || bsChanged;
+}
+
+// ------------------------------------------------------------------ all of it
+
+std::string structureScope(const Library& lib, const Id& book) {
+    const Book* b = lib.book(book);
+    if (!b) return {};
+    return b->worldId.empty() ? "book:" + book : "world:" + b->worldId;
+}
+
+bool PlanningImport::any() const {
+    return !outline.made.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced;
+}
+
+bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out) {
+    // Split the text: each line goes to the part it belongs to, by the last heading word seen.
+    enum Part { Outline, Structures, ThreadsPart } part = Outline;
+    std::string outline, structures, threads;
+    for (const std::string& raw : lines(text)) {
+        std::string l = trim(raw);
+        while (!l.empty() && (l[0] == '#' || l[0] == '-' || l[0] == '*' || l[0] == '>')) l = trim(l.substr(1));
+        std::string v;
+        if (field(l, {"structure", "template"}, v)) part = Structures;
+        else if (field(l, {"thread", "plot thread", "subplot"}, v)) part = ThreadsPart;
+        else if (field(l, {"part", "chapter", "scene", "book structure", "structure used"}, v)) part = Outline;
+        else if (part != Outline && raw.size() > 0 && raw[0] == '#' && trim(raw).find(':') == std::string::npos) part = Outline;   // a plain heading
+        (part == Structures ? structures : part == ThreadsPart ? threads : outline) += raw + "\n";
+    }
+    if (!trim(structures).empty()) {
+        auto own = ownStructures(lib, scope);
+        for (Structure& s : parseStructures(structures)) {
+            bool replaced = false;
+            for (auto& o : own)
+                if (lower(o.name) == lower(s.name)) { s.id = o.id; o = s; replaced = true; break; }
+            if (replaced) ++out.structuresReplaced;
+            else {
+                std::set<std::string> taken;
+                for (auto& b : builtInStructures()) taken.insert(b.id);
+                for (auto& o : own) taken.insert(o.id);
+                s.id = unique("own-" + slug(s.name), taken);
+                own.push_back(s);
+                ++out.structuresAdded;
+            }
+        }
+        setOwnStructures(lib, scope, own);
+    }
+    std::set<std::string> had;   // threads the book had before (the outline's new ones aren't "updated")
+    for (auto& t : threadsOf(lib, book).threads) had.insert(lower(trim(t.name)));
+    if (!trim(outline).empty()) importOutline(lib, book, outline, out.outline, scope);
+    if (!trim(threads).empty()) {
+        importThreads(lib, book, threads, out.threads);
+        out.threads.updated = 0;
+        for (const std::string& l : lines(threads)) {
+            std::string v, t = trim(l);
+            while (!t.empty() && (t[0] == '#' || t[0] == '-' || t[0] == '*')) t = trim(t.substr(1));
+            if (field(t, {"thread", "plot thread", "subplot"}, v) && had.count(lower(v))) ++out.threads.updated;
+        }
+    }
+    return out.any();
+}
+
+std::string planningText(const Library& lib, const Id& book, const std::string& scope) {
+    std::string out = outlineText(lib, book);
+    const Threads th = threadsOf(lib, book);
+    if (!th.threads.empty()) out += (out.empty() ? "" : "\n") + threadsText(lib, book, th);
+    const BookStructure bs = bookStructure(lib, book);
+    for (const Structure& s : ownStructures(lib, scope))
+        if (s.id == bs.templateId) out += (out.empty() ? "" : "\n") + structureText(s);
+    return out;
+}
+
+}  // namespace studio::plan

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.50.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Plot threads: give a subplot, a relationship or a mystery a name, a colour and notes, tick it on the chapters and scenes it runs through, and see it as coloured tags on the corkboard cards. Choose one in the sidebar to show only its cards.",
+        "Filter the corkboard and timeline by viewpoint character.",
+        "Structure: five new shapes (four acts, story circle, Fichtean curve, mystery, romance) and your own, written as plain text; a beat can be carried by several chapters, and each beat keeps notes for the book.",
+        "Import planning: bring in a whole outline (parts, chapters and scenes with viewpoint, status, target, threads, beats and when), plot threads and structures from a text or Markdown file or from what you've copied. Export the plan the same way. The manual has a template for each."
+      ]
+    },
+    {
       "version": "0.49.2",
       "date": "2026-11-20",
       "notes": [
