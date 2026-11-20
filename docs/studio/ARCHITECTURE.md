@@ -415,6 +415,38 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.40.0: a world's own fonts (20 Nov 2026)
+
+- **studiocore/fonts** (`fonts.hpp`, `fonts.cpp`): font folders are a list, "app fonts|world fonts" (`folders`,
+  `joinFolders`, `familyFolder`: the first folder holding a family; ids with path separators refused). A world's own
+  live in `<library>/fonts/world-<id>/` (`book-<id>` for an independent book: `scopeFolder`), one folder per family
+  with `<Name>-<hash8>-<Style>.ttf` files (the hash keeps the process-wide font cache from serving an older file),
+  `name.txt` and `OFL.txt` or `LICENSE.txt`. `inspect(bytes)` reads family (typographic name 16, else the face's),
+  style (OS/2 weight 600+ is bold, fsSelection or the face flags for italic), variations (`fvar`), and refuses CFF
+  (`OTTO`), WOFF, collections, files without `glyf`, and fsType restricted or bitmap-only. `importFiles` groups by
+  family, keeps the weight nearest 400/700 when two files want one style (reporting the other), uses the first style as
+  regular when a new family has none, replaces styles of a family already there, never takes a bundled id
+  (`crimson-text-2`), and copies a licence beside the font. `familiesIn`, `renameFamily`, `removeFamily`, and
+  `sample()` (a line rasterised with the typesetter's shaping into straight RGBA, for previews).
+- Everything that sets type takes the list: `openFamily` and `fontFamilies` (name.txt names; duplicates by id once),
+  the symbols fallback from the first folder (typesetting and covers), the EPUB's embedded typeface (with
+  `LICENSE.txt` when there's no OFL), and the bible website, where `Look.headings/body` may be `family:<id>`: copied
+  into the site as `"NR <id>"` with an @font-face per style.
+- **App**: `fontFoldersFor(book)` (its world's, or its own when independent), `worldFontFolders(world, book)`;
+  `typesetResources(book)`; Typesetting, Publishing (edition typesetting, EPUB, the ebook look), the cover designer and
+  Share the bible use them. Worldbuilding › Fonts (`studio_fonts.cpp`, `Focus::Font`): Import fonts (multi-select file
+  dialog), a card per family with its styles, licence, and samples (regular, italic, bold) drawn with
+  `Gfx::drawPixels` from `fontSamples_` at twice the size; the panel renames (FName), imports more, or removes (listing
+  books whose typesetting or cover uses it). The ebook preview serves the library's fonts from
+  `worldfonts.nrstudio.localhost` (mapped beside the objects folder; ebook.html's CSP and ebook.js allow full URLs).
+  Typesetting's typeface became a list (`side:ts:font`) instead of buttons; the cover's typeface list maps by id.
+- Tested in core (1304 checks: inspecting styles and refusals, importing a family of four with its licence beside the
+  bundled one, the lists, a cover and the bible website in it, samples, re-import, renaming, removing, two files for
+  one style, an EPUB with a world font and a non-OFL licence) and in Wine (importing Gentium's four files and a CFF
+  .otf through the dialog, the refusal note, renaming, the samples, the typeface in Typesetting's list and the book
+  set in it).
+
+
 ## 0.39.0: many pages at once, templates for every kind (20 Nov 2026)
 
 - **studiocore/entry_paste**: `kindNamed` (kind words and plurals: Characters, people, Bestiary, Magic systems...);

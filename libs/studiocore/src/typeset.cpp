@@ -1,5 +1,6 @@
 // Typesetting: manuscript -> paragraphs -> lines (Knuth–Plass) -> pages.
 #include "typeset_internal.hpp"
+#include "studio/fonts.hpp"
 
 #include "internal.hpp"
 #include "studio/document.hpp"
@@ -1050,7 +1051,10 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         return book;
     }
     // Symbols the book font doesn't have (✧, 🗡, ★: often a chapter's point-of-view mark) come from these.
-    Fonts::get().useFallbacks(studio::detail::fromPath(studio::detail::u8path(res.fontsFolder) / "symbols"));
+    {
+        const auto fl = studio::fonts::folders(res.fontsFolder);   // the symbols are the app's (the first folder)
+        if (!fl.empty()) Fonts::get().useFallbacks(studio::detail::fromPath(studio::detail::u8path(fl[0]) / "symbols"));
+    }
     const std::string lang = src.language.empty() ? "en-GB" : src.language;
     Hyphenator hyph;
     {

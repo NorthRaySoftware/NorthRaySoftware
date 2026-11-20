@@ -16,6 +16,7 @@ namespace {
 const wchar_t kEditorHost[] = L"editor.nrstudio.localhost";
 const wchar_t kObjectsHost[] = L"objects.nrstudio.localhost";
 const wchar_t kFontsHost[] = L"fonts.nrstudio.localhost";   // the bundled book fonts (the ebook preview)
+const wchar_t kWorldFontsHost[] = L"worldfonts.nrstudio.localhost";   // the library's own fonts (a world's typefaces, 0.40)
 
 template <class Iface, class... Args>
 class Callback final : public Iface {
@@ -94,6 +95,16 @@ struct WebPane::Impl {
         if (SUCCEEDED(web->QueryInterface(__uuidof(ICoreWebView2_3), reinterpret_cast<void**>(&w3))) && w3) {
             w3->ClearVirtualHostNameToFolderMapping(kObjectsHost);
             w3->SetVirtualHostNameToFolderMapping(kObjectsHost, objectsFolder.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+            // <library>/fonts beside <library>/objects.
+            std::wstring lib = objectsFolder;
+            while (!lib.empty() && (lib.back() == L'\\' || lib.back() == L'/')) lib.pop_back();
+            const size_t cut = lib.find_last_of(L"\\/");
+            if (cut != std::wstring::npos) {
+                const std::wstring fonts = lib.substr(0, cut) + L"\\fonts";
+                CreateDirectoryW(fonts.c_str(), nullptr);
+                w3->ClearVirtualHostNameToFolderMapping(kWorldFontsHost);
+                w3->SetVirtualHostNameToFolderMapping(kWorldFontsHost, fonts.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+            }
             w3->Release();
         }
     }

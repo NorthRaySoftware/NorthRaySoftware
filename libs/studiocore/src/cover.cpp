@@ -4,6 +4,7 @@
 
 #include "internal.hpp"
 #include "typeset_internal.hpp"
+#include "studio/fonts.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -319,7 +320,7 @@ bool drawFront(Canvas& cv, const Spec& sp, const std::string& fontsFolder, Resul
         r.error = "The cover's typeface couldn't be opened.";
         return false;
     }
-    Fonts::get().useFallbacks(fontsFolder + "/symbols");
+    if (const auto fl = studio::fonts::folders(fontsFolder); !fl.empty()) Fonts::get().useFallbacks(fl[0] + "/symbols");
     const int reg = wr.fam.regular, ital = wr.fam.pick(false, true), bold = wr.fam.pick(true, false);
     const double u = W / 1600.0;   // the layouts are drawn for 1600 pixels wide
     const std::string title = sp.titleCaps ? upperCase(sp.title) : sp.title;

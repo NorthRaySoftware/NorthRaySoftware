@@ -21,8 +21,22 @@ namespace ts = studio::typeset;
 static std::wstring w(const std::string& s) { return widen(s); }
 static const UINT_PTR kTypesetTimer = 4;
 
-ts::Resources StudioApp::typesetResources() const {
-    return {narrow(exeDir() + L"\\fonts"), narrow(exeDir() + L"\\hyphenation")};
+ts::Resources StudioApp::typesetResources(const Id& book) const {
+    return {book.empty() ? narrow(exeDir() + L"\\fonts") : fontFoldersFor(book), narrow(exeDir() + L"\\hyphenation")};
+}
+
+std::string StudioApp::ownFontsFolder(const Id& world, const Id& book) const {
+    return lib_ ? studio::fonts::scopeFolder(lib_->folder(), world, world.empty() ? book : Id{}) : std::string();
+}
+
+std::string StudioApp::worldFontFolders(const Id& world, const Id& book) const {
+    return studio::fonts::joinFolders({narrow(exeDir() + L"\\fonts"), ownFontsFolder(world, book)});
+}
+
+std::string StudioApp::fontFoldersFor(const Id& book) const {
+    const studio::Book* b = lib_ ? lib_->book(book) : nullptr;
+    if (!b) return narrow(exeDir() + L"\\fonts");
+    return worldFontFolders(b->worldId, b->worldId.empty() ? book : Id{});
 }
 
 // ------------------------------------------------------------- opening
@@ -74,7 +88,7 @@ void StudioApp::startTypeset() {
     const int gen = ++ts_.generation;
     auto source = ts::snapshot(*lib_, ts_.book);
     const ts::Design design = ts_.design;
-    const ts::Resources res = typesetResources();
+    const ts::Resources res = typesetResources(ts_.book);
     HWND target = hwnd();
     std::thread([source = std::move(source), design, res, gen, target] {
         auto* book = new ts::Book();
@@ -226,23 +240,32 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     }
     // Font.
     {
-        const auto fams = ts::fontFamilies(typesetResources().fontsFolder);
+        const auto fams = ts::fontFamilies(typesetResources(ts_.book).fontsFolder);
         if (!fams.empty()) {
             label(L"Typeface");
-            std::vector<std::wstring> names;
-            int sel = 0;
-            for (size_t i = 0; i < fams.size(); ++i) {
-                std::wstring n = w(fams[i].name);
-                if (n.rfind(L"Gentium", 0) == 0) n = L"Gentium";
-                if (n.rfind(L"Crimson", 0) == 0) n = L"Crimson";
-                names.push_back(n);
-                if (fams[i].id == ts_.design.font) sel = (int)i;
-            }
-            segmented("side:ts:font", {tx0, y, cw, 28}, names, sel, [this, fams, changed](int i) {
-                ts_.design.font = fams[i].id;
+            // A list rather than buttons: the built-in typefaces and the world's own (0.40), however many.
+            std::wstring cur = w(ts_.design.font);
+            for (auto& f : fams) if (f.id == ts_.design.font) cur = w(f.name);
+            const Rect tb{tx0, y, cw, 30};
+            button("side:ts:font", tb, cur, [this, fams, changed] {
+                HMENU m = CreatePopupMenu();
+                const auto own = studio::fonts::familiesIn(studio::fonts::folders(typesetResources(ts_.book).fontsFolder).size() > 1
+                                                               ? studio::fonts::folders(typesetResources(ts_.book).fontsFolder)[1]
+                                                               : std::string());
+                auto isOwn = [&](const std::string& id) { return std::any_of(own.begin(), own.end(), [&](auto& o) { return o.id == id; }); };
+                for (size_t i = 0; i < fams.size(); ++i)
+                    AppendMenuW(m, MF_STRING | (fams[i].id == ts_.design.font ? MF_CHECKED : 0), 1 + (UINT)i,
+                                (w(fams[i].name) + (isOwn(fams[i].id) ? L"  (this world's)" : L"")).c_str());
+                POINT pt;
+                GetCursorPos(&pt);
+                const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
+                DestroyMenu(m);
+                if (cmd < 1) return;
+                ts_.design.font = fams[(size_t)cmd - 1].id;
                 changed();
             });
-            y += 40;
+            gfx_.fillTriangle(tb.right() - 20, tb.y + 13, tb.right() - 10, tb.y + 13, tb.right() - 15, tb.y + 18, pal_.inkMuted);
+            y += 42;
         }
     }
     // Size and spacing.

@@ -106,7 +106,7 @@ void StudioApp::startEditionTypeset() {
     const int gen = ++pb_.generation;
     auto source = pub::editionSource(*lib_, *e);
     const ts::Design design = pub::editionDesign(*lib_, *e);
-    const ts::Resources res = typesetResources();
+    const ts::Resources res = typesetResources(e->bookId);
     HWND target = hwnd();
     std::thread([source = std::move(source), design, res, gen, target] {
         auto* book = new ts::Book();
@@ -239,7 +239,7 @@ void StudioApp::exportEpub() {
     std::string fontId;
     o.style = ebookStyleFor(pb_.book, e->id, &fontId);
     if (!fontId.empty()) {
-        o.fontsFolder = narrow(exeDir() + L"\\fonts");
+        o.fontsFolder = fontFoldersFor(pb_.book);
         o.fontId = fontId;
     }
     const auto r = pub::writeEpub(pub::editionSource(*lib_, *e), narrow(path), o);
@@ -509,7 +509,7 @@ void StudioApp::drawPublishPage(const Rect& r) {
         const auto st = ebookStyleFor(pb_.book, ed->id, &fontId);
         const auto design0 = ts::designFromJson(lib_->setting("typeset:" + pb_.book));
         std::wstring fontName = w(design0.font);
-        for (const auto& f : ts::fontFamilies(narrow(exeDir() + L"\\fonts"))) if (f.id == design0.font) fontName = w(f.name);
+        for (const auto& f : ts::fontFamilies(fontFoldersFor(pb_.book))) if (f.id == design0.font) fontName = w(f.name);
         auto toggle = [&](const std::string& id, const std::wstring& t, bool on, std::function<void()> flip) {
             const Rect hit{cx - 4, cy, 28 + gfx_.measureWidth(t, Font::Small) + 8, 26};
             addHit(id, hit, std::move(flip));

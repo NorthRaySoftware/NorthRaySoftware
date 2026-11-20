@@ -1,5 +1,6 @@
 // Publishing: EPUB 3 packaging, pre-flight checks, spine width.
 #include "studio/publish.hpp"
+#include "studio/fonts.hpp"
 
 #include "studio/ebook.hpp"
 #include "studio/library.hpp"
@@ -285,10 +286,12 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     // The typeface: inside the ebook when its licence allows (the reader can still choose their own).
     ebook::Style style = options.style;
     std::vector<std::pair<std::string, std::string>> fontFiles;   // href -> bytes
-    std::string fontCss, fontName, fontLicence;
+    std::string fontCss, fontName, fontLicence, licenceFile = "OFL.txt";
+    bool ofl = true;
     if (!options.fontsFolder.empty() && !options.fontId.empty()) {
         namespace fs = std::filesystem;
-        const fs::path dir = detail::u8path(options.fontsFolder) / detail::u8path(options.fontId);
+        // The first of the font folders ("app|world") that has the family.
+        const fs::path dir = detail::u8path(studio::fonts::familyFolder(options.fontsFolder, options.fontId));
         struct Want { const char* suffix; const char* weight; const char* styleName; };
         bool refused = false;
         for (const Want& w : {Want{"Regular", "normal", "normal"}, Want{"Italic", "normal", "italic"}, Want{"Bold", "bold", "normal"},
@@ -316,6 +319,11 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
             style.fontFamily = "NR Book";
             for (const typeset::FontFamilyInfo& f : typeset::fontFamilies(options.fontsFolder)) if (f.id == options.fontId) fontName = f.name;
             fontLicence = readAll(detail::fromPath(dir / "OFL.txt"));
+            if (fontLicence.empty()) {
+                fontLicence = readAll(detail::fromPath(dir / "LICENSE.txt"));
+                licenceFile = "LICENSE.txt";
+                ofl = false;
+            }
         }
     }
 
@@ -433,7 +441,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
             for (auto& [label, i] : src.isbns) b += "<p>ISBN " + escape(i) + (label.empty() ? std::string() : " (" + escape(label) + ")") + "</p>\n";
         else if (!isbn.empty()) b += "<p>ISBN " + escape(src.isbn) + " (ebook)</p>\n";
         if (!fontName.empty())
-            b += "<p>Set in " + escape(fontName) + (fontLicence.empty() ? std::string(".") : std::string(", under the SIL Open Font License (inside this ebook).")) + "</p>\n";
+            b += "<p>Set in " + escape(fontName) + (fontLicence.empty() ? std::string(".") : ofl ? std::string(", under the SIL Open Font License (inside this ebook).") : std::string(" (its licence is inside this ebook).")) + "</p>\n";
         b += "</section>\n";
         docs.push_back({"copyright.xhtml", xhtml(lang, "Copyright", b)});
         items.push_back({"copyright", "copyright.xhtml", "application/xhtml+xml", "", true});
@@ -538,7 +546,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     }
     int fontNo = 0;
     for (const auto& f : fontFiles) manifest += "<item id=\"font" + std::to_string(++fontNo) + "\" href=\"" + f.first + "\" media-type=\"font/ttf\"/>\n";
-    if (!fontLicence.empty()) manifest += "<item id=\"fontlicence\" href=\"fonts/OFL.txt\" media-type=\"text/plain\"/>\n";
+    if (!fontLicence.empty()) manifest += "<item id=\"fontlicence\" href=\"fonts/" + licenceFile + "\" media-type=\"text/plain\"/>\n";
     int n = 0;
     for (const auto& [path, e] : files) manifest += "<item id=\"img" + std::to_string(++n) + "\" href=\"" + path + "\" media-type=\"" + e.mime + "\"/>\n";
     r.pictures = n;
@@ -565,7 +573,7 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
     zip.add("OEBPS/toc.ncx", ncx);
     zip.add("OEBPS/style.css", fontCss + ebook::stylesheet(style) + kEpubCss);
     for (const auto& [href, bytes] : fontFiles) zip.add("OEBPS/" + href, bytes, true);
-    if (!fontLicence.empty()) zip.add("OEBPS/fonts/OFL.txt", fontLicence);
+    if (!fontLicence.empty()) zip.add("OEBPS/fonts/" + licenceFile, fontLicence);
     for (const auto& [href, x] : docs) zip.add("OEBPS/" + href, x);
     if (!cover.bytes.empty()) zip.add("OEBPS/images/cover." + cover.ext, cover.bytes, cover.ext == "png");
     // JPEGs are already compressed; PNGs and GIFs gain a little.

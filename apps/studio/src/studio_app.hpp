@@ -17,6 +17,7 @@
 #include "studio/bible_export.hpp"
 #include "studio/library.hpp"
 #include "studio/entry_paste.hpp"
+#include "studio/fonts.hpp"
 #include "studio/typeset.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
@@ -52,7 +53,7 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font } kind = None;
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
     // Board: an image board (id). BoardItem: a picture on one (id; contextSeries: the board).
     // Picture: a picture in the open chapter's text (id: the chapter, contextSeries: its position).
@@ -409,7 +410,11 @@ private:
     void turnPages(int delta);      // next / previous spread (or page)
     int spreadOfPage(int pageIndex) const;
     int spreadCount() const;
-    studio::typeset::Resources typesetResources() const;
+    studio::typeset::Resources typesetResources(const Id& book = {}) const;
+    // The font folders a book sees ("app fonts|its world's own", 0.40), and a world's (or an independent book's) own.
+    std::string fontFoldersFor(const Id& book) const;
+    std::string worldFontFolders(const Id& world, const Id& book) const;
+    std::string ownFontsFolder(const Id& world, const Id& book) const;
     float pageBook(const Rect& r);
     float pageEmpty(const Rect& r);
     float bookCollection(const Rect& r, const std::vector<const studio::Book*>& books, const std::string& listKey,
@@ -454,6 +459,16 @@ private:
     void drawRelationsPanel(const Rect& r);
     void loadRelationFields();
     void commitRelationFields(const Focus& f);
+    // A world's own typefaces (studio_fonts.cpp, 0.40).
+    void openFonts(const std::string& select);
+    void importFonts();
+    void drawFonts(const Rect& r);
+    void drawFontsPanel(const Rect& r);
+    void loadFontFields();
+    void commitFontFields(const Focus& f);
+    float drawFontSample(const std::string& folders, const std::string& id, const std::string& style, const std::string& text, float x,
+                         float y, float px, float maxW);
+    std::map<std::string, studio::fonts::Sample> fontSamples_;   // preview lines, by family, style, colour, size and text
     bool pasteFromClipboard();   // Ctrl+V on a bible page or the cards
     void pasteEntryPage(const Id& entryId, const std::string& text, bool created);
     bool undoEntryPaste();
@@ -683,6 +698,7 @@ private:
         std::optional<studio::Library::BibleReset> resetUndo;   // the last reset, to take back (0.38.1)
         std::optional<studio::paste::Import> importUndo;        // the last pages imported, to take back (0.39)
         bool relationsPage = false;           // the Relationships page (0.38.2)
+        bool fontsPage = false;               // the Fonts page (0.40)
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;

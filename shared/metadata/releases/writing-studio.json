@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.40.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Your own fonts, per world: Worldbuilding \u203a Fonts imports TrueType font files, puts a family's regular, italic, bold and bold italic together, and shows each in a line of its own type. Every book in the world can then use them for its pages and PDFs, its cover and its ebook, and Share the bible can use them for the website and the bible's PDF. They're kept in the library folder, so they go wherever the library goes.",
+        "Fonts that can't be printed properly are turned away with the reason: PostScript-outline (CFF) .otf files, web fonts, font collections, and fonts whose licence forbids putting them in documents.",
+        "Typesetting's typeface is now a list, so any number of typefaces fit."
+      ]
+    },
+    {
       "version": "0.39.0",
       "date": "2026-11-20",
       "notes": [

@@ -7,6 +7,7 @@
 #include "studio/ebook.hpp"
 #include "studio/document.hpp"
 #include "studio/entry_paste.hpp"
+#include "studio/fonts.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
 #include "studio/publish.hpp"
@@ -1287,6 +1288,24 @@ static void testPublish() {
         CHECK(css.find("font-family: \"NR Book\", serif") != std::string::npos && css.find("text-align: left") != std::string::npos);
         CHECK(css.find("content: \"\\2042 \"") != std::string::npos);
         CHECK(unzipped(e.bytes, "OEBPS/fonts/CrimsonText-Regular.ttf").size() > 10000 && !unzipped(e.bytes, "OEBPS/fonts/OFL.txt").empty());
+        // A world's own typeface (0.40), found in the second of the font folders, with a licence that isn't the OFL.
+        {
+            const fs::path wf = fs::temp_directory_path() / ("studio-worldfont-" + newId().substr(0, 8));
+            const fs::path srcf = wf / "src";
+            fs::create_directories(srcf);
+            fs::copy_file(fs::path(appFolder("fonts")) / "gentium-book-plus" / "GentiumBookPlus-Regular.ttf", srcf / "G.ttf");
+            { std::ofstream(srcf / "LICENSE.txt") << "Licence words."; }
+            const auto ir = studio::fonts::importFiles((wf / "mine").string(), {(srcf / "G.ttf").string()}, {"gentium-book-plus"});
+            CHECK(ir.added.size() == 1);
+            publish::EpubOptions wo = so;
+            wo.fontsFolder = studio::fonts::joinFolders({appFolder("fonts"), (wf / "mine").string()});
+            wo.fontId = "gentium-book-plus-2";
+            const auto we = publish::buildEpub(s2, wo);
+            CHECK(we.ok && unzipped(we.bytes, "OEBPS/fonts/LICENSE.txt") == "Licence words." && unzipped(we.bytes, "OEBPS/fonts/OFL.txt").empty());
+            CHECK(unzipped(we.bytes, "OEBPS/style.css").find("-Regular.ttf") != std::string::npos);
+            CHECK(unzipped(we.bytes, "OEBPS/content.opf").find("fonts/LICENSE.txt") != std::string::npos);
+            fs::remove_all(wf);
+        }
         const std::string opf2 = unzipped(e.bytes, "OEBPS/content.opf");
         CHECK(opf2.find("media-type=\"font/ttf\"") != std::string::npos);
         CHECK(unzipped(e.bytes, "OEBPS/copyright.xhtml").find("Set in Crimson Text") != std::string::npos);
@@ -2218,6 +2237,119 @@ static std::string pasteFixture(const char* name) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+// A world's own typefaces (0.40): imported into the library, grouped by family, used by covers, the bible website and
+// the font lists, while the app's own stay first; fonts that can't be printed refused with a reason.
+static void testWorldFonts() {
+    namespace nf = studio::fonts;
+    const std::string dir = tempLibrary("fonts");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Alvora");
+    lib->createEntry(world, {}, "character", "Ada Wren");
+    // Source files, as an author's download folder would have them.
+    const fs::path src = fs::path(dir) / "download";
+    fs::create_directories(src);
+    const fs::path app = appFolder("fonts");
+    for (const char* s : {"Regular", "Italic", "Bold", "BoldItalic"})
+        fs::copy_file(app / "crimson-text" / (std::string("CrimsonText-") + s + ".ttf"), src / (std::string("Crimson ") + s + ".ttf"));
+    fs::copy_file(app / "crimson-text" / "OFL.txt", src / "OFL.txt");
+    { std::ofstream(src / "Fancy.otf", std::ios::binary) << std::string("OTTO\0\x0b\0\x80\0\x03\0\x30", 12) << std::string(200, '\0'); }
+    { std::ofstream(src / "web.woff", std::ios::binary) << "wOFF" << std::string(200, '\0'); }
+    { std::ofstream(src / "notes.ttf", std::ios::binary) << "not a font at all, just words"; }
+
+    // What a file is.
+    {
+        std::ifstream in(app / "crimson-text" / "CrimsonText-BoldItalic.ttf", std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const nf::FaceInfo info = nf::inspect(bytes);
+        CHECK(info.problem.empty() && info.family == "Crimson Text" && info.style == "BoldItalic" && info.weight >= 600 && !info.variable);
+        CHECK(nf::inspect("OTTO" + std::string(40, '\0')).problem.find("PostScript") != std::string::npos);
+        CHECK(nf::inspect("wOF2" + std::string(40, '\0')).problem.find("web font") != std::string::npos);
+    }
+
+    const std::string mine = nf::scopeFolder(dir, world, {});
+    CHECK(mine.find("world-" + world) != std::string::npos && nf::scopeFolder(dir, {}, "b1").find("book-b1") != std::string::npos);
+    std::vector<std::string> files;
+    for (auto& e : fs::directory_iterator(src)) if (e.path().extension() != ".txt") files.push_back(e.path().string());
+    std::sort(files.begin(), files.end());
+    std::vector<std::string> bundled;
+    for (auto& f : typeset::fontFamilies(app.string())) bundled.push_back(f.id);
+    const nf::ImportResult r = nf::importFiles(mine, files, bundled);
+    CHECK(r.added.size() == 1 && r.added[0] == "Crimson Text");
+    CHECK(r.problems.size() == 3);   // the CFF font, the web font, the text file
+    const auto fams = nf::familiesIn(mine);
+    CHECK(fams.size() == 1);
+    std::string id;
+    if (fams.size() == 1) {
+        id = fams[0].id;
+        CHECK(id == "crimson-text-2" && fams[0].name == "Crimson Text" && fams[0].styles.size() == 4 && fams[0].styles[0] == "Regular" && fams[0].licence);
+    }
+    // The font lists: the app's first, the world's after; a family is found in whichever folder has it.
+    const std::string list = nf::joinFolders({app.string(), mine});
+    CHECK(nf::folders(list).size() == 2 && nf::folders("a||b|").size() == 2);
+    bool appFirst = false, worldToo = false;
+    for (auto& f : typeset::fontFamilies(list)) {
+        if (f.id == "crimson-text") appFirst = true;
+        if (f.id == id && f.name == "Crimson Text") worldToo = true;
+    }
+    CHECK(appFirst && worldToo);
+    CHECK(nf::familyFolder(list, "crimson-text").find("apps") != std::string::npos && nf::familyFolder(list, id).find("world-") != std::string::npos);
+    CHECK(nf::familyFolder(list, "../crimson-text").empty() && nf::familyFolder(list, "nothing").empty());
+    // A cover in the world's own typeface (and the symbols still found in the app's folder).
+    {
+        cover::Spec sp;
+        sp.title = "Shards of Light \xE2\x9C\xA7";
+        sp.author = "CJ Philip";
+        sp.fontId = id;
+        const auto c = cover::render(sp, list, 400, 640);
+        CHECK(c.ok && !c.png.empty());
+    }
+    // The bible website with it for headings: the files and the licence copied, @font-face written.
+    {
+        bible::Look look;
+        look.headings = "family:" + id;
+        const std::string out = dir + "/site";
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, out, err, &pages, look, list));
+        std::ifstream in(out + "/style.css");
+        const std::string css((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(css.find("\"NR " + id + "\"") != std::string::npos && css.find("fonts/" + id + "/") != std::string::npos);
+        bool ttf = false;
+        for (auto& e : fs::directory_iterator(out + "/fonts/" + id)) if (e.path().extension() == ".ttf") ttf = true;
+        CHECK(ttf && fs::exists(out + "/fonts/" + id + "/OFL.txt"));
+    }
+    // A preview line.
+    {
+        const nf::Sample sm = nf::sample(list, id, "Italic", "The light broke", 28, 0x203040);
+        bool ink = false;
+        for (size_t i = 3; i < sm.rgba.size(); i += 4) if (sm.rgba[i] > 128) { ink = true; break; }
+        CHECK(sm.w > 100 && sm.h > 20 && ink && sm.rgba[0] == 0x20);
+        CHECK(nf::sample(list, "nothing", "Regular", "x", 20, 0).w == 0);
+    }
+    // Importing the same family again replaces its styles in place (no second family); renaming; removing.
+    {
+        const nf::ImportResult again = nf::importFiles(mine, {files[0]}, bundled);
+        CHECK(again.added.size() == 1 && nf::familiesIn(mine).size() == 1 && nf::familiesIn(mine)[0].styles.size() == 4);
+        CHECK(nf::renameFamily(mine, id, "Crimson (Alvora)") && nf::familiesIn(mine)[0].name == "Crimson (Alvora)");
+        std::string err;
+        CHECK(nf::removeFamily(mine, id, err) && nf::familiesIn(mine).empty());
+        CHECK(!nf::removeFamily(mine, id, err) && !err.empty());
+    }
+    // Two weights for one style: the one nearer regular kept, the other reported.
+    {
+        const fs::path two = fs::path(dir) / "two";
+        fs::create_directories(two);
+        // Gentium's Regular and Crimson's Regular are different families; a second Gentium "regular" is its Bold renamed?
+        // Use the same file twice under two names: the same weight, so the first stays and the second is reported.
+        fs::copy_file(app / "gentium-book-plus" / "GentiumBookPlus-Regular.ttf", two / "a.ttf");
+        fs::copy_file(app / "gentium-book-plus" / "GentiumBookPlus-Regular.ttf", two / "b.ttf");
+        const nf::ImportResult g = nf::importFiles(mine, {(two / "a.ttf").string(), (two / "b.ttf").string()}, bundled);
+        CHECK(g.added.size() == 1 && g.problems.size() == 1 && nf::familiesIn(mine).size() == 1);
+        if (!nf::familiesIn(mine).empty()) CHECK(nf::familiesIn(mine)[0].id == "gentium-book-plus-2" && !nf::familiesIn(mine)[0].licence);
+    }
+}
+
 static void testEntryPaste() {
     using namespace studio;
     namespace pa = studio::paste;
@@ -2570,6 +2702,7 @@ static void testEntryPaste() {
 
 int main() {
     testEntryPaste();
+    testWorldFonts();
     testConlang();
     testBackup();
     testReview();

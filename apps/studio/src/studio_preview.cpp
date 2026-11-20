@@ -75,11 +75,19 @@ void StudioApp::sendPreview() {
     json fonts = json::object();
     {
         namespace fs = std::filesystem;
-        const fs::path dir = fs::path(exeDir() + L"\\fonts") / w(design.font);
+        const std::string where = studio::fonts::familyFolder(fontFoldersFor(pv_.book), design.font);
+        const fs::path dir = fs::path(w(where));
+        // The app's fonts are served from one host, the library's own (a world's) from another.
+        const std::string libFonts = narrow(fs::path(w(lib_->folder())).wstring() + L"\\fonts\\");
+        const bool own = !where.empty() && where.rfind(libFonts, 0) == 0;
         std::error_code ec;
         for (auto& e : fs::directory_iterator(dir, ec)) {
             const std::string n = narrow(e.path().filename().wstring());
-            const std::string rel = design.font + "/" + n;
+            std::string rel = design.font + "/" + n;
+            if (own) {
+                rel = "https://worldfonts.nrstudio.localhost/" + where.substr(libFonts.size()) + "/" + n;
+                for (auto& c : rel) if (c == '\\') c = '/';
+            }
             auto ends = [&](const char* s) { const std::string t = s; return n.size() > t.size() && n.compare(n.size() - t.size(), t.size(), t) == 0; };
             if (ends("-Regular.ttf")) fonts["regular"] = rel;
             else if (ends("-BoldItalic.ttf")) fonts["boldItalic"] = rel;

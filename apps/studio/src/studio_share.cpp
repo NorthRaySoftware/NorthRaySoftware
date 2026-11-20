@@ -344,20 +344,28 @@ void StudioApp::drawShare(const Rect& r) {
         label(L"TYPE");
         {
             const auto& fs = bible::fonts();
+            // The world's own typefaces (0.40) come after the built-in choices, as "family:<id>".
+            const auto own = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book));
             auto fontName = [&](const std::string& id) -> std::wstring {
                 if (id.empty() || id == "theme") return L"The theme's own";
                 for (auto& f : fs) if (id == f.id) return w(f.label);
+                for (auto& f : own) if (id == "family:" + f.id) return w(f.name) + L" (this world's, included)";
                 return L"The theme's own";
             };
-            auto pick = [this, &fs](bool headings) {
+            auto pick = [this, &fs, own](bool headings) {
                 std::vector<std::wstring> items{L"The theme's own"};
                 for (auto& f : fs) items.push_back(w(f.label));
+                for (auto& f : own) items.push_back(w(f.name) + L" (this world's, included)");
                 const std::string now = headings ? wb_.shareState.look.headings : wb_.shareState.look.body;
                 int cur = 0;
                 for (size_t i = 0; i < fs.size(); ++i) if (now == fs[i].id) cur = (int)i + 1;
+                for (size_t i = 0; i < own.size(); ++i) if (now == "family:" + own[i].id) cur = (int)(fs.size() + i) + 1;
                 const int i = popupAt(hwnd(), items, cur);
                 if (i < 0) return;
-                (headings ? wb_.shareState.look.headings : wb_.shareState.look.body) = i == 0 ? std::string("theme") : std::string(fs[(size_t)i - 1].id);
+                std::string id = "theme";
+                if (i > 0 && (size_t)i <= fs.size()) id = fs[(size_t)i - 1].id;
+                else if ((size_t)i > fs.size()) id = "family:" + own[(size_t)i - 1 - fs.size()].id;
+                (headings ? wb_.shareState.look.headings : wb_.shareState.look.body) = id;
                 saveShare();
             };
             chooser("share:hf", L"Headings", fontName(s.look.headings), [pick] { pick(true); });
@@ -387,7 +395,7 @@ void StudioApp::drawShare(const Rect& r) {
             wb_.shareState.preset = i;
             saveShare();
         });
-        const auto fams = typeset::fontFamilies(typesetResources().fontsFolder);
+        const auto fams = typeset::fontFamilies(worldFontFolders(wb_.world, wb_.book));
         std::wstring fname = L"The design's own";
         for (auto& f : fams) if (f.id == s.font) fname = w(f.name);
         chooser("share:font", L"Typeface", fname, [this, fams] {
@@ -503,7 +511,7 @@ void StudioApp::makeSharedBible() {
         std::string err;
         int pages = 0;
         SetCursor(LoadCursorW(nullptr, IDC_WAIT));
-        if (!bible::exportWebsite(*lib_, o, folder, err, &pages, s.look, typesetResources().fontsFolder)) {
+        if (!bible::exportWebsite(*lib_, o, folder, err, &pages, s.look, worldFontFolders(wb_.world, wb_.book))) {
             cjui::messageBox(hwnd(), w("The website couldn't be made.\n\n" + err).c_str(), L"Share the bible", MB_OK | MB_ICONWARNING);
             return;
         }
@@ -537,7 +545,9 @@ void StudioApp::makeSharedBible() {
     if (!s.font.empty()) design.font = s.font;
     design.chaptersOnRecto = false;   // entry after entry, not each on a right-hand page
     design.chapterSinkLines = std::min(design.chapterSinkLines, 3);
-    const auto book = typeset::typesetBook(src, design, typesetResources());
+    typeset::Resources res = typesetResources();
+    res.fontsFolder = worldFontFolders(wb_.world, wb_.book);
+    const auto book = typeset::typesetBook(src, design, res);
     std::string err;
     if (book.pages.empty() || !typeset::writePdf(book, path, err)) {
         cjui::messageBox(hwnd(), w("The PDF couldn't be made.\n\n" + (err.empty() ? std::string("Nothing to set.") : err)).c_str(), L"Share the bible",

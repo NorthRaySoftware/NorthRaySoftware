@@ -1,5 +1,6 @@
 // Fonts and shaping for the typesetter.
 #include "typeset_internal.hpp"
+#include "studio/fonts.hpp"
 
 #include "internal.hpp"
 
@@ -7,6 +8,7 @@
 #include FT_TRUETYPE_TABLES_H
 
 #include <algorithm>
+#include <set>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -186,7 +188,10 @@ static std::string findStyle(const fs::path& dir, const char* suffix) {
 }
 
 bool openFamily(const std::string& fontsFolder, const std::string& id, Family& out) {
-    const fs::path dir = studio::detail::u8path(fontsFolder) / studio::detail::u8path(id);
+    // `fontsFolder` may list several folders ("app fonts|world fonts"): the first holding the family is used.
+    const std::string where = studio::fonts::familyFolder(fontsFolder, id);
+    if (where.empty()) { out = Family{}; return false; }
+    const fs::path dir = studio::detail::u8path(where);
     Fonts& fonts = Fonts::get();
     auto load = [&](const char* suffix) {
         const std::string p = findStyle(dir, suffix);
@@ -204,20 +209,30 @@ bool openFamily(const std::string& fontsFolder, const std::string& id, Family& o
 std::vector<FontFamilyInfo> fontFamilies(const std::string& fontsFolder) {
     namespace fs = std::filesystem;
     std::vector<FontFamilyInfo> out;
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(studio::detail::u8path(fontsFolder), ec)) {
-        if (!e.is_directory()) continue;
-        const std::string id = studio::detail::fromPath(e.path().filename());
-        if (detail::findStyle(e.path(), "Regular").empty()) continue;
-        // "crimson-text" -> "Crimson Text"
-        std::string name;
-        bool up = true;
-        for (char c : id) {
-            if (c == '-') { name += ' '; up = true; continue; }
-            name += up ? (char)std::toupper((unsigned char)c) : c;
-            up = false;
+    std::set<std::string> seen;
+    for (const std::string& folder : studio::fonts::folders(fontsFolder)) {
+        std::error_code ec;
+        for (auto& e : fs::directory_iterator(studio::detail::u8path(folder), ec)) {
+            if (!e.is_directory()) continue;
+            const std::string id = studio::detail::fromPath(e.path().filename());
+            if (detail::findStyle(e.path(), "Regular").empty() || !seen.insert(id).second) continue;
+            // name.txt (a world's own fonts), else "crimson-text" -> "Crimson Text"
+            std::string name;
+            {
+                std::ifstream in(e.path() / "name.txt", std::ios::binary);
+                std::getline(in, name);
+                while (!name.empty() && (unsigned char)name.back() <= ' ') name.pop_back();
+            }
+            if (name.empty()) {
+                bool up = true;
+                for (char c : id) {
+                    if (c == '-') { name += ' '; up = true; continue; }
+                    name += up ? (char)std::toupper((unsigned char)c) : c;
+                    up = false;
+                }
+            }
+            out.push_back({id, name});
         }
-        out.push_back({id, name});
     }
     std::sort(out.begin(), out.end(), [](auto& a, auto& b) { return a.name < b.name; });
     return out;

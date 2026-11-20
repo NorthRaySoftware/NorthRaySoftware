@@ -113,7 +113,6 @@ void StudioApp::closeCoverDesigner() {
     invalidate();
 }
 
-static std::string fontsFolderOf(const std::wstring& exeDir) { return narrow(exeDir + L"\\fonts"); }
 
 bool StudioApp::coverWrap(cover::Wrap& wp) const {
     const Edition* e = lib_->edition(cv_.edition);
@@ -142,10 +141,10 @@ void StudioApp::renderCoverPreview() {
             return;
         }
         wp.dpi = std::max(40, (int)(900 / (wp.trimW * 2 + wp.spine + 0.25)));   // about 900 pixels across
-        const auto wr = cover::renderWrap(s, wp, fontsFolderOf(exeDir()), false);
+        const auto wr = cover::renderWrap(s, wp, fontFoldersFor(cv_.book), false);
         shown = {wr.ok, wr.error, wr.png};
     } else {
-        const auto fr = cover::render(s, fontsFolderOf(exeDir()), 500, 800);
+        const auto fr = cover::render(s, fontFoldersFor(cv_.book), 500, 800);
         shown = {fr.ok, fr.error, fr.png};
     }
     const auto& r = shown;
@@ -210,7 +209,7 @@ void StudioApp::exportPrintCover() {
     cover::Spec s = cv_.spec;
     s.picturePath = cv_.pictureBlob.empty() ? std::string() : lib_->blobPath(cv_.pictureBlob);
     wp.dpi = 300;
-    const auto r = cover::renderWrap(s, wp, fontsFolderOf(exeDir()), true);
+    const auto r = cover::renderWrap(s, wp, fontFoldersFor(cv_.book), true);
     if (!r.ok) { cjui::messageBox(hwnd(), w(r.error), L"Print cover", MB_OK | MB_ICONWARNING); return; }
     std::ofstream out(path.c_str(), std::ios::binary);
     out << r.pdf;
@@ -235,7 +234,7 @@ void StudioApp::useDesignedCover() {
     SetCursor(LoadCursorW(nullptr, IDC_WAIT));
     cover::Spec s = cv_.spec;
     s.picturePath = cv_.pictureBlob.empty() ? std::string() : lib_->blobPath(cv_.pictureBlob);
-    const auto r = cover::render(s, fontsFolderOf(exeDir()));
+    const auto r = cover::render(s, fontFoldersFor(cv_.book));
     if (!r.ok) { cjui::messageBox(hwnd(), w(r.error), L"Cover", MB_OK | MB_ICONWARNING); return; }
     const std::string hash = lib_->storeBlob(r.png);
     if (hash.empty()) { cjui::messageBox(hwnd(), w("The cover couldn't be kept: " + lib_->lastError()), L"Cover", MB_OK | MB_ICONWARNING); return; }
@@ -382,21 +381,23 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
     label(L"TYPE");
     {
         std::wstring fontName = w(cv_.spec.fontId);
-        const auto fams = typeset::fontFamilies(fontsFolderOf(exeDir()));
+        const auto fams = typeset::fontFamilies(fontFoldersFor(cv_.book));
         for (const auto& f : fams) if (f.id == cv_.spec.fontId) fontName = w(f.name);
         const std::wstring fl = L"Typeface: " + fontName + L"\u2026";
         const float fw = gfx_.measureWidth(fl, Font::Small) + 28;
         button("cv:font", {cx, cy, fw, 30}, fl, [this, fams] {
             std::vector<std::wstring> items;
+            std::vector<std::string> ids;
             int cur = 0;
             for (size_t i = 0; i < fams.size(); ++i) {
                 if (fams[i].id == "symbols" || fams[i].id == "courier-prime") continue;
                 if (fams[i].id == cv_.spec.fontId) cur = (int)items.size();
                 items.push_back(w(fams[i].name));
+                ids.push_back(fams[i].id);
             }
             const int i = popupAtMouse(hwnd(), items, cur);
             if (i < 0) return;
-            for (const auto& f : fams) if (w(f.name) == items[(size_t)i]) cv_.spec.fontId = f.id;
+            cv_.spec.fontId = ids[(size_t)i];
             renderCoverPreview();
         }, false);
         const std::wstring capsL = cv_.spec.titleCaps ? L"Title in capitals: on" : L"Title in capitals: off";

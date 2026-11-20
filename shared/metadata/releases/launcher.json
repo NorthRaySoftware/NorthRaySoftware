@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.106.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.40.0: import your own fonts for each world."
+      ]
+    },
+    {
       "version": "0.105.0",
       "date": "2026-11-20",
       "notes": [

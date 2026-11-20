@@ -105,7 +105,7 @@
       chapters = m.chapters || [];
       bookStyle.textContent = m.css || "";
       const f = m.fonts || {};
-      const face = (file, weight, style) => file ? "@font-face { font-family: 'BookFont'; src: url('https://fonts.nrstudio.localhost/" + file + "'); font-weight: " + weight + "; font-style: " + style + "; }\n" : "";
+      const face = (file, weight, style) => file ? "@font-face { font-family: 'BookFont'; src: url('" + (file.startsWith("https://") ? file : "https://fonts.nrstudio.localhost/" + file) + "'); font-weight: " + weight + "; font-style: " + style + "; }\n" : "";
       fontCss = face(f.regular, 400, "normal") + face(f.italic, 400, "italic") + face(f.bold, 700, "normal") + face(f.boldItalic, 700, "italic");
       fontStyle.textContent = fontCss;
       document.documentElement.lang = m.language || "en-GB";

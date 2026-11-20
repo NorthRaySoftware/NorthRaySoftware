@@ -1,5 +1,6 @@
 // Sharing a world bible as a website or a printable book (see studio/bible_export.hpp).
 #include "studio/bible_export.hpp"
+#include "studio/fonts.hpp"
 
 #include "studio/document.hpp"
 #include "internal.hpp"
@@ -262,9 +263,16 @@ const std::vector<FontDef>& fontDefs() {
     };
     return f;
 }
+// A world's own typeface ("family:<id>", 0.40): its @font-face family name, and the stack that uses it.
+bool isWorldFamily(const std::string& id) { return id.rfind("family:", 0) == 0 && id.size() > 7; }
+std::string worldFamilyName(const std::string& id) { return "NR " + id.substr(7); }
 const FontDef& fontDef(const std::string& id) {
     for (auto& f : fontDefs()) if (id == f.id) return f;
     return fontDefs()[0];
+}
+std::string fontStack(const std::string& id) {
+    if (isWorldFamily(id)) return "\"" + worldFamilyName(id) + "\",Georgia,serif";
+    return fontDef(id).stack;
 }
 
 const char* kindHex(const std::string& kind, bool dark) {
@@ -384,8 +392,8 @@ std::string websiteCss(const Look& look, const std::string& worldAccent, bool bu
     const ThemeDef& t = themeDef(look.theme);
     const std::string hid = look.headings == "theme" || look.headings.empty() ? std::string(t.headings) : look.headings;
     const std::string bid = look.body == "theme" || look.body.empty() ? std::string(t.body) : look.body;
-    const FontDef& hf = fontDef(hid);
-    const FontDef& bf = fontDef(bid);
+    struct Stack { std::string stack; };
+    const Stack hf{fontStack(hid)}, bf{fontStack(bid)};
     (void)worldAccent;   // offered in the app as one of the choices; the theme's own colour otherwise
     const std::string accent = validHex(look.accent) ? look.accent : "";
     auto vars = [&](const Palette& p, bool dark) {
@@ -678,7 +686,9 @@ struct Site {
 bool copyFontFamily(const std::string& fontsFolder, const std::string& id, const std::string& site, std::string& faces, const std::string& familyName) {
     if (fontsFolder.empty() || id.empty()) return false;
     std::error_code ec;
-    const fs::path src = u8path(fontsFolder + "/" + id);
+    const std::string where = studio::fonts::familyFolder(fontsFolder, id);   // the app's fonts, or a world's own
+    if (where.empty()) return false;
+    const fs::path src = u8path(where);
     if (!fs::is_directory(src, ec)) return false;
     fs::create_directories(u8path(site + "/fonts/" + id), ec);
     bool any = false;
@@ -688,7 +698,7 @@ bool copyFontFamily(const std::string& fontsFolder, const std::string& id, const
         if (name.size() < 5) continue;
         std::string ext = name.substr(name.size() - 4);
         for (auto& c : ext) c = (char)std::tolower((unsigned char)c);
-        if (ext != ".ttf" && name != "OFL.txt") continue;
+        if (ext != ".ttf" && name != "OFL.txt" && name != "LICENSE.txt") continue;
         fs::copy_file(f.path(), u8path(site + "/fonts/" + id + "/" + name), fs::copy_options::overwrite_existing, ec);
         if (ext != ".ttf") continue;
         const bool bold = name.find("Bold") != std::string::npos, italic = name.find("Italic") != std::string::npos;
@@ -716,17 +726,22 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
         const ThemeDef& t = themeDef(look.theme);
         const std::string hid = look.headings == "theme" || look.headings.empty() ? std::string(t.headings) : look.headings;
         const std::string bid = look.body == "theme" || look.body.empty() ? std::string(t.body) : look.body;
-        const FontDef& hf = fontDef(hid);
-        const FontDef& bf = fontDef(bid);
         std::string faces;
         std::set<std::string> done;
-        for (const FontDef* f : {&hf, &bf}) {
-            if (!*f->bundled || done.count(f->bundled)) continue;
-            done.insert(f->bundled);
-            const std::string fam = std::string(f->bundled) == "crimson-text" ? "Crimson Text" : std::string(f->bundled) == "gentium-book-plus" ? "Gentium Book Plus" : "Courier Prime";
-            copyFontFamily(fontsFolder, f->bundled, folder, faces, fam);
+        for (const std::string& id : {hid, bid}) {
+            if (isWorldFamily(id)) {
+                // A world's own typeface, copied in with its licence.
+                const std::string fid = id.substr(7);
+                if (done.insert(fid).second) copyFontFamily(fontsFolder, fid, folder, faces, worldFamilyName(id));
+                continue;
+            }
+            const FontDef& f = fontDef(id);
+            if (!*f.bundled || done.count(f.bundled)) continue;
+            done.insert(f.bundled);
+            const std::string fam = std::string(f.bundled) == "crimson-text" ? "Crimson Text" : std::string(f.bundled) == "gentium-book-plus" ? "Gentium Book Plus" : "Courier Prime";
+            copyFontFamily(fontsFolder, f.bundled, folder, faces, fam);
         }
-        if (!site.write("style.css", faces + websiteCss(look, world ? world->accent : std::string(), *hf.bundled, *bf.bundled))) { error = site.error; return false; }
+        if (!site.write("style.css", faces + websiteCss(look, world ? world->accent : std::string(), true, true))) { error = site.error; return false; }
     }
     if (!site.write("site.js", kSiteJs)) { error = site.error; return false; }
 

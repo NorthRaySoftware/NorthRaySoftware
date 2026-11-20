@@ -1835,6 +1835,8 @@ void StudioApp::loadFields() {
         loadShareFields();
     } else if (focus_.kind == Focus::Relation) {
         loadRelationFields();
+    } else if (focus_.kind == Focus::Font) {
+        loadFontFields();
     } else if (focus_.kind == Focus::Entry) {
         if (const Entry* e = lib_->entry(focus_.id)) {
             setFieldText(FName, e->name);
@@ -1947,6 +1949,8 @@ void StudioApp::commitFields() {
         commitShareFields();
     } else if (f.kind == Focus::Relation) {
         commitRelationFields(f);
+    } else if (f.kind == Focus::Font) {
+        commitFontFields(f);
     } else if (f.kind == Focus::Entry) {
         if (const Entry* x = lib_->entry(f.id)) {
             Entry n = *x;
