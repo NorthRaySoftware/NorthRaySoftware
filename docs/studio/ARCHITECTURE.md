@@ -415,6 +415,12 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.45.0: family trees reworked, and printed (20 Nov 2026)
+
+- `studio/family_tree.hpp` (`studiocore`, portable, tested): `familytree::title` names a family ("The Yerasuun family" by the surname most of its people share, else "Tobias's family"; "…'s family tree" for one person's own tree). `familytree::render` draws `Library::familyLayout` to a PNG for paper: cards 196 × 80 (picture through `stbi_load_from_memory` or initials, a two-line name in Gentium Book Plus through FreeType, a vector gender sign and one detail), partner lines (double for a marriage), a dashed line joining co-parents who aren't partners, child buses, "married in" for in-laws, an optional heading and key, and `turnWide` turning a tree wider than 1.3 × its height a quarter for a book page.
+- `bible_export`: `Options::treeFonts` and `treeFolder`. The printable PDF gets a "Family trees" part (one tree a page at scale 3, turned when wide) when family is included and it isn't a reader's guide (trees show later births); the website gets `families.html` and `images/familytree-<root>.png`, linked from the nav and home page.
+- App: the tree sits on a sunken dotted board with a picked-person bar (name chip, + Parent / Partner / Child / Brother or sister), own-tree/whole-family links, Save as a picture… (`IFileSaveDialog`, scale 2), a key and a floating zoom cluster; the same card design as the printed tree; co-parents in a row are always joined.
+
 ## 0.44.0: the Library polished (20 Nov 2026)
 
 - `bookStatusColour(BookStatus)` (a colour per status, light and dark) and `statusTag(x, y, status, maxW)`: a

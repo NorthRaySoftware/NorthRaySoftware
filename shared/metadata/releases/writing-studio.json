@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.45.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Family trees are reworked: cards with a picture or initials, the name on up to two lines, a gender sign and an age, birth date or title.",
+        "Two parents of the same children who aren't partners are joined by a dashed line, and a key under the tree says what each line means.",
+        "The picked person sits in a bar above the tree with Parent, Partner, Child and Brother or sister buttons, and zoom sits in the board's corner.",
+        "Save as a picture… writes the tree you're looking at as a PNG, set for paper.",
+        "Share the bible as a PDF now carries a Family trees part, one tree to a page, turned when a tree is wider than tall; the bible's website gets a Family trees page."
+      ]
+    },
+    {
       "version": "0.44.0",
       "date": "2026-11-20",
       "notes": [
@@ -46,7 +57,7 @@
       "version": "0.40.0",
       "date": "2026-11-20",
       "notes": [
-        "Your own fonts, per world: Worldbuilding \u203a Fonts imports TrueType font files, puts a family's regular, italic, bold and bold italic together, and shows each in a line of its own type. Every book in the world can then use them for its pages and PDFs, its cover and its ebook, and Share the bible can use them for the website and the bible's PDF. They're kept in the library folder, so they go wherever the library goes.",
+        "Your own fonts, per world: Worldbuilding › Fonts imports TrueType font files, puts a family's regular, italic, bold and bold italic together, and shows each in a line of its own type. Every book in the world can then use them for its pages and PDFs, its cover and its ebook, and Share the bible can use them for the website and the bible's PDF. They're kept in the library folder, so they go wherever the library goes.",
         "Fonts that can't be printed properly are turned away with the reason: PostScript-outline (CFF) .otf files, web fonts, font collections, and fonts whose licence forbids putting them in documents.",
         "Typesetting's typeface is now a list, so any number of typefaces fit."
       ]
@@ -55,25 +66,25 @@
       "version": "0.39.0",
       "date": "2026-11-20",
       "notes": [
-        "Import many pages: a whole bible, or a good part of one, from a text, Markdown, Word or OpenDocument file or from what you've copied (Ctrl+V on the cards does it too). Pages start at their Name: lines or title headings; headings such as \u201c# Characters\u201d or a \u201cKind: Place\u201d line say what kind they are. Each page fills the entry of its name or a new one, pages that name each other link up, a backup is made first, and Ctrl+Z takes the whole import back.",
+        "Import many pages: a whole bible, or a good part of one, from a text, Markdown, Word or OpenDocument file or from what you've copied (Ctrl+V on the cards does it too). Pages start at their Name: lines or title headings; headings such as “# Characters” or a “Kind: Place” line say what kind they are. Each page fills the entry of its name or a new one, pages that name each other link up, a backup is made first, and Ctrl+Z takes the whole import back.",
         "The user manual has a blank page for every kind of entry, ready to fill in and paste or import.",
-        "Lore's \u201cDetails\u201d section, written under its own heading in a pasted page, now goes to that section instead of the detail lines."
+        "Lore's “Details” section, written under its own heading in a pasted page, now goes to that section instead of the detail lines."
       ]
     },
     {
       "version": "0.38.3",
       "date": "2026-11-20",
       "notes": [
-        "Family trees keep families apart: each family starts from its own founders, and someone who married in appears on the tree marked \u201cMarried in\u201d, with a link to their own family, instead of pulling their parents and cousins in.",
+        "Family trees keep families apart: each family starts from its own founders, and someone who married in appears on the tree marked “Married in”, with a link to their own family, instead of pulling their parents and cousins in.",
         "Two views: a family's whole tree from its founders down (from the Family trees list), and one person's own tree (their lines up, brothers and sisters, partners and descendants). Each has a link to the other.",
-        "Smoother to use: click someone to pick them (their lines light up, and the panel shows their parents, partners, brothers and sisters and children), double-click to see the tree from them, add a parent, partner, child or brother or sister from the toolbar, and zoom with \u2212, Fit and + or the keyboard (arrows look around, + and \u2212 zoom, 0 fits, Esc goes back). Zooming and moving glide."
+        "Smoother to use: click someone to pick them (their lines light up, and the panel shows their parents, partners, brothers and sisters and children), double-click to see the tree from them, add a parent, partner, child or brother or sister from the toolbar, and zoom with −, Fit and + or the keyboard (arrows look around, + and − zoom, 0 fits, Esc goes back). Zooming and moving glide."
       ]
     },
     {
       "version": "0.38.2",
       "date": "2026-11-19",
       "notes": [
-        "Pasted relationships fill in properly: a fuller form of a name finds the entry (\u201cYonvaan Akumes Yerasuun\u201d finds Yonvaan Yerasuun), \u201cThe\u201d doesn't matter, and wordings like Grandparents, Former teacher, Crew of and Taught by are understood.",
+        "Pasted relationships fill in properly: a fuller form of a name finds the entry (“Yonvaan Akumes Yerasuun” finds Yonvaan Yerasuun), “The” doesn't matter, and wordings like Grandparents, Former teacher, Crew of and Taught by are understood.",
         "What a pasted page names that the bible doesn't have is made: a person, place or group in Family or Relationships becomes a new entry of the right kind, linked; a race or realm in the details joins the bible's Races or Realms. Undo the paste takes them away again.",
         "Copy a blank page to fill in: a template for the entry's kind, with your world's sections and books. Lines left blank are ignored when it's pasted back.",
         "Your own kinds of relationship: any wording in a pasted page's Relationships that Writing Studio doesn't know (Admires, Haunted by) becomes one of your world's relationships and is linked, reading the other way from the other side (Admired by, Haunts). Worldbuilding › Relationships lists them with their links, makes new ones, renames them (their links follow) and changes how they read from the other side; Add a relationship offers them."

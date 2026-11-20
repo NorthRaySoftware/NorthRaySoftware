@@ -486,6 +486,9 @@ void StudioApp::makeSharedBible() {
     o.family = s.family;
     o.languages = s.languages;
     o.glossary = s.glossary;
+    // Family trees as pictures (0.45): drawn with the app's fonts; the PDF's are written beside the app's state.
+    o.treeFonts = narrow(exeDir() + L"\\fonts");
+    o.treeFolder = narrow(stateDir() + L"\\family-trees");
     const auto books = bible::booksInOrder(*lib_, wb_.world, wb_.book);
     std::wstring name;
     if (const World* wo = lib_->world(wb_.world)) name = w(wo->name);

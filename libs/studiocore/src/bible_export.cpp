@@ -1,6 +1,7 @@
 // Sharing a world bible as a website or a printable book (see studio/bible_export.hpp).
 #include "studio/bible_export.hpp"
 #include "studio/fonts.hpp"
+#include "studio/family_tree.hpp"
 
 #include "studio/document.hpp"
 #include "internal.hpp"
@@ -99,6 +100,12 @@ namespace {
 std::string readFile(const std::string& path) {
     std::ifstream f(u8path(path), std::ios::binary);
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+bool writeFile(const std::string& path, const std::string& data) {
+    std::ofstream f(u8path(path), std::ios::binary | std::ios::trunc);
+    f.write(data.data(), (std::streamsize)data.size());
+    return (bool)f;
 }
 
 // "Label: value" lines.
@@ -526,6 +533,7 @@ struct Site {
     std::string title;
     std::vector<conlang::Language> langs;
     std::map<std::string, std::string> pictures;   // blob -> "images/<blob>.<ext>" ("" = couldn't)
+    std::vector<std::pair<std::string, std::string>> trees;   // family trees (0.45): title -> "images/familytree-<id>.png"
     std::string error;
 
     std::string picture(const std::string& blob) {
@@ -552,6 +560,7 @@ struct Site {
             if (kinds.count(k)) nav += "<a href=\"index.html#" + k + "\"" + (here == k ? " class=\"on\"" : "") + ">" + esc(entryKindPlural(k)) + "</a>";
         if (view.options().glossary) nav += "<a href=\"glossary.html\"" + std::string(here == "glossary" ? " class=\"on\"" : "") + ">Glossary</a>";
         if (!langs.empty()) nav += "<a href=\"languages.html\"" + std::string(here == "languages" ? " class=\"on\"" : "") + ">Languages</a>";
+        if (!trees.empty()) nav += "<a href=\"families.html\"" + std::string(here == "families" ? " class=\"on\"" : "") + ">Family trees</a>";
         nav += "</nav>";
         if (look.search) nav += "<div class=\"search\"><input id=\"q\" type=\"search\" placeholder=\"Search\" autocomplete=\"off\" aria-label=\"Search the bible\"><div id=\"qr\" hidden></div></div>";
         nav += "</header>";
@@ -718,8 +727,20 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
     fs::create_directories(u8path(folder + "/images"), ec);
     if (ec) { error = "Couldn't make the folder: " + ec.message(); return false; }
     const World* world = lib.world(options.worldId);
-    Site site{lib, view, look, folder, look.title.empty() ? view.title() : look.title, {}, {}, {}};
+    Site site{lib, view, look, folder, look.title.empty() ? view.title() : look.title, {}, {}, {}, {}};
     if (options.languages) site.langs = languagesOf(lib, options.worldId, options.worldId.empty() ? options.bookId : Id{});
+    // Family trees as pictures (0.45), when the app's fonts are given; not in a reader's guide.
+    if (options.family && !options.readersGuide && !options.treeFonts.empty())
+        for (const auto& fg : lib.families(options.worldId, options.worldId.empty() ? options.bookId : Id{})) {
+            familytree::Options to;
+            to.scale = 2;
+            to.heading = false;
+            const auto pic = familytree::render(lib, fg.root, options.treeFonts, to);
+            if (!pic.ok) continue;
+            const std::string rel = "images/familytree-" + fg.root + ".png";
+            if (!writeFile(folder + "/" + rel, pic.png)) continue;
+            site.trees.push_back({familytree::title(lib, fg.root, true), rel});
+        }
 
     // The stylesheet, with the typefaces the look needs copied in.
     {
@@ -789,6 +810,7 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
         }
         if (options.glossary) chips += "<a href=\"glossary.html\">Glossary</a>";
         if (!site.langs.empty()) chips += "<a href=\"languages.html\">Languages <small>" + std::to_string(site.langs.size()) + "</small></a>";
+        if (!site.trees.empty()) chips += "<a href=\"families.html\">Family trees <small>" + std::to_string(site.trees.size()) + "</small></a>";
         home += "<div class=\"chips\">" + chips + "</div>";
         for (const auto& k : entryKinds()) {
             std::string items;
@@ -870,6 +892,15 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
             body += "</tbody></table></section>";
         }
         if (!site.write("languages.html", site.page("Languages \xC2\xB7 " + site.title, body, "languages"))) { error = site.error; return false; }
+        ++extra;
+    }
+    // Family trees: a page with each family's tree, the picture opening at full size.
+    if (!site.trees.empty()) {
+        std::string body = "<h1>Family trees</h1>";
+        for (auto& [t, rel] : site.trees)
+            body += "<section class=\"tree\"><h2>" + esc(t) + "</h2><a href=\"" + rel + "\"><img src=\"" + rel + "\" alt=\"" + esc(t) +
+                    " family tree\" loading=\"lazy\" style=\"max-width:100%;height:auto;border-radius:10px\"></a></section>";
+        if (!site.write("families.html", site.page("Family trees \xC2\xB7 " + site.title, body, "families"))) { error = site.error; return false; }
         ++extra;
     }
     if (pages) *pages = n + extra;
@@ -1006,6 +1037,56 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
             ch.title = e->name;
             ch.content = d.toJson();
             ch.words = d.words();
+            s.sections.push_back(std::move(ch));
+        }
+    }
+    // Family trees (0.45): a part with each family's tree, turned a quarter when it's much wider than tall.
+    if (options.family && !options.readersGuide && !options.treeFolder.empty() && !options.treeFonts.empty()) {
+        const auto fams = lib.families(options.worldId, options.worldId.empty() ? options.bookId : Id{});
+        bool partAdded = false;
+        std::error_code ec;
+        std::filesystem::create_directories(detail::u8path(options.treeFolder), ec);
+        for (const auto& fg : fams) {
+            familytree::Options to;
+            to.bloodline = true;
+            to.scale = 3;
+            to.heading = false;
+            to.turnWide = true;
+            const auto pic = familytree::render(lib, fg.root, options.treeFonts, to);
+            if (!pic.ok) continue;
+            // A picture id of the usual length (the document's pictures are named by their hash).
+            std::string blob;
+            for (unsigned salt = 0; salt < 4; ++salt) {
+                std::uint64_t h = 1469598103934665603ull ^ salt;
+                for (unsigned char c : "familytree:" + fg.root) { h ^= c; h *= 1099511628211ull; }
+                char buf[17];
+                std::snprintf(buf, sizeof buf, "%016llx", (unsigned long long)h);
+                blob += buf;
+            }
+            const std::string path = detail::fromPath(detail::u8path(options.treeFolder) / ("familytree-" + fg.root + ".png"));
+            if (!writeFile(path, pic.png)) continue;
+            if (!partAdded) {
+                typeset::Source::Section part;
+                part.kind = NodeKind::Part;
+                part.title = "Family trees";
+                part.content = doc::emptyDoc();
+                s.sections.push_back(part);
+                partAdded = true;
+            }
+            s.picturePaths[blob] = path;
+            s.pictureSizes[blob] = {pic.width, pic.height};
+            const std::string name = familytree::title(lib, fg.root, true);
+            doc::Builder d;
+            d.paragraph("centered");
+            d.text(std::to_string(pic.people) + (pic.people == 1 ? " person" : " people") + (pic.turned ? " (turn the book to read it)" : ""),
+                   doc::Builder::Em);
+            d.endBlock();
+            d.image(blob, name);
+            typeset::Source::Section ch;
+            ch.kind = NodeKind::Chapter;
+            ch.matter = 2;
+            ch.title = name;
+            ch.content = d.toJson();
             s.sections.push_back(std::move(ch));
         }
     }

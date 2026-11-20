@@ -22,6 +22,11 @@ struct Options {
     bool family = true;          // family and relationships
     bool languages = true;       // the world's languages, as dictionaries
     bool glossary = true;
+    // Family trees as pictures (0.45): every family in the bible, in the PDF (a part of their own) and on the website
+    // (a page of their own). Drawn with the app's fonts; the PDF's pictures are written to `treeFolder`. Not in a
+    // reader's guide (a tree would show people the guide keeps back).
+    std::string treeFonts;
+    std::string treeFolder;
 };
 
 // How the website looks (0.38), chosen before it's made and kept with the world.

@@ -330,6 +330,7 @@ private:
     void drawFamilyPanel(const Rect& r);
     void addFamilyMember(const Id& who, int relation);   // 0 parent, 1 partner, 2 sibling, 3 child
     void openFamilyTree(const Id& root, bool bloodline = false);   // a person's tree, or a family from its founder
+    void saveFamilyTreePicture();
     void zoomFamilyTree(float factor);                              // about the middle of the page; 0 = fit
     // Maps (studio_world.cpp): a place's or realm's map picture, with entries pinned on it.
     float drawMapSection(const Rect& m, float y, const studio::Entry& e);

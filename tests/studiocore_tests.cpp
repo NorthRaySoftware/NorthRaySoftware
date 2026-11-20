@@ -8,6 +8,7 @@
 #include "studio/document.hpp"
 #include "studio/entry_paste.hpp"
 #include "studio/fonts.hpp"
+#include "studio/family_tree.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
 #include "studio/publish.hpp"
@@ -1447,6 +1448,91 @@ static void testEntryPages() {
     }
 }
 
+// A family tree as a picture (0.45), and in the bible's PDF.
+static void testFamilyTreePicture() {
+    namespace ft = studio::familytree;
+    const std::string dir = tempLibrary("famtreepic");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Alvora");
+    auto person = [&](const char* name, const char* details) {
+        const Id id = lib->createEntry(world, {}, "character", name);
+        Entry e = *lib->entry(id);
+        e.details = details;
+        lib->updateEntry(e);
+        return id;
+    };
+    const Id tobias = person("Tobias Vale", "Gender: Male\nAge: 61");
+    const Id maren = person("Maren Ashdown", "Gender: Female\nAge: 58");
+    const Id ada = person("Ada Vale", "Gender: Female\nAge: 34\nTitle: Harbourmaster");
+    const Id zorn = person("Zornov Vale of the Long Harbour Road", "Gender: Male\nBorn: Highcliff");
+    const Id wren = person("Wren Holt", "Gender: Female");
+    const Id kit = person("Kit Vale", "Gender: Non-binary\nAge: 9");
+    const Id yon = person("Yonvaan Akumes Yerasuun", "Gender: Male");
+    const Id zih = person("Zih'ah Saara Yerasuun", "Gender: Female");
+    const Id aal = person("Aaliyah Ne'liya Yerasuun", "Gender: Female");
+    lib->addLink(tobias, maren, "Married to");
+    for (const Id& c : {ada, zorn}) { lib->addLink(tobias, c, "Parent of"); lib->addLink(maren, c, "Parent of"); }
+    lib->addLink(zorn, wren, "Partner of");
+    lib->addLink(zorn, kit, "Parent of");
+    lib->addLink(wren, kit, "Parent of");
+    // Two parents who aren't partners.
+    lib->addLink(yon, aal, "Parent of");
+    lib->addLink(zih, aal, "Parent of");
+    CHECK(ft::title(*lib, tobias, true) == "The Vale family" && ft::title(*lib, tobias, false) == "Tobias Vale's family tree");
+    const std::string fonts = appFolder("fonts");
+    const auto p = ft::render(*lib, tobias, fonts);
+    CHECK(p.ok && p.png.compare(1, 3, "PNG") == 0 && p.width > 600 && p.height > 300 && p.people >= 6);
+    const auto y = ft::render(*lib, yon, fonts);
+    CHECK(y.ok && y.people == 3);
+    ft::Options turn;
+    turn.turnWide = true;
+    turn.heading = false;
+    const auto t = ft::render(*lib, tobias, fonts, turn);
+    CHECK(t.ok && (t.turned ? t.height > t.width : true));
+    CHECK(!ft::render(*lib, "nobody", fonts).ok);
+    if (const char* out = std::getenv("STUDIO_TREE_PNG")) {
+        std::ofstream(std::string(out) + "-vale.png", std::ios::binary) << p.png;
+        std::ofstream(std::string(out) + "-yerasuun.png", std::ios::binary) << y.png;
+    }
+    // In the bible's PDF: a Family trees part with a chapter per family, its picture written to the folder.
+    bible::Options o{world, {}, false, {}};
+    o.treeFonts = fonts;
+    o.treeFolder = dir + "/trees";
+    const auto src = bible::printableSource(*lib, o, "The Alvora Bible", "CJ");
+    int part = -1, trees = 0;
+    for (size_t i = 0; i < src.sections.size(); ++i) {
+        if (src.sections[i].kind == NodeKind::Part && src.sections[i].title == "Family trees") part = (int)i;
+        if (part >= 0 && (int)i > part && src.sections[i].kind == NodeKind::Chapter && src.sections[i].content.find("\"image\"") != std::string::npos) ++trees;
+    }
+    CHECK(part >= 0 && trees == 2);
+    bool files = false;
+    for (auto& [blob, path] : src.picturePaths) if (path.find("familytree-") != std::string::npos && fs::exists(path)) files = true;
+    CHECK(files);
+    const auto book = typeset::typesetBook(src, typeset::presets()[0].design, {fonts, appFolder("hyphenation")});
+    CHECK(book.ok);
+    // On the website: a Family trees page, linked from the header, with the pictures.
+    {
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages, {}, fonts));
+        std::ifstream in(dir + "/site/families.html");
+        const std::string html((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        CHECK(html.find("The Vale family") != std::string::npos && html.find("images/familytree-") != std::string::npos);
+        std::ifstream home(dir + "/site/index.html");
+        const std::string h((std::istreambuf_iterator<char>(home)), std::istreambuf_iterator<char>());
+        CHECK(h.find("families.html") != std::string::npos);
+        int pngs = 0;
+        for (auto& e : fs::directory_iterator(dir + "/site/images")) if (e.path().filename().string().rfind("familytree-", 0) == 0) ++pngs;
+        CHECK(pngs == 2);
+    }
+    // Not in a reader's guide.
+    bible::Options g = o;
+    g.readersGuide = true;
+    const auto gs = bible::printableSource(*lib, g, "Guide", "CJ");
+    CHECK(std::none_of(gs.sections.begin(), gs.sections.end(), [](auto& x) { return x.title == "Family trees"; }));
+}
+
 static void testFamilyTree() {
     using namespace studio;
     const std::string dir = tempLibrary("family");
@@ -2777,6 +2863,7 @@ int main() {
     testBibleTidy();
     testEntryPages();
     testFamilyTree();
+    testFamilyTreePicture();
     testContinuity();
     testBibleExport();
     testEbookHtml();

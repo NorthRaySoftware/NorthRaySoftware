@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.111.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.45.0: reworked family trees, saved as pictures and printed in the bible's PDF."
+      ]
+    },
+    {
       "version": "0.110.0",
       "date": "2026-11-20",
       "notes": [

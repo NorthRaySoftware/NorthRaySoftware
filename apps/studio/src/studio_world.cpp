@@ -4,6 +4,7 @@
 // relationships and where it appears in the manuscripts; the right-hand panel
 // edits it.
 #include "studio_app.hpp"
+#include "studio/family_tree.hpp"
 #include "cjui/dialog.hpp"
 #include "studio/bible_export.hpp"
 #include "cjui/menu.hpp"
@@ -2462,6 +2463,44 @@ void StudioApp::drawFamilyPanel(const Rect& r) {
     gfx_.popClip();
 }
 
+// "Save as a picture…" (0.45): the tree on screen, drawn for paper at twice its size, as a PNG.
+void StudioApp::saveFamilyTreePicture() {
+    if (!lib_ || wb_.familyRoot.empty()) return;
+    const std::string name = studio::familytree::title(*lib_, wb_.familyRoot, wb_.treeBloodline);
+    IFileSaveDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    COMDLG_FILTERSPEC spec[] = {{L"PNG picture", L"*.png"}};
+    dlg->SetFileTypes(1, spec);
+    dlg->SetDefaultExtension(L"png");
+    std::wstring fileName = w(name);
+    for (auto& c : fileName) if (wcschr(L"\\/:*?\"<>|", c)) c = L'-';
+    dlg->SetFileName(fileName.c_str());
+    dlg->SetTitle(L"Save the family tree as a picture");
+    std::wstring path;
+    if (SUCCEEDED(dlg->Show(hwnd()))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) { path = p; CoTaskMemFree(p); }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    if (path.empty()) return;
+    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    studio::familytree::Options o;
+    o.bloodline = wb_.treeBloodline;
+    o.scale = 2;
+    const auto pic = studio::familytree::render(*lib_, wb_.familyRoot, narrow(exeDir() + L"\\fonts"), o);
+    if (!pic.ok) { cjui::messageBox(hwnd(), (L"The picture couldn't be made.\n\n" + w(pic.error)).c_str(), L"Family tree", MB_OK | MB_ICONWARNING); return; }
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    DWORD wrote = 0;
+    const bool ok = f != INVALID_HANDLE_VALUE && WriteFile(f, pic.png.data(), (DWORD)pic.png.size(), &wrote, nullptr) && wrote == pic.png.size();
+    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    if (!ok) { cjui::messageBox(hwnd(), L"The picture couldn't be saved there.", L"Family tree", MB_OK | MB_ICONWARNING); return; }
+    flash(L"Saved " + w(name) + L" as a picture (" + std::to_wstring(pic.width) + L" \u00D7 " + std::to_wstring(pic.height) + L" pixels).", 6);
+}
+
 void StudioApp::zoomFamilyTree(float factor) {
     const float avail = pageRect_.w - 64;
     const float before = wb_.treeZoom > 0 ? wb_.treeZoom : std::clamp(wb_.treeW > 0 ? std::min(1.0f, avail / std::max(1.0f, wb_.treeW)) : 1.0f, 0.66f, 1.0f);
@@ -2593,45 +2632,69 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     sub += wb_.treeBloodline ? L" From its founder down, with those who married in." : L" Their lines up, brothers and sisters, partners and descendants.";
     y += pageHeader({r.x + pad, y, std::min(r.w - pad * 2, 900.0f), 0}, L"FAMILY TREE", title, sub);
 
-    // Tools: who's picked, adding family to them, zoom, and the other kind of tree.
+    // Tools (0.45): who's picked, with adding family to them, on a line that wraps; then the other kind of tree.
     const Entry* sel = lib_->entry(wb_.treeSelected);
     {
-        float bx = r.x + pad;
-        float bw = 0;
+        const float left = r.x + pad, rightEdge = r.right() - pad;
+        float bx = left, bw = 0;
         const std::wstring who = sel ? w(sel->name) : w(root->name);
         const Id sid = sel ? sel->id : root->id;
-        smallButton("wb:famopen", bx, y - 6, L"Open " + who + L"'s page", [this, sid] { openEntry(sid); }, &bw);
-        bx += bw + 8;
-        smallButton("wb:famaddp", bx, y - 6, L"+ Parent", [this, sid] { addFamilyMember(sid, 0); }, &bw);
-        bx += bw + 8;
-        smallButton("wb:famaddpt", bx, y - 6, L"+ Partner", [this, sid] { addFamilyMember(sid, 1); }, &bw);
-        bx += bw + 8;
-        smallButton("wb:famaddc", bx, y - 6, L"+ Child", [this, sid] { addFamilyMember(sid, 3); }, &bw);
-        bx += bw + 8;
-        smallButton("wb:famadds", bx, y - 6, L"+ Brother or sister", [this, sid] { addFamilyMember(sid, 2); }, &bw);
-        // Zoom: out, fit, in.
-        const float zx = r.right() - pad - 3 * 40 - 16;
-        smallButton("wb:famzout", zx, y - 6, L"−", [this] { zoomFamilyTree(1 / 1.25f); }, &bw);
-        smallButton("wb:famzfit", zx + 36, y - 6, L"Fit", [this] { zoomFamilyTree(0); }, &bw);
-        smallButton("wb:famzin", zx + 36 + bw + 4, y - 6, L"+", [this] { zoomFamilyTree(1.25f); }, &bw);
+        gfx_.text(L"PICKED", {bx, y - 6, 60, 28}, Font::Label, pal_.inkFaint, {Align::Left, false, false, true});
+        bx += 58;
+        {
+            // The picked person as a chip that opens their page.
+            const float nw = std::min(gfx_.measureWidth(who, Font::BodyStrong) + 30, 260.0f);
+            const Rect chip{bx, y - 6, nw, 28};
+            addHit("wb:famopen", chip, [this, sid] { openEntry(sid); });
+            const float hv = hoverAmount("wb:famopen");
+            gfx_.fillRounded(chip, 14, pal_.ribbon.withAlpha(0.12f + 0.08f * hv));
+            gfx_.text(who, {chip.x + 12, chip.y, chip.w - 24, chip.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+            tooltip("wb:famopen", L"Open " + who + L"'s page");
+            bx += nw + 12;
+        }
+        auto tool = [&](const std::string& id, const std::wstring& label, std::function<void()> fn) {
+            const float tw = gfx_.measureWidth(label, Font::Small) + 22;
+            if (bx + tw > rightEdge) { bx = left + 58; y += 34; }
+            smallButton(id, bx, y - 6, label, std::move(fn), &bw);
+            bx += bw + 6;
+        };
+        tool("wb:famaddp", L"+ Parent", [this, sid] { addFamilyMember(sid, 0); });
+        tool("wb:famaddpt", L"+ Partner", [this, sid] { addFamilyMember(sid, 1); });
+        tool("wb:famaddc", L"+ Child", [this, sid] { addFamilyMember(sid, 3); });
+        tool("wb:famadds", L"+ Brother or sister", [this, sid] { addFamilyMember(sid, 2); });
         y += 40;
-        // The other view: the whole family this person comes from, or this person's own tree.
+        // The other view: the whole family this person comes from, or this person's own tree; and saving it.
+        float lx = left;
         if (wb_.treeBloodline) {
-            if (sel && sel->id != root->id)
-                linkText("wb:famown", r.x + pad, y - 4, L"See " + w(sel->name) + L"'s own tree ›", [this, sid] { openFamilyTree(sid, false); });
+            if (sel && sel->id != root->id) {
+                const std::wstring t = L"See " + w(sel->name) + L"'s own tree \u203A";
+                linkText("wb:famown", lx, y - 4, t, [this, sid] { openFamilyTree(sid, false); });
+                lx += gfx_.measureWidth(t, Font::Small) + 30;
+            }
         } else {
             Id founder;
             for (const auto& fg : lib_->families(wb_.world, wb_.book)) {
                 const auto t = lib_->familyLayout(fg.root, 400, true);
                 if (std::any_of(t.people.begin(), t.people.end(), [&](const auto& p) { return p.id == root->id && !p.inLaw; })) { founder = fg.root; break; }
             }
-            if (!founder.empty()) linkText("wb:famwhole", r.x + pad, y - 4, L"See the whole family ›", [this, founder] { openFamilyTree(founder, true); });
+            if (!founder.empty()) {
+                linkText("wb:famwhole", lx, y - 4, L"See the whole family \u203A", [this, founder] { openFamilyTree(founder, true); });
+                lx += gfx_.measureWidth(L"See the whole family \u203A", Font::Small) + 30;
+            }
         }
-        y += 30;
+        linkText("wb:famsave", lx, y - 4, L"Save as a picture\u2026", [this] { saveFamilyTreePicture(); });
+        y += 34;
     }
+    // The board the tree sits on, to the foot of the page.
+    const Rect board{r.x + pad - 12, y - 8, r.w - pad * 2 + 24, std::max(260.0f, r.bottom() - 46 - (y - 8))};
+    gfx_.fillRounded(board, 10, pal_.sunken.mix(pal_.paper, 0.45f));
+    for (float gy = board.y + 18; gy < board.bottom() - 6; gy += 22)
+        for (float gx = board.x + 18; gx < board.right() - 6; gx += 22) gfx_.fill({gx, gy, 1.4f, 1.4f}, pal_.rule.withAlpha(0.8f));
+    y += 48;   // clear of the zoom buttons in the board's corner
+    gfx_.pushClip(board);
 
     // Sizes: cards shrink to fit (down to two thirds) unless zoomed; zoom and moving across glide.
-    const float baseW = 176, baseH = 66, baseGapX = 22, baseGapY = 58;
+    const float baseW = 196, baseH = 80, baseGapX = 26, baseGapY = 64;
     const float avail = r.w - pad * 2;
     const float natural = lay.width * (baseW + baseGapX) - baseGapX;
     const float fitS = std::clamp(natural > 0 ? avail / natural : 1.0f, 0.66f, 1.0f);
@@ -2695,9 +2758,22 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         float ox = 0, oy = 0;
         bool couple = ps.size() == 2;
         if (couple) {
-            const Rect a = at[ps[0]], b = at[ps[1]];
-            couple = std::fabs(a.y - b.y) < 1 && std::fabs(a.x - b.x) <= stepX * 1.01f;
-            if (couple) { ox = (std::min(a.right(), b.right()) + std::max(a.x, b.x)) / 2; oy = a.y + a.h / 2; }
+            // Two parents in a row: joined at mid-height, by a dashed line when they aren't partners (0.45).
+            Rect a = at[ps[0]], b = at[ps[1]];
+            couple = std::fabs(a.y - b.y) < 1;
+            if (couple) {
+                if (a.x > b.x) std::swap(a, b);
+                ox = (a.right() + b.x) / 2;
+                oy = a.y + a.h / 2;
+                const bool partners = std::any_of(lay.couples.begin(), lay.couples.end(), [&](auto& c) {
+                    return (c.first == ps[0] && c.second == ps[1]) || (c.first == ps[1] && c.second == ps[0]);
+                });
+                if (!partners) {
+                    const bool on = std::find(ps.begin(), ps.end(), lit) != ps.end();
+                    for (float dx = a.right(); dx < b.x; dx += 10 * s)
+                        gfx_.line(dx, oy, std::min(dx + 5 * s, b.x), oy, on ? litC : lineC, on ? 2.2f : 1.4f);
+                }
+            }
         }
         if (!couple) {
             float sx = 0, by = 0;
@@ -2763,7 +2839,8 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             gfx_.text(initials(x->name), pic, Font::SmallStrong, gc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
         }
         const float tx = pic.right() + 10 * s, tw = cr.right() - 8 - tx;
-        gfx_.text(w(x->name), {tx, cr.y + 10 * s, tw, 20}, s < 0.8f ? Font::SmallStrong : Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        // The name on up to two lines.
+        gfx_.text(w(x->name), {tx, cr.y + 9 * s, tw, cr.h - 32 * s}, s < 0.8f ? Font::SmallStrong : Font::BodyStrong, pal_.ink, {Align::Left, true, true});
         if (p.inLaw) {
             // Married in: their own family's tree is a click away (when they have one).
             const auto theirs = lib_->familyOf(p.id);
@@ -2778,16 +2855,66 @@ void StudioApp::drawFamilyTree(const Rect& r) {
                 gfx_.text(lbl, lr, Font::Small, pal_.inkFaint, {Align::Left, false, true});
             }
         } else {
-            std::wstring line2;
-            if (!g.empty()) line2 = genderSign(g).empty() ? g : genderSign(g) + L" " + g;
-            if (!line2.empty()) gfx_.text(line2, {tx, cr.y + cr.h - 26 * s, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            // A drawn gender sign, then a detail: age, when born, or a title.
+            float lx = tx;
+            if (!genderSign(g).empty()) { drawGenderSign(gfx_, lx + 6, cr.y + cr.h - 18 * s, 8, g, gc); lx += 18; }
+            std::string d2;
+            for (const char* lab : {"Age", "Born", "Birthday", "Title", "Occupation"}) {
+                for (size_t at2 = 0; at2 < x->details.size() && d2.empty();) {
+                    size_t nl = x->details.find('\n', at2);
+                    if (nl == std::string::npos) nl = x->details.size();
+                    const std::string line = trimmedCopy(x->details.substr(at2, nl - at2));
+                    at2 = nl + 1;
+                    const size_t colon = line.find(':');
+                    if (colon != std::string::npos && trimmedCopy(line.substr(0, colon)) == lab) {
+                        const std::string v = trimmedCopy(line.substr(colon + 1));
+                        if (!v.empty()) d2 = (std::string(lab) == "Age" || std::string(lab) == "Born") ? std::string(lab) + " " + v : v;
+                    }
+                }
+                if (!d2.empty()) break;
+            }
+            if (d2.empty() && !g.empty() && genderSign(g).empty()) d2 = narrow(g);
+            if (!d2.empty()) gfx_.text(w(d2), {lx, cr.y + cr.h - 27 * s, cr.right() - 8 - lx, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         }
         if (focused(id)) focusRing(cr);
     }
     wb_.content = bottom + wb_.scroll - r.y + 60;
     wb_.scroll = std::clamp(wb_.scroll, 0.0f, std::max(0.0f, wb_.content - r.h));
-    gfx_.text(L"Drag to move · Ctrl + wheel or − / + to zoom · arrows to look around · double-click someone to see the tree from them",
-              {r.x + pad, r.bottom() - 28, avail, 20}, Font::Small, pal_.inkFaint, {Align::Right, false, true});
+    gfx_.popClip();
+    {
+        // The key to the lines, and zoom floating in the board's corner (0.45).
+        const float ky = r.bottom() - 30;
+        float kx = r.x + pad;
+        auto key = [&](int kind, const std::wstring& label) {
+            const float cy = ky + 10;
+            if (kind == 0) gfx_.line(kx, cy, kx + 22, cy, lineC, 1.4f);
+            if (kind == 1) { gfx_.line(kx, cy - 2, kx + 22, cy - 2, lineC, 1.4f); gfx_.line(kx, cy + 2, kx + 22, cy + 2, lineC, 1.4f); }
+            if (kind == 2) for (float dx = 0; dx < 22; dx += 8) gfx_.line(kx + dx, cy, kx + dx + 4, cy, lineC, 1.4f);
+            kx += 28;
+            gfx_.text(label, {kx, ky, 200, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+            kx += gfx_.measureWidth(label, Font::Small) + 18;
+        };
+        key(0, L"partners");
+        key(1, L"married");
+        key(2, L"parents, not partners");
+        gfx_.text(L"Click to pick \u00B7 double-click: their tree \u00B7 drag to move", {kx + 10, ky, r.right() - pad - kx - 10, 20}, Font::Small,
+                  pal_.inkFaint, {Align::Right, false, true, true});
+        const float zy = board.y + 10, zx = board.right() - 10 - 3 * 34;
+        const Rect zr{zx - 4, zy - 4, 3 * 34 + 8, 36};
+        gfx_.fillRounded(zr, 8, pal_.surface);
+        gfx_.strokeRounded(zr, 8, pal_.rule);
+        auto zbtn = [&](int i, const std::string& id, const std::wstring& lbl, std::function<void()> fn, const std::wstring& tip) {
+            const Rect br{zx + i * 34.0f, zy, 30, 28};
+            addHit(id, br, std::move(fn));
+            const float hv = hoverAmount(id);
+            if (hv > 0.01f) gfx_.fillRounded(br, 6, pal_.sunken.withAlpha(hv));
+            gfx_.text(lbl, br, i == 1 ? Font::Small : Font::BodyStrong, pal_.ink, {Align::Center, false, false, true});
+            tooltip(id, tip);
+        };
+        zbtn(0, "wb:famzout", L"\u2212", [this] { zoomFamilyTree(1 / 1.25f); }, L"Zoom out (\u2212)");
+        zbtn(1, "wb:famzfit", L"Fit", [this] { zoomFamilyTree(0); }, L"Fit the tree (0)");
+        zbtn(2, "wb:famzin", L"+", [this] { zoomFamilyTree(1.25f); }, L"Zoom in (+)");
+    }
     clearHitClip();
     gfx_.popClip();
 }
