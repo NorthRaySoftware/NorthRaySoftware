@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.115.1",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.49.1: writing sprints, and progress towards targets in the outline."
+      ]
+    },
+    {
       "version": "0.115.0",
       "date": "2026-11-20",
       "notes": [

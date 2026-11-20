@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.49.1: sprints and targets in the outline (20 Nov 2026)
+
+- Editor: `sprint` {end, minutes, done, base}; `#count` is a button opening `#sprintmenu` (10/15/25/45 minutes, or
+  stop); a 1 s tick redraws "mm:ss · +N words"; words are the chapter's now less its words when the sprint reached it,
+  plus `done` from earlier chapters (kept when `load` brings another, `base` reset after the new state). The end (or
+  stopping) gives a `notice`. Nothing is stored. Tested in the harness across two chapters (+5, then +8).
+- Outline (`drawBinder`): a 2 px line under a chapter or scene with `targetWords`, filled towards it (gold at 100%),
+  with a tooltip of the numbers. Checked in Wine.
+
 ## 0.49.0: writing, calmer (20 Nov 2026)
 
 CJ: too many underlines, typing feel, moving around, the page look. Checked with tools/editor-harness.cjs.

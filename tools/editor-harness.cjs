@@ -28,7 +28,7 @@ const doc = { type: 'doc', content: paras.map((p, i) => ({ type: 'paragraph', at
   await page.waitForTimeout(400);
   await page.evaluate(([doc, dark]) => {
     window.__send({ type: 'view', settings: {}, names: [{ id: 'e1', name: 'Tom', names: ['Tom','Thomas'], kind: 'Character' }, { id: 'e2', name: 'Astrid', names: ['Astrid'], kind: 'Character' }, { id: 'e3', name: 'Elandroth', names: ['Elandroth'], kind: 'Place' }], bookFont: 'Crimson Text' });
-    window.__send({ type: 'load', id: 'n1', title: 'Chapter One: The Forge', doc, placeholder: 'Start writing.', language: 'en-GB', dark });
+    window.__send({ type: 'load', id: 'n1', title: 'Chapter One: The Forge', chapters: [{id:'p1',title:'Part One',kind:'part',depth:0,words:0},{id:'n1',title:'Chapter One: The Forge',kind:'chapter',depth:1,words:862},{id:'n2',title:'Chapter Two: The Road',kind:'chapter',depth:1,words:2400},{id:'s1',title:'Night watch',kind:'scene',depth:2,words:900}], doc, placeholder: 'Start writing.', language: 'en-GB', dark });
   }, [doc, dark]);
   await page.waitForTimeout(1200);
   await page.screenshot({ path: S + '/h-' + W + (dark ? '-dark' : '') + '.png' });
@@ -36,10 +36,35 @@ const doc = { type: 'doc', content: paras.map((p, i) => ({ type: 'paragraph', at
   await page.keyboard.type(' A new sentence typed here.');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: S + '/h-' + W + '-typed.png' });
-  for (const [sel, name] of [['#viewbtn, [data-label="Aa"], #aa', 'aa'], ['#hints', 'hints']]) {
+  for (const [sel, name] of [['#viewbtn, [data-label="Aa"], #aa', 'aa'], ['#hints', 'hints'], ['#chapname', 'chapters']]) {
     const el = await page.$(sel);
     if (el) { await el.click(); await page.waitForTimeout(500); await page.screenshot({ path: S + '/h-' + W + '-' + name + '.png' }); await page.keyboard.press('Escape'); await page.mouse.click(5, H - 5); await page.waitForTimeout(300); }
   }
+  // A sprint across two chapters.
+  await page.mouse.click(5, H - 5);
+  await page.click('#count'); await page.waitForTimeout(200);
+  await page.screenshot({ path: S + '/h-sprintmenu.png' });
+  await page.click('#sprintmenu .cm-item >> nth=1');   // 15 minutes
+  await page.click('#page p:nth-of-type(1)'); await page.keyboard.press('End');
+  await page.keyboard.type(' One two three four five.');
+  await page.waitForTimeout(1200);
+  const c1 = await page.textContent('#count');
+  await page.evaluate((doc) => window.__send({ type: 'load', id: 'n2', title: 'Chapter Two: The Road', doc }), doc);
+  await page.waitForTimeout(500);
+  await page.click('#page p:nth-of-type(1)'); await page.keyboard.press('End');
+  await page.keyboard.type(' Six seven eight.');
+  await page.waitForTimeout(1200);
+  const c2 = await page.textContent('#count');
+  await page.screenshot({ path: S + '/h-sprint.png' });
+  await page.click('#count'); await page.waitForTimeout(200); await page.click('#sprintmenu .cm-item >> nth=0');
+  await page.waitForTimeout(300);
+  console.log('sprint', c1, '|', c2, '|', await page.textContent('#notice'));
+  // Focus mode and typewriter.
+  await page.evaluate(() => window.__send({ type: 'view', settings: { focus: true, typewriter: true, v: 3 } }));
+  await page.waitForTimeout(600);
+  await page.click('#page p:nth-of-type(4)');
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: S + '/h-focus.png' });
   console.log('out:', [...new Set(out.map(m => m.type))].join(','));
   await b.close(); srv.close();
 })();

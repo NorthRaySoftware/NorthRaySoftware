@@ -1162,13 +1162,94 @@ function setSaved(state, fresh) {
   if (!savedTicker) savedTicker = setInterval(() => { const x = document.getElementById("saved"); if (x) x.textContent = savedText(); }, 10000);
 }
 
+// --------------------------------------------------------------- writing sprints (0.49.1)
+// A timed burst: the words added in it are counted across chapters (each chapter's words when the sprint reached it,
+// against its words now), the bar counts down, and a note says how it went. Nothing is kept afterwards.
+let sprint = null;   // { end, minutes, done, base, chapter }
+function sprintWords() {
+  if (!sprint || !view) return 0;
+  return Math.max(0, sprint.done + (docWords(view.state.doc) - sprint.base));
+}
+function startSprint(minutes) {
+  sprint = { end: Date.now() + minutes * 60000, minutes, done: 0, base: view ? docWords(view.state.doc) : 0, chapter: currentId };
+  tickSprint();
+  if (view) view.focus();
+}
+function stopSprint(finished) {
+  if (!sprint) return;
+  const words = sprintWords(), mins = finished ? sprint.minutes : Math.max(1, Math.round((Date.now() - (sprint.end - sprint.minutes * 60000)) / 60000));
+  sprint = null;
+  clearTimeout(sprintTimer);
+  notice(finished ? `Sprint done: ${words.toLocaleString()} ${words === 1 ? "word" : "words"} in ${mins} minutes.`
+                  : `Sprint stopped: ${words.toLocaleString()} ${words === 1 ? "word" : "words"} in ${mins} ${mins === 1 ? "minute" : "minutes"}.`);
+  stats();
+}
+let sprintTimer = null;
+function tickSprint() {
+  clearTimeout(sprintTimer);
+  if (!sprint) return;
+  if (Date.now() >= sprint.end) { stopSprint(true); return; }
+  stats();
+  sprintTimer = setTimeout(tickSprint, 1000);
+}
+// A chapter changing mid-sprint: what was written in the last one is kept, and the new one starts from its words now.
+function sprintChapterChanged() {
+  if (!sprint) return;
+  sprint.done = sprintWords();   // the base is set again once the new chapter is in
+}
+function buildSprintMenu() {
+  const btn = document.getElementById("count"), menu = document.getElementById("sprintmenu");
+  if (!btn || !menu) return;
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (!menu.hidden) { close(); return; }
+    menu.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "mm-head";
+    head.textContent = sprint ? "Sprint" : "Start a writing sprint";
+    menu.append(head);
+    const note = document.createElement("div");
+    note.className = "sp-note";
+    note.textContent = sprint ? `${sprintWords().toLocaleString()} words so far.` : "A timed burst of writing: the bar counts down and adds up the words you write, in any chapter.";
+    menu.append(note);
+    const item = (label, fn) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cm-item";
+      b.textContent = label;
+      b.addEventListener("mousedown", (ev) => { ev.preventDefault(); close(); fn(); });
+      menu.append(b);
+    };
+    if (sprint) item("Stop the sprint", () => stopSprint(false));
+    else for (const m of [10, 15, 25, 45]) item(`${m} minutes`, () => startSprint(m));
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    const r = btn.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.right - 250, window.innerWidth - 258)) + "px";
+    menu.style.top = (r.bottom + 4) + "px";
+  });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
+}
+
 function stats() {
   if (!view) return;
   const { from, to } = view.state.selection;
   const sel = from === to ? 0 : countWords(view.state.doc.textBetween(from, to, " ", " "));
   const words = docWords(view.state.doc);
-  document.getElementById("count").textContent =
-    (sel ? sel.toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
+  const countEl = document.getElementById("count");
+  if (sprint) {
+    const left = Math.max(0, Math.ceil((sprint.end - Date.now()) / 1000));
+    const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, "0");
+    countEl.textContent = `${mm}:${ss} \u00B7 +${sprintWords().toLocaleString()} words`;
+    countEl.classList.add("sprinting");
+    countEl.title = "A writing sprint: time left and the words written in it. Click to stop it.";
+  } else {
+    countEl.textContent = (sel ? sel.toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
+    countEl.classList.remove("sprinting");
+    countEl.title = "Words in this chapter. Click to start a writing sprint.";
+  }
   const h = document.getElementById("hints");
   if (h) { h.textContent = hintCount === 1 ? "1 hint" : hintCount + " hints"; h.dataset.some = hintCount > 0 ? "true" : "false"; }
   send({ type: "stats", id: currentId, words, selectionWords: sel });
@@ -1349,6 +1430,7 @@ function load(msg) {
   flush();
   if (view && currentId) { rememberScroll(); rememberVersion(currentId, view.state.doc.toJSON(), true); }
   if (typeof msg.dark === "boolean") setTheme(msg.dark);
+  if (sprint) sprintChapterChanged();   // keep what the last chapter added
   currentId = msg.id;
   readOnly = !!msg.readOnly;
   placeholderText = msg.placeholder || "";
@@ -1397,6 +1479,7 @@ function load(msg) {
     });
   } else {
     view.updateState(state);
+    if (sprint) sprint.base = docWords(view.state.doc);   // the new chapter's words count from here
   }
   dirty = false;
   setSaved("saved", false);
@@ -1599,6 +1682,7 @@ buildToolbar();
 buildViewMenu();
 buildFontMenu();
 buildChapterMenu();
+buildSprintMenu();
 buildMoreMenu();
 fitBar();
 initNameCard(send);

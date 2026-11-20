@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.49.1",
+      "date": "2026-11-20",
+      "notes": [
+        "Writing sprints: click the word count in the bar for a 10, 15, 25 or 45-minute sprint; the bar counts down and adds up the words you write across chapters, and a note says how it went.",
+        "Chapters and scenes with a word target show how far they've come with a thin line in the outline, gold once reached."
+      ]
+    },
+    {
       "version": "0.49.0",
       "date": "2026-11-20",
       "notes": [

@@ -800,6 +800,14 @@ void StudioApp::drawBinder(const Rect& r) {
                   {Align::Left, false, true, true});
         if (!count.empty())
             gfx_.text(count, {rr.right() - cw - 4, rr.y, cw, rh}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+        // Towards its word target (0.49.1): a hairline under the row, gold once reached.
+        if (n->targetWords > 0 && n->kind != NodeKind::Part) {
+            const float f = std::clamp((float)words / (float)n->targetWords, 0.0f, 1.0f);
+            const float bx = tx + 14, bw = rr.right() - 6 - bx, by = rr.bottom() - 3;
+            gfx_.fill({bx, by, bw, 2}, pal_.rule.withAlpha(0.7f));
+            gfx_.fill({bx, by, bw * f, 2}, f >= 1 ? hexColor("#C9A227") : pal_.ribbon);
+            tooltip(id, thousands(words) + L" of " + thousands(n->targetWords) + L" words");
+        }
         if (focused(id)) focusRing(rr);
         y += rh + 2;
     }

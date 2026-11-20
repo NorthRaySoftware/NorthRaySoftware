@@ -145,7 +145,16 @@ body { display: flex; flex-direction: column; font: 14px/1.4 var(--ui); overflow
 .cm-item:hover, .cm-item:focus-visible { background: var(--sel); outline: none; }
 .cm-item[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
 #bar .status { align-items: flex-end; min-width: 84px; padding-right: 2px; }
-#count { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#count { color: var(--ink); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; background: none; border: 1px solid transparent;
+  border-radius: 6px; padding: 3px 6px; cursor: default; }
+#count:hover, #count[aria-expanded="true"] { border-color: var(--rule); background: var(--page); }
+#count.sprinting { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--sel); }
+/* Writing sprints (0.49.1). */
+#sprintmenu { position: fixed; z-index: 10; padding: 6px; width: 250px; background: var(--page); border: 1px solid var(--rule); border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18); }
+#sprintmenu[hidden] { display: none; }
+#sprintmenu .mm-head { padding: 6px 10px 4px; }
+#sprintmenu .sp-note { font: 12px/1.4 var(--ui); color: var(--muted); padding: 2px 10px 8px; }
 #saved { color: var(--faint); white-space: nowrap; transition: color .3s ease; }
 #saved[data-state="saving"] { color: var(--muted); }
 #saved[data-state="failed"] { color: #b4442c; font-weight: 600; }
