@@ -1356,9 +1356,17 @@ void StudioApp::panelChoice(const std::string& id, const Rect& c, float& y, cons
                             std::function<void()> act) {
     gfx_.text(lbl, {c.x, y, c.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
     y += 20;
+    // A box you drop down, framed like the text fields, its value on the left (0.43).
     const Rect b{c.x, y, c.w, 30};
-    button(id, b, value, std::move(act));
-    gfx_.fillTriangle(b.right() - 20, b.y + 13, b.right() - 10, b.y + 13, b.right() - 15, b.y + 18, pal_.inkMuted);
+    addHit(id, b, std::move(act));
+    const float hv = hoverAmount(id);
+    gfx_.fillRounded(b, 3, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+    gfx_.strokeRounded(b, 3, pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+    gfx_.text(value, {b.x + 10, b.y, b.w - 38, b.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+    const float cx = b.right() - 15, cy = b.y + b.h / 2;
+    gfx_.line(cx - 4, cy - 2, cx, cy + 2, pal_.inkMuted, 1.4f);
+    gfx_.line(cx, cy + 2, cx + 4, cy - 2, pal_.inkMuted, 1.4f);
+    if (focused(id)) focusRing(b);
     y += 42;
 }
 

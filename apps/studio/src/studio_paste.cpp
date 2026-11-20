@@ -128,7 +128,7 @@ void StudioApp::watchFieldPastes() {
 bool StudioApp::isListField(HWND h) const { return h == fields_[FTags]; }
 
 bool StudioApp::pastedIntoField(HWND h, const std::wstring& text) {
-    if (!lib_ || ws_ != Workspace::Worldbuilding || wb_.entry.empty() || h == fields_[FTemplate] || h == fields_[FSearch]) return false;
+    if (!lib_ || ws_ != Workspace::Worldbuilding || wb_.entry.empty() || h == fields_[FTemplate] || h == fields_[FSearch] || h == fields_[FFind]) return false;
     const std::string t = narrow(text);
     if (!paste::looksLikePage(t)) return false;
     pasteEntryPage(wb_.entry, t, false);
@@ -233,11 +233,24 @@ bool StudioApp::undoEntryPaste() {
 void StudioApp::copyBlankPage() {
     const Entry* e = lib_ ? lib_->entry(wb_.entry) : nullptr;
     if (!e) return;
-    std::vector<std::string> sections, books;
+    std::vector<std::string> sections;
     for (auto& [t, text] : lib_->entrySections(*e)) sections.push_back(t);
+    copyBlankPageText(e->kind, sections);
+}
+
+// A blank page of a kind with the world's template sections, from the overview (0.43).
+void StudioApp::copyBlankPageFor(const std::string& kind) {
+    if (!lib_) return;
+    std::vector<std::string> sections;
+    for (const std::string& line : lib_->entryTemplate(wb_.world.empty() ? wb_.book : wb_.world, kind)) sections.push_back(sectionSpec(line).title);
+    copyBlankPageText(kind, sections);
+}
+
+void StudioApp::copyBlankPageText(const std::string& kind, const std::vector<std::string>& sections) {
+    std::vector<std::string> books;
     for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book))
         if (const studio::Book* bk = lib_->book(b)) books.push_back(bk->title);
-    std::string text = paste::blankPage(e->kind, sections, books);
+    std::string text = paste::blankPage(kind, sections, books);
     std::wstring wt;
     for (wchar_t ch : w(text)) { if (ch == L'\n') wt += L'\r'; wt += ch; }
     if (!OpenClipboard(hwnd())) { flash(L"The clipboard is busy; try again.", 4); return; }
@@ -250,7 +263,7 @@ void StudioApp::copyBlankPage() {
         }
     }
     CloseClipboard();
-    flash(L"A blank " + w(entryKindLabel(e->kind)) + L" page is copied. Fill it in anywhere, copy it all, and paste it back here.", 8);
+    flash(L"A blank " + w(entryKindLabel(kind)) + L" page is copied. Fill it in anywhere, copy it all, and paste it back here.", 8);
 }
 
 // ------------------------------------------------------------------ starting the bible again

@@ -65,7 +65,7 @@ struct Focus {
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
     FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen,
-    FSection, FBookNote, FTemplate, FieldCount
+    FSection, FBookNote, FTemplate, FFind, FieldCount
 };
 // The fields that take several lines.
 inline bool isMultiField(int f) { return f == FDescription || f == FNotes || f == FSynopsis || f == FSection || f == FBookNote || f == FTemplate; }
@@ -479,7 +479,9 @@ private:
     void copyBlankPage();     // a template for the open entry's kind, on the clipboard
     void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)
     bool undoBibleReset();
-    void importManyPages(bool fromClipboard);   // many bible pages from a file or the clipboard (0.39)
+    void importManyPages(bool fromClipboard);
+    void copyBlankPageFor(const std::string& kind);
+    void copyBlankPageText(const std::string& kind, const std::vector<std::string>& sections);   // many bible pages from a file or the clipboard (0.39)
     void importPagesText(const std::string& text, const std::wstring& from);
     bool undoPagesImport();
     void setFieldText(Field f, const std::string& utf8);
@@ -515,6 +517,7 @@ private:
     Focus focus_, loadedFocus_;
     bool chrono_ = false;          // series page: chronological order
     std::string search_;
+    std::string find_;          // Worldbuilding's "Find in the bible" (0.43)
     int statusFilter_ = -1;        // -1 all, else BookStatus
     std::string tagFilter_;
     float sideScroll_ = 0, sideContent_ = 0;
@@ -703,6 +706,7 @@ private:
         std::optional<studio::paste::Import> importUndo;        // the last pages imported, to take back (0.39)
         bool relationsPage = false;           // the Relationships page (0.38.2)
         bool fontsPage = false;               // the Fonts page (0.40)
+        bool kindsOpen = false;               // "Check these kinds" opened from its one-line note (0.43)
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;

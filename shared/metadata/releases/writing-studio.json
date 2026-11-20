@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.43.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Find in the bible: a box at the top of Worldbuilding narrows the cards as you type, matching names, other names, summaries and details.",
+        "Bible cards show more at a glance: a smaller picture, the kind and its race or type, two lines of summary, and a few details as chips (Age 54, Eyes grey). Gender signs are drawn, so they show on every computer.",
+        "The side panel on the cards is now a summary of the world: how many entries of each kind (click one to see them), what changed lately, and quick actions: a new entry, importing many pages, copying a blank page, sharing the bible.",
+        "The sidebar is in two clear parts, Entries and The world, with kinds that have nothing yet shown more quietly.",
+        "Check these kinds is now a one-line note you can open, rather than a box at the top of every page.",
+        "Choices in side panels (kind, gender, race and the rest, everywhere in the Studio) are framed like the text boxes with the value on the left. The paste tools moved to the foot of an entry's panel, under Pages from elsewhere."
+      ]
+    },
+    {
       "version": "0.42.0",
       "date": "2026-11-20",
       "notes": [

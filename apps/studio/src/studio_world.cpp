@@ -206,6 +206,29 @@ static std::wstring genderSign(const std::wstring& g) {
     if (g == L"Non-binary" || g == L"Genderfluid" || g == L"Agender" || g == L"Intersex") return L"\u26A7";
     return L"";
 }
+// The sign drawn (not every font has the characters): a ring, with a cross below (female), an arrow up and right
+// (male), or a line up with a cross bar and a stroke (⚧ for the others). `s` is the ring's diameter.
+static void drawGenderSign(cjui::Gfx& gfx, float cx, float cy, float s, const std::wstring& g, cjui::Color c) {
+    const float r = s / 2, t = std::max(1.4f, s / 9);
+    if (g == L"Female") {
+        cy -= s * 0.28f;
+        gfx.circle(cx, cy, r, c, false, t);
+        gfx.line(cx, cy + r, cx, cy + r + s * 0.6f, c, t);
+        gfx.line(cx - s * 0.28f, cy + r + s * 0.32f, cx + s * 0.28f, cy + r + s * 0.32f, c, t);
+    } else if (g == L"Male") {
+        cx -= s * 0.18f; cy += s * 0.18f;
+        gfx.circle(cx, cy, r, c, false, t);
+        const float a = 0.7071f, sx = cx + r * a, sy = cy - r * a, ex = sx + s * 0.42f, ey = sy - s * 0.42f;
+        gfx.line(sx, sy, ex, ey, c, t);
+        gfx.line(ex - s * 0.34f, ey, ex, ey, c, t);
+        gfx.line(ex, ey, ex, ey + s * 0.34f, c, t);
+    } else if (!genderSign(g).empty()) {
+        cy += s * 0.12f;
+        gfx.circle(cx, cy, r, c, false, t);
+        gfx.line(cx, cy - r, cx, cy - r - s * 0.6f, c, t);
+        gfx.line(cx - s * 0.24f, cy - r - s * 0.3f, cx + s * 0.24f, cy - r - s * 0.3f, c, t);
+    }
+}
 static cjui::Color genderColor(const std::wstring& g, const cjui::Palette& p) {
     const char* light = "#7A7F8C"; const char* dark = "#A6ABB8";
     if (g == L"Female") { light = "#B4507A"; dark = "#E68AB0"; }
@@ -541,11 +564,15 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         if (!kind.empty()) gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 3.5f, kindColor(kind, pal_.dark), true);
         const float lx = kind.empty() ? tx0 : tx0 + 16;
-        gfx_.text(label, {lx, rr.y, cw - 30 - (lx - tx0), rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+        // Kinds with nothing in them yet are quieter (0.43).
+        gfx_.text(label, {lx, rr.y, cw - 30 - (lx - tx0), rr.h}, sel ? Font::BodyStrong : Font::Body, count || sel ? pal_.ink : pal_.inkMuted,
+                  {Align::Left, false, true, true});
+        if (count) gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
         if (focused(id)) focusRing(rr);
         y += 32;
     };
+    gfx_.text(L"ENTRIES", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 22;
     row("", L"Everything", (int)all.size());
     for (auto& k : entryKinds()) {
         int n = 0;
@@ -611,7 +638,9 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                 y += 4;
             }
     }
-    y += 20;
+    y += 18;
+    gfx_.text(L"THE WORLD", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 22;
     // Glossary and checks.
     {
         const std::string id = "side:wb:glossary";
@@ -776,7 +805,25 @@ void StudioApp::drawWorldPage(const Rect& r) {
         if (const World* wo = lib_->world(wb_.world)) scopeName = w(wo->name);
         else if (const studio::Book* b = lib_->book(wb_.book)) scopeName = w(b->title);
         std::vector<const Entry*> list;
+        // "Find in the bible" (0.43): every word typed must be in the name, other names, summary or details.
+        std::vector<std::string> findWords;
+        {
+            std::string cur;
+            for (char ch : find_ + " ") {
+                if (ch == ' ' || ch == ',') { if (!cur.empty()) findWords.push_back(cur); cur.clear(); }
+                else cur += (char)std::tolower((unsigned char)ch);
+            }
+        }
+        auto found = [&](const Entry& x) {
+            if (findWords.empty()) return true;
+            std::string hay = x.name + "\n" + x.summary + "\n" + x.details;
+            for (auto& a : x.aliases) hay += "\n" + a;
+            for (auto& c : hay) c = (char)std::tolower((unsigned char)c);
+            for (auto& fw : findWords) if (hay.find(fw) == std::string::npos) return false;
+            return true;
+        };
         for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) {
+            if (!found(*x)) continue;
             if (!wb_.kind.empty() && x->kind != wb_.kind) continue;
             if (wb_.facet.rfind("under=", 0) == 0) { if (!isUnder(*lib_, *x, wb_.facet.substr(6))) continue; }
             else if (!facetMatches(*x, wb_.facet)) continue;
@@ -790,20 +837,52 @@ void StudioApp::drawWorldPage(const Rect& r) {
             else if (wb_.facet.rfind("under=", 0) == 0) if (const Entry* r = lib_->entry(v)) title += L": " + w(r->name);
         }
         std::wstring sub = std::to_wstring(list.size()) + (list.size() == 1 ? L" entry" : L" entries");
+        if (!findWords.empty()) sub += L" found";
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
         y += pageHeader(m, L"WORLDBUILDING", title, sub);
-        if (wb_.kind == "character" && !list.empty()) {
-            // How Characters are split within each book.
-            gfx_.text(L"Group by", {m.x, y - 4, 70, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
-            const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
-            segmented("wb:groupby", {m.x + 72, y - 4, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
-                wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
-                invalidate();
-            });
-            y += 40;
+        {
+            // The find box, and for characters how they're grouped, on one row.
+            const Rect fr{m.x, y - 6, std::min(320.0f, cw * 0.5f), 32};
+            gfx_.fillRounded(fr, 6, pal_.surface);
+            gfx_.strokeRounded(fr, 6, GetFocus() == fields_[FFind] ? pal_.ribbon : pal_.rule);
+            {
+                // A magnifier, drawn.
+                const float gx = fr.x + 15, gy = fr.y + fr.h / 2 - 1;
+                gfx_.circle(gx, gy, 5, pal_.inkFaint, false, 1.4f);
+                gfx_.line(gx + 3.6f, gy + 3.6f, gx + 7.5f, gy + 7.5f, pal_.inkFaint, 1.6f);
+            }
+            placeField(FFind, {fr.x + 22, fr.y, fr.w - 22 - (find_.empty() ? 0 : 26), fr.h});
+            if (!find_.empty()) {
+                // Clear: a drawn cross (not every font has one).
+                const Rect xr{fr.right() - 28, fr.y + 4, 24, fr.h - 8};
+                addHit("wb:findclear", xr, [this] { setFieldText(FFind, ""); find_.clear(); invalidate(); });
+                const float hv = hoverAmount("wb:findclear");
+                if (hv > 0.01f) gfx_.fillRounded(xr, 4, pal_.sunken.withAlpha(hv));
+                const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
+                gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, pal_.inkMuted, 1.4f);
+                gfx_.line(cx - 4, cy + 4, cx + 4, cy - 4, pal_.inkMuted, 1.4f);
+            }
+            if (wb_.kind == "character" && !list.empty() && fr.right() + 380 <= m.right()) {
+                const float gx = m.right() - 300;
+                gfx_.text(L"Group by", {gx - 70, fr.y, 66, fr.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
+                const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
+                segmented("wb:groupby", {gx, fr.y + 2, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
+                    wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
+                    invalidate();
+                });
+            } else if (wb_.kind == "character" && !list.empty()) {
+                y += 42;
+                gfx_.text(L"Group by", {m.x, y - 4, 70, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+                const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
+                segmented("wb:groupby", {m.x + 72, y - 4, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
+                    wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
+                    invalidate();
+                });
+            }
+            y += 46;
         }
-        y = drawKindSuggestions(m, y);
-        if (wb_.kind == "character" && wb_.facet.empty()) {
+        if (findWords.empty()) y = drawKindSuggestions(m, y);
+        if (wb_.kind == "character" && wb_.facet.empty() && findWords.empty()) {
             // The families in the bible, each opening its tree.
             const auto fams = lib_->families(wb_.world, wb_.book);
             if (!fams.empty()) {
@@ -830,7 +909,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 y += 52;
             }
         }
-        if ((wb_.kind == "place" || wb_.kind == "realm") && wb_.facet.empty()) {
+        if ((wb_.kind == "place" || wb_.kind == "realm") && wb_.facet.empty() && findWords.empty()) {
             // The bible's maps, each opening its place's page at the map.
             std::vector<const Entry*> maps;
             for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) if (!x->mapBlob.empty() && (x->kind == "place" || x->kind == "realm")) maps.push_back(x);
@@ -855,8 +934,11 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 y += th + 34 + 20;
             }
         }
-        if (wb_.kind == "creature" && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
+        if (wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0)) {
             y = drawCreatureTree(m, y);
+        } else if (list.empty() && !findWords.empty()) {
+            y += gfx_.text(L"Nothing in the bible matches \u201C" + w(find_) + L"\u201D" + (wb_.kind.empty() ? L"." : L" among the " + w(entryKindPlural(wb_.kind)) + L"."),
+                           {m.x, y, std::min(cw, 640.0f), 60}, Font::Body, pal_.inkMuted) + 16;
         } else if (list.empty()) {
             const std::wstring hint = wb_.kind.empty()
                 ? L"Keep track of who and what is in your books: characters, places, groups, things, lore and events. Each entry has "
@@ -897,9 +979,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
             for (const Entry* x : list) if (!placed.count(x->id)) addTree(x, 0, std::string::npos);   // a loop of "Located in"
 
-            const float gap = 16;
-            const int cols = std::max(1, (int)((cw + gap) / (240 + gap)));
-            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 124;   // 0.35: bigger portraits
+            const float gap = 14;
+            const int cols = std::max(1, (int)((cw + gap) / (250 + gap)));
+            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 118;   // 0.43: picture, two lines, details
             const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
             for (auto& [g, items] : groups) {
             if (headings) {
@@ -968,9 +1050,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                                      : subLabel == L"Not set" || subLabel == L"Other creatures" ? pal_.inkMuted
                                                                                                : kindColor(subKind, pal_.dark);
                 float lx = m.x;
-                if (!sign.empty()) {   // the sign large, then the group's name
-                    gfx_.text(sign, {m.x - 2, y - 8, 32, 34}, Font::Title, sc, {Align::Center, false, false, true});
-                    lx += 34;
+                if (!sign.empty()) {   // the sign, then the group's name
+                    drawGenderSign(gfx_, m.x + 9, y + 10, 10, subLabel, sc);
+                    lx += 26;
                 }
                 gfx_.text(subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {lx, y, cw - (lx - m.x), 20}, Font::SmallStrong, sc,
                           {Align::Left, false, true});
@@ -990,37 +1072,72 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
                 // The kind's colour: a band down the left edge, and the initials' circle.
                 gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
-                const Rect pic{cr.x + 14, cr.y + 12, 100, 100};
+                // The picture (a portrait's top), or the initials in a ring of the kind's colour.
+                const Rect pic{cr.x + 14, cr.y + 14, 72, 90};
                 if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-                    gfx_.fillRounded(pic, 50, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-                    gfx_.strokeRounded(pic.inset(0.75f), 49.25f, kc.withAlpha(0.45f), 1.5f);
-                    gfx_.text(initials(x->name), pic, Font::Title, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                    const Rect ring{pic.x + 4, pic.y + 13, 64, 64};
+                    gfx_.fillRounded(ring, 32, kc.withAlpha(pal_.dark ? 0.20f : 0.13f));
+                    gfx_.strokeRounded(ring.inset(0.75f), 31.25f, kc.withAlpha(0.45f), 1.2f);
+                    gfx_.text(initials(x->name), ring, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
                 } else {
                     gfx_.stroke({pic.x - 0.5f, pic.y - 0.5f, pic.w + 1, pic.h + 1}, pal_.rule, 1);
                 }
-                const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
+                const float tx = pic.right() + 14, tw = cr.right() - 14 - tx;
                 {
                     std::wstring label = upper(w(entryKindLabel(x->kind)));
                     for (const Facet* f : facetsFor(x->kind))
-                        if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
-                    gfx_.text(label, {tx, cr.y + 13, tw, 16}, Font::Label, kc, {Align::Left, false, true});
+                        if (f->key != "gender")
+                            if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
+                    gfx_.text(label, {tx, cr.y + 13, tw - 20, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
                 // A character's gender or sex: its sign in the card's corner, in the group's colour.
                 if (x->kind == "character")
                     if (const std::wstring g = w(facetOf(*x, *findFacet("gender"))); !g.empty())
-                        if (const std::wstring sg = genderSign(g); !sg.empty())
-                            gfx_.text(sg, {cr.right() - 40, cr.y + 4, 36, 36}, Font::Title, genderColor(g, pal_), {Align::Center, false, false, true});
+                        drawGenderSign(gfx_, cr.right() - 18, cr.y + 20, 9, g, genderColor(g, pal_));
+                gfx_.text(w(x->name), {tx, cr.y + 29, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+                float ty = cr.y + 52;
                 // A place inside another: "in Akunda", and a mark per level.
                 if (depth > 0)
                     if (auto pit = parentOf.find(x->id); pit != parentOf.end())
                         if (const Entry* par = lib_->entry(pit->second)) {
-                            for (int d = 0; d < depth && d < 4; ++d) gfx_.circle(cr.right() - 14 - d * 9, cr.y + 14, 2.5f, kc.withAlpha(0.6f), true);
-                            gfx_.text((x->kind == "creature" ? L"a kind of " : L"in ") + w(par->name), {tx, cr.y + 52, tw, 18}, Font::Small,
+                            for (int d = 0; d < depth && d < 4; ++d) gfx_.circle(cr.right() - 14 - d * 9, cr.y + 40, 2.5f, kc.withAlpha(0.6f), true);
+                            gfx_.text((x->kind == "creature" ? L"a kind of " : L"in ") + w(par->name), {tx, ty, tw, 18}, Font::Small,
                                       kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
+                            ty += 18;
                         }
-                gfx_.text(w(x->name), {tx, cr.y + 30, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-                if (!x->summary.empty()) gfx_.text(w(x->summary), {tx, cr.y + (depth > 0 ? 70 : 52), tw, depth > 0 ? 36 : 54}, Font::Small, pal_.inkMuted,
-                                                   {Align::Left, false, true});
+                if (!x->summary.empty())
+                    gfx_.text(w(x->summary), {tx, ty, tw, depth > 0 ? 18.0f : 34.0f}, Font::Small, pal_.inkMuted, {Align::Left, depth == 0, true});
+                // A few details as chips along the foot: the first ones written that the label doesn't already show.
+                {
+                    float chx = tx;
+                    const float chy = cr.bottom() - 30;
+                    int shown = 0;
+                    size_t at = 0;
+                    while (at < x->details.size() && shown < 3) {
+                        size_t nl = x->details.find('\n', at);
+                        if (nl == std::string::npos) nl = x->details.size();
+                        const std::string line = trimmedCopy(x->details.substr(at, nl - at));
+                        at = nl + 1;
+                        const size_t colon = line.find(':');
+                        if (colon == std::string::npos) continue;
+                        const std::string lab = trimmedCopy(line.substr(0, colon)), val = trimmedCopy(line.substr(colon + 1));
+                        if (lab.empty() || val.empty() || val.size() > 40) continue;
+                        bool facet = false;
+                        for (const Facet* f : facetsFor(x->kind)) { size_t c2; if (isFacetLine(line, *f, c2)) facet = true; }
+                        if (facet) continue;
+                        const std::wstring lw = w(lab), vw = w(val);
+                        const float lwid = gfx_.measureWidth(lw, Font::Small), vwid = gfx_.measureWidth(vw, Font::Small);
+                        const float room = tw - (chx - tx);
+                        if (room < 48 || (shown > 0 && lwid + vwid + 22 > room)) break;   // the first may be shortened, the rest fit or wait
+                        const float chw = std::min(lwid + vwid + 22, room);
+                        const Rect chip{chx, chy, chw, 20};
+                        gfx_.fillRounded(chip, 10, pal_.sunken.mix(pal_.surface, 0.3f));
+                        gfx_.text(lw, {chip.x + 8, chip.y, lwid, chip.h}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+                        gfx_.text(vw, {chip.x + 12 + lwid, chip.y, chip.w - lwid - 18, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                        chx += chw + 6;
+                        ++shown;
+                    }
+                }
                 if (focused(id)) focusRing(cr);
                 if (col == cols - 1 || i + 1 == subItems.size()) y += cardH + gap;
             }
@@ -1482,15 +1599,11 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     if (e && !e->deleted) {
         panelHeading(c, y, L"ENTRY", true);
         // A whole page from elsewhere (0.37), and taking the last one back.
+        // Taking a paste back stays at the top, where it's wanted straight after one (the paste tools are at the foot, 0.43).
         if (wb_.pasteUndo && wb_.pasteUndo->entry == e->id) {
             linkText("wb:pasteundo", c.x, y, L"Undo the paste", [this] { undoEntryPaste(); });
-            y += 28;
-        } else {
-            linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
-            y += 28;
+            y += 32;
         }
-        linkText("wb:blank", c.x, y, L"Copy a blank page to fill in", [this] { copyBlankPage(); });
-        y += 28;
         fieldTop[FName] = y;
         y = panelField(c, y, L"Name", FName);
         panelChoice("wb:kind", c, y, L"Kind", w(entryKindLabel(e->kind)), [this] {
@@ -1518,8 +1631,8 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 if (l.from == e->id && l.label == "Kind of") if (const Entry* o = lib_->entry(l.to); o && !o->deleted && o->kind == "creature") pid = o->id;
             const Entry* parent = lib_->entry(pid);
             const bool ch = e->kind == "character";
-            panelChoice("wb:kindof", c, y, ch ? L"A creature? (a named one)" : L"A kind of",
-                        parent ? w(parent->name) : ch ? L"No" : L"Nothing (a species of its own)", [this] {
+            panelChoice("wb:kindof", c, y, ch ? L"Kind of creature (for a named creature)" : L"A kind of",
+                        parent ? w(parent->name) : ch ? L"Not a creature" : L"Nothing (a species of its own)", [this] {
                 const Entry* x = lib_->entry(wb_.entry);
                 if (!x) return;
                 std::vector<const Entry*> options;
@@ -1804,6 +1917,13 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             }
             y += 14;
         }
+        panelHeading(c, y, L"PAGES FROM ELSEWHERE", false);
+        linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
+        y += 30;
+        linkText("wb:blank", c.x, y, L"Copy a blank page to fill in", [this] { copyBlankPage(); });
+        y += 30;
+        y += gfx_.text(L"Or press Ctrl+V on this page with a copied page: what it has replaces what's here.", {c.x, y + 2, c.w, 40}, Font::Small,
+                       pal_.inkFaint) + 14;
         linkText("wb:trash", c.x, y, L"Move to Trash", [this] {
             const Entry* x = lib_->entry(wb_.entry);
             if (!x) return;
@@ -1818,20 +1938,68 @@ void StudioApp::drawWorldPanel(const Rect& r) {
         });
         y += 34;
     } else {
-        panelHeading(c, y, L"WORLDBUILDING", true);
-        y += gfx_.text(L"Entries belong to a world, so every book in it shares them. An independent book has its own.\n\n"
-                       L"“Appears in” searches the manuscripts for an entry's name and its other names, as whole words.",
-                       {c.x, y, c.w, 240}, Font::Small, pal_.inkMuted) + 14;
-        panelHeading(c, y, L"KINDS", false);
-        for (auto& k : entryKinds()) {
-            static const std::map<std::string, const wchar_t*> what = {
-                {"character", L"The people in the story."}, {"race", L"The peoples and species you've made: the Fluxians, say."}, {"realm", L"Worlds and planes: Heaven, Hell, the spirit world."}, {"creature", L"Beasts, monsters, animals, species."}, {"place", L"Countries, towns, buildings, rooms."},
-                {"group", L"Families, guilds, crews, armies, nations."}, {"thing", L"Objects, ships, weapons, heirlooms."},
-                {"lore", L"History, beliefs, languages, legends."}, {"magic", L"Magic systems and powers: how they work, their rules and costs."}, {"event", L"Battles, festivals, disasters, turning points."}};
-            gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false});
-            y += 20;
-            y += gfx_.text(what.at(k), {c.x, y, c.w, 40}, Font::Small, pal_.inkMuted) + 8;
+        // The world at a glance (0.43): how many of each kind, what changed lately, and the things to do from here.
+        const auto all = lib_->entriesOf(wb_.world, wb_.book);
+        std::wstring scope;
+        if (const World* wo = lib_->world(wb_.world)) scope = w(wo->name);
+        else if (const studio::Book* b = lib_->book(wb_.book)) scope = w(b->title);
+        panelHeading(c, y, L"THIS WORLD", true);
+        y += gfx_.text(scope, {c.x, y, c.w, 30}, Font::Heading, pal_.ink, {Align::Left, false, true}) + 2;
+        y += gfx_.text(std::to_wstring(all.size()) + (all.size() == 1 ? L" entry, shared by every book in it." : L" entries, shared by every book in it."),
+                       {c.x, y, c.w, 40}, Font::Small, pal_.inkMuted) + 12;
+        {
+            // A bar per kind with something in it.
+            int most = 1;
+            std::map<std::string, int> n;
+            for (const Entry* x : all) most = std::max(most, ++n[x->kind]);
+            for (const auto& k : entryKinds()) {
+                if (!n[k]) continue;
+                const std::string id = "wb:pk:" + k;
+                const Rect row{c.x - 6, y, c.w + 12, 24};
+                addHit(id, row, [this, k] { wb_.kind = k; wb_.facet.clear(); wb_.scroll = 0; openEntry({}); });
+                const float hv = hoverAmount(id);
+                if (hv > 0.01f) gfx_.fillRounded(row, 4, pal_.sunken.withAlpha(0.6f * hv));
+                const cjui::Color kc = kindColor(k, pal_.dark);
+                gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w * 0.42f, 24}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                const float bx = c.x + c.w * 0.44f, bw = c.w * 0.44f;
+                gfx_.fillRounded({bx, y + 9, bw, 6}, 3, pal_.sunken);
+                gfx_.fillRounded({bx, y + 9, std::max(6.0f, bw * n[k] / most), 6}, 3, kc);
+                gfx_.text(std::to_wstring(n[k]), {c.x, y, c.w, 24}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
+                y += 26;
+            }
+            y += 10;
         }
+        {
+            // What changed lately.
+            std::vector<const Entry*> recent(all.begin(), all.end());
+            std::sort(recent.begin(), recent.end(), [](const Entry* a, const Entry* b) { return a->modified > b->modified; });
+            if (!recent.empty()) {
+                panelHeading(c, y, L"CHANGED LATELY", false);
+                for (size_t i = 0; i < recent.size() && i < 5; ++i) {
+                    const Entry* x = recent[i];
+                    const std::string id = "wb:recent:" + x->id;
+                    const Rect row{c.x - 6, y, c.w + 12, 26};
+                    addHit(id, row, [this, eid = x->id] { openEntry(eid); });
+                    const float hv = hoverAmount(id);
+                    if (hv > 0.01f) gfx_.fillRounded(row, 4, pal_.sunken.withAlpha(0.6f * hv));
+                    gfx_.circle(c.x + 4, y + 13, 3.5f, kindColor(x->kind, pal_.dark), true);
+                    gfx_.text(w(x->name), {c.x + 16, y, c.w - 16, 26}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                    y += 27;
+                }
+                y += 10;
+            }
+        }
+        panelHeading(c, y, L"FROM HERE", false);
+        auto act = [&](const std::string& id, const std::wstring& label, std::function<void()> fn) {
+            linkText(id, c.x, y, label, std::move(fn));
+            y += 30;
+        };
+        act("wb:pa:new", wb_.kind.empty() ? L"New entry\u2026" : L"New " + [&] { std::wstring l = w(entryKindLabel(wb_.kind)); for (auto& ch : l) ch = (wchar_t)towlower(ch); return l; }(),
+            [this] { newEntry(wb_.kind); });
+        act("wb:pa:import", L"Import many pages\u2026", [this] { importManyPages(false); });
+        act("wb:pa:blank", L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); });
+        act("wb:pa:share", L"Share the bible\u2026", [this] { shareBible(); });
+        y += gfx_.text(L"Paste a copied page onto the cards with Ctrl+V to make an entry from it.", {c.x, y + 4, c.w, 40}, Font::Small, pal_.inkFaint) + 10;
     }
     wb_.panelContent = y + wb_.panelScroll - r.y + 20;
     clearHitClip();
@@ -2030,11 +2198,27 @@ float StudioApp::drawKindSuggestions(const Rect& m, float y) {
         if (!dismissed && e && (wb_.kind.empty() || e->kind == wb_.kind || s.kind == wb_.kind)) list.push_back(s);
     }
     if (list.empty()) return y;
+    if (!wb_.kindsOpen) {
+        // One line, out of the way: open it to see them (0.43).
+        const Rect note{m.x, y, m.w, 38};
+        const std::string id = "wb:sug:open";
+        addHit(id, note, [this] { wb_.kindsOpen = true; invalidate(); });
+        const float hv = hoverAmount(id);
+        gfx_.fillRounded(note, 6, pal_.surface.mix(pal_.demo, 0.06f + 0.06f * hv));
+        gfx_.strokeRounded(note, 6, pal_.demo.withAlpha(0.45f + 0.3f * hv), 1);
+        gfx_.circle(note.x + 18, note.y + note.h / 2, 4, pal_.demo, true);
+        const std::wstring t = list.size() == 1 ? L"1 entry may be filed under the wrong kind." : std::to_wstring(list.size()) + L" entries may be filed under the wrong kind.";
+        gfx_.text(t, {note.x + 32, note.y, note.w - 140, note.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+        gfx_.text(L"Check \u203A", {note.x, note.y, note.w - 16, note.h}, Font::SmallStrong, pal_.demo.mix(pal_.ink, 0.3f), {Align::Right, false, false, true});
+        if (focused(id)) focusRing(note);
+        return note.bottom() + 20;
+    }
     const float rowH = 44;
     const Rect card{m.x, y, m.w, 40 + rowH * std::min<size_t>(list.size(), 6) + 8};
     gfx_.fillRounded(card, 6, pal_.surface);
     gfx_.strokeRounded(card, 6, pal_.demo.withAlpha(0.6f), 1);
     gfx_.text(L"CHECK THESE KINDS", {card.x + 18, card.y + 12, card.w - 36, 18}, Font::Label, pal_.inkMuted, {Align::Left, false});
+    linkText("wb:sug:hide", card.right() - 18 - gfx_.measureWidth(L"Hide", Font::Small), card.y + 8, L"Hide", [this] { wb_.kindsOpen = false; invalidate(); });
     float ry = card.y + 40;
     for (size_t i = 0; i < list.size() && i < 6; ++i) {
         const auto& s = list[i];

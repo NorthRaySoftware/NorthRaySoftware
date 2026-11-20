@@ -415,6 +415,33 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.43.0: Worldbuilding polished (20 Nov 2026)
+
+CJ asked for the same polish as Writing's bar for each part of the Studio, one at a time; Worldbuilding first.
+
+- **Find in the bible**: a new field `FFind` (cue "Find in the bible: a name, a word"; Esc clears; not committed,
+  pasted pages or cleared with the others), `find_`. The cards view filters on every typed word appearing in the
+  name, other names, summary or details; while finding, the kind check, family trees, maps and the creature tree are
+  hidden and an empty result says so. The box has a drawn magnifier and clear cross.
+- **Cards** (250 px minimum, 118 tall): a 72 × 90 picture or a 64 px initials ring; the kind and facets (not gender,
+  which is the drawn sign `drawGenderSign`: ring and cross, ring and arrow, or ring and stroke); the name; two lines of
+  summary (wrapped, trimmed); up to three detail chips (label faint, value ink) from the first non-facet "Label: value"
+  lines that fit.
+- **Sidebar**: "ENTRIES" and "THE WORLD" headings; kinds with no entries drawn in the muted ink and without a count.
+- **Kind suggestions**: a one-line note ("2 entries may be filed under the wrong kind. Check ›") until opened
+  (`wb_.kindsOpen`), with Hide on the open card.
+- **Overview panel** (no entry open): the world's name and count, a bar per kind in use (click to filter), the five
+  most recently changed entries, and actions (new entry, Import many pages, `copyBlankPageFor(kind)` with the world's
+  template, Share the bible). `copyBlankPage` and it share `copyBlankPageText`.
+- **Entry panel**: "Undo the paste" stays at the top after a paste; Fill this page and Copy a blank page moved to a
+  "PAGES FROM ELSEWHERE" section at the foot. "A creature? (a named one)" became "Kind of creature (for a named
+  creature)" with "Not a creature".
+- **Everywhere**: `panelChoice` draws a field-like box (surface, rule, hover) with the value left-aligned and a drawn
+  chevron, instead of a centred button.
+- Tested in Wine: the overview with the summary panel, Characters with the drawn signs and grouping, the find box
+  narrowing to two entries and clearing, the kind note opening and hiding, an entry page with the new panel.
+
+
 ## 0.42.0: the writing bar, like a word processor's (20 Nov 2026)
 
 CJ: the bar at the top when writing needed a lot of work, and the font choice smoothing out, based on Word.

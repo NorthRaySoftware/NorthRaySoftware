@@ -1301,8 +1301,9 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                     if (fields_[f] != ctl) continue;
                     if (code == EN_CHANGE && !suppressChange_) {
                         if (f == FSearch) { search_ = fieldText(FSearch); invalidate(); }
+                        else if (f == FFind) { find_ = fieldText(FFind); wb_.scroll = 0; invalidate(); }
                         else { dirty_ = true; SetTimer(hwnd(), kSaveTimer, 700, nullptr); }
-                    } else if (code == EN_KILLFOCUS && f != FSearch) {
+                    } else if (code == EN_KILLFOCUS && f != FSearch && f != FFind) {
                         commitFields();
                     }
                     return 0;
@@ -1693,6 +1694,7 @@ bool StudioApp::preTranslate(const MSG& msg) {
     if (msg.wParam == VK_ESCAPE || (msg.wParam == VK_RETURN && !multi)) {
         commitFields();
         if (current == FSearch && msg.wParam == VK_ESCAPE) { setFieldText(FSearch, ""); search_.clear(); }
+        if (current == FFind && msg.wParam == VK_ESCAPE) { setFieldText(FFind, ""); find_.clear(); invalidate(); }
         SetFocus(hwnd());
         invalidate();
         return true;
@@ -1712,6 +1714,7 @@ void StudioApp::createFields() {
     }
     watchFieldPastes();
     SendMessageW(fields_[FSearch], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search titles, authors, tags"));
+    SendMessageW(fields_[FFind], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Find in the bible: a name, a word"));
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"fantasy, dragons"));
     SendMessageW(fields_[FAccent], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"#2D4A6E"));
     SendMessageW(fields_[FNumber], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Unnumbered"));
@@ -1776,7 +1779,7 @@ void StudioApp::loadFields() {
     loadedFocus_ = focus_;
     dirty_ = false;
     if (!lib_) return;
-    for (int f = 0; f < FieldCount; ++f) if (f != FSearch) setFieldText((Field)f, "");
+    for (int f = 0; f < FieldCount; ++f) if (f != FSearch && f != FFind) setFieldText((Field)f, "");
     // The tags field doubles as an entry's other names.
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(focus_.kind == Focus::Entry ? L"the Captain, Mara" : L"fantasy, dragons"));
