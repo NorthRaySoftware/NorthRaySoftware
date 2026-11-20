@@ -171,6 +171,10 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
         for (size_t i = 0; i < order.size(); ++i) {
             const Id f = order[i];
             if (gen[f] != 0) continue;
+            // A founder's own brothers and sisters belong to the founding generation too (Mah'los beside Zah'ra) (0.47).
+            if (famOf(f).parents.empty())
+                for (const Id& sb : famOf(f).siblings)
+                    if (famOf(sb).parents.empty()) add(sb, 0);
             for (const Id& p : famOf(f).partners)
                 if (famOf(p).parents.empty()) add(p, 0);
             for (const Id& c : famOf(f).children)
@@ -328,50 +332,66 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
         }
     float minX = 1e9f, maxX = -1e9f;
     for (auto& [id, v] : x) { minX = std::min(minX, v); maxX = std::max(maxX, v); }
-    for (const Id& id : order) out.people.push_back({id, gen[id], x[id] - minX, inLaws.count(id) > 0});
+    for (const Id& id : order) {
+        FamilyLayout::Person p{id, gen[id], x[id] - minX, inLaws.count(id) > 0, {}};
+        if (p.inLaw) {
+            // How they joined (0.47): married to one of the family, their partner, or a parent of a child of theirs.
+            bool married = false, partner = false;
+            for (const EntryLink& l : linksOf(id)) {
+                const Id other = l.from == id ? l.to : l.from;
+                if (!gen.count(other) || inLaws.count(other)) continue;
+                if (l.label == "Married to") married = true;
+                else if (l.label == "Partner of") partner = true;
+            }
+            p.joined = married ? "married" : partner ? "partner" : "parent";
+        }
+        out.people.push_back(p);
+    }
     out.width = order.empty() ? 0 : maxX - minX + 1;
     return out;
 }
 
 std::vector<Library::FamilyGroup> Library::families(const Id& worldId, const Id& bookId) const {
     std::vector<FamilyGroup> out;
-    std::set<Id> own;   // people already in a family as one of its own (not married in)
     std::vector<const Entry*> chars;
     for (const Entry* e : entriesOf(worldId, bookId)) if (e->kind == "character") chars.push_back(e);
-    auto addGroup = [&](const Id& founder) {
-        const FamilyLayout lay = familyLayout(founder, 400, true);
-        std::map<std::string, int> names;
-        int count = 0;
-        for (const auto& p : lay.people) {
-            if (p.inLaw) continue;
-            own.insert(p.id);
-            ++count;
-            if (const Entry* m = entry(p.id)) if (const std::string s = surnameOf(m->name); !s.empty()) ++names[s];
-        }
-        if (lay.people.size() < 2) return;
-        std::string surname;
-        int best = 1;
-        for (auto& [s, n] : names) if (n > best) { best = n; surname = s; }
-        out.push_back({founder, surname, (int)lay.people.size()});
-    };
-    // Founders: no parents, with children whose other parents have no parents either (else they married in).
+    // Every possible founder's tree first (0.47): someone with no parents who has children, or brothers and sisters.
+    // Founders whose children's other parents have parents of their own married into that family instead.
+    struct Candidate { Id root; std::set<Id> own; int people = 0; std::string surname; };
+    std::vector<Candidate> cands;
     for (const Entry* e : chars) {
-        if (own.count(e->id)) continue;
         const Family f = familyOf(e->id);
-        if (!f.parents.empty() || f.children.empty()) continue;
-        // Children already in a family: this is that family's founder by another route, not a new family.
-        if (std::any_of(f.children.begin(), f.children.end(), [&](const Id& c) { return own.count(c) > 0; })) continue;
+        if (!f.parents.empty() || (f.children.empty() && f.siblings.empty())) continue;
         bool marriedIn = false;
         for (const Id& c : f.children)
             for (const Id& op : familyOf(c).parents)
                 if (op != e->id && !familyOf(op).parents.empty()) marriedIn = true;
-        if (!marriedIn) addGroup(e->id);
+        if (marriedIn) continue;
+        const FamilyLayout lay = familyLayout(e->id, 400, true);
+        if (lay.people.size() < 2) continue;
+        Candidate c{e->id, {}, (int)lay.people.size(), {}};
+        std::map<std::string, int> names;
+        for (const auto& p : lay.people) {
+            if (p.inLaw) continue;
+            c.own.insert(p.id);
+            if (const Entry* m = entry(p.id)) if (const std::string sn = surnameOf(m->name); !sn.empty()) ++names[sn];
+        }
+        int best = 1;
+        for (auto& [sn, n] : names) if (n > best) { best = n; c.surname = sn; }
+        cands.push_back(std::move(c));
     }
-    // Brothers and sisters with no parents (and no family yet).
-    for (const Entry* e : chars) {
-        if (own.count(e->id)) continue;
-        const Family f = familyOf(e->id);
-        if (f.parents.empty() && !f.siblings.empty()) addGroup(e->id);
+    // The biggest trees first; a tree whose own people are mostly in one already kept is the same family seen from
+    // another founder (Maria's beside Iris's), so it's left out.
+    std::stable_sort(cands.begin(), cands.end(), [](const Candidate& a, const Candidate& b) {
+        return a.own.size() != b.own.size() ? a.own.size() > b.own.size() : a.people > b.people;
+    });
+    std::set<Id> taken;
+    for (const Candidate& c : cands) {
+        size_t shared = 0;
+        for (const Id& id : c.own) shared += taken.count(id);
+        if (shared * 2 > c.own.size() || taken.count(c.root)) continue;
+        taken.insert(c.own.begin(), c.own.end());
+        out.push_back({c.root, c.surname, c.people, {}});
     }
     std::stable_sort(out.begin(), out.end(), [](const FamilyGroup& a, const FamilyGroup& b) { return a.people > b.people; });
     // Names, told apart by the founder's first name (then their whole name) when two families share a surname.

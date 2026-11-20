@@ -1450,6 +1450,55 @@ static void testEntryPages() {
 
 // A family tree as a picture (0.45), and in the bible's PDF.
 // The program's own typefaces (0.46): each opens with a regular face, and the bible website copies one in.
+// CJ's Alvora shapes (0.47): one Smith family however it's reached, one Crystalline family with Zah'ra's brother, and
+// partners who aren't married labelled as partners.
+static void testFamilyFounders() {
+    const std::string dir = tempLibrary("famfounders");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Alvora");
+    auto person = [&](const char* name) { return lib->createEntry(world, {}, "character", name); };
+    const Id iris = person("Iris"), violet = person("Violet Smith"), ralph = person("Ralph Smith"), maria = person("Maria Susan Smith");
+    const Id tom = person("Thomas Terrance Smith"), astrid = person("Astrid Mira Smith"), lillia = person("Lillia Smith");
+    const Id sahra = person("Sah'ra Jane Crystalline"), zia = person("Zia Smith"), ben = person("Benithic Aku");
+    const Id kion = person("Kion R'kal Crystalline"), zahra = person("Zah'ra Nara Crystalline"), mahlos = person("Mah'los Sinclair Crystalline");
+    const Id liah = person("Li'ah Anne Crystalline");
+    // Iris and Violet sisters, Violet and Ralph brother and sister; Ralph married to Maria.
+    lib->addLink(iris, violet, "Sibling of");
+    lib->addLink(violet, ralph, "Sibling of");
+    lib->addLink(ralph, maria, "Married to");
+    for (const Id& c : {tom, astrid}) { lib->addLink(ralph, c, "Parent of"); lib->addLink(maria, c, "Parent of"); }
+    lib->addLink(tom, astrid, "Twin of");
+    lib->addLink(ralph, lillia, "Adoptive parent of");
+    lib->addLink(tom, sahra, "Partner of");
+    lib->addLink(astrid, ben, "Partner of");
+    lib->addLink(tom, zia, "Parent of");
+    lib->addLink(sahra, zia, "Parent of");
+    lib->addLink(kion, zahra, "Married to");
+    for (const Id& c : {sahra, liah}) { lib->addLink(kion, c, "Parent of"); lib->addLink(zahra, c, "Parent of"); }
+    lib->addLink(mahlos, zahra, "Sibling of");
+    int smiths = 0, crystallines = 0;
+    for (auto& g : lib->families(world)) {
+        if (g.surname == "Smith") ++smiths;
+        if (g.surname == "Crystalline") {
+            ++crystallines;
+            bool hasMahlos = false, hasLiah = false;
+            for (auto& p : lib->familyLayout(g.root, 150, true).people) { hasMahlos |= p.id == mahlos; hasLiah |= p.id == liah; }
+            CHECK(hasMahlos && hasLiah);
+        }
+        CHECK(g.name.find("(") == std::string::npos);   // no families told apart: none are doubled
+    }
+    CHECK(smiths == 1 && crystallines == 1);
+    // Partners are partners; a marriage is a marriage.
+    for (auto& g : lib->families(world))
+        for (auto& p : lib->familyLayout(g.root, 150, true).people) {
+            if (p.id == ben) CHECK(p.inLaw && p.joined == "partner");
+            if (g.surname == "Smith" && p.id == sahra) CHECK(p.inLaw && p.joined == "partner");
+        }
+    const auto rl = lib->familyLayout(ralph, 150, true);
+    for (auto& p : rl.people) if (p.id == maria && p.inLaw) CHECK(p.joined == "married");
+}
+
 static void testBuiltInFonts() {
     namespace ts = studio::typeset;
     namespace bible = studio::bible;
@@ -3041,6 +3090,7 @@ int main() {
     testFamilyTreePicture();
     testFamilyKinds();
     testBuiltInFonts();
+    testFamilyFounders();
     testContinuity();
     testBibleExport();
     testEbookHtml();

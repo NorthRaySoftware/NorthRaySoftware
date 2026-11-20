@@ -489,7 +489,8 @@ public:
     struct FamilyLayout {
         // inLaw: married into this family (beside their partner; their own parents and siblings belong to their own
         // family's tree, which isn't drawn here).
-        struct Person { Id id; int generation = 0; float x = 0; bool inLaw = false; };
+        // joined (0.47, in-laws): "married" (married to one of the family), "partner", or "parent" (a child's other parent).
+        struct Person { Id id; int generation = 0; float x = 0; bool inLaw = false; std::string joined; };
         std::vector<Person> people;
         std::vector<std::pair<Id, Id>> couples;        // partners, drawn side by side
         std::vector<std::pair<Id, Id>> parentChild;    // parent, child

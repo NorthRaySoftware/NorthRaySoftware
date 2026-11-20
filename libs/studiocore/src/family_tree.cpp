@@ -459,7 +459,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         double ny = r[1] + (lines.size() > 1 ? 24 : 30) * S;
         for (auto& l : lines) { tx.draw(bold, l, nsz, nx, ny, ink); ny += 17 * S; }
         std::string second;
-        if (p.inLaw) second = "married in";
+        if (p.inLaw) second = p.joined == "married" ? "married in" : p.joined == "partner" ? "partner" : "other parent";
         else {
             second = detail(*x, {"age"});
             if (!second.empty()) second = "Age " + second;
@@ -492,7 +492,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         item(0, "partners");
         item(1, "married");
         item(2, "parents, not partners");
-        item(3, "married in");
+        item(3, "from another family");
         if (kinds) item(4, "adopted, step or foster");
     }
     // Turned a quarter for a book's page when much wider than tall.

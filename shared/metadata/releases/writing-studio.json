@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.47.0",
+      "date": "2026-11-20",
+      "notes": [
+        "One tree per family however it's reached: a family found from two founders (a grandmother's sister, a wife) is no longer shown twice, and a founder's brothers and sisters are part of the founding generation.",
+        "People who joined a family are labelled by how: Married in, Partner, or Other parent.",
+        "Importing pages can replace all the text of entries already in the bible, keeping their pictures, gallery and map; an entry's page has Replace all its text with what you've copied.",
+        "The bible's website: a page for each kind (characters by gender or sex), a shorter home page with the first few of each, family kinds and a link to the family tree in each person's box, family trees at full size, the name first on phones and a menu that slides across.",
+        "In the bible's PDF, a family tree a little too tall for its page is made slightly smaller to stay with its heading."
+      ]
+    },
+    {
       "version": "0.46.0",
       "date": "2026-11-20",
       "notes": [

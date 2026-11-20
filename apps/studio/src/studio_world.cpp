@@ -2767,7 +2767,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     std::wstring sub = std::to_wstring(lay.people.size()) + (lay.people.size() == 1 ? L" person" : L" people") + L" across " +
                        std::to_wstring(gens) + (gens == 1 ? L" generation." : L" generations.");
     if (lay.cut) sub += L" Only the closest 150 are shown.";
-    sub += wb_.treeBloodline ? L" From its founder down, with those who married in." : L" Their lines up, brothers and sisters, partners and descendants.";
+    sub += wb_.treeBloodline ? L" From its founder down, with those who married or partnered into it." : L" Their lines up, brothers and sisters, partners and descendants.";
     y += pageHeader({r.x + pad, y, std::min(r.w - pad * 2, 900.0f), 0}, L"FAMILY TREE", title, sub);
 
     // Tools (0.45): who's picked, with adding family to them, on a line that wraps; then the other kind of tree.
@@ -3088,7 +3088,8 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             // Married in: their own family's tree is a click away (when they have one).
             const auto theirs = lib_->familyOf(p.id);
             const bool has = !theirs.parents.empty() || !theirs.siblings.empty();
-            const std::wstring lbl = has ? L"Married in · their family ›" : L"Married in";
+            const std::wstring how = p.joined == "married" ? L"Married in" : p.joined == "partner" ? L"Partner" : L"Other parent";
+            const std::wstring lbl = has ? how + L" · their family ›" : how;
             const Rect lr{tx, cr.y + cr.h - 26 * s, tw, 18};
             if (has) {
                 const std::string lid = "wb:faminlaw:" + p.id;

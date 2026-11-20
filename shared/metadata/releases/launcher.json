@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.113.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.47.0: family trees no longer doubled, partners labelled as partners, import that replaces all text, a better bible website."
+      ]
+    },
+    {
       "version": "0.112.0",
       "date": "2026-11-20",
       "notes": [

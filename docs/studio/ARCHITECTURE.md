@@ -415,6 +415,35 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.47.0: one tree per family, how people joined, replace-all import, the bible site (20 Nov 2026)
+
+From CJ's own Alvora bible PDF: the Smiths shown twice (from Iris through Violet, and from Maria), the Crystallines
+twice (from Mah'los, Zah'ra's brother, and from Kion), and partners labelled "married in".
+
+- `families()`: every possible founder (no parents; children or brothers and sisters; not married in) gets a
+  bloodline layout; candidates are taken biggest first and one whose own people are more than half in a family already
+  taken (or whose founder is) is dropped. Bloodline founders now include each parentless founder's parentless brothers
+  and sisters.
+- `FamilyLayout::Person::joined` for in-laws: "married" (a "Married to" link to one of the family), "partner", or
+  "parent"; the app's cards say Married in / Partner / Other parent, the picture married in / partner / other parent,
+  and its key "from another family".
+- `paste::clearEntryText` (other names, pronunciation, summary, details, sections, book notes, notes, spoilers, every
+  link; name, kind, picture, gallery and map kept) and `importPages(..., replaceAll)`, which clears the matched entries
+  before applying any page. App: a choice menu before the import's confirmation when pages match entries, and "Replace
+  all its text with what you've copied" (`pasteFromClipboard(true)` -> `pasteEntryPage(..., replaceAll)`); undo as
+  before (the entry and links as they were).
+- Bible website: `kind-<kind>.html` per kind (A to Z; characters grouped by their gender line when most have one), the
+  nav and crumbs pointing there; the home page shows 8 per kind (pictured or summarised first) and "All N ...";
+  `kinWord` in the family box; `Site::treeOf` (person -> their family's tree anchor and title, in-laws to their
+  partner's) for a "see the tree" link; families.html with chips, anchors and trees at their own width in a
+  scrolling frame; the entry's name block (`header.ehead`) above the layout; the phone nav one sliding row.
+- Typesetting: a picture that doesn't fit the room left on a page but would at 70% or more is shrunk to stay (a family
+  tree under its chapter heading).
+- `studio_bible_dump <repo> <out>` (tests/bible_dump.cpp): CJ's paste fixtures plus a family, places and a language,
+  shared as a site in every theme and a PDF, for looking over.
+- Tested in core (1442 checks: Smith and Crystalline shapes give one family each, partners and marriages labelled,
+  replace-all import clearing text and links but keeping the picture, site page counts with kind pages).
+
 ## 0.46.0: kinds of family, more typefaces, tidier cards (20 Nov 2026)
 
 CJ: the world bible stays the focus; sibling kinds in the tree and relationships; every part of the bible must import
