@@ -322,7 +322,10 @@ private:
     void selectBeat(const std::string& id);
     void importPlanText();
     void exportPlanText();
-    bool nodeShown(const studio::ManuscriptNode* n) const;   // passes the status, viewpoint and thread filters
+    bool nodeShown(const studio::ManuscriptNode* n) const;
+    void chooseViewpoint(const Id& nodeId);              // a menu of the world's characters (0.51)
+    std::string planPref(const Id& book, const char* key, const std::string& fallback) const;   // in "plan:<book>"
+    void setPlanPref(const Id& book, const char* key, const std::string& value);   // passes the status, viewpoint and thread filters
     bool planMouseDown(float x, float y);
     bool planMouseMove(float x, float y, bool leftDown);
     bool planMouseUp(float x, float y);
@@ -534,6 +537,7 @@ private:
         bool horizontal = false;
         bool chrono = false;
         std::vector<Id> list;  // the list being reordered, in current order
+        bool into = false;     // NodeRow: always inside the target (a part's column, 0.51)
     };
     void addDrop(const Drop& d) { drops_.push_back(d); }
     const Drop* dropAt(float x, float y) const;
@@ -661,6 +665,9 @@ private:
         int status = -1;           // filter: a NodeStatus, or -1 for everything
         std::string pov;           // filter (0.49.3): a viewpoint character's id, "-" for none, "" for anyone
         std::string thread;        // filter (0.50): a plot thread's id, or "" for any
+        int cardEdit = -1;         // 0.51: the field (FName, FSynopsis) being edited on the selected card, or -1
+        bool cardEditFocused = false;
+        float boardX = 0, boardW = 0;   // the corkboard's columns: scrolled along, and how wide they are
         std::map<Id, std::vector<Id>> appearances;   // node -> entries found in its text
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
         int view = 0;              // 0 corkboard, 1 timeline, 2 structure

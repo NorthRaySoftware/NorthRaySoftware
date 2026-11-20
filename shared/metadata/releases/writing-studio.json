@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.51.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Corkboard: click a card's title or synopsis to write it right on the card, its status word to change it, and its viewpoint line to choose a character.",
+        "Rows or Columns: in Columns each part is a column of its cards; drag a card to the foot of a column to move it into that part.",
+        "Small, medium or large cards (or Ctrl and the mouse wheel), and colour the cards by viewpoint, plot thread or status."
+      ]
+    },
+    {
       "version": "0.50.0",
       "date": "2026-11-20",
       "notes": [

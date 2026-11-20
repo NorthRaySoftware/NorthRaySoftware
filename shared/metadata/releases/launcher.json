@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.117.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.51.0: edit on the corkboard's cards, parts as columns, card sizes and colours."
+      ]
+    },
+    {
       "version": "0.116.0",
       "date": "2026-11-20",
       "notes": [

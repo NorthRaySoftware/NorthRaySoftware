@@ -415,6 +415,21 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.51.0: the corkboard (20 Nov 2026)
+
+- Board preferences in `plan:<book>` beside the target (`planPref`/`setPlanPref`): `layout` rows|columns, `cardSize`
+  small|medium|large (190/232/300 wide; Ctrl+wheel), `colourBy` viewpoint|thread|status, as segmented controls under the
+  header. `drawPlanBoard` draws every card with one `drawCard` lambda; heights follow the size, and the who line, tags
+  and length are placed from the card's foot.
+- Editing on the card: `pl_.cardEdit` (FName or FSynopsis) places that field over the title or synopsis of the selected
+  card (loading the fields first), focuses it once, and ends when focus leaves it (Enter or Esc, or a click elsewhere),
+  committing. `panelField` leaves a field being edited on a card unplaced ("Being edited on the card"). The status word
+  and the viewpoint line open menus (`chooseViewpoint`, shared with the panel). The card's parts are hit ids
+  `pl:card:<id>|title` etc., so dragging from them still moves the card.
+- Columns: a column per part (and one before the first part), scrolled with Shift+wheel (`pl_.boardX`, `boardW`).
+  Cards drop above or below each other (`horizontal = false`); a part's head and the rest of its column are `Drop`s with
+  the new `into` flag (always inside). The drag indicator follows the drop's orientation.
+
 ## 0.50.0: Plot threads, structures and planning as text (20 Nov 2026)
 
 - New portable module `studio/planning.hpp` (src/planning.cpp, tested in `testPlanning`): story structures (eleven built in,

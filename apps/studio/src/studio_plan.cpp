@@ -80,6 +80,43 @@ void StudioApp::setBookTarget(const Id& bookId, std::int64_t words) {
     lib_->setSetting("plan:" + bookId, j.dump());
 }
 
+std::string StudioApp::planPref(const Id& book, const char* key, const std::string& fallback) const {
+    const json j = json::parse(lib_->setting("plan:" + book), nullptr, false);
+    return j.is_object() && j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : fallback;
+}
+
+void StudioApp::setPlanPref(const Id& book, const char* key, const std::string& value) {
+    json j = json::parse(lib_->setting("plan:" + book), nullptr, false);
+    if (!j.is_object()) j = json::object();
+    j[key] = value;
+    lib_->setSetting("plan:" + book, j.dump());
+    invalidate();
+}
+
+// Whose eyes a chapter or scene is seen through: one of the world's characters.
+void StudioApp::chooseViewpoint(const Id& nodeId) {
+    const ManuscriptNode* x = lib_->node(nodeId);
+    const studio::Book* bk = lib_->book(pl_.book);
+    if (!x || !bk) return;
+    std::vector<const Entry*> people;
+    for (const Entry* e : bk->worldId.empty() ? lib_->entriesOf({}, bk->id) : lib_->entriesOf(bk->worldId))
+        if (e->kind == "character") people.push_back(e);
+    if (people.empty()) { flash(L"Add characters in Worldbuilding first; then choose whose eyes this is seen through.", 6); return; }
+    std::vector<std::wstring> items{L"None"};
+    int cur = 0;
+    for (size_t i = 0; i < people.size(); ++i) {
+        items.push_back(w(people[i]->name));
+        if (people[i]->id == x->povId) cur = (int)i + 1;
+    }
+    const int i = popupAtCursor(hwnd(), items, cur);
+    if (i < 0 || i == cur) return;
+    commitFields();
+    ManuscriptNode u = *lib_->node(nodeId);
+    u.povId = i == 0 ? Id{} : people[i - 1]->id;
+    lib_->updateNode(u);
+    invalidate();
+}
+
 // ------------------------------------------------------------- opening
 
 void StudioApp::openPlanning(const Id& bookId) {
@@ -114,6 +151,7 @@ void StudioApp::selectCard(const Id& nodeId) {
     }
     lastCard = nodeId;
     lastAt = now;
+    if (pl_.node != nodeId) pl_.cardEdit = -1;
     pl_.node = nodeId;
     setFocus(nodeId.empty() ? Focus{Focus::Plan, pl_.book, {}} : Focus{Focus::Node, nodeId, {}});
     invalidate();
@@ -322,6 +360,38 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         y += 50;
     }
 
+    // How the board is laid out (0.51): rows or a column per part, the cards' size, and what colours them.
+    const std::string layout = planPref(pl_.book, "layout", "rows"), colourBy = planPref(pl_.book, "colourBy", "viewpoint"),
+                      size = planPref(pl_.book, "cardSize", "medium");
+    const bool columns = layout == "columns";
+    if (!all.empty()) {
+        float tx = m.x;
+        const float th = 28;
+        auto label = [&](const wchar_t* t) {
+            const float lw = gfx_.measureWidth(t, Font::Small) + 8;
+            gfx_.text(t, {tx, y, lw, th}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+            tx += lw;
+        };
+        auto wrap = [&](float wanted) { if (tx + wanted > m.x + cw && tx > m.x) { tx = m.x; y += th + 8; } };
+        wrap(150);
+        segmented("pl:layout", {tx, y, 150, th}, {L"Rows", L"Columns"}, columns ? 1 : 0, [this](int i) {
+            setPlanPref(pl_.book, "layout", i ? "columns" : "rows");
+            pl_.boardX = 0;
+        });
+        tx += 150 + 20;
+        wrap(40 + 150);
+        label(L"Size");
+        segmented("pl:size", {tx, y, 150, th}, {L"Small", L"Medium", L"Large"}, size == "small" ? 0 : size == "large" ? 2 : 1, [this](int i) {
+            setPlanPref(pl_.book, "cardSize", i == 0 ? "small" : i == 2 ? "large" : "medium");
+        });
+        tx += 150 + 20;
+        wrap(70 + 250);
+        label(L"Colour by");
+        segmented("pl:colourby", {tx, y, 250, th}, {L"Viewpoint", L"Thread", L"Status"}, colourBy == "thread" ? 1 : colourBy == "status" ? 2 : 0,
+                  [this](int i) { setPlanPref(pl_.book, "colourBy", i == 1 ? "thread" : i == 2 ? "status" : "viewpoint"); });
+        y += th + 18;
+    }
+
     // Who's who, for viewpoint and appearances.
     auto entryName = [&](const Id& id) -> const Entry* {
         const Entry* e = lib_->entry(id);
@@ -329,33 +399,21 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     };
     // Plot threads (0.50): a row of coloured tags on each card, when the book has any.
     const plan::Threads threads = plan::threadsOf(*lib_, pl_.book);
-    const float gap = 14, cardW = 232, cardH = threads.threads.empty() ? 166.0f : 188.0f;
-    const int cols = std::max(1, (int)((cw + gap) / (cardW + gap)));
-    const float cardWid = (cw - gap * (cols - 1)) / cols;
-    int col = 0;
-    auto newRow = [&] { if (col) { y += cardH + gap; col = 0; } };
-    int chapterNo = 0, sceneNo = 0;
-    for (const ManuscriptNode* n : all) {
-        if (n->kind == NodeKind::Part) {
-            newRow();
-            y += 8;
-            gfx_.text(w(n->title.empty() ? std::string("Part") : n->title), {m.x, y, cw, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
-            const std::string pid = "pl:part:" + n->id;
-            if (!n->synopsis.empty())
-                gfx_.text(shortened(w(n->synopsis), 160), {m.x, y + 26, cw, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-            addHit(pid, {m.x, y, std::min(cw, gfx_.measureWidth(w(n->title), Font::Heading) + 10), 26}, [this, id = n->id] { selectCard(id); });
-            y += n->synopsis.empty() ? 36 : 54;
-            continue;
-        }
-        if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; }
-        else ++sceneNo;
-        if (!nodeShown(n)) continue;
-        const Rect cr{m.x + col * (cardWid + gap), y, cardWid, cardH};
+    const float tagRow = threads.threads.empty() ? 0.0f : 22.0f;
+    const float gap = 14;
+    const float cardW = size == "small" ? 190.0f : size == "large" ? 300.0f : 232.0f;
+    const float cardH = (size == "small" ? 138.0f : size == "large" ? 216.0f : 166.0f) + tagRow;
+    // The card being edited in place (0.51), and its field.
+    if (pl_.cardEdit >= 0 && (pl_.node.empty() || !lib_->node(pl_.node))) pl_.cardEdit = -1;
+    bool editPlaced = false;
+
+    // One card, drawn and made live at `cr`.
+    auto drawCard = [&](const ManuscriptNode* n, const Rect& cr, int chapterNo, int sceneNo) {
         const std::string id = "pl:card:" + n->id;
         addHit(id, cr, [this, nid = n->id] { selectCard(nid); });
         {
             Drop drop{Drop::NodeRow, cr, n->id, n->parentId};
-            drop.horizontal = true;   // cards in rows: before or after by left and right halves
+            drop.horizontal = !columns;   // rows of cards: before or after by left and right halves; columns: top and bottom
             addDrop(drop);
         }
         const bool sel = pl_.node == n->id;
@@ -366,41 +424,108 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         const Color paperCard = pal_.dark ? (n->kind == NodeKind::Scene ? pal_.surface.mix(pal_.paper, 0.3f) : pal_.surface)
                                           : (n->kind == NodeKind::Scene ? cjui::hexColor("#FBF6E9") : cjui::hexColor("#FFFDF7"));
         gfx_.fillRounded(cr, 3, lifted ? paperCard.withAlpha(0.5f) : paperCard);
-        // Coloured by viewpoint character (0.35): a band along the top and a faint wash, the same colour every time.
+        // Its colour (0.35; chosen 0.51): its viewpoint character's, its first plot thread's, or its status's.
         const bool hasPov = entryName(n->povId) != nullptr;
         const Color pc = hasPov ? povColour(n->povId) : Color{};
-        if (hasPov) {
-            gfx_.fillRounded(cr, 3, pc.withAlpha(pal_.dark ? 0.10f : 0.07f));
-            gfx_.fillRounded({cr.x, cr.y, cr.w, 5}, 2, pc);
+        bool tinted = false;
+        Color band{};
+        if (colourBy == "status") { band = statusColour(n->status); tinted = true; }
+        else if (colourBy == "thread") {
+            auto it = threads.nodes.find(n->id);
+            if (it != threads.nodes.end())
+                for (auto& tid : it->second)
+                    if (const plan::Thread* t = threads.find(tid)) { band = cjui::hexColor(t->colour.c_str()); tinted = true; break; }
+        } else if (hasPov) { band = pc; tinted = true; }
+        if (tinted) {
+            gfx_.fillRounded(cr, 3, band.withAlpha(pal_.dark ? 0.10f : 0.07f));
+            gfx_.fillRounded({cr.x, cr.y, cr.w, 5}, 2, band);
         }
         if (sel) gfx_.strokeRounded(cr, 3, pal_.ribbon, 2.0f);
         else if (hv > 0.01f) gfx_.strokeRounded(cr, 3, pal_.rule.mix(pal_.inkFaint, hv), 1.0f);
         gfx_.line(cr.x + 10, cr.y + 50.5f, cr.right() - 10, cr.y + 50.5f, cjui::hexColor("#D9534F").withAlpha(pal_.dark ? 0.45f : 0.55f), 1.0f);
-        for (float ly = cr.y + 72; ly < cr.bottom() - 30; ly += 18)
+        const float whoY = cr.bottom() - 44 - tagRow;
+        for (float ly = cr.y + 72; ly < whoY - 4; ly += 18)
             gfx_.line(cr.x + 10, ly + 0.5f, cr.right() - 10, ly + 0.5f, cjui::hexColor("#6A9BC3").withAlpha(pal_.dark ? 0.10f : 0.16f), 1.0f);
+        const float ix = cr.x + 16, iw = cr.w - 30;
+        // The pin and the status word choose the status (0.51).
         {
             const float px = cr.x + cr.w / 2, py = cr.y + 2;
             gfx_.circle(px + 1, py + 2, 6, cjui::hexColor("#000000").withAlpha(0.18f), true);
             gfx_.circle(px, py, 6, statusColour(n->status), true);
             gfx_.circle(px - 2, py - 2, 2, cjui::hexColor("#FFFFFF").withAlpha(0.55f), true);
         }
-        const float ix = cr.x + 16, iw = cr.w - 30;
         std::wstring kicker = n->kind == NodeKind::Chapter ? L"CHAPTER " + std::to_wstring(chapterNo)
                                                            : std::to_wstring(chapterNo) + L" · SCENE " + std::to_wstring(sceneNo);
         gfx_.text(kicker, {ix, cr.y + 12, iw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
         std::wstring st = w(label(n->status));
         for (auto& ch : st) ch = (wchar_t)towupper(ch);
+        const float stW = gfx_.measureWidth(st, Font::Label);
+        const std::string sid = "pl:card:" + n->id + "|status";
+        const Rect stR{ix + iw - stW - 6, cr.y + 8, stW + 8, 22};
+        addHit(sid, stR, [this, nid = n->id] {
+            if (pl_.node != nid) selectCard(nid);
+            const ManuscriptNode* x = lib_->node(nid);
+            if (!x) return;
+            std::vector<std::wstring> items;
+            for (NodeStatus s2 : kStatuses) items.push_back(w(label(s2)));
+            const int i = popupAtCursor(hwnd(), items, (int)x->status);
+            if (i < 0) return;
+            commitFields();
+            ManuscriptNode u = *lib_->node(nid);
+            u.status = kStatuses[i];
+            lib_->updateNode(u);
+            invalidate();
+        });
+        tooltip(sid, L"Change its status");
+        if (hoverAmount(sid) > 0.01f) gfx_.fillRounded(stR, 4, statusColour(n->status).withAlpha(0.12f * hoverAmount(sid)));
         gfx_.text(st, {ix, cr.y + 12, iw, 16}, Font::Label, statusColour(n->status), {Align::Right, false});
-        gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {ix, cr.y + 30, iw, 22}, Font::BodyStrong, pal_.ink,
-                  {Align::Left, false, true});
-        // The synopsis, or a prompt for one.
-        const Rect syn{ix, cr.y + 54, iw, 64};
-        gfx_.pushClip(syn);
-        if (n->synopsis.empty()) gfx_.text(L"No synopsis yet.", syn, Font::Small, pal_.inkFaint);
-        else gfx_.text(shortened(w(n->synopsis), 150), syn, Font::Small, pal_.inkMuted);
-        gfx_.popClip();
-        // Viewpoint and who appears.
-        float fy = cr.y + 122;
+        // The title: click to rename it here.
+        const Rect titleR{ix - 4, cr.y + 27, iw + 6, 24};
+        const bool editingTitle = sel && pl_.cardEdit == FName;
+        const bool editingSyn = sel && pl_.cardEdit == FSynopsis;
+        if (!editingTitle) {
+            const std::string tid = "pl:card:" + n->id + "|title";
+            addHit(tid, titleR, [this, nid = n->id] {
+                if (pl_.node != nid) selectCard(nid);
+                pl_.cardEdit = FName;
+                pl_.cardEditFocused = false;
+                invalidate();
+            });
+            tooltip(tid, L"Click to rename it");
+            gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {ix, cr.y + 30, iw, 22}, Font::BodyStrong,
+                      pal_.ink, {Align::Left, false, true});
+            if (hoverAmount(tid) > 0.01f) gfx_.line(ix, cr.y + 48, ix + std::min(iw, gfx_.measureWidth(w(n->title), Font::BodyStrong)), cr.y + 48,
+                                                     pal_.inkFaint.withAlpha(hoverAmount(tid)), 1.0f);
+        } else {
+            gfx_.fillRounded(titleR, 3, pal_.surface);
+            gfx_.strokeRounded(titleR, 3, pal_.ribbon, 1.5f);
+            placeField(FName, titleR.inset(-2, 0));
+            editPlaced = true;
+        }
+        // The synopsis, or a prompt for one: click to write it here.
+        const Rect syn{ix, cr.y + 54, iw, std::max(18.0f, whoY - 4 - (cr.y + 54))};
+        if (!editingSyn) {
+            const std::string yid = "pl:card:" + n->id + "|syn";
+            addHit(yid, syn, [this, nid = n->id] {
+                if (pl_.node != nid) selectCard(nid);
+                pl_.cardEdit = FSynopsis;
+                pl_.cardEditFocused = false;
+                invalidate();
+            });
+            tooltip(yid, L"Click to write its synopsis");
+            gfx_.pushClip(syn);
+            const size_t room = (size_t)std::max(40.0f, 150.0f * (syn.w * syn.h) / (202.0f * 64.0f));
+            if (n->synopsis.empty()) gfx_.text(sel || hoverAmount(yid) > 0.01f ? L"Write a synopsis…" : L"No synopsis yet.", syn, Font::Small, pal_.inkFaint);
+            else gfx_.text(shortened(w(n->synopsis), room), syn, Font::Small, pal_.inkMuted);
+            gfx_.popClip();
+        } else {
+            const Rect er{syn.x - 4, syn.y - 2, syn.w + 6, std::max(syn.h + 4, 60.0f)};
+            gfx_.fillRounded(er, 3, pal_.surface);
+            gfx_.strokeRounded(er, 3, pal_.ribbon, 1.5f);
+            placeField(FSynopsis, er);
+            editPlaced = true;
+        }
+        // Viewpoint and who appears; click to choose the viewpoint (0.51).
         std::wstring who;
         if (const Entry* pov = entryName(n->povId)) who = L"Viewpoint: " + w(pov->name);
         if (auto it = pl_.appearances.find(n->id); it != pl_.appearances.end()) {
@@ -415,15 +540,27 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (more) others += L" +" + std::to_wstring(more);
             if (!others.empty()) who += (who.empty() ? L"With " : L" · with ") + others;
         }
-        if (!who.empty()) {
-            float wx = ix;
-            if (hasPov) { gfx_.circle(ix + 4, fy + 9, 4, pc, true); wx += 13; }
-            gfx_.text(who, {wx, fy, iw - (wx - ix), 18}, Font::Small, pal_.ink, {Align::Left, false, true});
+        {
+            const std::string vid = "pl:card:" + n->id + "|pov";
+            const Rect vr{ix - 4, whoY - 2, iw + 6, 22};
+            addHit(vid, vr, [this, nid = n->id] {
+                if (pl_.node != nid) selectCard(nid);
+                chooseViewpoint(nid);
+            });
+            tooltip(vid, L"Choose whose eyes it's seen through");
+            const float vh = hoverAmount(vid);
+            if (vh > 0.01f) gfx_.fillRounded(vr, 4, pal_.ink.withAlpha(0.05f * vh));
+            if (who.empty() && (sel || vh > 0.01f)) who = L"Choose a viewpoint…";
+            if (!who.empty()) {
+                float wx = ix;
+                if (hasPov) { gfx_.circle(ix + 4, whoY + 9, 4, pc, true); wx += 13; }
+                gfx_.text(who, {wx, whoY, iw - (wx - ix), 18}, Font::Small, hasPov ? pal_.ink : pal_.inkFaint, {Align::Left, false, true});
+            }
         }
         // Its plot threads, as tags.
         if (auto it = threads.nodes.find(n->id); it != threads.nodes.end()) {
             float tx = ix;
-            const float ty = cr.y + 142;
+            const float ty = cr.bottom() - 46;
             size_t i = 0;
             for (; i < it->second.size(); ++i) {
                 const plan::Thread* t = threads.find(it->second[i]);
@@ -443,7 +580,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
                 gfx_.text(L"+" + std::to_wstring(it->second.size() - i), {tx, ty, 30, 17}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
         }
         // Length against the target.
-        fy = cr.bottom() - 22;
+        const float fy = cr.bottom() - 22;
         std::int64_t words = n->wordCount;
         if (n->kind == NodeKind::Chapter)
             for (auto* c : all) if (c->parentId == n->id) words += c->wordCount;
@@ -456,9 +593,106 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         }
         gfx_.text(len, {ix, fy, iw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
         if (focused(id)) focusRing(cr);
-        if (++col == cols) newRow();
+    };
+
+    if (!columns) {
+        const int cols = std::max(1, (int)((cw + gap) / (cardW + gap)));
+        const float cardWid = (cw - gap * (cols - 1)) / cols;
+        int col = 0;
+        auto newRow = [&] { if (col) { y += cardH + gap; col = 0; } };
+        int chapterNo = 0, sceneNo = 0;
+        for (const ManuscriptNode* n : all) {
+            if (n->kind == NodeKind::Part) {
+                newRow();
+                y += 8;
+                gfx_.text(w(n->title.empty() ? std::string("Part") : n->title), {m.x, y, cw, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
+                const std::string pid = "pl:part:" + n->id;
+                if (!n->synopsis.empty())
+                    gfx_.text(shortened(w(n->synopsis), 160), {m.x, y + 26, cw, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                addHit(pid, {m.x, y, std::min(cw, gfx_.measureWidth(w(n->title), Font::Heading) + 10), 26}, [this, id = n->id] { selectCard(id); });
+                y += n->synopsis.empty() ? 36 : 54;
+                continue;
+            }
+            if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; }
+            else ++sceneNo;
+            if (!nodeShown(n)) continue;
+            drawCard(n, {m.x + col * (cardWid + gap), y, cardWid, cardH}, chapterNo, sceneNo);
+            if (++col == cols) newRow();
+        }
+        newRow();
+    } else {
+        // A column for each part (and one for what comes before the first part), its cards stacked down it.
+        struct Column { const ManuscriptNode* part = nullptr; std::vector<std::tuple<const ManuscriptNode*, int, int>> cards; };
+        std::vector<Column> cols;
+        int chapterNo = 0, sceneNo = 0;
+        for (const ManuscriptNode* n : all) {
+            if (n->kind == NodeKind::Part) { cols.push_back({n, {}}); continue; }
+            if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; }
+            else ++sceneNo;
+            if (cols.empty()) cols.push_back({nullptr, {}});
+            if (nodeShown(n)) cols.back().cards.push_back({n, chapterNo, sceneNo});
+        }
+        const float colGap = 22;
+        const float x0 = m.x - pl_.boardX;
+        const float top = y;
+        float bottom = y;
+        for (size_t c = 0; c < cols.size(); ++c) {
+            const float cx = x0 + c * (cardW + colGap);
+            float cy = top;
+            const Column& colm = cols[c];
+            // The column's head: the part's name and count; drop a card here to move it into the part.
+            const Rect head{cx, cy, cardW, 50};
+            gfx_.fillRounded(head, 4, pal_.surface.withAlpha(pal_.dark ? 0.35f : 0.55f));
+            const std::wstring pname = colm.part ? w(colm.part->title.empty() ? std::string("Part") : colm.part->title) : L"Before the first part";
+            gfx_.text(pname, {cx + 12, cy + 6, cardW - 24, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            gfx_.text(std::to_wstring(colm.cards.size()) + (colm.cards.size() == 1 ? L" card" : L" cards"), {cx + 12, cy + 28, cardW - 24, 16},
+                      Font::Small, pal_.inkFaint, {Align::Left, false, true});
+            if (colm.part) addHit("pl:part:" + colm.part->id, head, [this, id = colm.part->id] { selectCard(id); });
+            cy += 60;
+            for (auto& [n, cno, sno] : colm.cards) {
+                drawCard(n, {cx, cy, cardW, cardH}, cno, sno);
+                cy += cardH + gap;
+            }
+            if (colm.part) {
+                // The rest of the column takes a card into the part, at its end.
+                Drop into{Drop::NodeRow, {cx, cy, cardW, std::max(80.0f, r.bottom() - cy)}, colm.part->id, colm.part->parentId};
+                into.into = true;
+                addDrop(into);
+                Drop headDrop{Drop::NodeRow, head, colm.part->id, colm.part->parentId};
+                headDrop.into = true;
+                addDrop(headDrop);
+                if (colm.cards.empty()) {
+                    gfx_.strokeRounded({cx, cy, cardW, 70}, 4, pal_.inkFaint.withAlpha(0.5f), 1.0f);
+                    gfx_.text(L"Drag cards here", {cx, cy, cardW, 70}, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+                    cy += 80;
+                }
+            }
+            bottom = std::max(bottom, cy);
+        }
+        pl_.boardW = cols.size() * (cardW + colGap) - colGap;
+        pl_.boardX = std::clamp(pl_.boardX, 0.0f, std::max(0.0f, pl_.boardW - cw));
+        y = bottom + 10;
+        if (pl_.boardW > cw) {
+            y += gfx_.text(L"Shift and the mouse wheel move along the parts.", {m.x, y, cw, 18}, Font::Small, pal_.inkMuted,
+                           {Align::Left, false}) + 10;
+        }
     }
-    newRow();
+    // The field being edited on a card: focused once it's placed; when focus leaves it, the edit ends (and is kept).
+    if (pl_.cardEdit >= 0) {
+        if (!editPlaced) pl_.cardEdit = -1;
+        else if (!pl_.cardEditFocused) {
+            if (!(focus_ == loadedFocus_)) loadFields();   // the card's own text, before it's selected
+            HWND f = fields_[pl_.cardEdit];
+            SetFocus(f);
+            if (pl_.cardEdit == FName) SendMessageW(f, EM_SETSEL, 0, -1);
+            else SendMessageW(f, EM_SETSEL, (WPARAM)-1, -1);
+            pl_.cardEditFocused = true;
+        } else if (GetFocus() != fields_[pl_.cardEdit]) {
+            pl_.cardEdit = -1;
+            commitFields();
+            invalidate();
+        }
+    }
     if (!all.empty()) {
         y += 6;
         float bw = 0;
@@ -521,24 +755,7 @@ void StudioApp::drawPlanPanel(const Rect& r) {
                     if (e->kind == "character") people.push_back(e);
             const Entry* pov = lib_->entry(n->povId);
             const std::wstring povLabel = pov && !pov->deleted ? w(pov->name) : people.empty() ? L"No characters yet" : L"None";
-            panelChoice("pl:pov", c, y, L"Viewpoint character", povLabel, [this, people] {
-                const ManuscriptNode* x = lib_->node(pl_.node);
-                if (!x) return;
-                if (people.empty()) { flash(L"Add characters in Worldbuilding first; then choose whose eyes this is seen through.", 6); return; }
-                std::vector<std::wstring> items{L"None"};
-                int cur = 0;
-                for (size_t i = 0; i < people.size(); ++i) {
-                    items.push_back(w(people[i]->name));
-                    if (people[i]->id == x->povId) cur = (int)i + 1;
-                }
-                const int i = popupAtCursor(hwnd(), items, cur);
-                if (i < 0 || i == cur) return;
-                commitFields();
-                ManuscriptNode u = *lib_->node(pl_.node);
-                u.povId = i == 0 ? Id{} : people[i - 1]->id;
-                lib_->updateNode(u);
-                invalidate();
-            });
+            panelChoice("pl:pov", c, y, L"Viewpoint character", povLabel, [this] { chooseViewpoint(pl_.node); });
             y = panelField(c, y, L"Target words (blank: none)", FTarget);
         }
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
@@ -587,9 +804,11 @@ void StudioApp::drawPlanPanel(const Rect& r) {
         planPanelExtras(c, y);
         panelHeading(c, y, pl_.view == 0 ? L"THE CORKBOARD" : pl_.view == 1 ? L"ABOUT THE TIMELINE" : L"ABOUT STRUCTURE", false);
         y += gfx_.text(pl_.view == 0 ? L"Every chapter and scene as an index card, in the order of the book. The pin is its status: "
-                       L"outline, draft, revised or final. Drag a card to move it: beside another card to go before or after it, or onto "
-                       L"the middle of a chapter to make a scene part of it.\n\nCharacters from the world's bible are found in the "
-                       L"text, so a card shows who appears in it without being told."
+                       L"outline, draft, revised or final. Click a card's title or synopsis to write it there, its status word to change "
+                       L"it, and its viewpoint line to choose whose eyes it's seen through.\n\nDrag a card to move it: beside another card "
+                       L"to go before or after it, onto the middle of a chapter to make a scene part of it, or (in columns) to the foot "
+                       L"of a part's column. Ctrl and the mouse wheel make the cards bigger or smaller.\n\nCharacters from the world's "
+                       L"bible are found in the text, so a card shows who appears in it without being told."
                        : pl_.view == 1 ? L"Choose a card to set when it happens. Cards without a time wait below the timeline."
                        : L"Match each beat to the chapters that carry it, and select a beat to keep notes on it for this book. The "
                          L"bar shows the book by length, so you can see whether a turning point comes early or late.",

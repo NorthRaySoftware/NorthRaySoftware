@@ -1563,8 +1563,8 @@ void StudioApp::applyDrop(const Drop& d, float x, float y) {
             if (!target || !moving2) break;
             // Rows of cards (the corkboard) are read left to right; the outline top to bottom.
             const float third = (d.horizontal ? d.rect.w : d.rect.h) / 3;
-            const bool middle = d.horizontal ? (x > d.rect.x + third && x < d.rect.right() - third)
-                                             : (y > d.rect.y + third && y < d.rect.bottom() - third);
+            const bool middle = d.into || (d.horizontal ? (x > d.rect.x + third && x < d.rect.right() - third)
+                                                        : (y > d.rect.y + third && y < d.rect.bottom() - third));
             bool ok = false;
             if (middle && Library::canContain(target->kind, moving2->kind)) ok = lib_->moveNode(moving, target->id, -1);
             else {
@@ -1609,6 +1609,16 @@ bool StudioApp::onWheel(float x, float y, float lines) {
         else if (sideRect_.contains(x, y)) pl_.sideScroll = std::clamp(pl_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pl_.sideContent - sideRect_.h));
         else if (pageRect_.contains(x, y) && pl_.view == 1 && (GetKeyState(VK_SHIFT) & 0x8000))
             pl_.tlScrollX = std::clamp(pl_.tlScrollX + lines * 40, 0.0f, std::max(0.0f, pl_.tlContentW - pl_.tlArea.w));   // along the timeline
+        else if (pageRect_.contains(x, y) && pl_.view == 0 && (GetKeyState(VK_SHIFT) & 0x8000))
+            pl_.boardX = std::clamp(pl_.boardX + lines * 40, 0.0f, std::max(0.0f, pl_.boardW - (pageRect_.w - (pageRect_.w > 900 ? 72 : 48))));   // along the columns
+        else if (pageRect_.contains(x, y) && pl_.view == 0 && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            // Ctrl and the wheel: bigger or smaller cards (0.51).
+            static const char* sizes[] = {"small", "medium", "large"};
+            const std::string cur = planPref(pl_.book, "cardSize", "medium");
+            int i = cur == "small" ? 0 : cur == "large" ? 2 : 1;
+            i = std::clamp(i + (lines < 0 ? 1 : -1), 0, 2);
+            setPlanPref(pl_.book, "cardSize", sizes[i]);
+        }
         else if (pageRect_.contains(x, y)) pl_.scroll = std::clamp(pl_.scroll + lines * 30, 0.0f, std::max(0.0f, pl_.content - pageRect_.h));
         invalidate();
         return true;

@@ -139,13 +139,16 @@ void StudioApp::drawFrame(float W, float H) {
         if (drag_.active && pl_.view == 0) {
             // Where a dragged card would go: a bar beside the card it's over, or a frame round a chapter it would join.
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
-                const float third = d->rect.w / 3;
                 const ManuscriptNode* t = lib_->node(d->id);
                 const ManuscriptNode* mv = lib_->node(drag_.id);
-                const bool into = t && mv && mouseX() > d->rect.x + third && mouseX() < d->rect.right() - third &&
-                                  Library::canContain(t->kind, mv->kind);
+                const bool middle = d->into || (d->horizontal ? mouseX() > d->rect.x + d->rect.w / 3 && mouseX() < d->rect.right() - d->rect.w / 3
+                                                              : mouseY() > d->rect.y + d->rect.h / 3 && mouseY() < d->rect.bottom() - d->rect.h / 3);
+                const bool into = t && mv && middle && Library::canContain(t->kind, mv->kind);
                 if (into) gfx_.strokeRounded(d->rect.inset(-3), 6, pal_.ribbon, 2.5f);
-                else gfx_.fillRounded({mouseX() < d->rect.x + d->rect.w / 2 ? d->rect.x - 9 : d->rect.right() + 5, d->rect.y, 4, d->rect.h}, 2, pal_.ribbon);
+                else if (d->horizontal)
+                    gfx_.fillRounded({mouseX() < d->rect.x + d->rect.w / 2 ? d->rect.x - 9 : d->rect.right() + 5, d->rect.y, 4, d->rect.h}, 2, pal_.ribbon);
+                else
+                    gfx_.fillRounded({d->rect.x, mouseY() < d->rect.y + d->rect.h / 2 ? d->rect.y - 9 : d->rect.bottom() + 5, d->rect.w, 4}, 2, pal_.ribbon);
             }
             const float lw = std::min(gfx_.measureWidth(drag_.label, Font::BodyStrong) + 24, 320.0f);
             const Rect g{mouseX() + 14, mouseY() + 10, lw, 30};
@@ -1384,7 +1387,10 @@ float StudioApp::panelField(const Rect& r, float y, const std::wstring& lbl, Fie
     const bool inView = box.y >= panelRect_.y + 40 && box.bottom() <= panelRect_.bottom() - 4;
     gfx_.fillRounded(box, 3, pal_.surface);
     gfx_.strokeRounded(box, 3, GetFocus() == fields_[f] ? pal_.ribbon : pal_.rule);
-    if (inView) placeField(f, box);
+    // A field being edited on a corkboard card (0.51) is there, not here.
+    if (ws_ == Workspace::Planning && pl_.cardEdit == (int)f)
+        gfx_.text(L"Being edited on the card", box.inset(10, 0), Font::Small, pal_.inkFaint, {Align::Left, false, true, h < 40});
+    else if (inView) placeField(f, box);
     return y + h + 12;
 }
 
