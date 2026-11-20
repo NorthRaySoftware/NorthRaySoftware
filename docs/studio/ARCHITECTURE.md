@@ -415,6 +415,20 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.52.0: the timeline (20 Nov 2026)
+
+- Core (`planning.hpp`): `nodePlaces`/`setNodePlace` (setting `nodeplaces:<book>`, node -> place or realm entry);
+  `timelineEvents`/`setTimelineEvent` (`timeline:<book>`'s new `events` object, entry -> {day}). Outlines read and write
+  `Place:` (also Where/Setting/Location), matched to places and realms by name or other name; unknown ones reported.
+- App (`drawPlanTimeline`): a toolbar with Lanes (`planPref` "lanes": viewpoint, thread, place, one) and zoom (- Fit +;
+  Ctrl+wheel through `zoomTimeline`, keeping the day under the pointer still; `pl_.tlZoom` pixels per unit, 0 to fit).
+  Tick steps 1-2-5. With thread lanes a card is drawn in each of its threads' lanes (the reading line uses its first).
+  A strip of Story events (the bible's `event` entries placed for this book) with dashed lines through the lanes; a
+  flag's menu opens the entry or takes it off. Cards and events not placed wait below as chips.
+- Dragging (`planMouseDown/Move/Up`, `pl_.tlDrag.kind`): 0 a card along (whole units from where it started), 1 a card
+  chip onto the timeline (day from the pointer, `tlX0`/`tlDay0`; dropped only inside `tlDropArea`, shown with a guide
+  and a day pill), 2 an event along, 3 an event chip onto it. The panel's "Where it happens" (`choosePlace`).
+
 ## 0.51.0: the corkboard (20 Nov 2026)
 
 - Board preferences in `plan:<book>` beside the target (`planPref`/`setPlanPref`): `layout` rows|columns, `cardSize`

@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <set>
 #include <shobjidl.h>
 #include <sstream>
 
@@ -147,10 +148,36 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
     const std::string unit = timelineUnit(pl_.book);
     float y = m.y + pageHeader(m, L"TIMELINE", w(b->title),
-                               L"Chapters and scenes in the order they happen. Drag a card along to move it in time, or set when it happens "
-                               L"in the panel. The line joins them in reading order, so a flashback shows as the line turning back.");
+                               L"Chapters and scenes in the order they happen. Drag a card along to move it in time, or drag one from below "
+                               L"onto it. The line joins them in reading order, so a flashback shows as the line turning back.");
+    // Lanes by viewpoint, plot thread or place, or one lane (0.52); and the zoom.
+    const std::string laneBy = planPref(pl_.book, "lanes", "viewpoint");
+    {
+        float tx = m.x;
+        gfx_.text(L"Lanes", {tx, y, 50, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+        tx += 50;
+        segmented("pl:lanes", {tx, y, 330, 28}, {L"Viewpoint", L"Thread", L"Place", L"One lane"},
+                  laneBy == "thread" ? 1 : laneBy == "place" ? 2 : laneBy == "one" ? 3 : 0, [this](int i) {
+                      static const char* keys[] = {"viewpoint", "thread", "place", "one"};
+                      setPlanPref(pl_.book, "lanes", keys[i]);
+                  });
+        tx += 330 + 20;
+        if (tx + 150 > m.x + cw) { tx = m.x; y += 36; }
+        float bw = 0;
+        smallButton("pl:tlzout", tx, y, L"−", [this] { zoomTimeline(0.8f, pl_.tlDropArea.x + pl_.tlDropArea.w / 2); }, &bw);
+        tooltip("pl:tlzout", L"Zoom out (Ctrl and the mouse wheel)");
+        tx += bw + 6;
+        smallButton("pl:tlfit", tx, y, L"Fit", [this] { pl_.tlZoom = 0; pl_.tlScrollX = 0; invalidate(); }, &bw);
+        tooltip("pl:tlfit", L"The whole story");
+        tx += bw + 6;
+        smallButton("pl:tlzin", tx, y, L"+", [this] { zoomTimeline(1.25f, pl_.tlDropArea.x + pl_.tlDropArea.w / 2); }, &bw);
+        tooltip("pl:tlzin", L"Zoom in (Ctrl and the mouse wheel)");
+        y += 44;
+    }
     const auto all = lib_->manuscriptOf(pl_.book);
     const auto times = storyTimes(pl_.book);
+    const plan::Threads threads = plan::threadsOf(*lib_, pl_.book);
+    const auto places = plan::nodePlaces(*lib_, pl_.book);
     struct Item { const ManuscriptNode* n; double day; int order; std::wstring label; };
     std::vector<Item> placed;
     std::vector<const ManuscriptNode*> unplaced;
@@ -158,214 +185,366 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     for (const ManuscriptNode* n : all) {
         if (n->kind == NodeKind::Part) continue;
         if (n->kind == NodeKind::Chapter) { ++chapterNo; sceneNo = 0; } else ++sceneNo;
-        if (pl_.status >= 0 && (int)n->status != pl_.status) continue;
         if (!nodeShown(n)) continue;
         const std::wstring lbl = n->kind == NodeKind::Chapter ? L"Ch " + std::to_wstring(chapterNo)
                                                               : std::to_wstring(chapterNo) + L"." + std::to_wstring(sceneNo);
         auto it = times.find(n->id);
         double day = it != times.end() && it->second.placed ? it->second.day : NAN;
-        if (pl_.tlDrag.active && pl_.tlDrag.id == n->id) day = pl_.tlDrag.day;
+        if (pl_.tlDrag.active && pl_.tlDrag.id == n->id && pl_.tlDrag.kind == 0) day = pl_.tlDrag.day;
         if (std::isnan(day)) unplaced.push_back(n);
         else placed.push_back({n, day, order++, lbl});
     }
-    // Lanes: one per viewpoint character, in the order they first appear; then no viewpoint.
-    std::vector<Id> lanes;
-    for (auto& it : placed) if (std::find(lanes.begin(), lanes.end(), it.n->povId) == lanes.end()) lanes.push_back(it.n->povId);
-    std::stable_partition(lanes.begin(), lanes.end(), [](const Id& id) { return !id.empty(); });
-
-    if (placed.empty()) {
-        y += gfx_.text(L"Nothing is on the timeline yet. Choose a card below (or on the corkboard) and give it a day in the panel, "
-                       L"or press Place to put it after the last one.",
-                       {m.x, y, std::min(cw, 680.0f), 60}, Font::Body, pal_.inkMuted) + 16;
-    } else {
-        double lo = placed[0].day, hi = placed[0].day;
-        for (auto& it : placed) { lo = std::min(lo, it.day); hi = std::max(hi, it.day); }
-        lo = std::floor(lo) - 1;
-        hi = std::ceil(hi) + 1;
-        const float labelW = 150, cardW = 132, cardH = 54;
-        const float avail = cw - labelW;
-        const double span = std::max(1.0, hi - lo);
-        const float px = std::clamp((float)((avail - cardW - 16) / span), 36.0f, 220.0f);
-        pl_.tlPx = px;
-        pl_.tlDay0 = lo;
-        pl_.tlContentW = (float)(span * px) + cardW + 16;
-        pl_.tlScrollX = std::clamp(pl_.tlScrollX, 0.0f, std::max(0.0f, pl_.tlContentW - avail));
-        const float x0 = m.x + labelW + cardW / 2 + 8 - pl_.tlScrollX;   // where `lo` is (half a card in, so its card fits)
-        auto xOf = [&](double d) { return x0 + (float)((d - lo) * px); };
-        const Rect area{m.x + labelW, y, avail, 0};
-        // Ticks along the top.
-        const int step = std::max(1, (int)std::ceil(70.0 / px));
-        const float tickY = y;
-        y += 26;
-        // Lanes and their cards (stacked when they'd overlap).
-        struct Placed { const Item* it; Rect rc; };
-        std::vector<Placed> drawn;
-        const float laneTop = y;
-        std::vector<std::pair<float, float>> laneSpans;
-        for (const Id& lane : lanes) {
-            std::vector<std::vector<std::pair<float, float>>> rows;
-            const float top = y;
-            for (auto& it : placed) {
-                if (it.n->povId != lane) continue;
-                const float cx = xOf(it.day);
-                const float a = cx - cardW / 2, z = cx + cardW / 2;
-                size_t row = 0;
-                for (; row < rows.size(); ++row) {
-                    bool free = true;
-                    for (auto& [p, q] : rows[row]) if (a < q + 6 && z > p - 6) { free = false; break; }
-                    if (free) break;
-                }
-                if (row == rows.size()) rows.emplace_back();
-                rows[row].push_back({a, z});
-                drawn.push_back({&it, {a, top + 10 + row * (cardH + 8), cardW, cardH}});
-            }
-            const float h = std::max<size_t>(1, rows.size()) * (cardH + 8) + 12;
-            laneSpans.push_back({top, top + h});
-            y += h;
-        }
-        const float laneBottom = y;
-        pl_.tlArea = {area.x, laneTop, area.w, laneBottom - laneTop};
-        // Lane backgrounds and names.
-        for (size_t i = 0; i < lanes.size(); ++i) {
-            const auto [a, z] = laneSpans[i];
-            if (i % 2 == 0) gfx_.fill({m.x, a, cw, z - a}, pal_.surface.withAlpha(0.45f));
-            const Entry* e = lanes[i].empty() ? nullptr : lib_->entry(lanes[i]);
-            const std::wstring name = e && !e->deleted ? w(e->name) : L"No viewpoint";
-            if (e && !e->deleted) gfx_.fill({m.x, a + 6, 4, z - a - 12}, povColour(e->id));   // the viewpoint's colour, as on the cards
-            gfx_.text(name, {m.x + 12, a + 10, labelW - 20, 40}, Font::BodyStrong, e ? pal_.ink : pal_.inkMuted, {Align::Left, true, true});
-            gfx_.line(m.x, z - 0.5f, m.right(), z - 0.5f, pal_.rule);
-        }
-        // Ticks and day lines (clipped to the area right of the lane names).
-        gfx_.pushClip({area.x, tickY, area.w, laneBottom - tickY});
-        for (double d = std::ceil(lo / step) * step; d <= hi; d += step) {
-            const float tx = xOf(d);
-            gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
-            gfx_.text(dayLabel(unit, d), {tx - 40, tickY, 80, 20}, Font::Small, pal_.inkFaint, {Align::Center, false});
-        }
-        // Reading order: a line from card to card.
-        std::vector<const Placed*> byOrder;
-        for (auto& p : drawn) byOrder.push_back(&p);
-        std::sort(byOrder.begin(), byOrder.end(), [](auto* a, auto* b) { return a->it->order < b->it->order; });
-        for (size_t i = 1; i < byOrder.size(); ++i) {
-            const Rect& a = byOrder[i - 1]->rc;
-            const Rect& c = byOrder[i]->rc;
-            const bool back = c.x < a.x - 1;   // a flashback: earlier in the story, later in the book
-            gfx_.line(a.x + a.w / 2, a.y + a.h / 2, c.x + c.w / 2, c.y + c.h / 2,
-                      back ? cjui::hexColor("#C2410C").withAlpha(0.7f) : pal_.ribbon.withAlpha(0.45f), back ? 2.0f : 1.5f);
-        }
-        // Cards.
-        for (auto& p : drawn) {
-            const ManuscriptNode* n = p.it->n;
-            const Rect& c = p.rc;
-            const std::string id = "pl:tl:" + n->id;
-            addHit(id, c, [this, nid = n->id] { selectCard(nid); });
-            const bool sel = pl_.node == n->id;
-            const float hv = hoverAmount(id);
-            softShadow(c, 6, std::max(hv, sel ? 1.0f : 0.0f));
-            gfx_.fillRounded(c, 6, pal_.surface);
-            gfx_.strokeRounded(c, 6, sel ? pal_.ribbon : pal_.rule.mix(pal_.inkFaint, hv), sel ? 2.0f : 1.0f);
-            gfx_.fill({c.x + 1, c.y + 8, 3, c.h - 16}, statusColour(n->status));
-            gfx_.text(p.it->label, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
-            const auto t = times.find(n->id);
-            const std::wstring when = t != times.end() && !t->second.when.empty() ? w(t->second.when) : dayLabel(unit, p.it->day);
-            gfx_.text(when, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.ribbon, {Align::Right, false, true});
-            gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {c.x + 12, c.y + 24, c.w - 20, 22}, Font::BodyStrong,
-                      pal_.ink, {Align::Left, false, true});
-            if (focused(id)) focusRing(c);
-        }
-        gfx_.popClip();
-        if (pl_.tlContentW > avail + 1)
-            gfx_.text(L"Shift and the mouse wheel move along the timeline.", {m.x, laneBottom + 6, cw, 18}, Font::Small, pal_.inkFaint,
-                      {Align::Right, false});
-        y = laneBottom + 30;
+    // The bible's events (0.52): those placed on this book's timeline, and the rest.
+    std::vector<const Entry*> events;
+    for (const Entry* e : b->worldId.empty() ? lib_->entriesOf({}, b->id) : lib_->entriesOf(b->worldId))
+        if (e->kind == "event") events.push_back(e);
+    auto eventDays = plan::timelineEvents(*lib_, pl_.book);
+    if (pl_.tlDrag.active && pl_.tlDrag.kind == 2) eventDays[pl_.tlDrag.id] = pl_.tlDrag.day;
+    std::vector<std::pair<const Entry*, double>> placedEvents;
+    std::vector<const Entry*> unplacedEvents;
+    for (const Entry* e : events) {
+        auto it = eventDays.find(e->id);
+        if (it != eventDays.end()) placedEvents.push_back({e, it->second});
+        else unplacedEvents.push_back(e);
     }
-    // Not placed yet.
-    if (!unplaced.empty()) {
-        y += sectionLabel(m.x, y, cw, L"Not on the timeline yet");
-        double last = 0;
-        bool any = false;
-        for (auto& [id, t] : times) if (t.placed) { last = any ? std::max(last, t.day) : t.day; any = true; }
+
+    // Lanes: what each card is in, in the order they first appear; then those in none.
+    struct Lane { std::string key; std::wstring name; Color colour; bool coloured = false; };
+    auto lanesOf = [&](const ManuscriptNode* n) -> std::vector<std::string> {
+        if (laneBy == "one") return {"*"};
+        if (laneBy == "thread") {
+            auto it = threads.nodes.find(n->id);
+            if (it == threads.nodes.end() || it->second.empty()) return {""};
+            return it->second;
+        }
+        if (laneBy == "place") {
+            auto it = places.find(n->id);
+            const Entry* e = it != places.end() ? lib_->entry(it->second) : nullptr;
+            return {e && !e->deleted ? e->id : std::string()};
+        }
+        const Entry* e = n->povId.empty() ? nullptr : lib_->entry(n->povId);
+        return {e && !e->deleted ? e->id : std::string()};
+    };
+    std::vector<Lane> lanes;
+    for (auto& it : placed)
+        for (const std::string& k : lanesOf(it.n)) {
+            if (std::any_of(lanes.begin(), lanes.end(), [&](const Lane& l) { return l.key == k; })) continue;
+            Lane l{k, {}, {}, false};
+            if (k == "*") l.name = L"The story";
+            else if (laneBy == "thread") {
+                if (const plan::Thread* t = threads.find(k)) { l.name = w(t->name); l.colour = cjui::hexColor(t->colour.c_str()); l.coloured = true; }
+                else l.name = L"In no thread";
+            } else if (const Entry* e = k.empty() ? nullptr : lib_->entry(k)) {
+                l.name = w(e->name);
+                l.colour = povColour(e->id);
+                l.coloured = true;
+            } else l.name = laneBy == "place" ? L"No place" : L"No viewpoint";
+            lanes.push_back(l);
+        }
+    std::stable_partition(lanes.begin(), lanes.end(), [](const Lane& l) { return !l.key.empty(); });
+    if (lanes.empty()) lanes.push_back({laneBy == "one" ? "*" : "", laneBy == "one" ? L"The story" : L"", {}, false});
+
+    // The span: everything placed (and a few days to drop onto when nothing is).
+    double lo = 0, hi = 10;
+    bool anyPlaced = false;
+    auto widen2 = [&](double d) { if (!anyPlaced) { lo = hi = d; anyPlaced = true; } else { lo = std::min(lo, d); hi = std::max(hi, d); } };
+    for (auto& it : placed) widen2(it.day);
+    for (auto& [e, d] : placedEvents) widen2(d);
+    if (anyPlaced) { lo = std::floor(lo) - 1; hi = std::ceil(hi) + 1; }
+    const float labelW = 150, cardW = 132, cardH = 54;
+    const float avail = cw - labelW;
+    const double span = std::max(1.0, hi - lo);
+    const float tail = placedEvents.empty() ? 0.0f : 170.0f;   // room for an event's flag after the last day
+    const float fit = std::clamp((float)((avail - cardW - 16 - tail) / span), 36.0f, 220.0f);
+    const float px = pl_.tlZoom > 0 ? pl_.tlZoom : fit;
+    pl_.tlPx = px;
+    pl_.tlDay0 = lo;
+    pl_.tlContentW = (float)(span * px) + cardW + 16 + tail;
+    pl_.tlScrollX = std::clamp(pl_.tlScrollX, 0.0f, std::max(0.0f, pl_.tlContentW - avail));
+    pl_.tlOrigin = m.x + labelW + cardW / 2 + 8;
+    const float x0 = pl_.tlOrigin - pl_.tlScrollX;   // where `lo` is (half a card in, so its card fits)
+    pl_.tlX0 = x0;
+    auto xOf = [&](double d) { return x0 + (float)((d - lo) * px); };
+    const Rect area{m.x + labelW, y, avail, 0};
+    if (!anyPlaced)
+        y += gfx_.text(L"Nothing is on the timeline yet. Drag a card from below onto it, press Place to put one after the last, or "
+                       L"give a card a day in the panel.",
+                       {m.x, y, std::min(cw, 680.0f), 60}, Font::Body, pal_.inkMuted) + 12;
+    // Ticks along the top, at a step that leaves room for their labels.
+    double step = 1;
+    for (double s : {1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0}) { step = s; if (s * px >= 70) break; }
+    const float tickY = y;
+    y += 26;
+    // The story's events (0.52): a strip of flags above the lanes, each with a line down through them.
+    const float eventTop = y;
+    const bool eventStrip = !events.empty();
+    if (eventStrip) y += 34;
+    // Lanes and their cards (stacked when they'd overlap).
+    struct Placed { const Item* it; Rect rc; };
+    std::vector<Placed> drawn;
+    const float laneTop = y;
+    std::vector<std::pair<float, float>> laneSpans;
+    for (const Lane& lane : lanes) {
+        std::vector<std::vector<std::pair<float, float>>> rows;
+        const float top = y;
+        for (auto& it : placed) {
+            const auto ks = lanesOf(it.n);
+            if (std::find(ks.begin(), ks.end(), lane.key) == ks.end()) continue;
+            const float cx = xOf(it.day);
+            const float a = cx - cardW / 2, z = cx + cardW / 2;
+            size_t row = 0;
+            for (; row < rows.size(); ++row) {
+                bool free = true;
+                for (auto& [p, q] : rows[row]) if (a < q + 6 && z > p - 6) { free = false; break; }
+                if (free) break;
+            }
+            if (row == rows.size()) rows.emplace_back();
+            rows[row].push_back({a, z});
+            drawn.push_back({&it, {a, top + 10 + row * (cardH + 8), cardW, cardH}});
+        }
+        const float h = std::max<size_t>(1, rows.size()) * (cardH + 8) + 12;
+        laneSpans.push_back({top, top + h});
+        y += h;
+    }
+    const float laneBottom = y;
+    pl_.tlArea = {area.x, laneTop, area.w, laneBottom - laneTop};
+    pl_.tlDropArea = {area.x, tickY, area.w, laneBottom - tickY};
+    // Lane backgrounds and names.
+    for (size_t i = 0; i < lanes.size(); ++i) {
+        const auto [a, z] = laneSpans[i];
+        if (i % 2 == 0) gfx_.fill({m.x, a, cw, z - a}, pal_.surface.withAlpha(0.45f));
+        if (lanes[i].coloured) gfx_.fill({m.x, a + 6, 4, z - a - 12}, lanes[i].colour);   // the lane's colour, as on the cards
+        gfx_.text(lanes[i].name, {m.x + 12, a + 10, labelW - 20, 40}, Font::BodyStrong, lanes[i].coloured ? pal_.ink : pal_.inkMuted,
+                  {Align::Left, true, true});
+        gfx_.line(m.x, z - 0.5f, m.right(), z - 0.5f, pal_.rule);
+    }
+    if (eventStrip)
+        gfx_.text(L"Story events", {m.x + 12, eventTop + 6, labelW - 20, 20}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+    // Ticks and day lines (clipped to the area right of the lane names).
+    gfx_.pushClip({area.x, tickY, area.w, laneBottom - tickY});
+    for (double d = std::ceil(lo / step) * step; d <= hi; d += step) {
+        const float tx = xOf(d);
+        gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
+        gfx_.text(dayLabel(unit, d), {tx - 40, tickY, 80, 20}, Font::Small, pal_.inkFaint, {Align::Center, false});
+    }
+    // Events: a dashed line through the lanes and a flag above them; drag one along, click it for more.
+    const Color evc = pal_.dark ? cjui::hexColor("#E0A458") : cjui::hexColor("#B26B12");
+    for (auto& [e, d] : placedEvents) {
+        const float ex = xOf(d);
+        for (float ly = laneTop; ly < laneBottom; ly += 8) gfx_.line(ex, ly, ex, std::min(ly + 4, laneBottom), evc.withAlpha(0.7f), 1.5f);
+        const std::wstring nm = w(e->name);
+        const float fw = std::min(gfx_.measureWidth(nm, Font::Small) + 22, 200.0f);
+        const Rect flag{ex - 6, eventTop + 4, fw, 24};
+        const std::string id = "pl:tle:" + e->id;
+        addHit(id, flag, [this, eid = e->id] {
+            std::vector<MenuItem> items{MenuItem::item(L"Open it in the world's bible", 1), MenuItem::item(L"Take it off this timeline", 2)};
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT c = showMenu(hwnd(), items, pt, pal_);
+            if (c == 1) {
+                if (const Entry* x = lib_->entry(eid)) { openWorldbuilding(x->worldId, x->bookId); openEntry(eid); }
+            } else if (c == 2) { plan::setTimelineEvent(*lib_, pl_.book, eid, std::nullopt); invalidate(); }
+        });
+        tooltip(id, nm + L" · " + dayLabel(unit, d) + L". Drag it along to move it; click for more.");
+        const float hv = hoverAmount(id);
+        gfx_.fillRounded(flag, 4, evc.withAlpha(0.14f + 0.12f * hv));
+        gfx_.fill({ex - 1, eventTop + 4, 2.5f, 24}, evc);
+        gfx_.text(nm, {flag.x + 12, flag.y, flag.w - 16, flag.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+    }
+    // Reading order: a line from card to card (a card in several lanes, from its first).
+    std::vector<const Placed*> byOrder;
+    std::set<const Item*> seen;
+    for (auto& p : drawn) if (seen.insert(p.it).second) byOrder.push_back(&p);
+    std::sort(byOrder.begin(), byOrder.end(), [](auto* a, auto* b) { return a->it->order < b->it->order; });
+    for (size_t i = 1; i < byOrder.size(); ++i) {
+        const Rect& a = byOrder[i - 1]->rc;
+        const Rect& c = byOrder[i]->rc;
+        const bool back = c.x < a.x - 1;   // a flashback: earlier in the story, later in the book
+        gfx_.line(a.x + a.w / 2, a.y + a.h / 2, c.x + c.w / 2, c.y + c.h / 2,
+                  back ? cjui::hexColor("#C2410C").withAlpha(0.7f) : pal_.ribbon.withAlpha(0.45f), back ? 2.0f : 1.5f);
+    }
+    // Cards.
+    for (auto& p : drawn) {
+        const ManuscriptNode* n = p.it->n;
+        const Rect& c = p.rc;
+        const std::string id = "pl:tl:" + n->id;
+        addHit(id, c, [this, nid = n->id] { selectCard(nid); });
+        const bool sel = pl_.node == n->id;
+        const float hv = hoverAmount(id);
+        softShadow(c, 6, std::max(hv, sel ? 1.0f : 0.0f));
+        gfx_.fillRounded(c, 6, pal_.surface);
+        gfx_.strokeRounded(c, 6, sel ? pal_.ribbon : pal_.rule.mix(pal_.inkFaint, hv), sel ? 2.0f : 1.0f);
+        gfx_.fill({c.x + 1, c.y + 8, 3, c.h - 16}, statusColour(n->status));
+        gfx_.text(p.it->label, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+        const auto t = times.find(n->id);
+        const std::wstring when = t != times.end() && !t->second.when.empty() ? w(t->second.when) : dayLabel(unit, p.it->day);
+        gfx_.text(when, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.ribbon, {Align::Right, false, true});
+        gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {c.x + 12, c.y + 24, c.w - 20, 22}, Font::BodyStrong,
+                  pal_.ink, {Align::Left, false, true});
+        if (focused(id)) focusRing(c);
+    }
+    // Something from below being dragged onto it: where it would land.
+    if (pl_.tlDrag.active && (pl_.tlDrag.kind == 1 || pl_.tlDrag.kind == 3) && pl_.tlDropArea.contains(pl_.tlDrag.mx, pl_.tlDrag.my)) {
+        const float gx = xOf(pl_.tlDrag.day);
+        gfx_.line(gx, laneTop, gx, laneBottom, pal_.ribbon, 2.5f);
+        const std::wstring dl = dayLabel(unit, pl_.tlDrag.day);
+        const float dw = gfx_.measureWidth(dl, Font::Small) + 16;
+        gfx_.fillRounded({gx - dw / 2, tickY - 2, dw, 22}, 11, pal_.ribbon);
+        gfx_.text(dl, {gx - dw / 2, tickY - 2, dw, 22}, Font::Small, pal_.paper, {Align::Center, false, false, true});
+    }
+    gfx_.popClip();
+    if (pl_.tlContentW > avail + 1)
+        gfx_.text(L"Shift and the mouse wheel move along the timeline; Ctrl and the wheel zoom.", {m.x, laneBottom + 6, cw, 18}, Font::Small,
+                  pal_.inkFaint, {Align::Right, false});
+    y = laneBottom + 30;
+
+    // Not placed yet: drag one onto the timeline, or Place it after the last.
+    double last = 0;
+    bool any = false;
+    for (auto& [id, t] : times) if (t.placed) { last = any ? std::max(last, t.day) : t.day; any = true; }
+    for (auto& [id, d] : eventDays) { last = any ? std::max(last, d) : d; any = true; }
+    const double next = any ? std::floor(last) + 1 : 1;
+    auto chips = [&](const std::wstring& heading, const std::vector<std::pair<Id, std::wstring>>& list, const char* prefix, bool isEvent) {
+        if (list.empty()) return;
+        y += sectionLabel(m.x, y, cw, heading);
         float x = m.x;
-        for (const ManuscriptNode* n : unplaced) {
-            const std::wstring title = n->title.empty() ? w(label(n->kind)) : w(n->title);
+        for (auto& [cid, title] : list) {
             const float tw = std::min(gfx_.measureWidth(title, Font::Small) + 86, 280.0f);
             if (x + tw > m.right()) { x = m.x; y += 38; }
             const Rect chip{x, y, tw, 30};
-            const std::string id = "pl:tlu:" + n->id;
-            addHit(id, {chip.x, chip.y, chip.w - 60, chip.h}, [this, nid = n->id] { selectCard(nid); });
-            const bool sel = pl_.node == n->id;
-            gfx_.fillRounded(chip, 15, sel ? pal_.surface : pal_.sunken);
-            gfx_.strokeRounded(chip, 15, sel ? pal_.ribbon : pal_.rule);
+            const std::string id = prefix + cid;
+            addHit(id, {chip.x, chip.y, chip.w - 60, chip.h}, [this, cid, isEvent] {
+                if (!isEvent) selectCard(cid);
+                else flash(L"Drag it onto the timeline, or press Place.", 3);
+            });
+            tooltip(id, L"Drag it onto the timeline");
+            const bool sel = !isEvent && pl_.node == cid;
+            const bool lifted = pl_.tlDrag.active && pl_.tlDrag.id == cid;
+            gfx_.fillRounded(chip, 15, (sel ? pal_.surface : pal_.sunken).withAlpha(lifted ? 0.4f : 1.0f));
+            gfx_.strokeRounded(chip, 15, sel ? pal_.ribbon : isEvent ? evc.withAlpha(0.6f) : pal_.rule);
             gfx_.text(title, {chip.x + 14, chip.y, chip.w - 80, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
-            const double next = any ? std::floor(last) + 1 : 1;
-            linkText("pl:tlplace:" + n->id, chip.right() - 52, chip.y + 7, L"Place", [this, nid = n->id, next] {
+            linkText(std::string(isEvent ? "pl:tleplace:" : "pl:tlplace:") + cid, chip.right() - 52, chip.y + 7, L"Place", [this, cid, next, isEvent] {
                 commitFields();
-                StoryTime t = storyTimes(pl_.book)[nid];
+                if (isEvent) { plan::setTimelineEvent(*lib_, pl_.book, cid, next); invalidate(); return; }
+                StoryTime t = storyTimes(pl_.book)[cid];
                 t.placed = true;
                 t.day = next;
-                setStoryTime(pl_.book, nid, t);
-                selectCard(nid);
+                setStoryTime(pl_.book, cid, t);
+                selectCard(cid);
             });
             if (focused(id)) focusRing(chip);
             x += tw + 8;
         }
         y += 50;
+    };
+    {
+        std::vector<std::pair<Id, std::wstring>> list;
+        for (const ManuscriptNode* n : unplaced) list.push_back({n->id, n->title.empty() ? w(label(n->kind)) : w(n->title)});
+        chips(L"Not on the timeline yet", list, "pl:tlu:", false);
+        list.clear();
+        for (const Entry* e : unplacedEvents) list.push_back({e->id, w(e->name)});
+        chips(L"Story events from the bible", list, "pl:tleu:", true);
     }
+    // The thing being dragged from below, following the pointer.
+    if (pl_.tlDrag.active && (pl_.tlDrag.kind == 1 || pl_.tlDrag.kind == 3)) {
+        std::wstring nm;
+        if (pl_.tlDrag.kind == 1) { if (const ManuscriptNode* n = lib_->node(pl_.tlDrag.id)) nm = n->title.empty() ? w(label(n->kind)) : w(n->title); }
+        else if (const Entry* e = lib_->entry(pl_.tlDrag.id)) nm = w(e->name);
+        const float lw = std::min(gfx_.measureWidth(nm, Font::BodyStrong) + 24, 320.0f);
+        const Rect g{pl_.tlDrag.mx + 14, pl_.tlDrag.my + 10, lw, 30};
+        gfx_.fillRounded(g, 3, pal_.ink.withAlpha(0.88f));
+        gfx_.text(nm, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
+    }
+    if (events.empty() && !b->worldId.empty())
+        y += gfx_.text(L"Events from the world's bible (entries of the kind Event) can be placed here too.", {m.x, y, cw, 20}, Font::Small,
+                       pal_.inkFaint) + 10;
     pl_.content = y + pl_.scroll - r.y + 30;
     pl_.scroll = std::clamp(pl_.scroll, 0.0f, std::max(0.0f, pl_.content - r.h));
     clearHitClip();
     gfx_.popClip();
 }
 
-// Dragging a card along the timeline.
+// Zoom the timeline about a point across it, keeping the day under that point still.
+void StudioApp::zoomTimeline(float factor, float atX) {
+    const float px = (float)std::max(0.5, pl_.tlPx);
+    const float np = std::clamp(px * factor, 2.0f, 600.0f);
+    const double d = pl_.tlDay0 + (atX - pl_.tlX0) / px;
+    pl_.tlZoom = np;
+    pl_.tlScrollX = std::max(0.0f, pl_.tlOrigin - (atX - (float)((d - pl_.tlDay0) * np)));
+    invalidate();
+}
+
+// Dragging on the timeline: a card or event along it, or one from below onto it.
 bool StudioApp::planMouseDown(float x, float y) {
     if (ws_ != Workspace::Planning || pl_.view != 1) return false;
     const std::string id = hitAt(x, y);
-    if (id.rfind("pl:tl:", 0) != 0) return false;
-    const Id nid = id.substr(6);
-    const auto times = storyTimes(pl_.book);
-    const auto it = times.find(nid);
-    if (it == times.end() || !it->second.placed) return false;
+    int kind = -1;
+    Id nid;
+    for (auto [prefix, k] : {std::pair{"pl:tl:", 0}, std::pair{"pl:tlu:", 1}, std::pair{"pl:tle:", 2}, std::pair{"pl:tleu:", 3}})
+        if (id.rfind(prefix, 0) == 0) { kind = k; nid = id.substr(std::strlen(prefix)); break; }
+    if (kind < 0) return false;
     pl_.tlDrag = {};
+    if (kind == 0) {
+        const auto times = storyTimes(pl_.book);
+        const auto it = times.find(nid);
+        if (it == times.end() || !it->second.placed) return false;
+        pl_.tlDrag.startDay = it->second.day;
+    } else if (kind == 2) {
+        const auto ev = plan::timelineEvents(*lib_, pl_.book);
+        const auto it = ev.find(nid);
+        if (it == ev.end()) return false;
+        pl_.tlDrag.startDay = it->second;
+    }
     pl_.tlDrag.armed = true;
     pl_.tlDrag.id = nid;
-    pl_.tlDrag.sx = x;
-    pl_.tlDrag.startDay = pl_.tlDrag.day = it->second.day;
+    pl_.tlDrag.kind = kind;
+    pl_.tlDrag.sx = pl_.tlDrag.mx = x;
+    pl_.tlDrag.sy = pl_.tlDrag.my = y;
+    pl_.tlDrag.day = pl_.tlDrag.startDay;
     return false;   // a click still selects it
 }
 
-bool StudioApp::planMouseMove(float x, float, bool leftDown) {
+bool StudioApp::planMouseMove(float x, float y, bool leftDown) {
     if (!pl_.tlDrag.armed) return false;
     if (!leftDown) { pl_.tlDrag = {}; return false; }
-    if (!pl_.tlDrag.active && std::abs(x - pl_.tlDrag.sx) > 6) { pl_.tlDrag.active = true; cancelPress(); }
+    pl_.tlDrag.mx = x;
+    pl_.tlDrag.my = y;
+    const bool along = pl_.tlDrag.kind == 0 || pl_.tlDrag.kind == 2;
+    if (!pl_.tlDrag.active && (along ? std::abs(x - pl_.tlDrag.sx) > 6 : std::hypot(x - pl_.tlDrag.sx, y - pl_.tlDrag.sy) > 6)) {
+        pl_.tlDrag.active = true;
+        cancelPress();
+    }
     if (pl_.tlDrag.active) {
-        // Whole steps of the unit, from where it started.
-        pl_.tlDrag.day = pl_.tlDrag.startDay + std::round((x - pl_.tlDrag.sx) / std::max(1.0, pl_.tlPx));
+        // Whole steps of the unit: from where it started, or where the pointer is.
+        const double perPx = 1.0 / std::max(0.5, (double)pl_.tlPx);
+        if (along) pl_.tlDrag.day = pl_.tlDrag.startDay + std::round((x - pl_.tlDrag.sx) * perPx);
+        else pl_.tlDrag.day = std::round(pl_.tlDay0 + (x - pl_.tlX0) * perPx);
         invalidate();
         return true;
     }
     return false;
 }
 
-bool StudioApp::planMouseUp(float, float) {
+bool StudioApp::planMouseUp(float x, float y) {
     if (!pl_.tlDrag.armed) return false;
-    const bool moved = pl_.tlDrag.active && pl_.tlDrag.day != pl_.tlDrag.startDay;
-    const Id id = pl_.tlDrag.id;
-    const double day = pl_.tlDrag.day;
-    const bool wasActive = pl_.tlDrag.active;
+    const auto d = pl_.tlDrag;
     pl_.tlDrag = {};
+    const bool onto = d.kind == 0 || d.kind == 2 || pl_.tlDropArea.contains(x, y);
+    const bool moved = d.active && onto && (d.kind == 1 || d.kind == 3 || d.day != d.startDay);
     if (moved) {
         commitFields();
-        StoryTime t = storyTimes(pl_.book)[id];
-        t.placed = true;
-        t.day = day;
-        setStoryTime(pl_.book, id, t);
-        selectCard(id);
-        loadFields();
-        flash(L"Moved to " + dayLabel(timelineUnit(pl_.book), day) + L".", 3);
+        if (d.kind <= 1) {
+            StoryTime t = storyTimes(pl_.book)[d.id];
+            t.placed = true;
+            t.day = d.day;
+            setStoryTime(pl_.book, d.id, t);
+            selectCard(d.id);
+            loadFields();
+        } else plan::setTimelineEvent(*lib_, pl_.book, d.id, d.day);
+        flash((d.kind <= 1 ? L"Moved to " : L"The event is now at ") + dayLabel(timelineUnit(pl_.book), d.day) + L".", 3);
     }
     invalidate();
-    return wasActive;
+    return d.active;
 }
 
 // ------------------------------------------------------------ the structure

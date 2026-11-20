@@ -324,6 +324,8 @@ private:
     void exportPlanText();
     bool nodeShown(const studio::ManuscriptNode* n) const;
     void chooseViewpoint(const Id& nodeId);              // a menu of the world's characters (0.51)
+    void choosePlace(const Id& nodeId);                  // a menu of the bible's places and realms (0.52)
+    void zoomTimeline(float factor, float atX);
     std::string planPref(const Id& book, const char* key, const std::string& fallback) const;   // in "plan:<book>"
     void setPlanPref(const Id& book, const char* key, const std::string& value);   // passes the status, viewpoint and thread filters
     bool planMouseDown(float x, float y);
@@ -675,7 +677,11 @@ private:
         float tlScrollX = 0, tlContentW = 0;
         Rect tlArea{};
         double tlDay0 = 0, tlPx = 80;    // the day at tlArea's left edge (before scrolling), pixels per day
-        struct { bool armed = false, active = false; Id id; float sx = 0; double startDay = 0, day = 0; } tlDrag;
+        // A drag on the timeline (0.52 kinds): 0 a placed card, 1 a card not placed yet, 2 a placed story event, 3 one not yet.
+        struct { bool armed = false, active = false; Id id; int kind = 0; float sx = 0, sy = 0, mx = 0, my = 0; double startDay = 0, day = 0; } tlDrag;
+        float tlZoom = 0;          // 0.52: pixels per unit, or 0 to fit the story
+        float tlOrigin = 0, tlX0 = 0;   // where the first day is drawn before scrolling, and now
+        Rect tlDropArea{};         // where a card or event can be dropped onto the timeline
         std::string beat;          // Structure: the beat selected
     } pl_;
     // Worldbuilding

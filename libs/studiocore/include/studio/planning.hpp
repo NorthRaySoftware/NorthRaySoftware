@@ -7,12 +7,15 @@
 //   "structures:<scope>"   [{id, name, about, beats: [{id, name, at, about}]}]   the author's own, per world ("world:<id>")
 //                          or independent book ("book:<id>")
 //   "threads:<book>"       {"threads": [{id, name, colour, about}], "nodes": {node: [thread, ...]}}
-//   "timeline:<book>"      {"unit": ..., "nodes": {node: {"day": n, "when": text}}}   (the timeline's, 0.22)
+//   "timeline:<book>"      {"unit": ..., "nodes": {node: {"day": n, "when": text}}, "events": {entry: {"day": n}}}
+//                          (the timeline's, 0.22; the bible's events placed on it, 0.52)
+//   "nodeplaces:<book>"    {node: place entry}   where a chapter or scene happens (0.52)
 #pragma once
 
 #include "studio/library.hpp"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -80,6 +83,15 @@ struct ThreadImport { int added = 0, updated = 0, tagged = 0; std::vector<std::s
 // Threads of the same name are updated (their chapters are added to); others are added.
 bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out);
 
+// ------------------------------------------------------------------ places and story events (0.52)
+
+// Where each chapter or scene happens: a place (or realm) of the bible.
+std::map<Id, Id> nodePlaces(const Library& lib, const Id& book);
+bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place);   // empty place: none
+// The bible's events placed on the book's timeline, by day (in the timeline's unit).
+std::map<Id, double> timelineEvents(const Library& lib, const Id& book);
+bool setTimelineEvent(Library& lib, const Id& book, const Id& entry, std::optional<double> day);   // nullopt: off it
+
 // ------------------------------------------------------------------ outlines
 
 // An outline as text (parts, chapters and scenes with their planning), to fill a book or copy one out:
@@ -90,13 +102,14 @@ bool importThreads(Library& lib, const Id& book, const std::string& text, Thread
 //   Target: 3000
 //   Threads: The shards of light, Tom and Sarrah
 //   When: Day 3            (or any words, "the night of the storm")
+//   Place: The Forge       (a place or realm of the bible)
 //   Tom finds the ledger... (the synopsis: any other lines)
 //   Scene: Night watch
 // Markdown headings work too: with three levels in use they're parts, chapters and scenes; with two, chapters and
 // scenes; with one, chapters.
 struct OutlineItem {
     NodeKind kind = NodeKind::Chapter;
-    std::string title, synopsis, viewpoint, status, when;
+    std::string title, synopsis, viewpoint, status, when, place;
     std::int64_t target = 0;
     std::vector<std::string> threads;
     std::vector<std::string> beats;   // "Beat: Midpoint": beats of the book's structure this chapter carries
@@ -106,7 +119,7 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
 std::string outlineText(const Library& lib, const Id& book);
 struct OutlineImport {
     int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;
-    std::vector<std::string> unknownViewpoints, unknownBeats;
+    std::vector<std::string> unknownViewpoints, unknownBeats, unknownPlaces;
     std::string structure;   // the structure set by "Book structure:", by name ("" none)
     bool unknownStructure = false;
     std::vector<Id> made;

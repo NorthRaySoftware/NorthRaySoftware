@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.118.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.52.0: the timeline with drag and drop, zoom, lanes by thread or place, and story events."
+      ]
+    },
+    {
       "version": "0.117.0",
       "date": "2026-11-20",
       "notes": [

@@ -117,6 +117,29 @@ void StudioApp::chooseViewpoint(const Id& nodeId) {
     invalidate();
 }
 
+// Where a chapter or scene happens: one of the bible's places or realms (0.52).
+void StudioApp::choosePlace(const Id& nodeId) {
+    const studio::Book* bk = lib_->book(pl_.book);
+    if (!lib_->node(nodeId) || !bk) return;
+    std::vector<const Entry*> list;
+    for (const Entry* e : bk->worldId.empty() ? lib_->entriesOf({}, bk->id) : lib_->entriesOf(bk->worldId))
+        if (e->kind == "place" || e->kind == "realm") list.push_back(e);
+    if (list.empty()) { flash(L"Add places in Worldbuilding first; then choose where this happens.", 6); return; }
+    const auto places = plan::nodePlaces(*lib_, pl_.book);
+    const auto had = places.find(nodeId);
+    std::vector<std::wstring> items{L"None"};
+    int cur = 0;
+    for (size_t i = 0; i < list.size(); ++i) {
+        items.push_back(w(list[i]->name));
+        if (had != places.end() && list[i]->id == had->second) cur = (int)i + 1;
+    }
+    const int i = popupAtCursor(hwnd(), items, cur);
+    if (i < 0 || i == cur) return;
+    commitFields();
+    plan::setNodePlace(*lib_, pl_.book, nodeId, i == 0 ? Id{} : list[i - 1]->id);
+    invalidate();
+}
+
 // ------------------------------------------------------------- opening
 
 void StudioApp::openPlanning(const Id& bookId) {
@@ -756,6 +779,12 @@ void StudioApp::drawPlanPanel(const Rect& r) {
             const Entry* pov = lib_->entry(n->povId);
             const std::wstring povLabel = pov && !pov->deleted ? w(pov->name) : people.empty() ? L"No characters yet" : L"None";
             panelChoice("pl:pov", c, y, L"Viewpoint character", povLabel, [this] { chooseViewpoint(pl_.node); });
+            {
+                const auto places = plan::nodePlaces(*lib_, pl_.book);
+                const auto it = places.find(n->id);
+                const Entry* pe = it != places.end() ? lib_->entry(it->second) : nullptr;
+                panelChoice("pl:place", c, y, L"Where it happens", pe && !pe->deleted ? w(pe->name) : L"Not chosen", [this] { choosePlace(pl_.node); });
+            }
             y = panelField(c, y, L"Target words (blank: none)", FTarget);
         }
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
@@ -809,7 +838,9 @@ void StudioApp::drawPlanPanel(const Rect& r) {
                        L"to go before or after it, onto the middle of a chapter to make a scene part of it, or (in columns) to the foot "
                        L"of a part's column. Ctrl and the mouse wheel make the cards bigger or smaller.\n\nCharacters from the world's "
                        L"bible are found in the text, so a card shows who appears in it without being told."
-                       : pl_.view == 1 ? L"Choose a card to set when it happens. Cards without a time wait below the timeline."
+                       : pl_.view == 1 ? L"Choose a card to set when it happens, or drag it along. Cards without a time wait below; drag one "
+                                         L"onto the timeline. Lanes can follow the viewpoint, the plot threads or where it happens (set in a "
+                                         L"card's panel). The bible's events can be dragged on too, and stay for this book."
                        : L"Match each beat to the chapters that carry it, and select a beat to keep notes on it for this book. The "
                          L"bar shows the book by length, so you can see whether a turning point comes early or late.",
                        {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;

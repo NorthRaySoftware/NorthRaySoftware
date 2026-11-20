@@ -567,6 +567,40 @@ bool importThreads(Library& lib, const Id& book, const std::string& text, Thread
     return setThreads(lib, book, t);
 }
 
+// ------------------------------------------------------------------ places and story events
+
+std::map<Id, Id> nodePlaces(const Library& lib, const Id& book) {
+    std::map<Id, Id> out;
+    const json j = parseObj(lib.setting("nodeplaces:" + book));
+    for (auto& [node, v] : j.items())
+        if (v.is_string() && !v.get<std::string>().empty()) out[node] = v.get<std::string>();
+    return out;
+}
+
+bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place) {
+    json j = parseObj(lib.setting("nodeplaces:" + book));
+    if (place.empty()) j.erase(node);
+    else j[node] = place;
+    return lib.setSetting("nodeplaces:" + book, j.dump());
+}
+
+std::map<Id, double> timelineEvents(const Library& lib, const Id& book) {
+    std::map<Id, double> out;
+    const json j = parseObj(lib.setting("timeline:" + book));
+    if (j.contains("events") && j["events"].is_object())
+        for (auto& [id, v] : j["events"].items())
+            if (v.is_object() && v.contains("day") && v["day"].is_number()) out[id] = v["day"].get<double>();
+    return out;
+}
+
+bool setTimelineEvent(Library& lib, const Id& book, const Id& entry, std::optional<double> day) {
+    json j = parseObj(lib.setting("timeline:" + book));
+    if (!j.contains("events") || !j["events"].is_object()) j["events"] = json::object();
+    if (day) j["events"][entry] = {{"day", *day}};
+    else j["events"].erase(entry);
+    return lib.setSetting("timeline:" + book, j.dump());
+}
+
 // ------------------------------------------------------------------ outlines
 
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure) {
@@ -627,6 +661,7 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
         } else if (field(l, {"beat", "beats"}, v)) {
             for (auto& x : splitList(v)) it.beats.push_back(x);
         } else if (field(l, {"when", "time"}, v)) it.when = v;
+        else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
         else {
             if (field(l, {"synopsis", "summary"}, v)) l = v;
             if (l.empty()) continue;
@@ -653,6 +688,7 @@ std::string outlineText(const Library& lib, const Id& book) {
             auto it = bs.beats.find(b.id);
             if (it != bs.beats.end()) for (auto& n : it->second) beatsOf[n].push_back(b.name);
         }
+    const auto places = nodePlaces(lib, book);
     std::string out;
     if (st) out += "Book structure: " + st->name + "\n";
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
@@ -662,6 +698,8 @@ std::string outlineText(const Library& lib, const Id& book) {
             if (const Entry* e = lib.entry(n->povId)) out += "Viewpoint: " + e->name + "\n";
         if (n->kind != NodeKind::Part) out += std::string("Status: ") + label(n->status) + "\n";
         if (n->targetWords > 0) out += "Target: " + std::to_string(n->targetWords) + "\n";
+        if (auto pl = places.find(n->id); pl != places.end())
+            if (const Entry* e = lib.entry(pl->second); e && !e->deleted) out += "Place: " + e->name + "\n";
         auto it = th.nodes.find(n->id);
         if (it != th.nodes.end()) {
             std::string names;
@@ -731,6 +769,15 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         }
         return count == 1 ? one : Id{};
     };
+    auto placeNamed = [&](const std::string& name) -> Id {
+        const std::string n = lower(trim(name));
+        for (const Entry* e : people)
+            if ((e->kind == "place" || e->kind == "realm") && lower(e->name) == n) return e->id;
+        for (const Entry* e : people)
+            if (e->kind == "place" || e->kind == "realm")
+                for (auto& a : e->aliases) if (lower(trim(a)) == n) return e->id;
+        return {};
+    };
     Threads th = threadsOf(lib, book);
     json tl = parseObj(lib.setting("timeline:" + book));
     if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
@@ -760,6 +807,12 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
                 out.unknownViewpoints.push_back(it.viewpoint);
         }
         lib.updateNode(n);
+        if (!it.place.empty()) {
+            const Id pl = placeNamed(it.place);
+            if (!pl.empty()) setNodePlace(lib, book, id, pl);
+            else if (std::find(out.unknownPlaces.begin(), out.unknownPlaces.end(), it.place) == out.unknownPlaces.end())
+                out.unknownPlaces.push_back(it.place);
+        }
         for (const std::string& name : it.threads) {
             const Thread* t = th.named(name);
             if (!t) {

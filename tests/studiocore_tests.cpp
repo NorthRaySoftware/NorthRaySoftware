@@ -3230,6 +3230,28 @@ static void testPlanning() {
         CHECK(plan::planningText(*lib, b4, plan::structureScope(*lib, b4)) == all);
     }
 
+    // Places (0.52): set from an outline, out again, and the bible's events on the timeline.
+    {
+        const Id forge = lib->createEntry(world, {}, "place", "Elandroth Forge");
+        if (Entry e = *lib->entry(forge); true) { e.aliases = {"The Forge"}; lib->updateEntry(e); }
+        const Id b5 = lib->createBook("Places", world);
+        plan::OutlineImport o5;
+        CHECK(plan::importOutline(*lib, b5, "Chapter: One\nPlace: the forge\n\nChapter: Two\nWhere: Nowhere at all\n", o5));
+        CHECK(o5.unknownPlaces == std::vector<std::string>{"Nowhere at all"});
+        const auto ch5 = lib->manuscriptOf(b5);
+        const auto pl5 = plan::nodePlaces(*lib, b5);
+        CHECK(ch5.size() == 2 && pl5.size() == 1 && pl5.at(ch5[0]->id) == forge);
+        CHECK(plan::outlineText(*lib, b5).find("Chapter: One\nStatus: Outline\nPlace: Elandroth Forge\n") != std::string::npos);
+        plan::setNodePlace(*lib, b5, ch5[0]->id, {});
+        CHECK(plan::nodePlaces(*lib, b5).empty());
+        const Id ev = lib->createEntry(world, {}, "event", "The Burning");
+        lib->setSetting("timeline:" + b5, R"({"unit":"week","nodes":{"x":{"day":2}}})");
+        CHECK(plan::setTimelineEvent(*lib, b5, ev, 4.0) && plan::timelineEvents(*lib, b5).at(ev) == 4.0);
+        CHECK(nlohmann::json::parse(lib->setting("timeline:" + b5))["unit"] == "week");   // the rest kept
+        plan::setTimelineEvent(*lib, b5, ev, std::nullopt);
+        CHECK(plan::timelineEvents(*lib, b5).empty());
+    }
+
     // Markdown headings: two levels are chapters and scenes.
     const auto md = plan::parseOutline("# The Forge\nSome words.\n## Night watch\n# The Storm\n");
     CHECK(md.size() == 3 && md[0].kind == NodeKind::Chapter && md[1].kind == NodeKind::Scene && md[0].synopsis == "Some words.");

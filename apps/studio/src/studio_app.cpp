@@ -1607,6 +1607,8 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     if (ws_ == Workspace::Planning) {
         if (panelRect_.contains(x, y)) pl_.panelScroll = std::clamp(pl_.panelScroll + lines * 20, 0.0f, std::max(0.0f, pl_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) pl_.sideScroll = std::clamp(pl_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pl_.sideContent - sideRect_.h));
+        else if (pageRect_.contains(x, y) && pl_.view == 1 && (GetKeyState(VK_CONTROL) & 0x8000))
+            zoomTimeline(lines < 0 ? 1.25f : 0.8f, x);   // Ctrl and the wheel zoom about the pointer (0.52)
         else if (pageRect_.contains(x, y) && pl_.view == 1 && (GetKeyState(VK_SHIFT) & 0x8000))
             pl_.tlScrollX = std::clamp(pl_.tlScrollX + lines * 40, 0.0f, std::max(0.0f, pl_.tlContentW - pl_.tlArea.w));   // along the timeline
         else if (pageRect_.contains(x, y) && pl_.view == 0 && (GetKeyState(VK_SHIFT) & 0x8000))

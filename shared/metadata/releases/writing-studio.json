@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.52.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Timeline: drag a card from below onto the timeline to place it, and zoom with Ctrl and the mouse wheel or the −, Fit and + buttons.",
+        "Lanes by viewpoint, plot thread or place, or one lane. Each chapter and scene can say where it happens (a place from the bible), in its panel or with “Place:” in an imported outline.",
+        "The bible's events go on the timeline too: drag them on from below, drag them along, and click one to open it or take it off."
+      ]
+    },
+    {
       "version": "0.51.0",
       "date": "2026-11-20",
       "notes": [
