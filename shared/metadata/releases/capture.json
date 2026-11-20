@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.15.0",
+      "date": "2026-11-20",
+      "notes": [
+        "A gradient bar under every gradient fill in the designer, with a handle for each colour: click the bar to add a colour there, drag a handle to move it (it snaps to tenths; hold Shift for anywhere), pull it off the bar to remove it, or click it to change its colour. A Direction slider turns the gradient.",
+        "Glow: light round text, shapes and pictures, in any colour (your brand's main colour to start), with its size and strength. It goes round outlines too.",
+        "Text outlines are now grown from the letters themselves: even all round, with rounded corners, at any thickness. Shadows and glows go round the outline.",
+        "Gradient text runs across the words themselves rather than the whole text box, so a short title gets every colour of its gradient.",
+        "The designer's properties panel scrolls with the mouse wheel when it's taller than the window."
+      ]
+    },
+    {
       "version": "0.14.0",
       "date": "2026-11-20",
       "notes": [

@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <cmath>
 #include <cctype>
@@ -132,6 +133,118 @@ Rgba colourAt(const Fill& f, float t) {
     return f.stops.back().colour;
 }
 
+namespace {
+bool isGradient(const Fill& f) { return (f.type == Fill::Linear || f.type == Fill::Radial) && f.stops.size() >= 2; }
+// Where a stop at `at` goes among the others (after any at the same place).
+int placeFor(const std::vector<Stop>& stops, float at) {
+    int i = 0;
+    while (i < (int)stops.size() && stops[(size_t)i].at <= at) ++i;
+    return i;
+}
+}  // namespace
+
+int addStop(Fill& f, float at) {
+    if (!isGradient(f) || f.stops.size() >= kMaxStops || !std::isfinite(at)) return -1;
+    at = std::clamp(at, 0.0f, 1.0f);
+    Stop s;
+    s.at = at;
+    s.colour = colourAt(f, at);
+    const int i = placeFor(f.stops, at);
+    f.stops.insert(f.stops.begin() + i, s);
+    return i;
+}
+
+int moveStop(Fill& f, int index, float at) {
+    if (!isGradient(f) || index < 0 || index >= (int)f.stops.size()) return -1;
+    if (!std::isfinite(at)) return index;
+    Stop s = f.stops[(size_t)index];
+    s.at = std::clamp(at, 0.0f, 1.0f);
+    f.stops.erase(f.stops.begin() + index);
+    const int i = placeFor(f.stops, s.at);
+    f.stops.insert(f.stops.begin() + i, s);
+    return i;
+}
+
+bool removeStop(Fill& f, int index) {
+    if (!isGradient(f) || f.stops.size() <= 2 || index < 0 || index >= (int)f.stops.size()) return false;
+    f.stops.erase(f.stops.begin() + index);
+    return true;
+}
+
+int stopNear(const Fill& f, float t, float within) {
+    if (!isGradient(f)) return -1;
+    int best = -1;
+    float bestD = within;
+    for (std::size_t i = 0; i < f.stops.size(); ++i) {
+        const float d = std::fabs(f.stops[i].at - t);
+        if (d <= bestD) best = (int)i, bestD = d;   // `<=`: of stops on top of each other, the later (drawn on top)
+    }
+    return best;
+}
+
+float glowLevel(float coverage, float strength) {
+    if (!std::isfinite(coverage) || coverage <= 0) return 0;
+    if (coverage >= 1) return 1;
+    strength = std::isfinite(strength) ? std::clamp(strength, 0.25f, 4.0f) : 1.0f;
+    return 1.0f - std::pow(1.0f - coverage, strength);
+}
+
+namespace {
+// Felzenszwalb and Huttenlocher's squared distance transform of one line: f in, d out (n values).
+void edt1(const float* f, float* d, int n, std::vector<int>& v, std::vector<float>& z) {
+    const float kInf = std::numeric_limits<float>::infinity();   // for the boundaries only; f's "far" is a large finite value
+    v.assign((size_t)n, 0);
+    z.assign((size_t)n + 1, 0);
+    int k = 0;
+    z[0] = -kInf, z[1] = kInf;
+    for (int q = 1; q < n; ++q) {
+        float s;
+        for (;;) {   // z[0] is -infinity, so this stops at k = 0 at the latest
+            const int p = v[(size_t)k];
+            s = ((f[q] + (float)q * q) - (f[p] + (float)p * p)) / (2.0f * (q - p));
+            if (s > z[(size_t)k]) break;
+            --k;
+        }
+        ++k;
+        v[(size_t)k] = q;
+        z[(size_t)k] = s;
+        z[(size_t)k + 1] = kInf;
+    }
+    k = 0;
+    for (int q = 0; q < n; ++q) {
+        while (z[(size_t)k + 1] < (float)q) ++k;
+        const int p = v[(size_t)k];
+        d[q] = (float)(q - p) * (q - p) + f[p];
+    }
+}
+}  // namespace
+
+std::vector<std::uint8_t> grow(const std::vector<std::uint8_t>& coverage, int w, int h, float radius) {
+    if (w <= 0 || h <= 0 || coverage.size() != (size_t)w * h || !std::isfinite(radius) || radius <= 0) return coverage;
+    constexpr float kInf = 1e20f;
+    std::vector<float> dist((size_t)w * h);
+    for (size_t i = 0; i < dist.size(); ++i) dist[i] = coverage[i] >= 128 ? 0.0f : kInf;
+    std::vector<float> f((size_t)std::max(w, h)), d((size_t)std::max(w, h));
+    std::vector<int> v;
+    std::vector<float> z;
+    for (int x = 0; x < w; ++x) {   // down each column
+        for (int y = 0; y < h; ++y) f[(size_t)y] = dist[(size_t)y * w + x];
+        edt1(f.data(), d.data(), h, v, z);
+        for (int y = 0; y < h; ++y) dist[(size_t)y * w + x] = d[(size_t)y];
+    }
+    for (int y = 0; y < h; ++y) {   // then along each row
+        float* row = &dist[(size_t)y * w];
+        std::copy(row, row + w, f.begin());
+        edt1(f.data(), row, w, v, z);
+    }
+    std::vector<std::uint8_t> out(coverage.size());
+    for (size_t i = 0; i < out.size(); ++i) {
+        const float cov = std::clamp(radius + 0.5f - std::sqrt(dist[i]), 0.0f, 1.0f);
+        out[i] = std::max(coverage[i], (std::uint8_t)std::lround(cov * 255));
+    }
+    return out;
+}
+
 const char* key(Kind k) { return kKinds[(int)k]; }
 bool parse(const std::string& s, Kind& out) {
     for (int i = 0; i < 8; ++i)
@@ -191,6 +304,10 @@ std::string toJson(const Document& d) {
         if (!e.strokeBrand.empty()) j["strokeBrand"] = e.strokeBrand;
         if (!e.group.empty()) j["group"] = e.group;
         if (!e.shadow.brand.empty()) j["shadow"]["brand"] = e.shadow.brand;
+        if (!(e.glow == Glow{})) {
+            j["glow"] = {{"on", e.glow.on}, {"size", e.glow.size}, {"strength", e.glow.strength}, {"colour", colourJson(e.glow.colour)}};
+            if (!e.glow.brand.empty()) j["glow"]["brand"] = e.glow.brand;
+        }
         if (e.kind == Kind::Timer) {
             j["timer"] = {{"mode", e.timerMode}, {"seconds", e.timerSeconds}, {"until", e.timerUntil}, {"end", e.timerEnd},
                           {"date", e.timerDate}, {"pulse", e.timerPulse}, {"scene", e.timerScene}};
@@ -269,6 +386,15 @@ Document fromJson(const std::string& text) {
             e.strokeBrand = str(o, "strokeBrand", "", 16);
             e.group = str(o, "group", "", 32);
             e.radius = num(o, "radius", 0, 0, 10000);
+            if (o.contains("glow") && o["glow"].is_object()) {
+                const json& g = o["glow"];
+                const Glow def;
+                e.glow.on = flag(g, "on", false);
+                e.glow.size = num(g, "size", def.size, 1, 120);
+                e.glow.strength = num(g, "strength", def.strength, 0.25, 4);
+                e.glow.colour = colourFrom(g.contains("colour") ? g["colour"] : json(), def.colour);
+                e.glow.brand = str(g, "brand", "", 16);
+            }
             if (o.contains("shadow") && o["shadow"].is_object()) {
                 const json& s = o["shadow"];
                 e.shadow.on = flag(s, "on", false);
@@ -1437,6 +1563,7 @@ void eachColour(D& d, F f) {
         fill(e.fill);
         f(e.stroke, e.strokeBrand);
         f(e.shadow.colour, e.shadow.brand);
+        if (e.glow.on) f(e.glow.colour, e.glow.brand);   // an unused glow isn't linked by linkToBrand
         if (e.kind == Kind::Chat) f(e.chatBubble, e.chatBubbleBrand);
     }
 }

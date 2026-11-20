@@ -2893,6 +2893,116 @@ static void testDesignLive() {
     CHECK(iconFigures("M 1 1 L 2").size() == 1);   // stops at bad input, keeps what it had
 }
 
+static void testDesignEffects() {
+    std::printf("design effects: gradient stops, glow\n");
+    using namespace ncap::design;
+    // Stops on the bar.
+    Fill f = Fill::linear({{0, {0, 0, 0, 255}, ""}, {1, {200, 100, 0, 255}, "primary"}}, 0);
+    const int a = addStop(f, 0.5f);
+    CHECK(a == 1 && f.stops.size() == 3 && f.stops[1].at == 0.5f);
+    CHECK(f.stops[1].colour == (Rgba{100, 50, 0, 255}) && f.stops[1].brand.empty());   // the gradient's own colour there
+    CHECK(colourAt(f, 0.25f) == colourAt(Fill::linear({{0, {0, 0, 0, 255}, ""}, {1, {200, 100, 0, 255}, ""}}, 0), 0.25f));   // nothing changed
+    // Moving past another keeps them in order; the index follows the stop.
+    f.stops[1].colour = {9, 9, 9, 255};
+    const int m = moveStop(f, 1, 0.95f);
+    CHECK(m == 1 && f.stops[1].at == 0.95f && f.stops[1].colour == (Rgba{9, 9, 9, 255}));
+    const int m2 = moveStop(f, 0, 2.0f);   // clamped to the end, after the others there
+    CHECK(m2 == 2 && f.stops[2].at == 1.0f && f.stops[2].colour == (Rgba{0, 0, 0, 255}) && f.stops[1].brand == "primary");
+    for (std::size_t i = 1; i < f.stops.size(); ++i) CHECK(f.stops[i - 1].at <= f.stops[i].at);
+    CHECK(moveStop(f, 7, 0.5f) == -1 && moveStop(f, -1, 0.5f) == -1);
+    CHECK(moveStop(f, 0, std::nanf("")) == 0 && f.stops[0].at == 0.95f);   // nonsense leaves it
+    // Nearest stop.
+    CHECK(stopNear(f, 0.93f, 0.05f) == 0 && stopNear(f, 0.5f, 0.05f) == -1);
+    CHECK(stopNear(f, 1.0f, 0.01f) == 2);   // two at 1.0: the later one, drawn on top
+    // Removing: never below two.
+    CHECK(removeStop(f, 0) && f.stops.size() == 2);
+    CHECK(!removeStop(f, 0) && f.stops.size() == 2);
+    CHECK(!removeStop(f, 5));
+    // At most kMaxStops; solids aren't gradients.
+    Fill many = Fill::linear({{0, {0, 0, 0, 255}, ""}, {1, {255, 255, 255, 255}, ""}}, 0);
+    while (addStop(many, 0.3f) >= 0) {}
+    CHECK(many.stops.size() == kMaxStops);
+    Fill solid = Fill::solid({1, 2, 3, 255});
+    CHECK(addStop(solid, 0.5f) == -1 && moveStop(solid, 0, 0.5f) == -1 && !removeStop(solid, 0) && stopNear(solid, 0, 1) == -1);
+
+    // Glow level: none at 0, all at 1, strength 1 unchanged, stronger spreads further, never over 1.
+    CHECK(glowLevel(0, 3) == 0 && glowLevel(1, 0.25f) == 1 && glowLevel(-1, 2) == 0 && glowLevel(std::nanf(""), 2) == 0);
+    CHECK(std::fabs(glowLevel(0.4f, 1) - 0.4f) < 1e-6f);
+    CHECK(glowLevel(0.2f, 3) > glowLevel(0.2f, 1.5f) && glowLevel(0.2f, 1.5f) > glowLevel(0.2f, 1) && glowLevel(0.2f, 0.5f) < 0.2f);
+    for (float s : {0.25f, 1.0f, 4.0f, 99.0f})
+        for (float c = 0; c <= 1.0f; c += 0.05f) CHECK(glowLevel(c, s) >= 0 && glowLevel(c, s) <= 1);
+    CHECK(glowLevel(0.5f, 99) == glowLevel(0.5f, 4));   // clamped
+
+    // Growing an outline from the letters' coverage: exact distances, a soft one-pixel edge.
+    {
+        const int W = 21, H = 15;
+        std::vector<std::uint8_t> cov((size_t)W * H, 0);
+        cov[(size_t)7 * W + 10] = 255;   // one dot at (10, 7)
+        cov[(size_t)0 * W + 0] = 100;    // under half covered: kept as it is, not grown from
+        const auto g = grow(cov, W, H, 3);
+        auto at = [&](int x, int y) { return (int)g[(size_t)y * W + x]; };
+        CHECK(at(10, 7) == 255 && at(12, 7) == 255 && at(10, 9) == 255);   // 2 away: fully within 3
+        CHECK(at(12, 9) >= 165 && at(12, 9) <= 175);   // 2.83 away: in the soft edge (3.5 - 2.83)
+        CHECK(at(13, 7) == 128 || at(13, 7) == 127);   // exactly 3 away: half
+        CHECK(at(10, 11) == 0 && at(14, 7) == 0 && at(13, 10) == 0);   // 4 and 4.24 away
+        CHECK(at(0, 0) == 100 && at(1, 0) == 0);
+        // Symmetric all round, and the same along columns and rows.
+        for (int dy = -4; dy <= 4; ++dy)
+            for (int dx = -4; dx <= 4; ++dx) CHECK(at(10 + dx, 7 + dy) == at(10 - dx, 7 - dy) && at(10 + dx, 7 + dy) == at(10 + dy, 7 + dx));
+        // Against brute force on a scattered shape.
+        std::vector<std::uint8_t> s((size_t)W * H, 0);
+        for (auto [x, y] : std::vector<std::pair<int, int>>{{2, 2}, {3, 2}, {15, 12}, {8, 6}, {9, 7}, {18, 1}}) s[(size_t)y * W + x] = 200;
+        const auto gs = grow(s, W, H, 2.5f);
+        bool same = true;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) {
+                float best = 1e9f;
+                for (int yy = 0; yy < H; ++yy)
+                    for (int xx = 0; xx < W; ++xx)
+                        if (s[(size_t)yy * W + xx] >= 128) best = std::min(best, std::hypot((float)(x - xx), (float)(y - yy)));
+                const int want = std::max((int)s[(size_t)y * W + x], (int)std::lround(std::clamp(3.0f - best, 0.0f, 1.0f) * 255));
+                same = same && std::abs(want - (int)gs[(size_t)y * W + x]) <= 1;
+            }
+        CHECK(same);
+        // Nothing inside: nothing grown; wrong sizes and radii give it back.
+        const std::vector<std::uint8_t> empty((size_t)W * H, 0);
+        CHECK(grow(empty, W, H, 5) == empty);
+        CHECK(grow(cov, W + 1, H, 3) == cov && grow(cov, W, H, 0) == cov && grow(cov, W, H, std::nanf("")) == cov);
+    }
+
+    // Glow saved and read back; brand-linked; absent in JSON when untouched; nonsense clamped.
+    Document d;
+    Element e;
+    e.id = "e1";
+    e.kind = Kind::Text;
+    e.glow = {true, 30, 2.5f, {10, 20, 30, 200}, "secondary"};
+    d.elements.push_back(e);
+    Element plain;
+    plain.id = "e2";
+    d.elements.push_back(plain);
+    const std::string js = toJson(d);
+    CHECK(js.find("\"glow\"") != std::string::npos && js.find("\"glow\"") == js.rfind("\"glow\""));   // only the one that has it
+    const Document back = fromJson(js);
+    CHECK(back.elements.size() == 2 && back.elements[0].glow == e.glow && back.elements[1].glow == Glow{});
+    const Document bad = fromJson(R"({"elements":[{"id":"x","kind":"rect","glow":{"on":true,"size":9999,"strength":-3,"colour":"nope"}}]})");
+    CHECK(bad.elements.size() == 1 && bad.elements[0].glow.on && bad.elements[0].glow.size == 120 && bad.elements[0].glow.strength == 0.25f &&
+          bad.elements[0].glow.colour == Glow{}.colour);
+    Brand br = defaultBrand();
+    const Document applied = applyBrand(d, br);
+    const Rgba second = brandColour(br, "secondary")->colour;
+    CHECK(applied.elements[0].glow.colour == (Rgba{second.r, second.g, second.b, 200}));   // the kit's colour, its own alpha
+    CHECK(unlinkBrand(d, br).elements[0].glow.brand.empty());
+    Document off;
+    Element o;
+    o.id = "o";
+    o.kind = Kind::Rect;
+    o.fill = Fill::none();
+    o.glow.colour = brandColour(br, "primary")->colour;   // matches the kit, but the glow is off
+    off.elements.push_back(o);
+    linkToBrand(off, br);
+    CHECK(off.elements[0].glow.brand.empty());
+}
+
 static void testDsp() {
     std::printf("audio filters\n");
     namespace d = ncap::dsp;
@@ -3061,6 +3171,7 @@ int main() {
     testBorder();
     testDesign();
     testDesignLive();
+    testDesignEffects();
     testBrandKit();
     testChat();
     testTrackNames();

@@ -828,6 +828,11 @@ bool CaptureWindow::onRightClick(float x, float y) {
 
 bool CaptureWindow::onWheel(float x, float y, float lines) {
     if (!settingsOpen_ && !asking_ && notesWheel(x, y, lines)) return true;
+    if (settingsOpen_ && !asking_ && !designFor_.empty() && dPropRect_.contains(x, y)) {   // the designer's properties
+        dPropScroll_ = std::clamp(dPropScroll_ + lines * 24, 0.0f, std::max(0.0f, dPropContentH_ - dPropRect_.h));
+        invalidate();
+        return true;
+    }
     if (settingsOpen_ || asking_ || !mixerBody_.contains(x, y)) return false;
     mixerScroll_ = std::clamp(mixerScroll_ + lines * 16, 0.0f, std::max(0.0f, mixerContentH_ - mixerBody_.h));
     invalidate();

@@ -1648,3 +1648,33 @@ CJ's overlay-polish answers (claude/capture-overlay-polish-answers-2026-11-20.md
 - Tested: capturecore 1960 checks (bounds, group/ungroup round trip and JSON, pick with and without Alt, every align,
   distribute with uneven sizes, snapping to guides and grid). In Wine on the Chapter card: marquee and shift-click
   selection, Group (Layers bars, the group panel), the group dragged as one, and guides placed from both rulers.
+
+## 61. Effects (released as 0.15.0, 20 Nov 2026)
+
+The second part of CJ's overlay-polish answers: drag gradient stops on a bar, glow, text outlines, gradient text.
+
+- core/design: `addStop` (in the gradient's own colour at that point, so nothing changes until it's moved or
+  recoloured; at most `kMaxStops` 16), `moveStop` (clamped, kept in order; returns the stop's new index), `removeStop`
+  (never below two), `stopNear` (the later of stops on top of each other). `Glow` on Element {on, size 1-120, strength
+  0.25-4, colour, brand} (JSON "glow", written only when not the default; brand-linked like other colours, but an unused
+  glow isn't linked by `linkToBrand`) and `glowLevel` (1 - (1 - coverage)^strength). `grow` (a text outline from the
+  letters' coverage: Felzenszwalb-Huttenlocher squared distance transform down the columns then along the rows, to the
+  nearest pixel at least half covered; coverage = radius + 0.5 - distance, clamped, never below the letters' own).
+- video/design_render: text is drawn as one path (an IDWriteTextRenderer whose DrawGlyphRun writes GetGlyphRunOutline
+  into a single ID2D1PathGeometry through a sink that moves each run to its place; a geometry group was tried first
+  and Wine's Direct2D drew nothing with it). A gradient on text uses the path's bounds, so it spans the words. The
+  shadow/glow pre-pass renders each element's shape once (text without its outline); a text outline is `grow`n from it
+  at the output scale and drawn under the letters as its own picture, and shadows and glows use the grown shape. Under
+  the element, in order: shadow (offset), glow, outline; each follows the entrance and a timer's pulse. If anything
+  fails, the old outline (the text drawn around itself) is used. Drawing the outline with DrawGeometry was tried and
+  left spikes and stray strokes in Wine, which is why it's grown instead.
+- Designer: the gradient bar under Fill/Colour (a 256 x 1 picture of the gradient over a checkerboard, handles under it,
+  `dGradBar_`/`dGradFor_`; `ddrag_` 5 moves a stop, snapping to tenths unless Shift; pulled 26 px above or below the
+  bar it fades and goes on release), "This colour" (the colour menu and Remove) for the chosen stop, a Direction
+  slider; the Glow row (toggle, colour, Size, Strength). The properties panel is drawn by `drawDesignerPropertiesBody`
+  inside a clip and hit clip, scrolled by the wheel (`dPropScroll_`) with faded edges.
+- Tested: capturecore 2155 checks (stops added, moved past others, clamped, removed down to two, the 16 limit; glow
+  levels; glow saved, clamped and brand-linked; `grow` against brute force, symmetry, the soft edge, bad input). In Wine
+  on Writing progress: the Gold gradient on the title spanning the words, its direction, a stop dragged, one added and
+  recoloured violet, one pulled off; a 4 px and a 14 px outline (even, round; checked in a saved PNG); glow on the title
+  and on an ellipse; the panel scrolling.

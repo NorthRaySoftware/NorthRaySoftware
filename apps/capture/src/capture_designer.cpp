@@ -433,6 +433,7 @@ void CaptureWindow::openDesigner(const Id& source) {
     const Source* s = scenes_.source(source);
     if (!s || s->kind != SourceKind::Design) return;
     designFor_ = source;
+    dPropScroll_ = 0;
     designDoc_ = dz::fromJson(s->settings);
     designSel_.clear();
     designMulti_.clear();
@@ -596,6 +597,31 @@ bool CaptureWindow::designerMouseDown(float x, float y) {
     if (designFor_.empty()) return false;
     const float sc = designScale_;
     const float px = (x - designCanvas_.x) / sc, py = (y - designCanvas_.y) / sc;
+    // The gradient bar (0.15): a click on a stop picks it (drag to move it, pull it off the bar to remove it); a click
+    // between stops adds one there, in the gradient's colour at that point.
+    if (!dGradFor_.empty() && dGradBar_.contains(x, y)) {
+        dz::Element* e = designDoc_.find(dGradFor_);
+        if (!e) return false;
+        const float t = std::clamp((x - dGradBar_.x) / dGradBar_.w, 0.0f, 1.0f);
+        dBefore_ = dz::toJson(designDoc_);
+        int s = dz::stopNear(e->fill, t, 9 / dGradBar_.w);
+        dStopMoved_ = false;
+        if (s < 0) {
+            s = dz::addStop(e->fill, t);
+            if (s < 0) {
+                flash(L"A gradient can have up to 16 colours.", 4);
+                return true;
+            }
+            dStopMoved_ = true;   // a new stop: there's nothing to pick a colour for yet
+            designChanged(false);
+        }
+        dStopSel_ = s;
+        dStopOff_ = false;
+        dStopDownX_ = x;
+        ddrag_ = 5;
+        invalidate();
+        return true;
+    }
     // The rulers (0.14): a click makes a guide there, or picks one up; dragged back onto the ruler, it goes.
     const Rect topRuler{designCanvas_.x, designCanvas_.y - 20, designCanvas_.w, 18}, leftRuler{designCanvas_.x - 20, designCanvas_.y, 18, designCanvas_.h};
     if (topRuler.contains(x, y) || leftRuler.contains(x, y)) {
@@ -679,6 +705,21 @@ bool CaptureWindow::designerMouseMove(float x, float y, bool leftDown) {
     if (!leftDown) return designerMouseUp();
     const float px = (x - designCanvas_.x) / designScale_, py = (y - designCanvas_.y) / designScale_;
     const bool shift = GetKeyState(VK_SHIFT) < 0;   // Shift: no snapping
+    if (ddrag_ == 5) {   // a gradient stop
+        dz::Element* e = designDoc_.find(dGradFor_);
+        if (!e || dStopSel_ < 0) return true;
+        if (std::fabs(x - dStopDownX_) < 3 && !dStopMoved_) return true;   // still a click
+        dStopMoved_ = true;
+        // Pulled well above or below the bar: it'll go when let go (if there are more than two).
+        dStopOff_ = e->fill.stops.size() > 2 && (y < dGradBar_.y - 26 || y > dGradBar_.bottom() + 26);
+        float t = std::clamp((x - dGradBar_.x) / dGradBar_.w, 0.0f, 1.0f);
+        if (!shift)   // snaps to whole tenths (Shift: anywhere)
+            if (std::fabs(t * 10 - std::round(t * 10)) * dGradBar_.w / 10 < 4) t = std::round(t * 10) / 10;
+        dStopSel_ = dz::moveStop(e->fill, dStopSel_, t);
+        designChanged(false);
+        invalidate();
+        return true;
+    }
     if (ddrag_ == 3) {
         dMarquee_ = {std::min(x, dStartX_), std::min(y, dStartY_), std::fabs(x - dStartX_), std::fabs(y - dStartY_)};
         invalidate();
@@ -732,6 +773,10 @@ bool CaptureWindow::designerMouseUp() {
     ddrag_ = 0;
     dGuidesX_.clear();
     dGuidesY_.clear();
+    if (was == 5 && dStopOff_) {
+        if (dz::Element* e = designDoc_.find(dGradFor_); e && dz::removeStop(e->fill, dStopSel_)) dStopSel_ = -1;
+        dStopOff_ = false;
+    }
     if (was == 3) {
         // Everything the box touches (whole groups), unless it was just a click.
         if (dMarquee_.w > 3 || dMarquee_.h > 3) {
@@ -1289,6 +1334,26 @@ void CaptureWindow::drawDesigner(const Rect& area) {
 }
 
 void CaptureWindow::drawDesignerProperties(const Rect& r) {
+    dPropRect_ = r;
+    dGradFor_.clear();
+    dGradBar_ = {};
+    dPropScroll_ = std::clamp(dPropScroll_, 0.0f, std::max(0.0f, dPropContentH_ - r.h));
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const Rect inner{r.x, r.y - dPropScroll_, r.w, r.h + dPropScroll_};
+    dPropEnd_ = inner.y;
+    drawDesignerPropertiesBody(inner);
+    clearHitClip();
+    dPropContentH_ = dPropEnd_ - inner.y + 12;
+    // More below (or above): the edge fades out; the mouse wheel scrolls.
+    if (dPropScroll_ < dPropContentH_ - r.h - 1)
+        for (int i = 0; i < 8; ++i) gfx_.fill({r.x, r.bottom() - 24 + i * 3.0f, r.w, 3}, pal_.paper.withAlpha(0.12f * (float)(i + 1)));
+    if (dPropScroll_ > 1)
+        for (int i = 0; i < 8; ++i) gfx_.fill({r.x, r.y + 21 - i * 3.0f, r.w, 3}, pal_.paper.withAlpha(0.12f * (float)(i + 1)));
+    gfx_.popClip();
+}
+
+void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
     float y = r.y;
     // Several selected (0.14): lining them up, spacing them, grouping.
     if (const auto sel = designSelection(); sel.size() > 1) {
@@ -1349,6 +1414,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         y += gfx_.text(L"Shift-click adds or takes one away. Alt-click picks one element inside a group to change it on its own; so does "
                        L"its row in Layers. Ctrl+G groups, Ctrl+Shift+G ungroups, Ctrl+A selects everything, Esc nothing.",
                        {r.x, y, r.w, 80}, Font::Small, pal_.inkMuted) + 10;
+        dPropEnd_ = y;
         return;
     }
     dz::Element* e = designDoc_.find(designSel_);
@@ -1366,6 +1432,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                        L"{targetline}, {viewpoint}, {place}, {storyday}, {cast1} to {cast6}, {sprintline}, {streamline} and {celebration}; "
                        L"pictures can be {cover}, {viewpointpic}, {placepic} or {cast1pic} to {cast6pic}.",
                        {r.x, y, r.w, 260}, Font::Small, pal_.inkMuted) + 12;
+        dPropEnd_ = y;
         return;
     }
     const std::string eid = e->id;
@@ -1433,7 +1500,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                 su::Rgba c;
                 if (!su::parseColour(narrow(v), c)) {
                     flash(L"Type a colour like #3FCF8E.", 5);
-                    return;
+        return;
                 }
                 apply(c, "");
             });
@@ -1521,7 +1588,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
                             std::vector<dz::Stop> stops;
                             if (!parseStops(narrow(v), stops)) {
                                 flash(L"Type two to sixteen colours, e.g. #3FCF8E 0, #2BB3B1 50, #7A5CFF 100.", 6);
-                                return;
+        return;
                             }
                             edit([stops](dz::Element& z) {
                                 const bool round = z.fill.type == dz::Fill::Radial;
@@ -1538,6 +1605,80 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             }
         });
         y += 36;
+    }
+    // The gradient bar (0.15): the gradient itself, with a handle under it for each colour. Click the bar to add a colour
+    // there; drag a handle to move it (it snaps to tenths; Shift: anywhere), pull it off the bar to remove it, click it to
+    // choose its colour below.
+    if ((e->fill.type == dz::Fill::Linear || e->fill.type == dz::Fill::Radial) && e->fill.stops.size() >= 2) {
+        if (dStopOwner_ != eid) dStopSel_ = -1, dStopOwner_ = eid;
+        const dz::Fill& f = e->fill;
+        const Rect bar{r.x + 10, y + 2, r.w - 20, 22};
+        gfx_.fillRounded(bar, 4, cjui::hexColor("#FFFFFF"));   // a checkerboard shows see-through colours
+        for (int row = 0; row < 3; ++row)
+            for (int col = 0; col * 8.0f < bar.w; ++col)
+                if ((row + col) % 2)
+                    gfx_.fill({bar.x + col * 8.0f, bar.y + row * 8.0f, std::min(8.0f, bar.w - col * 8.0f), std::min(8.0f, bar.h - row * 8.0f)},
+                              cjui::hexColor("#C8CDD4"));
+        std::vector<std::uint8_t> px(256 * 4);
+        for (int i = 0; i < 256; ++i) {
+            const su::Rgba c = dz::colourAt(f, i / 255.0f);
+            px[(size_t)i * 4 + 0] = c.r, px[(size_t)i * 4 + 1] = c.g, px[(size_t)i * 4 + 2] = c.b, px[(size_t)i * 4 + 3] = c.a;
+        }
+        std::wstring key = L"dz:grad:" + widen(stopsText(f));
+        for (auto& st : f.stops) key += L"|" + std::to_wstring(st.colour.a);
+        if (key != dGradKey_) {
+            if (!dGradKey_.empty()) gfx_.forgetImage(dGradKey_);
+            dGradKey_ = key;
+        }
+        gfx_.drawPixels(key, 256, 1, px.data(), bar, true);
+        gfx_.strokeRounded(bar, 4, pal_.rule, 1);
+        for (std::size_t i = 0; i < f.stops.size(); ++i) {
+            const dz::Stop& st = f.stops[i];
+            const bool chosen = (int)i == dStopSel_;
+            const float hx = bar.x + st.at * bar.w, hy = bar.bottom() + 10;
+            const float fade = chosen && dStopOff_ ? 0.3f : 1.0f;
+            gfx_.line(hx, bar.y - 2, hx, hy - 6, (chosen ? cjui::hexColor("#3FCF8E") : pal_.ink).withAlpha(0.8f * fade), chosen ? 2.0f : 1.0f);
+            gfx_.circle(hx, hy, 7, cjui::Color{st.colour.r / 255.0f, st.colour.g / 255.0f, st.colour.b / 255.0f, fade}, true);
+            gfx_.circle(hx, hy, 7, (chosen ? cjui::hexColor("#3FCF8E") : pal_.ink).withAlpha(fade), false, chosen ? 2.5f : 1.2f);
+        }
+        dGradFor_ = eid;
+        dGradBar_ = {bar.x - 8, bar.y - 4, bar.w + 16, bar.h + 26};
+        y += 54;
+        if (dStopSel_ >= 0 && dStopSel_ < (int)f.stops.size()) {
+            const int si = dStopSel_;
+            const dz::Stop st = f.stops[(size_t)si];
+            label(L"This colour");
+            const float bw = f.stops.size() > 2 ? r.w - 112 - 84 : r.w - 112;
+            button("dz:p:stopcol", {r.x + 112, y - 2, bw, 30}, colourName(st.colour, st.brand) + L"  at " + std::to_wstring((int)std::lround(st.at * 100)) + L"%",
+                   [this, eid, si, edit, colourMenu] {
+                       const dz::Element* x = designDoc_.find(eid);
+                       if (!x || si >= (int)x->fill.stops.size()) return;
+                       colourMenu(x->fill.stops[(size_t)si].colour, x->fill.stops[(size_t)si].brand, [edit, si](su::Rgba c, std::string b) {
+                           edit([c, b, si](dz::Element& z) {
+                               if (si >= (int)z.fill.stops.size()) return;
+                               z.fill.stops[(size_t)si].colour = c;
+                               z.fill.stops[(size_t)si].brand = b;
+                           });
+                       }, false);
+                   });
+            if (f.stops.size() > 2)
+                button("dz:p:stoprm", {r.right() - 78, y - 2, 78, 30}, L"Remove", [this, eid, si] {
+                    dz::Element* x = designDoc_.find(eid);
+                    if (!x) return;
+                    const std::string before = dz::toJson(designDoc_);
+                    if (dz::removeStop(x->fill, si)) {
+                        designUndo_.push_back(before);
+                        dStopSel_ = -1;
+                        designChanged(false);
+                    }
+                });
+            y += 36;
+        } else {
+            y += gfx_.text(L"Click the bar to add a colour. Drag one to move it, or off the bar to remove it; click one to change it.",
+                           {r.x, y - 4, r.w, 40}, Font::Small, pal_.inkMuted) + 6;
+        }
+        if (f.type == dz::Fill::Linear)
+            sliderRow("gang", L"Direction", f.angle < 0 ? f.angle + 360 : f.angle, 0, 360, L"°", [](dz::Element& x, float v) { x.fill.angle = v; });
     }
     // Outline.
     {
@@ -1558,6 +1699,38 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     }
     if (e->kind == dz::Kind::Rect || e->kind == dz::Kind::Image)
         sliderRow("rad", L"Corners", e->radius, 0, std::max(1.0f, std::min(e->w, e->h) / 2), L" px", [](dz::Element& x, float v) { x.radius = v; });
+    // Glow (0.15): light round the shape, its outline or its letters.
+    {
+        label(L"Glow");
+        toggle("dz:p:glow", r.x + 112, y + 2, e->glow.on, [edit] {
+            edit([](dz::Element& z) {
+                z.glow.on = !z.glow.on;
+                if (z.glow.on && z.glow.brand.empty() && z.glow.colour == dz::Glow{}.colour) {   // the first time: the kit's main colour
+                    const dz::Brand b = video::designBrand();
+                    if (const dz::BrandColour* c = dz::brandColour(b, "primary")) {
+                        z.glow.colour = {c->colour.r, c->colour.g, c->colour.b, z.glow.colour.a};
+                        z.glow.brand = "primary";
+                    }
+                }
+            });
+        });
+        if (e->glow.on)
+            button("dz:p:glcol", {r.x + 170, y - 2, r.w - 170, 30}, colourName(e->glow.colour, e->glow.brand), [this, eid, edit, colourMenu] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                colourMenu(x->glow.colour, x->glow.brand, [edit](su::Rgba c, std::string b) {
+                    edit([c, b](dz::Element& z) {
+                        z.glow.colour = c;
+                        z.glow.brand = b;
+                    });
+                }, false);
+            });
+        y += 36;
+        if (e->glow.on) {
+            sliderRow("gls", L"Size", e->glow.size, 1, 120, L" px", [](dz::Element& x, float v) { x.glow.size = v; });
+            sliderRow("glt", L"Strength", e->glow.strength * 100, 25, 400, L"%", [](dz::Element& x, float v) { x.glow.strength = v / 100; });
+        }
+    }
     // Shadow.
     {
         label(L"Shadow");
@@ -1884,6 +2057,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         });
         y += 38;
     }
+    dPropEnd_ = y;
 }
 
 // ---------------------------------------------------------------- timers reaching zero

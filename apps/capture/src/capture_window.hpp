@@ -191,6 +191,7 @@ private:
     std::wstring withHotkey(const std::wstring& text, hotkeys::Action a, const std::string& target = {}) const;
     void drawDesigner(const cjui::Rect& area);
     void drawDesignerProperties(const cjui::Rect& r);
+    void drawDesignerPropertiesBody(const cjui::Rect& r);   // sets dPropEnd_ to where it finished
     void designChanged(bool keepUndo = true);
     void designUndo();
     void exportDesign();
@@ -471,6 +472,17 @@ private:
     std::map<std::string, design::Box> dStartBoxes_;
     cjui::Rect dMarquee_{}, designCentre_{};
     int dGuideAxis_ = 0, dGuideIndex_ = -1;   // the guide being dragged: 0 across (x), 1 down (y)
+    // The gradient bar (0.15): where it is (the stops' handles under it included), whose fill it shows (an element's
+    // id), the chosen stop, and a drag in progress (moved; pulled off the bar to remove).
+    cjui::Rect dGradBar_{};
+    std::string dGradFor_, dStopOwner_;   // dStopOwner_: whose stop dStopSel_ is
+    int dStopSel_ = -1;
+    bool dStopMoved_ = false, dStopOff_ = false;
+    float dStopDownX_ = 0;
+    std::wstring dGradKey_;
+    // The properties panel scrolls with the wheel when it's taller than the window (0.15; no scroll bar: faded edges).
+    cjui::Rect dPropRect_{};
+    float dPropScroll_ = 0, dPropContentH_ = 0, dPropEnd_ = 0;
     std::vector<std::string> designSelection() const;
     void designSelect(std::vector<std::string> ids, const std::string& primary);
     void designGroupSelected(bool group);

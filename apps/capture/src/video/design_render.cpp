@@ -129,6 +129,110 @@ ComPtr<IDWriteTextLayout> layoutFor(Ctx& c, const Element& e, const std::wstring
     return lay;
 }
 
+// Text as one outline shape (0.15): a text renderer that, instead of drawing, writes each run of glyphs into one path at
+// its place. Outlines then follow the letters exactly (DrawGeometry with round joins) and a gradient can be fitted to the
+// words' own bounds. Null if DirectWrite or Direct2D can't (the caller falls back to drawing text).
+//
+// GetGlyphRunOutline draws each run at the origin, so a small sink in between moves its points to the run's place.
+class MovedSink final : public ID2D1SimplifiedGeometrySink {
+public:
+    MovedSink(ID2D1SimplifiedGeometrySink* to, float dx, float dy) : to_(to), dx_(dx), dy_(dy) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+        if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
+            *out = static_cast<ID2D1SimplifiedGeometrySink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }   // lives on the stack
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE) override {}
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT f) override { to_->SetSegmentFlags(f); }
+    void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F p, D2D1_FIGURE_BEGIN b) override { to_->BeginFigure(D2D1::Point2F(p.x + dx_, p.y + dy_), b); }
+    void STDMETHODCALLTYPE AddLines(const D2D1_POINT_2F* pts, UINT32 n) override {
+        std::vector<D2D1_POINT_2F> m(pts, pts + n);
+        for (auto& q : m) q.x += dx_, q.y += dy_;
+        to_->AddLines(m.data(), n);
+    }
+    void STDMETHODCALLTYPE AddBeziers(const D2D1_BEZIER_SEGMENT* bz, UINT32 n) override {
+        std::vector<D2D1_BEZIER_SEGMENT> m(bz, bz + n);
+        for (auto& b : m) {
+            b.point1.x += dx_, b.point1.y += dy_;
+            b.point2.x += dx_, b.point2.y += dy_;
+            b.point3.x += dx_, b.point3.y += dy_;
+        }
+        to_->AddBeziers(m.data(), n);
+    }
+    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END e) override { to_->EndFigure(e); }
+    HRESULT STDMETHODCALLTYPE Close() override { return S_OK; }   // the real sink is closed once, after every run
+
+private:
+    ID2D1SimplifiedGeometrySink* to_;
+    float dx_, dy_;
+};
+
+class OutlineCollector final : public IDWriteTextRenderer {
+public:
+    explicit OutlineCollector(ID2D1GeometrySink* sink) : sink_(sink) {}
+    int runs = 0;
+    bool failed = false;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+        if (id == __uuidof(IUnknown) || id == __uuidof(IDWritePixelSnapping) || id == __uuidof(IDWriteTextRenderer)) {
+            *out = static_cast<IDWriteTextRenderer*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }   // lives on the stack
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* no) override {
+        *no = TRUE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* m) override {
+        *m = DWRITE_MATRIX{1, 0, 0, 1, 0, 0};
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* p) override {
+        *p = 1;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(void*, FLOAT x, FLOAT y, DWRITE_MEASURING_MODE, const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION*,
+                                           IUnknown*) override {
+        if (!run || !run->fontFace || run->glyphCount == 0) return S_OK;
+        MovedSink moved(sink_, x, y);
+        if (FAILED(run->fontFace->GetGlyphRunOutline(run->fontEmSize, run->glyphIndices, run->glyphAdvances, run->glyphOffsets, run->glyphCount,
+                                                     run->isSideways, run->bidiLevel % 2, &moved)))
+            failed = true;
+        else ++runs;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT, FLOAT, const DWRITE_UNDERLINE*, IUnknown*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*, FLOAT, FLOAT, const DWRITE_STRIKETHROUGH*, IUnknown*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT, FLOAT, IDWriteInlineObject*, BOOL, BOOL, IUnknown*) override { return S_OK; }
+
+private:
+    ID2D1GeometrySink* sink_;
+};
+
+ComPtr<ID2D1Geometry> textGeometry(Ctx& c, IDWriteTextLayout* lay, float x, float y) {
+    ComPtr<ID2D1Geometry> out;
+    ComPtr<ID2D1PathGeometry> path;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(c.d2->CreatePathGeometry(&path)) || FAILED(path->Open(&sink))) return out;
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    OutlineCollector col(sink.Get());
+    const HRESULT drawn = lay->Draw(nullptr, &col, x, y);
+    if (FAILED(sink->Close()) || FAILED(drawn) || col.failed || col.runs == 0) return out;
+    out = path;
+    return out;
+}
+
 // One element's shape, in its own box at (e.x, e.y), with the brush given (the shadow pass uses black).
 void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholders& values, float alpha, bool shadowPass, bool showMissing,
                const Clock& clock) {
@@ -167,14 +271,24 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
                                                                : fillPlaceholders(e.text, values, showMissing));
             ComPtr<IDWriteTextLayout> lay = layoutFor(c, e, t.empty() ? L" " : t);
             if (!lay) break;
-            if (stroke) {   // an outline: the text drawn around itself, under the letters
+            if (stroke) {   // an outline without its own picture (see renderDesign): the text drawn around itself, under the letters
                 const int steps = std::max(12, (int)(e.strokeWidth * 4));
                 for (int i = 0; i < steps; ++i) {
                     const float a = 2 * kPi * i / steps;
                     rt->DrawTextLayout(D2D1::Point2F(e.x + std::cos(a) * e.strokeWidth, e.y + std::sin(a) * e.strokeWidth), lay.Get(), stroke.Get());
                 }
             }
-            if (fill && e.fill.type != Fill::None) rt->DrawTextLayout(D2D1::Point2F(e.x, e.y), lay.Get(), fill.Get());
+            if (e.fill.type == Fill::None || !fill) break;
+            // The letters as shapes (0.15), so a gradient spans the words themselves rather than the whole box.
+            if (ComPtr<ID2D1Geometry> g = textGeometry(c, lay.Get(), e.x, e.y)) {
+                ComPtr<ID2D1Brush> words = fill;
+                D2D1_RECT_F ink;
+                if (!shadowPass && e.fill.type != Fill::Solid && SUCCEEDED(g->GetBounds(nullptr, &ink)) && ink.right > ink.left && ink.bottom > ink.top)
+                    words = brushFor(rt, e.fill, ink, alpha);
+                if (words) rt->FillGeometry(g.Get(), words.Get());
+                break;
+            }
+            rt->DrawTextLayout(D2D1::Point2F(e.x, e.y), lay.Get(), fill.Get());
             break;
         }
         case Kind::Chat: {
@@ -646,19 +760,28 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
                D2D1::Matrix3x2F::Translation(p.dx, p.dy) * base;
     };
 
-    // Shadows first need each element's shape on its own: drawn in black to a separate bitmap, blurred,
-    // then used as a mask in the shadow's colour.
-    // Each shadow is only as big as its element and the blur around it.
+    // Shadows and glows (0.15) first need each element's shape on its own: drawn in black to a separate bitmap
+    // (once for both), blurred, then used as a mask in the effect's colour. Each is only as big as its element and
+    // the blur around it.
     struct ShadowPic {
         ComPtr<ID2D1Bitmap> bmp;
         float x = 0, y = 0, w = 0, h = 0;   // where it goes, in output pixels (before the entrance and offset)
     };
-    std::vector<ShadowPic> shadows(d.elements.size());
+    // Text outlines (0.15) are grown from the letters' own pixels (design::grow) into a picture of their own, drawn
+    // under the letters: even all round at any thickness, on any graphics driver. `bare` is each element as drawn
+    // over its outline picture (its outline taken off).
+    std::vector<ShadowPic> shadows(d.elements.size()), glows(d.elements.size()), outlines(d.elements.size());
+    std::vector<Element> bare(d.elements.begin(), d.elements.end());
     for (std::size_t i = 0; i < d.elements.size(); ++i) {
         const Element& e = d.elements[i];
-        if (!e.visible || !e.shadow.on || e.shadow.colour.a == 0) continue;
-        const int blur = std::max(0, (int)std::lround(e.shadow.blur * scale / 2));
-        const float margin = blur * 3.0f + 2 + e.strokeWidth * scale;
+        const bool sh = e.visible && e.shadow.on && e.shadow.colour.a > 0, gl = e.visible && e.glow.on && e.glow.colour.a > 0;
+        const bool ol = e.visible && (e.kind == Kind::Text || e.kind == Kind::Timer) && e.strokeWidth > 0 && e.stroke.a > 0;
+        if (!sh && !gl && !ol) continue;
+        Element letters = e;
+        if (ol) letters.strokeWidth = 0, letters.stroke.a = 0;
+        const int shBlur = sh ? std::max(0, (int)std::lround(e.shadow.blur * scale / 2)) : 0;
+        const int glBlur = gl ? std::max(1, (int)std::lround(e.glow.size * scale / 2)) : 0;
+        const float margin = std::max(shBlur, glBlur) * 3.0f + 2 + e.strokeWidth * scale;
         const int bx = (int)std::floor(e.x * scale - margin), by = (int)std::floor(e.y * scale - margin);
         const int bw = std::clamp((int)std::ceil(e.w * scale + 2 * margin), 1, 8192), bh = std::clamp((int)std::ceil(e.h * scale + 2 * margin), 1, 8192);
         ComPtr<IWICBitmap> sb;
@@ -669,24 +792,39 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         srt->BeginDraw();
         srt->Clear(D2D1::ColorF(0, 0, 0, 0));
         srt->SetTransform(base * D2D1::Matrix3x2F::Translation((float)-bx, (float)-by));   // unposed: it moves with its element below
-        drawShape(c, srt.Get(), e, values, 1, true, showMissing, clock);
+        drawShape(c, srt.Get(), letters, values, 1, true, showMissing, clock);
         if (FAILED(srt->EndDraw())) continue;
         std::vector<std::uint8_t> px((size_t)bw * bh * 4);
         if (FAILED(sb->CopyPixels(nullptr, (UINT)bw * 4, (UINT)px.size(), px.data()))) continue;
-        std::vector<std::uint8_t> a((size_t)bw * bh);
-        for (size_t k = 0; k < a.size(); ++k) a[k] = px[k * 4 + 3];
-        blurAlpha(a, bw, bh, blur);
-        const Rgba sc = e.shadow.colour;
-        for (size_t k = 0; k < a.size(); ++k) {
-            const unsigned al = a[k] * sc.a / 255;
-            px[k * 4 + 0] = (std::uint8_t)(sc.b * al / 255);
-            px[k * 4 + 1] = (std::uint8_t)(sc.g * al / 255);
-            px[k * 4 + 2] = (std::uint8_t)(sc.r * al / 255);
-            px[k * 4 + 3] = (std::uint8_t)al;
+        std::vector<std::uint8_t> shape((size_t)bw * bh);
+        for (size_t k = 0; k < shape.size(); ++k) shape[k] = px[k * 4 + 3];
+        std::vector<std::uint8_t> grown;
+        if (ol) {
+            grown = grow(shape, bw, bh, e.strokeWidth * scale);
+            shape = grown;   // shadows and glows go round the outline too
         }
-        rt->CreateBitmap(D2D1::SizeU((UINT)bw, (UINT)bh), px.data(), (UINT)bw * 4,
-                         D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &shadows[i].bmp);
-        shadows[i].x = (float)bx, shadows[i].y = (float)by, shadows[i].w = (float)bw, shadows[i].h = (float)bh;
+        auto make = [&](int blur, Rgba colour, float strength, ShadowPic& out) {   // strength < 0: a shadow (as blurred)
+            std::vector<std::uint8_t> a = shape;
+            blurAlpha(a, bw, bh, blur);
+            std::vector<std::uint8_t> q((size_t)bw * bh * 4);
+            for (size_t k = 0; k < a.size(); ++k) {
+                const float cov = strength < 0 ? a[k] / 255.0f : glowLevel(a[k] / 255.0f, strength);
+                const unsigned al = (unsigned)std::lround(cov * colour.a);
+                q[k * 4 + 0] = (std::uint8_t)(colour.b * al / 255);
+                q[k * 4 + 1] = (std::uint8_t)(colour.g * al / 255);
+                q[k * 4 + 2] = (std::uint8_t)(colour.r * al / 255);
+                q[k * 4 + 3] = (std::uint8_t)al;
+            }
+            rt->CreateBitmap(D2D1::SizeU((UINT)bw, (UINT)bh), q.data(), (UINT)bw * 4,
+                             D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &out.bmp);
+            out.x = (float)bx, out.y = (float)by, out.w = (float)bw, out.h = (float)bh;
+        };
+        if (sh) make(shBlur, e.shadow.colour, -1, shadows[i]);
+        if (gl) make(glBlur, e.glow.colour, e.glow.strength, glows[i]);
+        if (ol) {
+            make(0, e.stroke, -1, outlines[i]);
+            if (outlines[i].bmp) bare[i] = letters;
+        }
     }
 
     rt->BeginDraw();
@@ -704,20 +842,25 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         if (alpha <= 0.001f || p.reveal <= 0.001f || p.scale <= 0.001f) continue;
         // A wipe shows the element from its left edge as it comes in.
         const bool wiping = p.reveal < 0.999f;
-        if (shadows[i].bmp) {
-            // The shadow bitmap is in page pixels; it moves with its element's entrance and offset.
+        // The shadow, then the glow, under the element: their bitmaps are in page pixels and move with its entrance
+        // (the shadow by its offset too).
+        auto under = [&](const ShadowPic& sp, float ox, float oy) {
+            if (!sp.bmp) return;
             const D2D1_POINT_2F centre = D2D1::Point2F((e.x + e.w / 2) * scale, (e.y + e.h / 2) * scale);
-            rt->SetTransform(D2D1::Matrix3x2F::Translation(-centre.x, -centre.y) * D2D1::Matrix3x2F::Scale(p.scale, p.scale) *
+            const float pulse = e.kind == Kind::Timer ? timerText(e, clock).pulse : 1.0f;   // as the element itself
+            rt->SetTransform(D2D1::Matrix3x2F::Translation(-centre.x, -centre.y) * D2D1::Matrix3x2F::Scale(p.scale * pulse, p.scale * pulse) *
                              D2D1::Matrix3x2F::Rotation(e.rotation) *
-                             D2D1::Matrix3x2F::Translation(centre.x + (p.dx + e.shadow.dx) * scale, centre.y + (p.dy + e.shadow.dy) * scale));
+                             D2D1::Matrix3x2F::Translation(centre.x + (p.dx + ox) * scale, centre.y + (p.dy + oy) * scale));
             if (wiping) rt->PushAxisAlignedClip(D2D1::RectF(e.x * scale, -1e5f, (e.x + e.w * p.reveal) * scale, 1e5f), D2D1_ANTIALIAS_MODE_ALIASED);
-            const ShadowPic& sp = shadows[i];
             rt->DrawBitmap(sp.bmp.Get(), D2D1::RectF(sp.x, sp.y, sp.x + sp.w, sp.y + sp.h), alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             if (wiping) rt->PopAxisAlignedClip();
-        }
+        };
+        under(shadows[i], e.shadow.dx, e.shadow.dy);
+        under(glows[i], 0, 0);
+        under(outlines[i], 0, 0);
         rt->SetTransform(placement(e, p));
         if (wiping) rt->PushAxisAlignedClip(D2D1::RectF(e.x, e.y - 1e4f, e.x + e.w * p.reveal, e.y + e.h + 1e4f), D2D1_ANTIALIAS_MODE_ALIASED);
-        drawShape(c, rt.Get(), e, values, alpha, false, showMissing, clock);
+        drawShape(c, rt.Get(), bare[i], values, alpha, false, showMissing, clock);
         if (wiping) rt->PopAxisAlignedClip();
     }
     if (FAILED(rt->EndDraw())) {

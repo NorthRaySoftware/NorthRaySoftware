@@ -38,6 +38,18 @@ struct Fill {
 // The colour of a gradient at t (0..1), by its stops.
 Rgba colourAt(const Fill& f, float t);
 
+// Editing a gradient's stops on the designer's bar (0.15). Stops stay in order of where they are.
+constexpr std::size_t kMaxStops = 16;
+// Adds a stop at `at` in the gradient's own colour there (so nothing changes until it's moved or recoloured);
+// its index, or -1 when it isn't a gradient or has kMaxStops already.
+int addStop(Fill& f, float at);
+// Moves a stop (clamped to 0..1); its index afterwards (it may pass others).
+int moveStop(Fill& f, int index, float at);
+// Removes a stop; never fewer than two.
+bool removeStop(Fill& f, int index);
+// The stop nearest t within `within`, or -1.
+int stopNear(const Fill& f, float t, float within);
+
 struct Shadow {
     bool on = false;
     float dx = 0, dy = 6, blur = 12;   // pixels
@@ -45,6 +57,25 @@ struct Shadow {
     std::string brand;   // linked to a brand colour, or ""
     bool operator==(const Shadow&) const = default;
 };
+
+// A glow (0.15): light round the element's shape (text, an outline, a shape or a picture's outline), with no
+// offset, drawn under it. Strength above 1 spreads it further and brighter, below 1 makes it fainter.
+struct Glow {
+    bool on = false;
+    float size = 18;        // how far it reaches, pixels
+    float strength = 1.5f;  // 0.25..4
+    Rgba colour{63, 207, 142, 230};
+    std::string brand;      // linked to a brand colour, or ""
+    bool operator==(const Glow&) const = default;
+};
+// The glow's coverage from a blurred shape's coverage (both 0..1): 1 - (1 - a)^strength, so it never goes over 1
+// and strength 1 is the blur as it is.
+float glowLevel(float coverage, float strength);
+
+// A text outline (0.15), grown from the letters' own coverage (w x h, 0..255): every pixel within `radius` of the
+// letters (distance to the nearest pixel at least half covered, exact, by a two-pass distance transform), with a
+// one-pixel soft edge. The letters themselves stay fully covered. Wrong sizes give the coverage back unchanged.
+std::vector<std::uint8_t> grow(const std::vector<std::uint8_t>& coverage, int w, int h, float radius);
 
 // Timer, Qr and Icon draw like text or shapes: a timer is text that counts, a QR code is squares from a
 // link, an icon is one of the built-in drawings (icons()).
@@ -70,7 +101,8 @@ struct Element {
     float strokeWidth = 0;
     float radius = 0;                        // rectangles' corners; pictures' corners
     Shadow shadow;
-    // Text (and a timer's look).
+    Glow glow;
+    // Text (and a timer's look). A gradient on text runs across the words themselves, not the whole box (0.15).
     std::string text, font = "Segoe UI";
     float size = 64;
     bool bold = false, italic = false;
