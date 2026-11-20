@@ -1593,6 +1593,23 @@ static void testFamilyKinds() {
     CHECK(twins);
     const auto bl = lib->familyLayout(ana, 150, true);
     CHECK(bl.siblings.size() == 1 && bl.siblings[0].how == "twin" && !bl.siblings[0].sharedParents);
+    // The bible's PDF names each relative by what they are (0.48.1).
+    {
+        namespace bible = studio::bible;
+        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "CJ");
+        std::string tomPage, ralphPage, lilliaPage;
+        for (auto& sec : src.sections) {
+            if (sec.title == "Tom Smith") tomPage = sec.content;
+            if (sec.title == "Ralph Smith") ralphPage = sec.content;
+            if (sec.title == "Lillia Smith") lilliaPage = sec.content;
+        }
+        CHECK(tomPage.find("Twin sister: ") != std::string::npos && tomPage.find("Half-sister: ") != std::string::npos &&
+              tomPage.find("Adoptive sister: ") != std::string::npos && tomPage.find("Father: ") != std::string::npos &&
+              tomPage.find("Brothers and sisters") == std::string::npos);
+        CHECK(ralphPage.find("Wives: ") != std::string::npos && ralphPage.find("Stepson: ") != std::string::npos &&
+              ralphPage.find("Adopted daughter: ") != std::string::npos);
+        CHECK(lilliaPage.find("Adoptive father: ") != std::string::npos && lilliaPage.find("Adoptive mother: ") != std::string::npos);
+    }
     // Reverse wordings of the new relationships.
     CHECK(studio::reverseRelation("Twin of") == "Twin of" && studio::reverseRelation("Adoptive parent of") == "Adopted child of" &&
           studio::reverseRelation("Stepchild of") == "Step-parent of" && studio::reverseRelation("Foster sibling of") == "Foster sibling of");

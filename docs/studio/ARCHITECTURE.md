@@ -415,6 +415,14 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.1: family by kind in the bible's PDF (20 Nov 2026)
+
+- `printableSource`: a character's Family lists each relative under what they are (from `kinWord` and the gender
+  line): Mother / Father / Parent, Wife / Husband / Spouse for a "Married to" link and Partner otherwise, Twin sister,
+  Half-brother, Stepson, Adoptive mother, Foster child...; relatives of one kind share a line with a plural label
+  (Daughters, Wives, Children). Tested (Tom: Twin sister, Half-sister, Adoptive sister, Father; Ralph: Wives, Stepson,
+  Adopted daughter; Lillia: Adoptive father and mother).
+
 ## 0.48.0: places and maps (20 Nov 2026)
 
 - **Map viewer** (`studio_world.cpp`: `openMap`, `drawMapView`, `mapMouseDown/Move/Up`, `mapWheel`; state in `wb_.map*`):

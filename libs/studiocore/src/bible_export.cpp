@@ -1129,16 +1129,56 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
             }
             if (e->kind == "character" && options.family) {
                 const auto f = lib.familyOf(e->id);
+                // Each relative by what they are (0.48.1): Mother, Father, Wife, Partner, Twin sister, Half-brother,
+                // Adopted son... names of one kind together ("Sons: Tom, Ben").
                 std::vector<std::pair<std::string, std::string>> fam;
-                auto names = [&](const std::vector<Id>& ids) {
-                    std::string out;
-                    for (const Id& i : ids) if (const Entry* o = lib.entry(i); o && view.shows(i)) out += (out.empty() ? "" : ", ") + o->name;
-                    return out;
+                auto addAs = [&](const std::string& one, const std::string& many, const std::string& name) {
+                    for (auto& [l, v] : fam)
+                        if (l == one || l == many) { l = many; v += ", " + name; return; }
+                    fam.push_back({one, name});
                 };
-                if (auto n = names(f.parents); !n.empty()) fam.push_back({"Parents", n});
-                if (auto n = names(f.partners); !n.empty()) fam.push_back({"Partners", n});
-                if (auto n = names(f.siblings); !n.empty()) fam.push_back({"Brothers and sisters", n});
-                if (auto n = names(f.children); !n.empty()) fam.push_back({"Children", n});
+                auto sexOf = [&](const Entry& o) {
+                    std::string g;
+                    for (auto& [label, value] : detailLines(o.details)) {
+                        std::string l = label;
+                        for (auto& c : l) c = (char)std::tolower((unsigned char)c);
+                        if (l == "gender" || l == "sex" || l == "gender or sex" || l == "gender/sex") { g = value; break; }
+                    }
+                    for (auto& c : g) c = (char)std::tolower((unsigned char)c);
+                    return g.find("female") != std::string::npos || g.find("woman") != std::string::npos || g == "f" ? 1
+                         : g.find("male") != std::string::npos || g.find("man") != std::string::npos || g == "m" ? 0 : 2;
+                };
+                auto cap = [](std::string x) { if (!x.empty()) x[0] = (char)std::toupper((unsigned char)x[0]); return x; };
+                auto plural = [](const std::string& x) {
+                    if (x.size() >= 5 && x.compare(x.size() - 5, 5, "child") == 0) return x + "ren";
+                    if (x.size() >= 4 && x.compare(x.size() - 4, 4, "wife") == 0) return x.substr(0, x.size() - 4) + "wives";
+                    return x + "s";
+                };
+                auto howOf = [&](const Id& i) { auto h = f.how.find(i); return h == f.how.end() ? std::string() : h->second; };
+                auto role = [&](int r, const std::vector<Id>& ids) {
+                    for (const Id& i : ids) {
+                        const Entry* o = lib.entry(i);
+                        if (!o || !view.shows(i)) continue;
+                        const int sx = sexOf(*o);
+                        std::string word;
+                        if (r == 1) {
+                            bool married = false;
+                            for (const EntryLink& l : lib.linksOf(e->id))
+                                if (l.label == "Married to" && (l.from == i || l.to == i)) married = true;
+                            word = married ? (sx == 1 ? "wife" : sx == 0 ? "husband" : "spouse") : "partner";
+                        } else {
+                            word = kinWord(*o, r, howOf(i));
+                            if (word.empty()) word = r == 0 ? (sx == 1 ? "mother" : sx == 0 ? "father" : "parent")
+                                                   : r == 2 ? (sx == 1 ? "sister" : sx == 0 ? "brother" : "sibling")
+                                                            : (sx == 1 ? "daughter" : sx == 0 ? "son" : "child");
+                        }
+                        addAs(cap(word), cap(plural(word)), o->name);
+                    }
+                };
+                role(0, f.parents);
+                role(1, f.partners);
+                role(2, f.siblings);
+                role(3, f.children);
                 if (!fam.empty()) {
                     d.heading(2);
                     d.text("Family");

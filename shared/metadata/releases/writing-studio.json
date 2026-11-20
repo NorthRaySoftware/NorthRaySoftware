@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.48.1",
+      "date": "2026-11-20",
+      "notes": [
+        "The bible's PDF names each relative by what they are: Mother, Father, Wife or Husband (Partner when not married), Twin sister, Half-brother, Stepson, Adoptive mother, with names of one kind together."
+      ]
+    },
+    {
       "version": "0.48.0",
       "date": "2026-11-20",
       "notes": [
