@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.108.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.42.0: a new writing bar like a word processor's, with a Word-style typeface box."
+      ]
+    },
+    {
       "version": "0.107.0",
       "date": "2026-11-20",
       "notes": [

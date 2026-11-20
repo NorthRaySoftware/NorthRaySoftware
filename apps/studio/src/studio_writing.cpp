@@ -252,6 +252,12 @@ void StudioApp::editorMessage(const std::string& text) {
         }
     } else if (type == "link") {
         cjui::openInBrowser(m.value("href", ""));
+    } else if (type == "openFonts") {
+        // "Add fonts to this world…" in the typeface list (0.42): Worldbuilding › Fonts for the book's world.
+        if (const Book* b = lib_ ? lib_->book(writingBook_) : nullptr) {
+            openWorldbuilding(b->worldId, b->worldId.empty() ? b->id : Id{});
+            openFonts({});
+        }
     } else if (type == "insertImage") {
         // Same picker as covers; the image is stored once in the library by content.
         IFileOpenDialog* dlg = nullptr;
@@ -371,6 +377,13 @@ void StudioApp::sendView() {
         msg["style"]["languages"] = langs;
     }
     msg["fonts"] = editorFonts(writingBook_);   // the world's typefaces, for words set in them (0.41)
+    // The book's own typeface by name, for the typeface box (0.42).
+    {
+        const auto design = studio::typeset::designFromJson(lib_->setting("typeset:" + writingBook_));
+        std::string name = design.font;
+        for (const auto& f : studio::typeset::fontFamilies(fontFoldersFor(writingBook_))) if (f.id == design.font) name = f.name;
+        msg["bookFont"] = name;
+    }
     editor_.send(msg.dump());
 }
 

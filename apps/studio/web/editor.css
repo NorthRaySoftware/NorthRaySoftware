@@ -90,21 +90,81 @@ article { position: relative; }
 html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
 body { display: flex; flex-direction: column; font: 14px/1.4 var(--ui); overflow: hidden; }
 
-/* Toolbar */
-#bar { display: flex; align-items: center; gap: 2px; padding: 6px 14px; background: var(--bar); border-bottom: 1px solid var(--rule); flex: none; }
-#bar button, #bar select { font: inherit; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 4px;
-  height: 30px; min-width: 32px; padding: 0 8px; cursor: default; transition: background-color .15s ease, border-color .15s ease; }
-#bar select { border-color: var(--rule); background: var(--page); min-width: 170px; }
-#bar button:hover { background: var(--page); border-color: var(--rule); }
-#bar button[aria-pressed="true"] { background: var(--page); border-color: var(--accent); color: var(--accent); }
+/* Toolbar: a ribbon like a word processor's Home tab (0.42). Groups of tools with their name beneath; on a narrow
+   window the less-used groups fold into More, so nothing is ever cut off. */
+#bar { display: flex; align-items: stretch; gap: 0; padding: 6px 10px 4px; background: var(--bar); border-bottom: 1px solid var(--rule);
+  flex: none; position: relative; min-height: 58px; overflow: hidden; user-select: none; }
+#bar .grp { display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 0 6px; flex: none;
+  border-right: 1px solid color-mix(in srgb, var(--rule) 80%, transparent); }
+#bar .grp[data-group="view"], #bar .grp.right:last-child { border-right: 0; }
+#bar .grp.right { border-right: 0; border-left: 1px solid color-mix(in srgb, var(--rule) 80%, transparent); }
+#bar .grp.folded { display: none; }
+#bar .row { display: flex; align-items: center; gap: 2px; height: 32px; }
+#bar .cap { font-size: 10.5px; letter-spacing: .02em; color: var(--faint); line-height: 14px; height: 14px; white-space: nowrap; }
+#bar .tb { display: inline-grid; place-items: center; height: 30px; min-width: 30px; padding: 0 6px; font: inherit; font-size: 15px; color: var(--ink);
+  background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: default; transition: background-color .12s ease, border-color .12s ease, color .12s ease; }
+#bar .tb svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#bar .tb svg .fill { fill: currentColor; stroke: none; }
+#bar .t-letter { font-family: var(--serif); font-size: 16px; min-width: 28px; }
+#bar .sc-glyph { font-variant: small-caps; font-size: 15px; }
+#bar .tb:hover, #bar .combo:hover, #bar .pill:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+#bar .tb:active { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+#bar .tb[aria-pressed="true"], #bar .tb[aria-expanded="true"] { background: var(--sel); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 #bar button:focus-visible, #bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.sc-btn { font-variant: small-caps; }
-.sep { width: 1px; height: 20px; background: var(--rule); margin: 0 6px; }
-.grow { flex: 1; }
-#count { color: var(--muted); margin-right: 14px; font-variant-numeric: tabular-nums; }
-#saved { color: var(--faint); min-width: 72px; text-align: right; transition: color .3s ease; }
+#bar button:disabled { opacity: .38; pointer-events: none; }
+/* The paragraph style and the typeface: boxes you drop down, like Word's. */
+#bar .select-wrap { position: relative; display: inline-flex; align-items: center; }
+#bar select { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; color: var(--ink); height: 28px; width: 124px; padding: 0 26px 0 9px;
+  background: var(--page); border: 1px solid var(--rule); border-radius: 6px; cursor: default; }
+#bar select:hover, #bar .combo:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--rule)); }
+#bar .chev { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+#bar .select-wrap .chev { position: absolute; right: 9px; }
+#bar .combo { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; height: 28px; width: 146px; padding: 0 8px 0 9px; margin-right: 4px;
+  font: inherit; font-size: 13px; color: var(--ink); background: var(--page); border: 1px solid var(--rule); border-radius: 6px; cursor: default; }
+#bar .combo[aria-expanded="true"] { border-color: var(--accent); }
+#fontname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+#fontname.book { font-family: var(--ui); font-size: 13px; color: var(--muted); }
+/* Right: the chapter, hints and where the words stand. */
+#bar .grow { flex: 1; min-width: 8px; }
+#bar .pill { height: 26px; padding: 0 10px; margin-right: 6px; font: inherit; font-size: 12.5px; color: var(--muted); background: transparent;
+  border: 1px solid var(--rule); border-radius: 13px; cursor: default; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#hints[data-some="true"] { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+#chapname { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); padding: 0 2px; }
+#bar .status { align-items: flex-end; min-width: 84px; padding-right: 2px; }
+#count { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#saved { color: var(--faint); white-space: nowrap; transition: color .3s ease; }
 #saved[data-state="saving"] { color: var(--muted); }
-#saved[data-state="failed"] { color: #b4442c; }
+#saved[data-state="failed"] { color: #b4442c; font-weight: 600; }
+.sc-btn { font-variant: small-caps; }
+.grow { flex: 1; }
+/* The More menu (folded groups) and the typeface list share a look. */
+#moremenu, #fontmenu { position: fixed; z-index: 10; padding: 6px; background: var(--page); border: 1px solid var(--rule); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18); font: 13px/1.35 var(--ui); animation: vm-in .12s ease-out both; max-height: 70vh; overflow: auto; scrollbar-width: none; }
+#moremenu::-webkit-scrollbar, #fontmenu::-webkit-scrollbar { display: none; }
+#moremenu[hidden], #fontmenu[hidden] { display: none; }
+#moremenu { width: 270px; }
+.mm-head { color: var(--faint); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 8px 8px 4px; }
+.mm-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 8px; font: inherit; color: var(--ink); text-align: left;
+  background: transparent; border: 0; border-radius: 5px; cursor: default; }
+.mm-item:hover, .mm-item:focus-visible { background: var(--sel); outline: none; }
+.mm-item .mm-ico { width: 22px; display: inline-grid; place-items: center; font-family: var(--serif); font-size: 15px; }
+.mm-item .mm-ico svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.mm-item .mm-ico svg .fill { fill: currentColor; stroke: none; }
+.mm-item .mm-label { flex: 1; }
+.mm-item .mm-key { color: var(--faint); font-size: 11.5px; }
+.mm-item[aria-pressed="true"] .mm-label::after { content: "  \2713"; color: var(--accent); }
+#fontmenu { width: 300px; }
+.fm-item { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; text-align: left; font-size: 19px; color: var(--ink);
+  background: transparent; border: 0; border-radius: 5px; padding: 7px 10px; margin: 1px 0; cursor: default; }
+.fm-item .fm-note { font: 11.5px/1 var(--ui); color: var(--faint); white-space: nowrap; }
+.fm-item:hover, .fm-item:focus-visible { background: var(--sel); outline: none; }
+.fm-item[aria-pressed="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+.fm-item.book { font: 14px/1.3 var(--serif); }
+.fm-empty { padding: 6px 10px 8px; color: var(--muted); font-size: 12.5px; }
+.fm-add { display: block; width: 100%; text-align: left; font: 12.5px/1.3 var(--ui); color: var(--accent); background: transparent; border: 0; border-radius: 5px;
+  padding: 8px 10px; cursor: default; }
+.fm-add:hover { background: var(--sel); }
+.fm-rule { height: 1px; background: var(--rule); margin: 6px 4px; }
 
 /* The page. Scroll bars stay hidden; the wheel and keys still scroll. */
 #scroller { flex: 1; overflow-y: auto; scrollbar-width: none; scroll-behavior: smooth; }
@@ -168,11 +228,8 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
    Resolved ones keep their place in the text but aren't shown. */
 .cm-open { background: color-mix(in srgb, #E8B44A 24%, transparent); border-bottom: 1px solid color-mix(in srgb, #C98A12 55%, transparent); }
 .cm-active { background: color-mix(in srgb, #E8B44A 50%, transparent); }
-#bar button:disabled { opacity: .4; pointer-events: none; }
 
 /* Writing view (the "Aa" panel) */
-#bar { position: relative; }
-#hints { color: var(--muted); margin-right: 14px; font-variant-numeric: tabular-nums; }
 #viewmenu { position: fixed; top: 44px; z-index: 10; width: 340px; padding: 12px 14px 8px; background: var(--page);
   border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18); font: 13px/1.35 var(--ui);
   left: var(--vm-left, 320px); animation: vm-in .12s ease-out both; }
@@ -379,17 +436,5 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .ProseMirror .cs-name { font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
 .ProseMirror p.s-page.is-empty::after, .ProseMirror p.s-panel:empty::after { content: ""; }
 
-/* A world's own typefaces on words (0.41): the menu, and its items each shown in their own font. */
-#fontmenu { position: fixed; top: 44px; z-index: 10; width: 288px; padding: 10px 10px 8px; background: var(--page);
-  border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18); font: 13px/1.35 var(--ui);
-  animation: vm-in .12s ease-out both; max-height: 60vh; overflow: auto; scrollbar-width: none; }
-#fontmenu::-webkit-scrollbar { display: none; }
-#fontmenu[hidden] { display: none; }
-.fm-item { display: block; width: 100%; text-align: left; font-size: 18px; color: var(--ink); background: transparent; border: 1px solid transparent;
-  border-radius: 5px; padding: 6px 8px; margin: 1px 0; }
-.fm-item:not([class*="ff-"]) { font: 13px/1.35 var(--ui); padding: 8px; }
-.fm-item:hover { border-color: var(--rule); }
-.fm-item[aria-pressed="true"] { border-color: var(--accent); background: var(--sel); }
-#fontbtn .fb-glyph { font-family: var(--serif); font-style: italic; }
 /* Words in a world typeface: a faint underline so they're easy to find while writing. */
 .ProseMirror .ff { text-decoration: underline dotted color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }

@@ -872,9 +872,9 @@ function setWorldFonts(list) {
     }
     if (sheet) { try { sheet.insertRule(`.ff-${f.id} { font-family: "${family}", var(--text-font, serif); }`, sheet.cssRules.length); } catch {} }
   }
-  const btn = document.getElementById("fontbtn");
-  if (btn) btn.hidden = worldFonts.length === 0;
+  if (view) updateToolbar(view.state);
 }
+let bookFontName = "";   // the book's own typeface (from its Typesetting design), sent by the app
 
 // Sets the selection (or what's typed next) in a world typeface, or back in the book's own (id "").
 function setWordsFont(id) {
@@ -892,6 +892,45 @@ function setWordsFont(id) {
   view.focus();
 }
 
+// The typeface of the selection: a world font's id, "" for the book's own, or null when it's mixed.
+function setChapName(t) {
+  const el = document.getElementById("chapname");
+  if (!el) return;
+  el.textContent = t || "";
+  el.title = t || "";
+  fitBar();
+}
+
+function selectionFont(state) {
+  const { $from, from, to, empty } = state.selection;
+  if (empty) {
+    const m = (state.storedMarks || $from.marks()).find((x) => x.type === M.font);
+    return m ? m.attrs.family : "";
+  }
+  let found;
+  state.doc.nodesBetween(from, to, (n) => {
+    if (!n.isText) return;
+    const m = n.marks.find((x) => x.type === M.font);
+    const f = m ? m.attrs.family : "";
+    if (found === undefined) found = f;
+    else if (found !== f) found = null;
+  });
+  return found === undefined ? "" : found;
+}
+
+// The typeface box shows the selection's font by name, in that font (like a word processor's).
+function updateFontBox(state) {
+  const el = document.getElementById("fontname");
+  if (!el) return;
+  const f = selectionFont(state);
+  el.className = "";
+  if (f === null) { el.textContent = "Several typefaces"; el.classList.add("book"); return; }
+  if (!f) { el.textContent = bookFontName ? bookFontName : "Book typeface"; el.classList.add("book"); return; }
+  const wf = worldFonts.find((x) => x.id === f);
+  el.textContent = wf ? String(wf.name || wf.id) : f + " (not in this world)";
+  if (wf) el.classList.add("ff-" + f);
+}
+
 function buildFontMenu() {
   const btn = document.getElementById("fontbtn"), menu = document.getElementById("fontmenu");
   if (!btn || !menu) return;
@@ -899,42 +938,120 @@ function buildFontMenu() {
   btn.addEventListener("mousedown", (e) => {
     e.preventDefault();
     if (!menu.hidden) { close(); return; }
-    // Which typeface the selection is in now.
-    let cur = "";
-    if (view) {
-      const { $from, from, to, empty } = view.state.selection;
-      const marks = empty ? (view.state.storedMarks || $from.marks()) : [];
-      if (!empty) view.state.doc.nodesBetween(from, to, (n) => { const m = n.isText && n.marks.find((x) => x.type === M.font); if (m) cur = m.attrs.family; });
-      else { const m = marks.find((x) => x.type === M.font); if (m) cur = m.attrs.family; }
-    }
+    const cur = view ? selectionFont(view.state) : "";
     menu.replaceChildren();
-    const head = document.createElement("div");
-    head.className = "vm-label";
-    head.textContent = "Set these words in";
-    menu.append(head);
-    const item = (id, label, cls) => {
+    const head = (t) => { const h = document.createElement("div"); h.className = "mm-head"; h.textContent = t; menu.append(h); };
+    const item = (id, label, cls, note) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "fm-item" + (cls ? " " + cls : "");
-      b.textContent = label;
+      const l = document.createElement("span");
+      l.textContent = label;
+      b.append(l);
+      if (note) { const n = document.createElement("span"); n.className = "fm-note"; n.textContent = note; b.append(n); }
       b.setAttribute("aria-pressed", id === cur ? "true" : "false");
       b.addEventListener("mousedown", (ev) => { ev.preventDefault(); close(); setWordsFont(id); });
       menu.append(b);
     };
-    item("", "The book's own typeface");
+    head("This book");
+    item("", bookFontName ? bookFontName : "Book typeface", "book", "the book's own");
+    head("This world's fonts");
+    if (!worldFonts.length) {
+      const n = document.createElement("div");
+      n.className = "fm-empty";
+      n.textContent = "None yet. Add runes, symbols or handwriting fonts to this world, then set words in them here.";
+      menu.append(n);
+    }
     for (const f of worldFonts) item(f.id, String(f.name || f.id), "ff-" + f.id);
-    const note = document.createElement("div");
-    note.className = "vm-note";
-    note.textContent = "For runes, symbols, handwriting or a letter. Add fonts in Worldbuilding \u203A Fonts.";
-    menu.append(note);
+    const rule = document.createElement("div");
+    rule.className = "fm-rule";
+    menu.append(rule);
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "fm-add";
+    add.textContent = "Add fonts to this world…";
+    add.addEventListener("mousedown", (ev) => { ev.preventDefault(); close(); send({ type: "openFonts" }); });
+    menu.append(add);
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    // Under the box, or under More when the box is folded away.
+    const anchor = btn.offsetParent ? btn : document.getElementById("morebtn");
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 310)) + "px";
+    menu.style.top = (r.bottom + 4) + "px";
+    const on = menu.querySelector('[aria-pressed="true"]');
+    if (on) on.focus({ preventScroll: true });
+  });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
+}
+
+// ------------------------------------------------- the toolbar on narrow windows (0.42)
+// Groups fold away, least-used first, until the bar fits; More lists every folded tool by name, with its shortcut.
+function fitBar() {
+  const bar = document.getElementById("bar"), more = document.getElementById("morebtn");
+  if (!bar || !more) return;
+  const groups = [...bar.querySelectorAll(".grp")];
+  groups.forEach((g) => g.classList.remove("folded"));
+  more.hidden = true;
+  if (bar.scrollWidth <= bar.clientWidth + 1) return;
+  more.hidden = false;
+  const order = groups.filter((g) => +g.dataset.prio < 9).sort((a, b) => (+a.dataset.prio - +b.dataset.prio) || (groups.indexOf(b) - groups.indexOf(a)));
+  for (const g of order) {
+    if (bar.scrollWidth <= bar.clientWidth + 1) break;
+    g.classList.add("folded");
+  }
+}
+
+function buildMoreMenu() {
+  const btn = document.getElementById("morebtn"), menu = document.getElementById("moremenu");
+  if (!btn || !menu) return;
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (!menu.hidden) { close(); return; }
+    menu.replaceChildren();
+    for (const g of document.querySelectorAll("#bar .grp.folded")) {
+      const h = document.createElement("div");
+      h.className = "mm-head";
+      h.textContent = g.dataset.label || "";
+      menu.append(h);
+      for (const src of g.querySelectorAll("button")) {
+        if (src.hidden) continue;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mm-item";
+        b.disabled = src.disabled;
+        const ico = document.createElement("span");
+        ico.className = "mm-ico";
+        if (src.id === "hints" || src.id === "fontbtn") ico.textContent = src.id === "hints" ? "!" : "Ff";
+        else ico.innerHTML = src.innerHTML;   // the button's own icon (markup from this page)
+        const lab = document.createElement("span");
+        lab.className = "mm-label";
+        lab.textContent = src.id === "hints" ? "Style hints: " + src.textContent : (src.dataset.label || src.getAttribute("aria-label") || "");
+        const key = document.createElement("span");
+        key.className = "mm-key";
+        key.textContent = src.dataset.key || "";
+        b.append(ico, lab, key);
+        if (src.getAttribute("aria-pressed") === "true") b.setAttribute("aria-pressed", "true");
+        b.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          close();
+          src.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        });
+        menu.append(b);
+      }
+    }
     menu.hidden = false;
     btn.setAttribute("aria-expanded", "true");
     const r = btn.getBoundingClientRect();
-    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 300)) + "px";
-    menu.style.top = (r.bottom + 6) + "px";
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 280)) + "px";
+    menu.style.top = (r.bottom + 4) + "px";
   });
-  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn) close(); });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) close(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
+  new ResizeObserver(() => fitBar()).observe(document.getElementById("bar"));
+  window.addEventListener("resize", fitBar);
 }
 
 const toggleFocus = () => { changeView({ focus: !viewSettings.focus }); return true; };
@@ -995,7 +1112,7 @@ function stats() {
   document.getElementById("count").textContent =
     (sel ? sel.toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
   const h = document.getElementById("hints");
-  if (h) h.textContent = hintCount === 1 ? "1 hint" : hintCount + " hints";
+  if (h) { h.textContent = hintCount === 1 ? "1 hint" : hintCount + " hints"; h.dataset.some = hintCount > 0 ? "true" : "false"; }
   send({ type: "stats", id: currentId, words, selectionWords: sel });
 }
 
@@ -1181,6 +1298,7 @@ function load(msg) {
   // The dictionary for the book's language (loaded once; the text is checked again when it's ready).
   spell.load(document.documentElement.lang, (ok) => { if (ok && view) { applyView(); rehintNow(); } });
   document.getElementById("title").textContent = msg.title || "";
+  setChapName(msg.title);
   const state = makeState(msg.doc, readOnly ? null : msg.id);
   if (!readOnly) rememberVersion(msg.id, state.doc.toJSON(), true);   // how it was when opened, to undo back to later
   if (!view) {
@@ -1278,6 +1396,7 @@ function updateToolbar(state) {
   for (const [id, mark] of [["b", M.strong], ["i", M.em], ["u", M.underline], ["sc", M.smallcaps]])
     document.getElementById(id).setAttribute("aria-pressed", active(mark) ? "true" : "false");
   document.getElementById("comment").disabled = empty || readOnly;
+  updateFontBox(state);
 }
 
 function buildToolbar() {
@@ -1307,6 +1426,7 @@ function buildToolbar() {
   bind("undo", undo);
   bind("redo", redo);
   bind("comment", addComment);
+  bind("link", toggleLink);
   for (const [id, delta] of [["prev", -1], ["next", 1]])
     document.getElementById(id).addEventListener("mousedown", (e) => { e.preventDefault(); navigate(delta)(); });
   document.getElementById("img").addEventListener("mousedown", (e) => { e.preventDefault(); send({ type: "insertImage" }); });
@@ -1358,7 +1478,7 @@ function receive(msg) {
   if (!msg || typeof msg !== "object") return;
   if (msg.type === "load") load(msg);
   else if (msg.type === "flush") { flush(); send({ type: "flushed" }); }
-  else if (msg.type === "title") document.getElementById("title").textContent = msg.title || "";
+  else if (msg.type === "title") { document.getElementById("title").textContent = msg.title || ""; setChapName(msg.title); }
   else if (msg.type === "theme") setTheme(!!msg.dark);
   else if (msg.type === "image") insertImage(msg.blob, msg.alt, msg.width);
   else if (msg.type === "setPicture") setPicture(msg.pos, msg.attrs || {});
@@ -1386,6 +1506,7 @@ function receive(msg) {
       if (!(msg.settings.v >= 2)) { if (msg.settings.hints !== "off") viewSettings.hints = "full"; viewSettings.v = 2; }
     }
     if ("names" in msg) { setNames(msg.names); setEntries(msg.names); }
+    if ("bookFont" in msg) bookFontName = String(msg.bookFont || "");
     if ("fonts" in msg) setWorldFonts(msg.fonts);
     if (msg.style && typeof msg.style === "object") {
       if (msg.style.scope !== style.scope) { ignoreOnceSet = new Set(); pausedRules = new Set(); }
@@ -1416,6 +1537,8 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 buildToolbar();
 buildViewMenu();
 buildFontMenu();
+buildMoreMenu();
+fitBar();
 initNameCard(send);
 const styleApi = {
   view: () => viewSettings,

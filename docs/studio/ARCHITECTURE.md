@@ -415,6 +415,30 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.42.0: the writing bar, like a word processor's (20 Nov 2026)
+
+CJ: the bar at the top when writing needed a lot of work, and the font choice smoothing out, based on Word.
+
+- **editor.html**: `#bar` is a ribbon of `.grp` groups (`data-group`, `data-prio`, `data-label`), each a `.row` of tools
+  and a `.cap` caption: Style (the paragraph-style select in `.select-wrap` with a drawn chevron), Font (the typeface box
+  `#fontbtn.combo` with `#fontname`, B, I, U, Sc, and a new Link button), Paragraph (quote, bullets, numbers), Insert
+  (scene break, picture), Review (comment, other words), Edit (undo, redo), View (Aa, and `#morebtn`); on the right
+  Chapter (`#hints` as a pill, ‹ `#chapname` ›) and the status (`#count` over `#saved`). Icons are inline SVG drawn
+  for the Studio (stroke `currentColor`), so they follow the theme; every tool has `data-label` and `data-key`.
+- **editor.css**: the ribbon's look (30 px tools, 6 px radius, pressed tools in the accent tint), the styled select and
+  combo, the pill, `#moremenu` and the typeface list (`.fm-item`, `.mm-head`, `.fm-add`), all from the palette
+  variables (light, dark, warm night).
+- **editor.js**: `fitBar()` (on a ResizeObserver) folds groups below priority 9 from the least used until
+  `scrollWidth` fits; `buildMoreMenu()` lists the folded groups' tools by name, icon and shortcut, and runs the hidden
+  tool's own mousedown. `selectionFont`/`updateFontBox` show the selection's typeface by name, in its font ("Several
+  typefaces" when mixed, the book's typeface by name from the view message's `bookFont`). The typeface list: "This
+  book" (the book's typeface), "This world's fonts" (each in its own font, or a note when there are none), and "Add
+  fonts to this world…" (`openFonts` to the app, which opens Worldbuilding › Fonts). `setChapName` from load and title.
+- **App**: `sendView` adds `bookFont` (the Typesetting design's family name); `openFonts` is handled in Writing.
+- Tested in Chromium at 1200 and 760 px, light and dark: the groups and captions, folding into More and a tool run
+  from it (a list made), the typeface box naming the selection's font, the list in each font, a font set from it.
+
+
 ## 0.41.0: words in a world's fonts (20 Nov 2026)
 
 CJ: the world's fonts are for use within chapters, for runes, symbols or handwriting.

@@ -7,36 +7,75 @@
 <link rel="stylesheet" href="editor.css">
 </head>
 <body>
-<div id="bar" role="toolbar" aria-label="Formatting">
-  <select id="style" aria-label="Paragraph style" title="Paragraph style"></select>
-  <span class="sep"></span>
-  <button id="b" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
-  <button id="i" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
-  <button id="u" title="Underline (Ctrl+U)" aria-label="Underline"><u>U</u></button>
-  <button id="sc" title="Small capitals (Ctrl+Shift+K)" aria-label="Small capitals" class="sc-btn">Sc</button>
-  <button id="fontbtn" title="Set the selected words in one of this world's fonts: runes, symbols, handwriting" aria-label="Typeface for these words" aria-haspopup="true" aria-expanded="false" hidden><span class="fb-glyph">Ff</span></button>
-  <span class="sep"></span>
-  <button id="break" title="Scene break (Ctrl+Enter)" aria-label="Scene break">&#x2042;</button>
-  <button id="quote" title="Block quote" aria-label="Block quote">&#x201C;</button>
-  <button id="ul" title="Bulleted list" aria-label="Bulleted list">&#x2022;</button>
-  <button id="ol" title="Numbered list" aria-label="Numbered list">1.</button>
-  <button id="img" title="Insert a picture" aria-label="Insert a picture">&#x25A3;</button>
-  <button id="comment" title="Comment on the selected words (Ctrl+Alt+M)" aria-label="Comment">&#x270E;</button>
-  <button id="thes" title="Other words and phrases for the selection or the word at the cursor (Ctrl+Shift+O)" aria-label="Other words">&#x2248;</button>
-  <span class="sep"></span>
-  <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">&#x21B6;</button>
-  <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo">&#x21B7;</button>
-  <span class="sep"></span>
-  <button id="viewbtn" title="Writing view: font, page width, focus, typewriter, hints" aria-label="Writing view" aria-haspopup="true" aria-expanded="false">Aa</button>
+<div id="bar" role="toolbar" aria-label="Writing tools">
+  <div class="grp" data-group="style" data-prio="9" data-label="Style">
+    <div class="row"><span class="select-wrap"><select id="style" aria-label="Paragraph style" title="Paragraph style: body text, headings and more (Ctrl+Alt+0 to 3)"></select><svg class="chev" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg></span></div>
+    <div class="cap">Style</div>
+  </div>
+  <div class="grp" data-group="font" data-prio="8" data-label="Font">
+    <div class="row">
+      <button id="fontbtn" class="combo" data-label="Typeface for these words…" title="Typeface for the selected words: the book's own, or one of this world's fonts (runes, symbols, handwriting)" aria-label="Typeface for these words" aria-haspopup="true" aria-expanded="false"><span id="fontname">Book typeface</span><svg class="chev" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg></button>
+      <button id="b" class="tb t-letter" data-label="Bold" data-key="Ctrl+B" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+      <button id="i" class="tb t-letter" data-label="Italic" data-key="Ctrl+I" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+      <button id="u" class="tb t-letter" data-label="Underline" data-key="Ctrl+U" title="Underline (Ctrl+U)" aria-label="Underline"><u>U</u></button>
+      <button id="sc" class="tb t-letter" data-label="Small capitals" data-key="Ctrl+Shift+K" title="Small capitals (Ctrl+Shift+K)" aria-label="Small capitals"><span class="sc-glyph">Sc</span></button>
+      <button id="link" class="tb" data-label="Link" data-key="Ctrl+Alt+K" title="Link (Ctrl+Alt+K)" aria-label="Link"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-1 1"/><path d="M11.5 8.5a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l1-1"/></svg></button>
+    </div>
+    <div class="cap">Font</div>
+  </div>
+  <div class="grp" data-group="para" data-prio="5" data-label="Paragraph">
+    <div class="row">
+      <button id="quote" class="tb" data-label="Block quote" title="Block quote" aria-label="Block quote"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4.5 13.5c0-3.5 1.2-5.6 3.6-6.8M11.5 13.5c0-3.5 1.2-5.6 3.6-6.8"/><circle cx="6" cy="13" r="1.6" class="fill"/><circle cx="13" cy="13" r="1.6" class="fill"/></svg></button>
+      <button id="ul" class="tb" data-label="Bulleted list" title="Bulleted list" aria-label="Bulleted list"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="4.5" cy="6" r="1.2" class="fill"/><circle cx="4.5" cy="10" r="1.2" class="fill"/><circle cx="4.5" cy="14" r="1.2" class="fill"/><path d="M8 6h8M8 10h8M8 14h8"/></svg></button>
+      <button id="ol" class="tb" data-label="Numbered list" title="Numbered list" aria-label="Numbered list"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M3.6 4.6l1.2-.8v4.4M3.4 8.2h2.6M3.5 12.3c.3-.6 2.4-.9 2.4.4 0 1-2.4 1.6-2.4 3h2.5M9 6h7.5M9 10h7.5M9 14h7.5"/></svg></button>
+    </div>
+    <div class="cap">Paragraph</div>
+  </div>
+  <div class="grp" data-group="insert" data-prio="4" data-label="Insert">
+    <div class="row">
+      <button id="break" class="tb" data-label="Scene break" data-key="Ctrl+Enter" title="Scene break (Ctrl+Enter)" aria-label="Scene break"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M3 10h3.5M13.5 10H17"/><circle cx="8.2" cy="10" r="1.1" class="fill"/><circle cx="10" cy="10" r="1.1" class="fill"/><circle cx="11.8" cy="10" r="1.1" class="fill"/></svg></button>
+      <button id="img" class="tb" data-label="Picture…" title="Insert a picture" aria-label="Picture…"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><rect x="3" y="4.5" width="14" height="11" rx="1.6"/><circle cx="7.3" cy="8.3" r="1.3"/><path d="M3.5 14l4.2-3.6 2.8 2.4 2.4-2 3.6 3.2"/></svg></button>
+    </div>
+    <div class="cap">Insert</div>
+  </div>
+  <div class="grp" data-group="review" data-prio="5" data-label="Review">
+    <div class="row">
+      <button id="comment" class="tb" data-label="Comment" data-key="Ctrl+Alt+M" title="Comment on the selected words (Ctrl+Alt+M)" aria-label="Comment on the selected words"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3h0A1.5 1.5 0 0 1 4 11.5z"/><path d="M7 7.8h6M7 10.2h4"/></svg></button>
+      <button id="thes" class="tb" data-label="Other words" data-key="Ctrl+Shift+O" title="Other words and phrases for the selection or the word at the cursor (Ctrl+Shift+O)" aria-label="Other words"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M4 7.5h10.5l-2.5-2.5M16 12.5H5.5L8 15"/></svg></button>
+    </div>
+    <div class="cap">Review</div>
+  </div>
+  <div class="grp" data-group="history" data-prio="6" data-label="Edit">
+    <div class="row">
+      <button id="undo" class="tb" data-label="Undo" data-key="Ctrl+Z" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 5.5L4 9l3.5 3.5"/><path d="M4.5 9H12a4 4 0 0 1 0 8h-2"/></svg></button>
+      <button id="redo" class="tb" data-label="Redo" data-key="Ctrl+Y" title="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12.5 5.5L16 9l-3.5 3.5"/><path d="M15.5 9H8a4 4 0 0 0 0 8h2"/></svg></button>
+    </div>
+    <div class="cap">Edit</div>
+  </div>
+  <div class="grp" data-group="view" data-prio="9" data-label="View">
+    <div class="row">
+      <button id="viewbtn" class="tb t-letter" title="Writing view: font, page width, focus, typewriter, hints" aria-label="Writing view" aria-haspopup="true" aria-expanded="false">Aa</button>
+      <button id="morebtn" class="tb" title="More tools" aria-label="More tools" aria-haspopup="true" aria-expanded="false" hidden><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="5" cy="10" r="1.4" class="fill"/><circle cx="10" cy="10" r="1.4" class="fill"/><circle cx="15" cy="10" r="1.4" class="fill"/></svg></button>
+    </div>
+    <div class="cap">View</div>
+  </div>
   <span class="grow"></span>
   <span id="notice" aria-live="polite" hidden></span>
-  <button id="hints" title="Style hints: what's marked in this chapter, and your own rules" aria-haspopup="true"></button>
-  <button id="prev" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter">&#x2039;</button>
-  <button id="next" title="Next chapter (Ctrl+Down)" aria-label="Next chapter">&#x203A;</button>
-  <span class="sep"></span>
-  <span id="count" aria-live="polite"></span>
-  <span id="saved" aria-live="polite"></span>
+  <div class="grp right" data-group="chapter" data-prio="7" data-label="Chapter">
+    <div class="row">
+      <button id="hints" class="pill" title="Style hints: what's marked in this chapter, and your own rules" aria-haspopup="true"></button>
+      <button id="prev" class="tb" data-label="Previous chapter" data-key="Ctrl+Up" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12 5l-5 5 5 5"/></svg></button>
+      <span id="chapname"></span>
+      <button id="next" class="tb" data-label="Next chapter" data-key="Ctrl+Down" title="Next chapter (Ctrl+Down)" aria-label="Next chapter"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8 5l5 5-5 5"/></svg></button>
+    </div>
+    <div class="cap">Chapter</div>
+  </div>
+  <div class="grp right status" data-group="status" data-prio="10">
+    <div class="row"><span id="count" aria-live="polite"></span></div>
+    <div class="cap"><span id="saved" aria-live="polite"></span></div>
+  </div>
 </div>
+<div id="moremenu" hidden role="menu" aria-label="More tools"></div>
 <div id="fontmenu" hidden role="menu" aria-label="Typeface for these words"></div>
 <div id="viewmenu" role="dialog" aria-label="Writing view" hidden>
   <div class="vm-label">Font</div>

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.42.0",
+      "date": "2026-11-20",
+      "notes": [
+        "A new writing bar, laid out like a word processor's: groups for Style, Font, Paragraph, Insert, Review, Edit and View, each named beneath, with clear drawn icons, and each tool's name and shortcut when you point at it. A Link button joins them.",
+        "A typeface box like Word's: it shows the selection's font by name, and its list has the book's typeface and this world's fonts, each in its own lettering, with Add fonts to this world.",
+        "The chapter's name sits between the previous and next arrows, beside the hints and the word count and whether it's saved.",
+        "On a narrow window, the less-used groups fold into More, which names every tool with its shortcut, so nothing is cut off any more."
+      ]
+    },
+    {
       "version": "0.41.0",
       "date": "2026-11-20",
       "notes": [
