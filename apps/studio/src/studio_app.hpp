@@ -677,7 +677,8 @@ private:
         std::string kind;          // the kind shown ("" = everything)
         std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
         std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
-        bool placesOutline = false;       // Places as an outline (0.48.3): continents > nations > cities, dragged to nest
+        bool placesOutline = false;
+        std::vector<std::pair<std::wstring, float>> anchors;   // an entry page's sections and where they start (0.48.4), for the jump row       // Places as an outline (0.48.3): continents > nations > cities, dragged to nest
         std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)
         std::string section;       // the page section being written in the panel

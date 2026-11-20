@@ -1308,6 +1308,28 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
         }
         y = std::max(y, ty) + 26;
+        // A row to jump to the page's parts further down (where they started last time it was drawn) (0.48.4).
+        {
+            const auto anchors = wb_.anchors;
+            wb_.anchors.clear();
+            if (anchors.size() >= 3) {
+                float lx = m.x;
+                gfx_.text(L"ON THIS PAGE", {lx, y + 5, 110, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                lx += 112;
+                for (auto& [name, at] : anchors) {
+                    const float tw2 = gfx_.measureWidth(name, Font::Small);
+                    if (lx + tw2 + 20 > m.right()) break;
+                    const float target = at;
+                    linkText("wb:jump:" + narrow(name), lx, y + 2, name, [this, target] {
+                        wb_.scroll = std::clamp(target - 16, 0.0f, std::max(0.0f, wb_.content - pageRect_.h));
+                        invalidate();
+                    });
+                    lx += tw2 + 26;
+                }
+                y += 40;
+            }
+        }
+        auto anchor = [&](const wchar_t* name, float at) { wb_.anchors.push_back({name, at - m.y}); };
 
         // The page's sections, from the kind's template: written ones in full, the rest as a row to start.
         {
@@ -1387,6 +1409,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
 
         // Gallery: pictures of it, kept with the entry.
         {
+            anchor(L"Gallery", y);
             gfx_.text(L"GALLERY" + (e->gallery.empty() ? std::wstring() : L"  ·  " + std::to_wstring(e->gallery.size())), {m.x, y, cw, 18},
                       Font::Label, pal_.inkFaint, {Align::Left, false});
             linkText("wb:galadd", m.right() - gfx_.measureWidth(L"+ Add pictures…", Font::Small), y - 2, L"+ Add pictures…",
@@ -1509,6 +1532,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 if (isMembership(l))
                     if (const Entry* o = lib_->entry(l.from == e->id ? l.to : l.from); o && !o->deleted) members.push_back({o, l});
             std::sort(members.begin(), members.end(), [](auto& a, auto& b) { return a.first->name < b.first->name; });
+            anchor(L"Members", y);
             gfx_.text(L"MEMBERS" + (members.empty() ? std::wstring() : L"  \u00B7  " + std::to_wstring(members.size())), {m.x, y, cw, 18},
                       Font::Label, pal_.inkFaint, {Align::Left, false});
             linkText("wb:addmembers", m.right() - gfx_.measureWidth(L"+ Add members\u2026", Font::Small), y - 2, L"+ Add members\u2026",
@@ -1553,13 +1577,36 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += 22;
         }
 
+        anchor(L"Relationships", y);
         gfx_.text(L"RELATIONSHIPS", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         linkText("wb:addrel", m.right() - gfx_.measureWidth(L"+ Add a relationship", Font::Small), y - 2, L"+ Add a relationship",
                  [this] { addRelationship(); });
         y += 28;
         std::vector<EntryLink> links;
-        for (const EntryLink& l : lib_->linksOf(e->id))
-            if (!((e->kind == "group" || e->kind == "race") && isMembership(l))) links.push_back(l);   // listed under Members
+        // A character's parents, partners, brothers and sisters and children are under Family, not again here (0.48.4).
+        static const std::set<std::string> familyLabels{"Parent of", "Child of", "Partner of", "Married to", "Sibling of", "Twin of",
+                                                        "Half-sibling of", "Step-sibling of", "Adoptive sibling of", "Foster sibling of",
+                                                        "Adoptive parent of", "Adopted child of", "Step-parent of", "Stepchild of",
+                                                        "Foster parent of", "Foster child of"};
+        for (const EntryLink& l : lib_->linksOf(e->id)) {
+            if ((e->kind == "group" || e->kind == "race") && isMembership(l)) continue;   // listed under Members
+            if (e->kind == "character" && familyLabels.count(l.label)) {
+                const Entry* o = lib_->entry(l.from == e->id ? l.to : l.from);
+                if (o && o->kind == "character") continue;
+            }
+            links.push_back(l);
+        }
+        // Grouped by how they read from here (all the "Friend of" together), A to Z within each (0.48.4).
+        const Id scope = wb_.world.empty() ? wb_.book : Id{};
+        auto readAs = [&](const EntryLink& l) { return l.from == e->id ? l.label : lib_->relationReverse(wb_.world, scope, l.label); };
+        std::stable_sort(links.begin(), links.end(), [&](const EntryLink& a, const EntryLink& b) {
+            const std::string la = readAs(a), lb = readAs(b);
+            if (la != lb) return la < lb;
+            const Entry* oa = lib_->entry(a.from == e->id ? a.to : a.from);
+            const Entry* ob = lib_->entry(b.from == e->id ? b.to : b.from);
+            return (oa ? oa->name : std::string()) < (ob ? ob->name : std::string());
+        });
+        std::string lastLabel;
         if (links.empty()) {
             y += gfx_.text(L"None yet: link this entry to the people, places and things around it.", {m.x, y, cw, 20}, Font::Small,
                            pal_.inkFaint) + 12;
@@ -1568,20 +1615,24 @@ void StudioApp::drawWorldPage(const Rect& r) {
             const bool mine = l.from == e->id;
             const Entry* other = lib_->entry(mine ? l.to : l.from);
             if (!other) continue;
-            const std::wstring label = w(mine ? l.label : lib_->relationReverse(wb_.world, wb_.world.empty() ? wb_.book : Id{}, l.label));
-            gfx_.text(label, {m.x, y, 160, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+            const std::string readLabel = mine ? l.label : lib_->relationReverse(wb_.world, scope, l.label);
+            if (readLabel != lastLabel) {   // the label once, over the names that share it; a rule between groups
+                if (!lastLabel.empty()) { y += 6; gfx_.line(m.x, y - 4.5f, m.right(), y - 4.5f, pal_.rule.withAlpha(0.6f)); }
+                gfx_.text(w(readLabel), {m.x, y, 160, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+            }
+            lastLabel = readLabel;
             linkText("wb:rel:" + other->id + l.label, m.x + 170, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
             gfx_.text(w(entryKindLabel(other->kind)), {m.x + 170, y, cw - 170 - 80, 24}, Font::Small, pal_.inkFaint,
                       {Align::Right, false, true, true});
             linkText("wb:unrel:" + other->id + l.label, m.right() - gfx_.measureWidth(L"Remove", Font::Small), y + 4, L"Remove",
                      [this, l] { lib_->removeLink(l.from, l.to, l.label); invalidate(); });
             y += 28;
-            gfx_.line(m.x, y - 2.5f, m.right(), y - 2.5f, pal_.rule.withAlpha(0.6f));
         }
         y += 22;
 
         // Notes.
         if (!e->notes.empty()) {
+            anchor(L"Notes", y);
             gfx_.text(L"NOTES", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
             y += 26;
             y += drawLinkedText(e->notes, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:ln:") + 26;
@@ -1626,6 +1677,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             wb_.mentionsFor = e->id;
             wb_.mentionsKey = key;
         }
+        anchor(L"Appears in", y);
         gfx_.text(L"APPEARS IN", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         y += 28;
         if (wb_.mentions.empty()) {
@@ -2881,6 +2933,7 @@ float StudioApp::drawPlaceSection(const Rect& m, float y, const Entry& e) {
         rows[row].who.push_back(o);
     }
     for (auto& r : rows) std::sort(r.who.begin(), r.who.end(), [](const Entry* a, const Entry* b) { return a->name < b->name; });
+    wb_.anchors.push_back({e.kind == "realm" ? L"In this realm" : L"In this place", y - m.y});
     gfx_.text(e.kind == "realm" ? L"IN THIS REALM" : L"IN THIS PLACE", {m.x, y, m.w, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 28;
     int ri = 0;
@@ -2926,6 +2979,7 @@ float StudioApp::drawPlaceSection(const Rect& m, float y, const Entry& e) {
 float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
     const float cw = m.w;
     const auto fam = lib_->familyOf(e.id);
+    wb_.anchors.push_back({L"Family", y - m.y});
     gfx_.text(L"FAMILY", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
     const bool any = !fam.parents.empty() || !fam.partners.empty() || !fam.siblings.empty() || !fam.children.empty();
     if (any) {
@@ -3491,6 +3545,7 @@ void StudioApp::pinMenu(const Id& mapEntry, const Id& pinned) {
 // choose an entry, then click on the map where it is.
 float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
     const float cw = m.w;
+    wb_.anchors.push_back({L"Map", y - m.y});
     gfx_.text(L"MAP" + (e.pins.empty() ? std::wstring() : L"  ·  " + std::to_wstring(e.pins.size()) + (e.pins.size() == 1 ? L" pin" : L" pins")),
               {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
     if (e.mapBlob.empty()) {

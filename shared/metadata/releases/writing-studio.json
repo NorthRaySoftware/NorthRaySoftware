@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.48.4",
+      "date": "2026-11-20",
+      "notes": [
+        "An entry's page has an On this page row under its details, jumping to Family, In this place, Map, Gallery, Members, Relationships, Notes and Appears in.",
+        "Relationships are grouped by how they read (every Friend of together, A to Z), and a character's family is no longer listed a second time under Relationships."
+      ]
+    },
+    {
       "version": "0.48.3",
       "date": "2026-11-20",
       "notes": [

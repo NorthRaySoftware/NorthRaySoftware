@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.4: entry pages (20 Nov 2026)
+
+- `wb_.anchors`: each section of an entry page records where it starts (content y) as it's drawn (Family, In this
+  place, Map, Gallery, Members, Relationships, Notes, Appears in); the next frame draws an "On this page" row of links
+  under the details (when three or more) that scroll there.
+- Relationships: a character's family links to other characters (Parent of ... Foster child of) are left out (they're
+  under Family, where the chip menu changes or removes them); the rest sorted by how they read from this entry, then
+  by name, the label shown once per group with a rule between groups. Tested in Wine on Ada Wren.
+
 ## 0.48.3: the places outline (20 Nov 2026)
 
 - Places' cards view has Cards / Outline (`wb_.placesOutline`). `drawPlacesOutline`: places and realms by their
