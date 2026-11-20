@@ -1176,6 +1176,16 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         else { ws_ = Workspace::Library; goTo(View::Book, pl_.book); }
         return true;
     }
+    if (ws_ == Workspace::Worldbuilding && !wb_.familyRoot.empty() && GetFocus() == hwnd()) {
+        // Looking around a family tree (0.38.3).
+        const float maxX = std::max(0.0f, wb_.treeW - pageRect_.w + 60);
+        if (vk == VK_LEFT || vk == VK_RIGHT) { wb_.treeX = std::clamp(wb_.treeX + (vk == VK_LEFT ? -90.0f : 90.0f), 0.0f, maxX); invalidate(); return true; }
+        if (vk == VK_UP || vk == VK_DOWN) { wb_.scroll = std::clamp(wb_.scroll + (vk == VK_UP ? -70.0f : 70.0f), 0.0f, std::max(0.0f, wb_.content - pageRect_.h)); invalidate(); return true; }
+        if (vk == VK_OEM_PLUS || vk == VK_ADD) { zoomFamilyTree(1.25f); return true; }
+        if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT) { zoomFamilyTree(1 / 1.25f); return true; }
+        if (vk == '0' && !ctrl) { zoomFamilyTree(0); return true; }
+        if (vk == VK_ESCAPE && !ctrl) { const Id back = wb_.familyRoot; openEntry(back); return true; }
+    }
     if (ws_ == Workspace::Worldbuilding && !ctrl) {
         if (vk == VK_ESCAPE) {
             if (!wb_.entry.empty()) openEntry({});

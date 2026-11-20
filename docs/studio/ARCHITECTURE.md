@@ -415,6 +415,24 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.38.3: family trees that keep families apart (20 Nov 2026)
+
+- **Library** (`family.cpp`): `familyLayout(root, limit, bloodline)` returns each person with `inLaw`. A person's own
+  tree is their ancestors straight up, their brothers and sisters, and the descendants of that generation; a whole
+  family (`bloodline`) is its founders (the root, their brothers and sisters, and parentless partners or other parents
+  of their children) and everyone descended from them. Partners and other parents who come from elsewhere are added
+  as in-laws and never expanded, so two families joined by a marriage stay two trees. `families()` starts a family
+  only from founders whose children's other parents have no parents of their own, names it by the surname most of
+  its blood members share, and drops one-person groups. Tested in `studiocore_tests` (1164 checks).
+- **App** (`studio_world.cpp`): `openFamilyTree(root, bloodline)`; the tree view has a toolbar (open the picked
+  person's page, add a parent, partner, child or brother or sister to them, zoom out, fit, zoom in), a link between the
+  person's tree and the whole family, in-law cards marked "Married in" with a link to their own family, the picked
+  person's lines drawn in the ribbon colour, animated zoom and pan (`famtree:zoom`, `famtree:x`), click to pick and
+  double-click (450 ms) to re-root. `drawFamilyPanel` shows the picked person's summary and close family as links.
+  Keys while a tree is open: arrows look around, + and − zoom, 0 fits, Esc returns to the root's page.
+- Tested in Wine: Alvora's two families shown apart, picking, double-click re-rooting, zoom buttons and the panel.
+
+
 ## 0.38.2: relationships that fill in, your own kinds of relationship, things made, a blank page (19 Nov 2026)
 
 - `relationFor` strips "former", "ex-", "late", "step-" and the like, and knows more wordings (grandparents and other

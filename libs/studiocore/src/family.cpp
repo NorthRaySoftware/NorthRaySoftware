@@ -58,40 +58,87 @@ Library::Family Library::familyOf(const Id& id, bool sharedParents) const {
     return f;
 }
 
-Library::FamilyLayout Library::familyLayout(const Id& root, int limit) const {
+Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloodline) const {
     FamilyLayout out;
     const Entry* r = entry(root);
     if (!r || r->deleted) return out;
-    // Everyone joined by family, each with a generation (breadth first from the root).
     std::map<Id, int> gen;
     std::vector<Id> order;
     std::map<Id, Family> fam;
-    std::deque<Id> queue{root};
-    gen[root] = 0;
-    while (!queue.empty()) {
-        const Id id = queue.front();
-        queue.pop_front();
+    std::set<Id> inLaws;
+    auto famOf = [&](const Id& id) -> const Family& {
+        auto it = fam.find(id);
+        if (it == fam.end()) it = fam.emplace(id, familyOf(id)).first;
+        return it->second;
+    };
+    auto add = [&](const Id& id, int g) {
+        if (gen.count(id)) return false;
+        if ((int)gen.size() >= limit) { out.cut = true; return false; }
+        gen[id] = g;
         order.push_back(id);
-        Family f = familyOf(id);
-        auto visit = [&](const std::vector<Id>& ids, int dg) {
-            for (const Id& o : ids) {
-                if (gen.count(o)) continue;
-                if ((int)gen.size() >= limit) { out.cut = true; continue; }
-                gen[o] = gen[id] + dg;
-                queue.push_back(o);
+        return true;
+    };
+    // Descendants of the people in `from` (breadth first), with each one's partners beside them as in-laws.
+    auto descend = [&](std::deque<Id> queue) {
+        while (!queue.empty()) {
+            const Id id = queue.front();
+            queue.pop_front();
+            for (const Id& c : famOf(id).children) {
+                if (add(c, gen[id] + 1)) queue.push_back(c);
+                // Brothers and sisters linked as such (not through a parent here) belong too.
+                for (const Id& sib : famOf(c).siblings)
+                    if (gen.count(c) && add(sib, gen[c])) queue.push_back(sib);
             }
-        };
-        visit(f.partners, 0);
-        visit(f.parents, -1);
-        visit(f.children, 1);
-        visit(f.siblings, 0);
-        fam[id] = std::move(f);
+        }
+    };
+    auto partnersIn = [&](const std::vector<Id>& members) {
+        for (const Id& m : members) {
+            if (inLaws.count(m)) continue;
+            for (const Id& p : famOf(m).partners)
+                if (add(p, gen[m])) inLaws.insert(p);
+            // The other parent of a child, partnered or not.
+            for (const Id& c : famOf(m).children)
+                if (gen.count(c))
+                    for (const Id& op : famOf(c).parents)
+                        if (op != m && add(op, gen[m])) inLaws.insert(op);
+        }
+    };
+    add(root, 0);
+    if (bloodline) {
+        // The founder, their brothers and sisters, and the founders they had children with.
+        for (const Id& s : famOf(root).siblings) add(s, 0);
+        for (const Id& p : famOf(root).partners)
+            if (famOf(p).parents.empty()) add(p, 0);
+        // The founder's children's other parents, partnered or not, when they have no parents either: founders too.
+        for (const Id& c : famOf(root).children)
+            for (const Id& op : famOf(c).parents)
+                if (op != root && famOf(op).parents.empty()) add(op, 0);
+        std::deque<Id> q(order.begin(), order.end());
+        descend(q);
+    } else {
+        // Ancestors, straight up every line.
+        std::deque<Id> up{root};
+        while (!up.empty()) {
+            const Id id = up.front();
+            up.pop_front();
+            for (const Id& p : famOf(id).parents)
+                if (add(p, gen[id] - 1)) up.push_back(p);
+        }
+        // Brothers and sisters, then everyone's descendants from the person's generation down.
+        for (const Id& s : famOf(root).siblings) add(s, 0);
+        std::deque<Id> q;
+        for (const Id& id : order) if (gen[id] == 0) q.push_back(id);
+        descend(q);
+    }
+    {
+        const std::vector<Id> members = order;
+        partnersIn(members);
     }
     std::set<std::pair<Id, Id>> couples, pc;
     for (const Id& id : order) {
-        for (const Id& p : fam[id].partners)
+        for (const Id& p : famOf(id).partners)
             if (gen.count(p)) couples.insert(id < p ? std::make_pair(id, p) : std::make_pair(p, id));
-        for (const Id& c : fam[id].children)
+        for (const Id& c : famOf(id).children)
             if (gen.count(c)) pc.insert({id, c});
     }
     out.couples.assign(couples.begin(), couples.end());
@@ -109,7 +156,7 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit) const {
         std::vector<Id> u{id};
         unitOf[id] = (int)units.size();
         for (size_t k = 0; k < u.size(); ++k)
-            for (const Id& p : fam[u[k]].partners)
+            for (const Id& p : famOf(u[k]).partners)
                 if (gen.count(p) && gen[p] == gen[id] && !unitOf.count(p)) { unitOf[p] = (int)units.size(); u.push_back(p); }
         units.push_back(u);
     }
@@ -125,7 +172,7 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit) const {
             float sum = 0;
             int n = 0;
             for (const Id& m : units[(size_t)ui])
-                for (const Id& p : fam[m].parents)
+                for (const Id& p : famOf(m).parents)
                     if (x.count(p)) { sum += x[p]; ++n; }
             wish[ui] = n ? sum / n : 1e9f;   // no parents drawn: after the others, in the order met
         }
@@ -149,7 +196,7 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit) const {
                 const auto& u = units[(size_t)us[i]];
                 float sum = 0;
                 int n = 0;
-                for (const Id& m : u) for (const Id& c : fam[m].children) if (x.count(c) && gen[c] == g + 1) { sum += x[c]; ++n; }
+                for (const Id& m : u) for (const Id& c : famOf(m).children) if (x.count(c) && gen[c] == g + 1) { sum += x[c]; ++n; }
                 if (!n) continue;
                 const float w = (float)u.size();
                 const float want = sum / n - (w - 1) / 2;
@@ -161,33 +208,48 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit) const {
         }
     float minX = 1e9f, maxX = -1e9f;
     for (auto& [id, v] : x) { minX = std::min(minX, v); maxX = std::max(maxX, v); }
-    for (const Id& id : order) out.people.push_back({id, gen[id], x[id] - minX});
+    for (const Id& id : order) out.people.push_back({id, gen[id], x[id] - minX, inLaws.count(id) > 0});
     out.width = order.empty() ? 0 : maxX - minX + 1;
     return out;
 }
 
 std::vector<Library::FamilyGroup> Library::families(const Id& worldId, const Id& bookId) const {
     std::vector<FamilyGroup> out;
-    std::set<Id> seen;
-    for (const Entry* e : entriesOf(worldId, bookId)) {
-        if (e->kind != "character" || seen.count(e->id)) continue;
-        const Family f = familyOf(e->id);
-        if (f.parents.empty() && f.partners.empty() && f.siblings.empty() && f.children.empty()) continue;
-        const FamilyLayout lay = familyLayout(e->id, 400);
+    std::set<Id> own;   // people already in a family as one of its own (not married in)
+    std::vector<const Entry*> chars;
+    for (const Entry* e : entriesOf(worldId, bookId)) if (e->kind == "character") chars.push_back(e);
+    auto addGroup = [&](const Id& founder) {
+        const FamilyLayout lay = familyLayout(founder, 400, true);
         std::map<std::string, int> names;
-        Id root;
-        int rootGen = 1 << 30;
+        int count = 0;
         for (const auto& p : lay.people) {
-            seen.insert(p.id);
-            if (const Entry* m = entry(p.id)) {
-                if (const std::string s = surnameOf(m->name); !s.empty()) ++names[s];
-                if (p.generation < rootGen) { rootGen = p.generation; root = p.id; }
-            }
+            if (p.inLaw) continue;
+            own.insert(p.id);
+            ++count;
+            if (const Entry* m = entry(p.id)) if (const std::string s = surnameOf(m->name); !s.empty()) ++names[s];
         }
+        if (lay.people.size() < 2) return;
         std::string surname;
         int best = 1;
         for (auto& [s, n] : names) if (n > best) { best = n; surname = s; }
-        out.push_back({root, surname, (int)lay.people.size()});
+        out.push_back({founder, surname, (int)lay.people.size()});
+    };
+    // Founders: no parents, with children whose other parents have no parents either (else they married in).
+    for (const Entry* e : chars) {
+        if (own.count(e->id)) continue;
+        const Family f = familyOf(e->id);
+        if (!f.parents.empty() || f.children.empty()) continue;
+        bool marriedIn = false;
+        for (const Id& c : f.children)
+            for (const Id& op : familyOf(c).parents)
+                if (op != e->id && !familyOf(op).parents.empty()) marriedIn = true;
+        if (!marriedIn) addGroup(e->id);
+    }
+    // Brothers and sisters with no parents (and no family yet).
+    for (const Entry* e : chars) {
+        if (own.count(e->id)) continue;
+        const Family f = familyOf(e->id);
+        if (f.parents.empty() && !f.siblings.empty()) addGroup(e->id);
     }
     std::stable_sort(out.begin(), out.end(), [](const FamilyGroup& a, const FamilyGroup& b) { return a.people > b.people; });
     return out;

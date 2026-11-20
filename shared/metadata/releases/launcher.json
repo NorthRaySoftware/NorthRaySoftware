@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.104.3",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.38.3: family trees keep families apart and are smoother to use."
+      ]
+    },
+    {
       "version": "0.104.2",
       "date": "2026-11-19",
       "notes": [

@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.38.3",
+      "date": "2026-11-20",
+      "notes": [
+        "Family trees keep families apart: each family starts from its own founders, and someone who married in appears on the tree marked \u201cMarried in\u201d, with a link to their own family, instead of pulling their parents and cousins in.",
+        "Two views: a family's whole tree from its founders down (from the Family trees list), and one person's own tree (their lines up, brothers and sisters, partners and descendants). Each has a link to the other.",
+        "Smoother to use: click someone to pick them (their lines light up, and the panel shows their parents, partners, brothers and sisters and children), double-click to see the tree from them, add a parent, partner, child or brother or sister from the toolbar, and zoom with \u2212, Fit and + or the keyboard (arrows look around, + and \u2212 zoom, 0 fits, Esc goes back). Zooming and moving glide."
+      ]
+    },
+    {
       "version": "0.38.2",
       "date": "2026-11-19",
       "notes": [

@@ -325,8 +325,10 @@ private:
     // Family trees (studio_world.cpp): a character's family on their page, the whole tree as a page.
     float drawFamilySection(const Rect& m, float y, const studio::Entry& e);
     void drawFamilyTree(const Rect& r);
+    void drawFamilyPanel(const Rect& r);
     void addFamilyMember(const Id& who, int relation);   // 0 parent, 1 partner, 2 sibling, 3 child
-    void openFamilyTree(const Id& root);
+    void openFamilyTree(const Id& root, bool bloodline = false);   // a person's tree, or a family from its founder
+    void zoomFamilyTree(float factor);                              // about the middle of the page; 0 = fit
     // Maps (studio_world.cpp): a place's or realm's map picture, with entries pinned on it.
     float drawMapSection(const Rect& m, float y, const studio::Entry& e);
     void chooseMapPicture(const Id& entryId);
@@ -651,6 +653,10 @@ private:
         float treeX = 0, treeW = 0;   // the tree scrolled across (Shift and the wheel), and its width
         float treeZoom = 0;           // Ctrl + wheel (0.35); 0 = fit the page
         bool treePan = false;         // dragging the tree about by its background
+        bool treeBloodline = false;   // the tree is a family from its founder (else one person's tree) (0.38.3)
+        Id treeSelected;              // the person picked on the tree (shown in the panel, lines lit)
+        Id treeLastClick;             // for double-clicks: re-centre the tree on someone
+        DWORD treeLastClickAt = 0;
         float panX = 0, panY = 0, panTreeX = 0, panScroll = 0;
         std::vector<studio::Mention> mentions;
         Id mentionsFor;

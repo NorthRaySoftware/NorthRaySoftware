@@ -483,7 +483,9 @@ public:
     // Everyone joined to `root` by family (parents, children, partners, siblings), laid out as a tree:
     // each person's generation (0 = root's, negative = older) and position across (in card widths).
     struct FamilyLayout {
-        struct Person { Id id; int generation = 0; float x = 0; };
+        // inLaw: married into this family (beside their partner; their own parents and siblings belong to their own
+        // family's tree, which isn't drawn here).
+        struct Person { Id id; int generation = 0; float x = 0; bool inLaw = false; };
         std::vector<Person> people;
         std::vector<std::pair<Id, Id>> couples;        // partners, drawn side by side
         std::vector<std::pair<Id, Id>> parentChild;    // parent, child
@@ -491,9 +493,14 @@ public:
         float width = 0;                               // in card widths
         bool cut = false;                              // more people than `limit`: the rest are left out
     };
-    FamilyLayout familyLayout(const Id& root, int limit = 150) const;
-    // The families in a world (two or more people joined by family), each named after the surname most
-    // of them share ("The Wrens" -> "Wren"; "" if none), largest first. `root` is its eldest person.
+    // A tree (0.38.3). `bloodline` false: one person's tree: their ancestors, brothers and sisters, partners and
+    // descendants (with the partners of those). true: a family from its founder: the founder and their partners, the
+    // founder's brothers and sisters, and every descendant with their partners. Partners from other families are
+    // `inLaw`: their own relatives aren't followed, so families joined by marriage stay separate trees.
+    FamilyLayout familyLayout(const Id& root, int limit = 150, bool bloodline = false) const;
+    // The families in a world: each founder's bloodline (a founder has no parents in the bible and children whose
+    // other parent is a founder too, or none; or a set of brothers and sisters with no parents), named after the
+    // surname most of its own people share ("" if none), largest first. `root` is a founder.
     struct FamilyGroup { Id root; std::string surname; int people = 0; };
     std::vector<FamilyGroup> families(const Id& worldId, const Id& bookId = {}) const;
     bool addLink(const Id& from, const Id& to, const std::string& label);

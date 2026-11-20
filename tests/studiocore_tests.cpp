@@ -1472,9 +1472,46 @@ static void testFamilyTree() {
     CHECK(lay.couples.size() == 2 && lay.parentChild.size() == 7);
     CHECK(lib->familyLayout(stray).people.size() == 1);
     CHECK(lib->familyLayout(x).people.size() == 2);
-    const auto fams = lib->families(world);
-    CHECK(fams.size() == 2 && fams[0].people == 7 && fams[0].surname == "Wren" && fams[0].root == gran);
-    CHECK(fams[1].people == 2 && fams[1].surname == "");
+    {
+        bool calInLaw = false, maeInLaw = false;
+        for (auto& p : lay.people) { if (p.id == cal) calInLaw = p.inLaw; if (p.id == mae) maeInLaw = p.inLaw; }
+        CHECK(calInLaw && !maeInLaw);   // Mae is Ada's mother here, not someone married in
+    }
+    auto fams = lib->families(world);
+    CHECK(fams.size() == 1 && fams[0].people == 7 && fams[0].surname == "Wren" && fams[0].root == gran);   // the loop has no founder
+    // Two families joined by a marriage stay two trees (0.38.3): Cal's parents start the Holts.
+    const Id paHolt = person("Pa Holt"), maHolt = person("Ma Holt"), aunt = person("Rue Holt");
+    lib->addLink(paHolt, cal, "Parent of");
+    lib->addLink(maHolt, cal, "Parent of");
+    lib->addLink(paHolt, maHolt, "Married to");
+    lib->addLink(aunt, cal, "Sibling of");
+    fams = lib->families(world);
+    CHECK(fams.size() == 2);
+    for (auto& g : fams) {
+        const auto t = lib->familyLayout(g.root, 400, true);
+        std::set<Id> ids;
+        for (auto& p : t.people) ids.insert(p.id);
+        if (g.surname == "Wren") CHECK(!ids.count(paHolt) && !ids.count(aunt) && ids.count(cal));          // Cal married in; his family isn't drawn
+        else CHECK(g.surname == "Holt" && ids.count(paHolt) && ids.count(maHolt) && ids.count(ivy) && !ids.count(tom) && !ids.count(gran));
+    }
+    {   // Two founders with a child but not marked as partners: one family, not two.
+        const Id f1 = person("Yon Yerasuun"), f2 = person("Zih Yerasuun"), kid = person("Aali Yerasuun");
+        lib->addLink(f1, kid, "Parent of");
+        lib->addLink(kid, f2, "Child of");
+        int yer = 0;
+        for (auto& g : lib->families(world)) if (g.surname == "Yerasuun") { ++yer; CHECK(g.people == 3); }
+        CHECK(yer == 1);
+    }
+    {   // Ada's own tree: her lines up, not Cal's.
+        const auto mine = lib->familyLayout(ada);
+        std::set<Id> ids;
+        for (auto& p : mine.people) ids.insert(p.id);
+        CHECK(ids.count(gran) && ids.count(cal) && !ids.count(paHolt) && !ids.count(aunt));
+        const auto his = lib->familyLayout(cal);
+        std::set<Id> hids;
+        for (auto& p : his.people) hids.insert(p.id);
+        CHECK(hids.count(paHolt) && hids.count(aunt) && hids.count(ada) && !hids.count(tom) && !hids.count(gran));
+    }
     // Limited: the rest left out, and said so.
     CHECK(lib->familyLayout(ada, 3).cut && lib->familyLayout(ada, 3).people.size() == 3);
 }
