@@ -346,6 +346,7 @@ private:
     void shareBible();                  // a website or a printable PDF: everything, or a reader's guide
     void pinMenu(const Id& mapEntry, const Id& pinned);
     void openMap(const Id& entryId);
+    void openLastWriting();
     float drawPlaceSection(const cjui::Rect& m, float y, const studio::Entry& e);
     void drawMapView(const cjui::Rect& r);
     bool mapMouseDown(float x, float y);
@@ -678,6 +679,7 @@ private:
         std::string facet;         // with kind character or place: the gender or type shown ("" = all, "-" = not set)
         std::string groupBy = "gender";   // Characters split by "gender", "race" or "none"
         bool placesOutline = false;
+        std::map<Id, int> placeKids;   // places directly inside each place, for the cards' "N inside" (0.48.5)
         std::vector<std::pair<std::wstring, float>> anchors;   // an entry page's sections and where they start (0.48.4), for the jump row       // Places as an outline (0.48.3): continents > nations > cities, dragged to nest
         std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)

@@ -415,6 +415,21 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.5: nested places on the cards, into Writing, an editor harness (20 Nov 2026)
+
+- Cards (Places, and Everything) with nothing found and no type filter: only places whose direct place parent
+  (`placePath(...).back()`, a place) is the one looked into (`wb_.facet = "under=<id>"`, roots when none) are shown;
+  `wb_.placeKids` counts children for an "N inside ›" button on each card (detail chips leave it room); a path (All
+  places › ... › here, and "Open X's page") heads the cards when inside one; `newEntry("place")` while inside adds
+  "Located in" it.
+- `openLastWriting()`: the Writing tab or Ctrl+W with no book chosen opens `settings_.lastBook`, else the most recently
+  modified live book.
+- `tools/editor-harness.cjs`: Writing's editor in Chromium with a stand-in WebView2 host (`window.chrome.webview` with
+  postMessage recorded and messages delivered), sending `view` (names, book font) and `load` (a chapter from the paste
+  fixtures), then screenshots: the page, typing, the Aa menu and the hints list. The native parts of Writing are
+  checked in Wine, where WebView2 isn't available.
+- The style select is 140 px wide.
+
 ## 0.48.4: entry pages (20 Nov 2026)
 
 - `wb_.anchors`: each section of an entry page records where it starts (content y) as it's drawn (Family, In this

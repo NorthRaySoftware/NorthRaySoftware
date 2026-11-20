@@ -114,7 +114,7 @@ body { display: flex; flex-direction: column; font: 14px/1.4 var(--ui); overflow
 #bar button:disabled { opacity: .38; pointer-events: none; }
 /* The paragraph style and the typeface: boxes you drop down, like Word's. */
 #bar .select-wrap { position: relative; display: inline-flex; align-items: center; }
-#bar select { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; color: var(--ink); height: 28px; width: 124px; padding: 0 26px 0 9px;
+#bar select { appearance: none; -webkit-appearance: none; font: inherit; font-size: 13px; color: var(--ink); height: 28px; width: 140px; padding: 0 26px 0 9px;
   background: var(--page); border: 1px solid var(--rule); border-radius: 6px; cursor: default; }
 #bar select:hover, #bar .combo:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--rule)); }
 #bar .chev { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }

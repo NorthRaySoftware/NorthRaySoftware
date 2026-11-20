@@ -408,6 +408,9 @@ void StudioApp::newEntry(const std::string& kindIn) {
         return l;
     }());
     if (id.empty()) { flash(w("Couldn't create the entry: " + lib_->lastError()), 8); return; }
+    // Made while looking inside a place: it goes in that place (0.48.5).
+    if (kind == "place" && wb_.kind == "place" && wb_.facet.rfind("under=", 0) == 0)
+        if (const Entry* in = lib_->entry(wb_.facet.substr(6)); in && in->kind == "place") lib_->addLink(id, in->id, "Located in");
     openEntry(id);
     // Straight into naming it.
     loadFields();
@@ -875,9 +878,28 @@ void StudioApp::drawWorldPage(const Rect& r) {
             for (auto& fw : findWords) if (hay.find(fw) == std::string::npos) return false;
             return true;
         };
+        // Places nest (0.48.5): only the places directly in the one looked into ("under=<id>"), or the outermost ones
+        // (those in no place, or only in a realm), are cards; the rest are a click away inside them. Finding shows all.
+        const bool nestPlaces = findWords.empty() && (wb_.kind.empty() || wb_.kind == "place") &&
+                                (wb_.facet.empty() || (wb_.kind == "place" && wb_.facet.rfind("under=", 0) == 0));
+        const Id placeUnder = wb_.kind == "place" && wb_.facet.rfind("under=", 0) == 0 ? Id(wb_.facet.substr(6)) : Id{};
+        auto directPlaceParent = [&](const Entry& x) -> Id {
+            const auto path = placePath(*lib_, x);
+            if (path.empty() || path.back()->kind != "place") return {};
+            return path.back()->id;
+        };
+        wb_.placeKids.clear();
+        if (nestPlaces)
+            for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book))
+                if (x->kind == "place") if (const Id p = directPlaceParent(*x); !p.empty()) ++wb_.placeKids[p];
         for (const Entry* x : lib_->entriesOf(wb_.world, wb_.book)) {
             if (!found(*x)) continue;
             if (!wb_.kind.empty() && x->kind != wb_.kind) continue;
+            if (nestPlaces && x->kind == "place") {
+                if (directPlaceParent(*x) != placeUnder) continue;
+                list.push_back(x);
+                continue;
+            }
             if (wb_.facet.rfind("under=", 0) == 0) { if (!isUnder(*lib_, *x, wb_.facet.substr(6))) continue; }
             else if (!facetMatches(*x, wb_.facet)) continue;
             list.push_back(x);
@@ -893,6 +915,24 @@ void StudioApp::drawWorldPage(const Rect& r) {
         if (!findWords.empty()) sub += L" found";
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
         y += pageHeader(m, L"WORLDBUILDING", title, sub);
+        // Looking inside a place: the way back up (0.48.5).
+        if (!placeUnder.empty())
+            if (const Entry* in = lib_->entry(placeUnder)) {
+                float px = m.x;
+                auto crumb = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
+                    linkText(id, px, y - 8, t, std::move(f));
+                    px += gfx_.measureWidth(t, Font::Small) + 18;
+                    gfx_.text(L"\u203A", {px - 4, y - 6, 14, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
+                    px += 14;
+                };
+                crumb("wb:pin:all", L"All places", [this] { wb_.facet.clear(); wb_.scroll = 0; invalidate(); });
+                for (const Entry* up : placePath(*lib_, *in))
+                    if (up->kind == "place") crumb("wb:pin:" + up->id, w(up->name), [this, id = up->id] { wb_.facet = "under=" + id; wb_.scroll = 0; invalidate(); });
+                gfx_.text(w(in->name), {px, y - 5, m.right() - px, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
+                linkText("wb:pinopen", m.right() - gfx_.measureWidth(L"Open " + w(in->name) + L"'s page", Font::Small), y - 8,
+                         L"Open " + w(in->name) + L"'s page", [this, id = in->id] { openEntry(id); });
+                y += 34;
+            }
         {
             // The find box, and for characters how they're grouped, on one row.
             const Rect fr{m.x, y - 6, std::min(320.0f, cw * 0.5f), 32};
@@ -1206,7 +1246,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         if (facet) continue;
                         const std::wstring lw = w(lab), vw = w(val);
                         const float lwid = gfx_.measureWidth(lw, Font::Small), vwid = gfx_.measureWidth(vw, Font::Small);
-                        const float room = tw - (chx - tx);
+                        float reserve = 0;   // room for "N inside ›" on a place with places inside
+                        if (x->kind == "place") if (auto pk = wb_.placeKids.find(x->id); pk != wb_.placeKids.end() && pk->second > 0) reserve = 90;
+                        const float room = tw - (chx - tx) - reserve;
                         if (room < 48 || (shown > 0 && lwid + vwid + 22 > room)) break;   // the first may be shortened, the rest fit or wait
                         const float chw = std::min(lwid + vwid + 22, room);
                         const Rect chip{chx, chy, chw, 20};
@@ -1217,6 +1259,19 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         ++shown;
                     }
                 }
+                // A place with places inside: a button into them (0.48.5).
+                if (x->kind == "place")
+                    if (auto pk = wb_.placeKids.find(x->id); pk != wb_.placeKids.end() && pk->second > 0) {
+                        const std::wstring t = std::to_wstring(pk->second) + L" inside \u203A";
+                        const float bw = gfx_.measureWidth(t, Font::Small) + 18;
+                        const Rect b{cr.right() - bw - 10, cr.bottom() - 30, bw, 22};
+                        const std::string bid = "wb:inside:" + x->id;
+                        addHit(bid, b, [this, eid = x->id] { wb_.kind = "place"; wb_.facet = "under=" + eid; wb_.scroll = 0; invalidate(); });
+                        tooltip(bid, L"The places inside " + w(x->name));
+                        const float bh = hoverAmount(bid);
+                        gfx_.fillRounded(b, 11, kc.withAlpha(0.14f + 0.16f * bh));
+                        gfx_.text(t, b, Font::Small, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                    }
                 if (focused(id)) focusRing(cr);
                 if (col == cols - 1 || i + 1 == subItems.size()) y += cardH + gap;
             }

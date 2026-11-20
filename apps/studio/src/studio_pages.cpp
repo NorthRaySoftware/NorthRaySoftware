@@ -397,7 +397,7 @@ void StudioApp::drawTopBar(const Rect& r) {
                 }
                 Id book = !writingBook_.empty() && lib_ && lib_->book(writingBook_) ? writingBook_
                         : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : Id{};
-                if (book.empty()) flash(L"Choose a book in the Library first, then open Writing.", 5);
+                if (book.empty()) openLastWriting();   // the book last written in, or the latest changed (0.48.5)
                 else openWriting(book);
             } else
                 flash(std::wstring(t.name) + L" isn't built yet. It arrives in Milestone " + std::to_wstring(t.milestone) +

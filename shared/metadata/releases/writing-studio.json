@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.48.5",
+      "date": "2026-11-20",
+      "notes": [
+        "Places nest: the Places and Everything cards show only the outermost places, each with an \"N inside ›\" button into the places within it and a path back up. Finding still shows every place, and New place made while inside one goes in it.",
+        "Writing with no book chosen opens the book you last wrote in (or the one changed most recently) instead of asking you to pick one in the Library.",
+        "The paragraph style box in the writing bar is wide enough for its names."
+      ]
+    },
+    {
       "version": "0.48.4",
       "date": "2026-11-20",
       "notes": [

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.114.5",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.48.5: places nest inside one another on the cards, and Writing opens straight into your book."
+      ]
+    },
+    {
       "version": "0.114.4",
       "date": "2026-11-20",
       "notes": [

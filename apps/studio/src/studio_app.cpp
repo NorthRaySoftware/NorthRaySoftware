@@ -650,6 +650,18 @@ void StudioApp::showShortcuts() {
     SetFocus(sheet);
 }
 
+// Writing with no book chosen (0.48.5): back into the book last written in, else the book changed most recently.
+void StudioApp::openLastWriting() {
+    Id b;
+    if (const Book* lb = lib_ ? lib_->book(settings_.lastBook) : nullptr; lb && !lb->deleted) b = lb->id;
+    else if (lib_) {
+        Time newest = 0;
+        for (const Book* x : lib_->liveBooks()) if (x->modified >= newest) { newest = x->modified; b = x->id; }
+    }
+    if (b.empty()) flash(L"Make a book in the Library first, then open Writing.", 5);
+    else openWriting(b);
+}
+
 void StudioApp::command(int id) {
     if (!lib_ && id != CmdOpenLibrary && id != CmdExit && id != CmdAbout && id != CmdShortcuts) return;
     if (id >= 5000 && id < 6000) {
@@ -674,8 +686,7 @@ void StudioApp::command(int id) {
         }
         case CmdWriting: {
             const Id b = currentBook();
-            if (b.empty()) flash(L"Choose a book in the Library first, then open Writing.", 5);
-            else openWriting(b);
+            if (b.empty()) openLastWriting(); else openWriting(b);
             break;
         }
         case CmdNewWorld: newWorld(); break;
