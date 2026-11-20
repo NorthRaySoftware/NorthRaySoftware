@@ -100,6 +100,8 @@ struct Element {
     // Where the messages sit: "left", "right", or "mine" (your own on the right, viewers' on the left, like a phone's
     // messages), each sized to its message with the text starting at its left. "": as the Align setting (before 0.10.27).
     std::string chatSide;
+    // Elements grouped together (0.14) share a group id: they're picked, moved and hidden as one. "" = none.
+    std::string group;
     // Entrance (when its scene is shown).
     Anim anim = Anim::None;
     int animMs = 500;
@@ -113,6 +115,9 @@ struct Document {
     bool onlyWhilePlaying = false;   // drawn only while music plays ({song} has something)
     bool onlyWhileSprint = false;    // drawn only while a writing sprint runs in Writing Studio (0.13)
     bool onlyCelebrating = false;    // drawn only for a few seconds when a celebration fires, coming in afresh (0.13)
+    // The designer's grid (0 off; its spacing in pixels) and the guides placed from the rulers (page pixels) (0.14).
+    int grid = 0;
+    std::vector<float> guidesX, guidesY;
     std::vector<Element> elements;   // bottom first
     int nextId = 1;
     const Element* find(const std::string& id) const;
@@ -182,6 +187,23 @@ struct Snapped {
     std::vector<float> guidesX, guidesY;   // page coordinates of the lines to show
 };
 Snapped snap(const Document& d, const std::string& movingId, Box proposed, float threshold, bool resizing = false);
+// Several moving at once (their joint box): none of them is a target. Snapping includes the page's guides; with a grid,
+// an edge that met nothing else snaps to the grid.
+Snapped snap(const Document& d, const std::vector<std::string>& moving, Box proposed, float threshold, bool resizing = false);
+
+// Several elements (0.14).
+Box boundsOf(const Document& d, const std::vector<std::string>& ids);   // their joint box (unrotated)
+// Groups: the ids are given a new group id (returned) and gathered just below the topmost of them, in their order.
+// Ungrouping clears it. `members` lists a group's elements bottom first; `pick` is what a click on `id` selects: its
+// group's members, or itself.
+std::string group(Document& d, const std::vector<std::string>& ids);
+void ungroup(Document& d, const std::string& groupId);
+std::vector<std::string> members(const Document& d, const std::string& groupId);
+std::vector<std::string> pick(const Document& d, const std::string& id);
+// Lining up: left, centre, right, top, middle, bottom: to their joint box (or the page when `toPage` or only one).
+bool align(Document& d, const std::vector<std::string>& ids, const std::string& how, bool toPage = false);
+// Spacing evenly across (or down): the first and last stay, the gaps between all become equal. Needs three or more.
+bool distribute(Document& d, const std::vector<std::string>& ids, bool across);
 
 // The entrance animation at time t (ms since shown): how far it's in (0..1), offsets and scale.
 struct Pose {

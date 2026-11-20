@@ -1626,3 +1626,25 @@ stream; spoiler-safe in Capture.
   (status, chapter, Highcliff · Day 4 with its map); the Sprint timer appearing for a running sprint and going when it
   ended; the Celebration popping up for about seven seconds; the Planning workspace switching to the chosen scene.
   Not testable here: chapter markers and the report's writing section (no encoder, so no recording or streaming).
+
+## 60. Designer editing (released as 0.14.0, 20 Nov 2026)
+
+CJ's overlay-polish answers (claude/capture-overlay-polish-answers-2026-11-20.md): designer editing first, then effects
+(0.15), pictures (0.16) and the redesigned templates (0.17). Frosted-glass blur is deferred.
+
+- core/design: `Element::group` (a shared id; JSON "group"); `Document::grid` (0 off, else pixels), `guidesX`/`guidesY`
+  (page pixels); `boundsOf`, `group`/`ungroup`, `members`, `pick` (a click picks the whole group, Alt one element),
+  `align` (left, centre, right, top, middle, bottom: to the selection's bounds, or the page for one element) and
+  `distribute` (equal gaps across or down, three or more). `snap` takes the moving set's vector and snaps to other
+  elements, the guides, then the grid when nothing nearer.
+- The window: a selection (`designSelection`/`designSelect`), shift-click toggling, a marquee from an empty part of the
+  canvas (`ddrag_` 3, limited to `designCentre_` so the side panels keep their clicks), moving the set together with
+  each start box kept (`dStartBoxes_`), arrow nudges, Ctrl+A/Esc, Ctrl+G/Ctrl+Shift+G; a dashed joint box. The
+  properties panel for several: line up, space evenly, centre on the page, group/ungroup, duplicate, delete. Group
+  rows in Layers carry a coloured bar; the single panel shows the group with Ungroup.
+- Rulers along the top and left: a click places a guide or picks one up (`ddrag_` 4, `dGuideAxis_`/`dGuideIndex_`);
+  dropped back on the ruler or off the page it goes. Page › Grid (commands 60+g: off, 10, 20, 40, 50, 100) and Page ›
+  Remove the guides (35).
+- Tested: capturecore 1960 checks (bounds, group/ungroup round trip and JSON, pick with and without Alt, every align,
+  distribute with uneven sizes, snapping to guides and grid). In Wine on the Chapter card: marquee and shift-click
+  selection, Group (Layers bars, the group panel), the group dragged as one, and guides placed from both rulers.

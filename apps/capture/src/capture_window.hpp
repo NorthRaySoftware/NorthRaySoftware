@@ -466,7 +466,14 @@ private:
     int designPixW_ = 0, designPixH_ = 0;
     cjui::Rect designCanvas_;
     float designScale_ = 1;
-    int ddrag_ = 0;                           // 1 moving, 2 resizing
+    int ddrag_ = 0;                           // 1 moving, 2 resizing, 3 a selection box, 4 a guide from a ruler
+    std::vector<std::string> designMulti_;    // 0.14: everything selected (designSel_ is the one whose properties show)
+    std::map<std::string, design::Box> dStartBoxes_;
+    cjui::Rect dMarquee_{}, designCentre_{};
+    int dGuideAxis_ = 0, dGuideIndex_ = -1;   // the guide being dragged: 0 across (x), 1 down (y)
+    std::vector<std::string> designSelection() const;
+    void designSelect(std::vector<std::string> ids, const std::string& primary);
+    void designGroupSelected(bool group);
     float dStartX_ = 0, dStartY_ = 0;
     design::Box dStartBox_;
     std::vector<float> dGuidesX_, dGuidesY_;

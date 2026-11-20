@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <cctype>
 #include <cstdio>
@@ -188,6 +189,7 @@ std::string toJson(const Document& d) {
                   {"anim", key(e.anim)},
                   {"animMs", e.animMs}};
         if (!e.strokeBrand.empty()) j["strokeBrand"] = e.strokeBrand;
+        if (!e.group.empty()) j["group"] = e.group;
         if (!e.shadow.brand.empty()) j["shadow"]["brand"] = e.shadow.brand;
         if (e.kind == Kind::Timer) {
             j["timer"] = {{"mode", e.timerMode}, {"seconds", e.timerSeconds}, {"until", e.timerUntil}, {"end", e.timerEnd},
@@ -215,7 +217,8 @@ std::string toJson(const Document& d) {
     }
     return json{{"format", "northray-capture-design"}, {"version", 1}, {"name", d.name}, {"width", d.width}, {"height", d.height},
                 {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying},
-                {"onlyWhileSprint", d.onlyWhileSprint}, {"onlyCelebrating", d.onlyCelebrating}}
+                {"onlyWhileSprint", d.onlyWhileSprint}, {"onlyCelebrating", d.onlyCelebrating},
+                {"grid", d.grid}, {"guidesX", d.guidesX}, {"guidesY", d.guidesY}}
         .dump();
 }
 
@@ -237,6 +240,11 @@ Document fromJson(const std::string& text) {
     d.onlyWhilePlaying = j.contains("onlyWhilePlaying") && j["onlyWhilePlaying"].is_boolean() && j["onlyWhilePlaying"].get<bool>();
     d.onlyWhileSprint = j.contains("onlyWhileSprint") && j["onlyWhileSprint"].is_boolean() && j["onlyWhileSprint"].get<bool>();
     d.onlyCelebrating = j.contains("onlyCelebrating") && j["onlyCelebrating"].is_boolean() && j["onlyCelebrating"].get<bool>();
+    d.grid = (int)num(j, "grid", 0, 0, 500);
+    for (auto [k, v] : {std::pair{"guidesX", &d.guidesX}, std::pair{"guidesY", &d.guidesY}})
+        if (j.contains(k) && j[k].is_array())
+            for (auto& g : j[k])
+                if (g.is_number() && v->size() < 50) v->push_back(clampf(g.get<float>(), -20000, 20000));
     int maxId = 0;
     if (j.contains("elements") && j["elements"].is_array())
         for (auto& o : j["elements"]) {
@@ -259,6 +267,7 @@ Document fromJson(const std::string& text) {
             e.stroke = colourFrom(o.contains("stroke") ? o["stroke"] : json(), {0, 0, 0, 0});
             e.strokeWidth = num(o, "strokeWidth", 0, 0, 200);
             e.strokeBrand = str(o, "strokeBrand", "", 16);
+            e.group = str(o, "group", "", 32);
             e.radius = num(o, "radius", 0, 0, 10000);
             if (o.contains("shadow") && o["shadow"].is_object()) {
                 const json& s = o["shadow"];
@@ -386,9 +395,15 @@ std::string hitTest(const Document& d, float x, float y) {
 }
 
 Snapped snap(const Document& d, const std::string& movingId, Box p, float threshold, bool resizing) {
+    return snap(d, std::vector<std::string>{movingId}, p, threshold, resizing);
+}
+
+Snapped snap(const Document& d, const std::vector<std::string>& moving, Box p, float threshold, bool resizing) {
     std::vector<float> xs = {0, d.width / 2.0f, (float)d.width}, ys = {0, d.height / 2.0f, (float)d.height};
+    xs.insert(xs.end(), d.guidesX.begin(), d.guidesX.end());
+    ys.insert(ys.end(), d.guidesY.begin(), d.guidesY.end());
     for (auto& e : d.elements) {
-        if (e.id == movingId || !e.visible || std::fabs(e.rotation) > 0.01f) continue;
+        if (std::find(moving.begin(), moving.end(), e.id) != moving.end() || !e.visible || std::fabs(e.rotation) > 0.01f) continue;
         xs.insert(xs.end(), {e.x, e.x + e.w / 2, e.x + e.w});
         ys.insert(ys.end(), {e.y, e.y + e.h / 2, e.y + e.h});
     }
@@ -409,18 +424,155 @@ Snapped snap(const Document& d, const std::string& movingId, Box p, float thresh
     float dx = 0, dy = 0, lx = 0, ly = 0;
     const std::vector<float> mx = resizing ? std::vector<float>{p.x + p.w} : std::vector<float>{p.x, p.x + p.w / 2, p.x + p.w};
     const std::vector<float> my = resizing ? std::vector<float>{p.y + p.h} : std::vector<float>{p.y, p.y + p.h / 2, p.y + p.h};
+    const float g = (float)d.grid;
+    auto toGrid = [&](float v) { return std::round(v / g) * g; };
     if (best(xs, mx, dx, lx)) {
         if (resizing) p.w = std::max(1.0f, p.w + dx);
         else p.x += dx;
         out.guidesX.push_back(lx);
+    } else if (g > 0) {
+        if (resizing) p.w = std::max(g, toGrid(p.x + p.w) - p.x);
+        else p.x = toGrid(p.x);
     }
     if (best(ys, my, dy, ly)) {
         if (resizing) p.h = std::max(1.0f, p.h + dy);
         else p.y += dy;
         out.guidesY.push_back(ly);
+    } else if (g > 0) {
+        if (resizing) p.h = std::max(g, toGrid(p.y + p.h) - p.y);
+        else p.y = toGrid(p.y);
     }
     out.box = p;
     return out;
+}
+
+Box boundsOf(const Document& d, const std::vector<std::string>& ids) {
+    Box b;
+    bool any = false;
+    for (auto& id : ids)
+        if (const Element* e = d.find(id)) {
+            if (!any) b = {e->x, e->y, e->w, e->h};
+            else {
+                const float r = std::max(b.x + b.w, e->x + e->w), bt = std::max(b.y + b.h, e->y + e->h);
+                b.x = std::min(b.x, e->x);
+                b.y = std::min(b.y, e->y);
+                b.w = r - b.x;
+                b.h = bt - b.y;
+            }
+            any = true;
+        }
+    return b;
+}
+
+std::string group(Document& d, const std::vector<std::string>& ids) {
+    std::vector<std::string> in;
+    for (auto& e : d.elements)
+        if (std::find(ids.begin(), ids.end(), e.id) != ids.end()) in.push_back(e.id);   // bottom first
+    if (in.size() < 2) return {};
+    int n = 1;
+    std::string gid;
+    for (;; ++n) {
+        gid = "g" + std::to_string(n);
+        if (std::none_of(d.elements.begin(), d.elements.end(), [&](const Element& e) { return e.group == gid; })) break;
+    }
+    // Gathered just below where the topmost of them is.
+    std::vector<Element> taken;
+    int top = -1;
+    for (int i = 0; i < (int)d.elements.size(); ++i)
+        if (std::find(in.begin(), in.end(), d.elements[(size_t)i].id) != in.end()) top = i;
+    int insertAt = top + 1;
+    for (int i = (int)d.elements.size() - 1; i >= 0; --i)
+        if (std::find(in.begin(), in.end(), d.elements[(size_t)i].id) != in.end()) {
+            taken.insert(taken.begin(), d.elements[(size_t)i]);
+            d.elements.erase(d.elements.begin() + i);
+            if (i < insertAt) --insertAt;
+        }
+    for (auto& e : taken) e.group = gid;
+    d.elements.insert(d.elements.begin() + insertAt, taken.begin(), taken.end());
+    return gid;
+}
+
+void ungroup(Document& d, const std::string& gid) {
+    if (gid.empty()) return;
+    for (auto& e : d.elements)
+        if (e.group == gid) e.group.clear();
+}
+
+std::vector<std::string> members(const Document& d, const std::string& gid) {
+    std::vector<std::string> out;
+    if (gid.empty()) return out;
+    for (auto& e : d.elements)
+        if (e.group == gid) out.push_back(e.id);
+    return out;
+}
+
+std::vector<std::string> pick(const Document& d, const std::string& id) {
+    const Element* e = d.find(id);
+    if (!e) return {};
+    if (e->group.empty()) return {id};
+    return members(d, e->group);
+}
+
+bool align(Document& d, const std::vector<std::string>& ids, const std::string& how, bool toPage) {
+    std::vector<Element*> es;
+    for (auto& id : ids)
+        if (Element* e = d.find(id); e && !e->locked) es.push_back(e);
+    if (es.empty()) return false;
+    Box b = (toPage || ids.size() < 2) ? Box{0, 0, (float)d.width, (float)d.height} : boundsOf(d, ids);
+    // A group lines up as one: its members keep their places within it.
+    std::map<std::string, Box> groupBox;
+    for (Element* e : es)
+        if (!e->group.empty() && !groupBox.count(e->group)) groupBox[e->group] = boundsOf(d, members(d, e->group));
+    bool changed = false;
+    std::map<std::string, std::pair<float, float>> groupMove;
+    for (Element* e : es) {
+        const Box own = e->group.empty() ? Box{e->x, e->y, e->w, e->h} : groupBox[e->group];
+        float nx = own.x, ny = own.y;
+        if (how == "left") nx = b.x;
+        else if (how == "centre") nx = b.x + (b.w - own.w) / 2;
+        else if (how == "right") nx = b.x + b.w - own.w;
+        else if (how == "top") ny = b.y;
+        else if (how == "middle") ny = b.y + (b.h - own.h) / 2;
+        else if (how == "bottom") ny = b.y + b.h - own.h;
+        else return false;
+        const float mx = std::round(nx - own.x), my = std::round(ny - own.y);
+        if (!e->group.empty()) groupMove[e->group] = {mx, my};
+        else if (mx != 0 || my != 0) {
+            e->x += mx;
+            e->y += my;
+            changed = true;
+        }
+    }
+    for (auto& [gid, mv] : groupMove)
+        for (auto& e : d.elements)
+            if (e.group == gid && (mv.first != 0 || mv.second != 0)) {
+                e.x += mv.first;
+                e.y += mv.second;
+                changed = true;
+            }
+    return changed;
+}
+
+bool distribute(Document& d, const std::vector<std::string>& ids, bool across) {
+    std::vector<Element*> es;
+    for (auto& id : ids)
+        if (Element* e = d.find(id); e && !e->locked) es.push_back(e);
+    if (es.size() < 3) return false;
+    std::sort(es.begin(), es.end(), [&](Element* a, Element* b) { return across ? a->x < b->x : a->y < b->y; });
+    float total = 0;
+    for (Element* e : es) total += across ? e->w : e->h;
+    const float start = across ? es.front()->x : es.front()->y;
+    const float end = across ? es.back()->x + es.back()->w : es.back()->y + es.back()->h;
+    const float gap = (end - start - total) / (float)(es.size() - 1);
+    float at = start;
+    bool changed = false;
+    for (Element* e : es) {
+        float& pos = across ? e->x : e->y;
+        const float want = std::round(at);
+        if (pos != want) { pos = want; changed = true; }
+        at += (across ? e->w : e->h) + gap;
+    }
+    return changed;
 }
 
 Pose pose(const Element& e, float t, int pageW, int pageH) {

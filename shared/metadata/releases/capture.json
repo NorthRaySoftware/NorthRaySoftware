@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.14.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Select several elements in the designer: shift-click to add or take one away, drag a box round them from an empty part of the canvas, Ctrl+A for everything and Esc for nothing. Move them together, nudge them with the arrow keys, duplicate or delete them at once.",
+        "Line up and space evenly: line a selection up by its left, centre, right, top, middle or bottom, space three or more evenly across or down, or centre it on the page.",
+        "Groups (Ctrl+G, Ctrl+Shift+G to ungroup): grouped elements select and move as one, show a coloured bar in Layers, and Alt-click picks one inside to change on its own.",
+        "Rulers and guides: click a ruler to place a guide, drag a guide to move it, and drag it back onto the ruler (or off the page) to remove it; Page › Remove the guides clears them all. Page › Grid gives a snapping grid of 10, 20, 40, 50 or 100 pixels, used when no other element or guide is near (hold Shift not to snap)."
+      ]
+    },
+    {
       "version": "0.13.0",
       "date": "2026-11-20",
       "notes": [

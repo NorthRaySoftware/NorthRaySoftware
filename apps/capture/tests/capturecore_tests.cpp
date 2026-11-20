@@ -2810,6 +2810,44 @@ static void testDesignLive() {
         for (auto& tp : templates()) if (std::string(tp.id) == "sprint-timer") found = tp.doc.onlyWhileSprint;
         CHECK(found);
     }
+    {
+        // 0.14: several elements: joint box, align, distribute, groups, guides and the grid.
+        Document md;
+        Element a, b2, c2;
+        a.x = 10, a.y = 10, a.w = 100, a.h = 50;
+        b2.x = 300, b2.y = 40, b2.w = 50, b2.h = 50;
+        c2.x = 200, c2.y = 100, c2.w = 20, c2.h = 20;
+        const std::string ia = add(md, a), ib = add(md, b2), ic = add(md, c2);
+        const ncap::design::Box jb = boundsOf(md, {ia, ib, ic});
+        CHECK(jb.x == 10 && jb.y == 10 && jb.w == 340 && jb.h == 110);
+        CHECK(align(md, {ia, ib, ic}, "left") && md.find(ib)->x == 10 && md.find(ic)->x == 10);
+        CHECK(align(md, {ia, ib}, "bottom") && md.find(ia)->y == 40 && md.find(ib)->y == 40);
+        CHECK(align(md, {ic}, "centre") && md.find(ic)->x == (1920 - 20) / 2);   // one alone: to the page
+        md.find(ia)->x = 0, md.find(ib)->x = 500, md.find(ic)->x = 120;
+        CHECK(distribute(md, {ia, ib, ic}, true));
+        // widths 100, 20, 50 over 0..550: gaps (550 - 170) / 2 = 190
+        CHECK(md.find(ia)->x == 0 && md.find(ic)->x == 290 && md.find(ib)->x == 500);
+        CHECK(!distribute(md, {ia, ib}, true));
+        const std::string g = group(md, {ia, ic});
+        CHECK(!g.empty() && members(md, g).size() == 2 && pick(md, ia).size() == 2 && pick(md, ib).size() == 1);
+        CHECK(md.indexOf(ia) + 1 == md.indexOf(ic));                       // gathered together
+        // A group lines up as one.
+        const float before = md.find(ic)->x - md.find(ia)->x;
+        align(md, {ia, ic, ib}, "right");
+        CHECK(md.find(ic)->x - md.find(ia)->x == before);
+        const Document gb = fromJson(toJson(md));
+        CHECK(gb.find(ia)->group == g && members(gb, g).size() == 2);
+        ungroup(md, g);
+        CHECK(md.find(ia)->group.empty() && pick(md, ia).size() == 1);
+        // Guides and the grid.
+        Document sd2;
+        sd2.guidesX = {333};
+        sd2.grid = 20;
+        const Snapped sn = snap(sd2, std::vector<std::string>{}, ncap::design::Box{330, 47, 100, 100}, 6);
+        CHECK(sn.box.x == 333 && sn.guidesX.size() == 1 && sn.box.y == 40);   // to the guide; y to the grid
+        const Document sb = fromJson(toJson(sd2));
+        CHECK(sb.grid == 20 && sb.guidesX == std::vector<float>{333});
+    }
     c = Clock{};
     t.timerMode = "clock";
     c.localSeconds = 9 * 3600 + 5 * 60 + 59;

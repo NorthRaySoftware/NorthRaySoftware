@@ -435,6 +435,7 @@ void CaptureWindow::openDesigner(const Id& source) {
     designFor_ = source;
     designDoc_ = dz::fromJson(s->settings);
     designSel_.clear();
+    designMulti_.clear();
     designUndo_.clear();
     designRendered_.clear();
     filtersFor_.clear();
@@ -555,27 +556,120 @@ void CaptureWindow::exportDesignGif() {
 
 // ---------------------------------------------------------------- the canvas: mouse and keys
 
+// What's selected: several (0.14), or the one.
+std::vector<std::string> CaptureWindow::designSelection() const {
+    std::vector<std::string> out;
+    for (auto& id : designMulti_)
+        if (designDoc_.find(id)) out.push_back(id);
+    if (out.empty() && designDoc_.find(designSel_)) out.push_back(designSel_);
+    return out;
+}
+
+void CaptureWindow::designSelect(std::vector<std::string> ids, const std::string& primary) {
+    designMulti_ = std::move(ids);
+    designSel_ = primary.empty() && !designMulti_.empty() ? designMulti_.back() : primary;
+    if (designMulti_.size() <= 1) designMulti_.clear();
+    invalidate();
+}
+
+void CaptureWindow::designGroupSelected(bool make) {
+    const auto sel = designSelection();
+    if (make) {
+        if (sel.size() < 2) { flash(L"Select two or more elements to group (Shift-click, or drag a box round them).", 5); return; }
+        const std::string g = dz::group(designDoc_, sel);
+        if (g.empty()) return;
+        designChanged();
+        designSelect(dz::members(designDoc_, g), designSel_);
+        flash(L"Grouped: they move, line up and hide as one. Alt-click picks one inside.", 5);
+    } else {
+        std::set<std::string> gs;
+        for (auto& id : sel)
+            if (const dz::Element* e = designDoc_.find(id); e && !e->group.empty()) gs.insert(e->group);
+        if (gs.empty()) return;
+        for (auto& g : gs) dz::ungroup(designDoc_, g);
+        designChanged();
+        invalidate();
+    }
+}
+
 bool CaptureWindow::designerMouseDown(float x, float y) {
-    if (designFor_.empty() || !designCanvas_.contains(x, y)) return false;
-    const float px = (x - designCanvas_.x) / designScale_, py = (y - designCanvas_.y) / designScale_;
-    // The selected element's resize handle (bottom right) first.
-    if (const dz::Element* e = designDoc_.find(designSel_); e && !e->locked) {
-        const float hx = designCanvas_.x + (e->x + e->w) * designScale_, hy = designCanvas_.y + (e->y + e->h) * designScale_;
-        if (std::fabs(x - hx) < 9 && std::fabs(y - hy) < 9) {
-            ddrag_ = 2;
-            dStartX_ = px, dStartY_ = py;
-            dStartBox_ = {e->x, e->y, e->w, e->h};
-            dBefore_ = dz::toJson(designDoc_);
-            return true;
-        }
-    }
-    designSel_ = dz::hitTest(designDoc_, px, py);
-    if (const dz::Element* e = designDoc_.find(designSel_)) {
-        ddrag_ = 1;
-        dStartX_ = px, dStartY_ = py;
-        dStartBox_ = {e->x, e->y, e->w, e->h};
+    if (designFor_.empty()) return false;
+    const float sc = designScale_;
+    const float px = (x - designCanvas_.x) / sc, py = (y - designCanvas_.y) / sc;
+    // The rulers (0.14): a click makes a guide there, or picks one up; dragged back onto the ruler, it goes.
+    const Rect topRuler{designCanvas_.x, designCanvas_.y - 20, designCanvas_.w, 18}, leftRuler{designCanvas_.x - 20, designCanvas_.y, 18, designCanvas_.h};
+    if (topRuler.contains(x, y) || leftRuler.contains(x, y)) {
+        const bool across = topRuler.contains(x, y);
+        auto& gs = across ? designDoc_.guidesX : designDoc_.guidesY;
+        const float at = std::round(across ? px : py);
         dBefore_ = dz::toJson(designDoc_);
+        dGuideAxis_ = across ? 0 : 1;
+        dGuideIndex_ = -1;
+        for (std::size_t i = 0; i < gs.size(); ++i)
+            if (std::fabs(gs[i] - at) * sc < 5) dGuideIndex_ = (int)i;
+        if (dGuideIndex_ < 0 && gs.size() < 50) {
+            gs.push_back(at);
+            dGuideIndex_ = (int)gs.size() - 1;
+        }
+        if (dGuideIndex_ >= 0) ddrag_ = 4;
+        invalidate();
+        return true;
     }
+    // Off the page but near it: a box round what to select (a page covered by a background panel needs it).
+    const Rect& around = designCentre_;   // the middle column, between Layers and the properties
+    if (!designCanvas_.contains(x, y)) {
+        if (!around.contains(x, y)) return false;
+        designSelect({}, {});
+        ddrag_ = 3;
+        dStartX_ = x, dStartY_ = y;
+        dMarquee_ = {x, y, 0, 0};
+        return true;
+    }
+    const bool shift = GetKeyState(VK_SHIFT) < 0, alt = GetKeyState(VK_MENU) < 0;
+    auto sel = designSelection();
+    // The selected element's resize handle (bottom right) first: only with one selected.
+    if (sel.size() == 1)
+        if (const dz::Element* e = designDoc_.find(sel[0]); e && !e->locked) {
+            const float hx = designCanvas_.x + (e->x + e->w) * sc, hy = designCanvas_.y + (e->y + e->h) * sc;
+            if (std::fabs(x - hx) < 9 && std::fabs(y - hy) < 9) {
+                ddrag_ = 2;
+                dStartX_ = px, dStartY_ = py;
+                dStartBox_ = {e->x, e->y, e->w, e->h};
+                dBefore_ = dz::toJson(designDoc_);
+                return true;
+            }
+        }
+    const std::string hit = dz::hitTest(designDoc_, px, py);
+    // Alt picks one element inside a group; otherwise a click picks its whole group.
+    const std::vector<std::string> picked = hit.empty() ? std::vector<std::string>{} : alt ? std::vector<std::string>{hit} : dz::pick(designDoc_, hit);
+    if (shift) {   // Shift-click: in or out of the selection
+        if (!hit.empty()) {
+            const bool in = std::find(sel.begin(), sel.end(), hit) != sel.end();
+            for (auto& id : picked) {
+                auto it = std::find(sel.begin(), sel.end(), id);
+                if (in && it != sel.end()) sel.erase(it);
+                else if (!in && it == sel.end()) sel.push_back(id);
+            }
+            designSelect(sel, in ? (sel.empty() ? std::string() : sel.back()) : hit);
+        }
+        return true;
+    }
+    if (hit.empty()) {   // a box round what to select
+        designSelect({}, {});
+        ddrag_ = 3;
+        dStartX_ = x, dStartY_ = y;
+        dMarquee_ = {x, y, 0, 0};
+        return true;
+    }
+    if (std::find(sel.begin(), sel.end(), hit) == sel.end() || alt) designSelect(picked, hit);
+    else designSel_ = hit;
+    ddrag_ = 1;
+    dStartX_ = px, dStartY_ = py;
+    dStartBoxes_.clear();
+    for (auto& id : designSelection())
+        if (const dz::Element* e = designDoc_.find(id)) dStartBoxes_[id] = {e->x, e->y, e->w, e->h};
+    dStartBox_ = dz::boundsOf(designDoc_, designSelection());
+    dBefore_ = dz::toJson(designDoc_);
     invalidate();
     return true;
 }
@@ -583,25 +677,49 @@ bool CaptureWindow::designerMouseDown(float x, float y) {
 bool CaptureWindow::designerMouseMove(float x, float y, bool leftDown) {
     if (designFor_.empty() || ddrag_ == 0) return false;
     if (!leftDown) return designerMouseUp();
-    dz::Element* e = designDoc_.find(designSel_);
-    if (!e) return true;
     const float px = (x - designCanvas_.x) / designScale_, py = (y - designCanvas_.y) / designScale_;
     const bool shift = GetKeyState(VK_SHIFT) < 0;   // Shift: no snapping
-    dz::Box b = dStartBox_;
-    if (ddrag_ == 1) {
-        b.x += px - dStartX_;
-        b.y += py - dStartY_;
-    } else {
+    if (ddrag_ == 3) {
+        dMarquee_ = {std::min(x, dStartX_), std::min(y, dStartY_), std::fabs(x - dStartX_), std::fabs(y - dStartY_)};
+        invalidate();
+        return true;
+    }
+    if (ddrag_ == 4) {
+        auto& gs = dGuideAxis_ == 0 ? designDoc_.guidesX : designDoc_.guidesY;
+        if (dGuideIndex_ >= 0 && dGuideIndex_ < (int)gs.size()) gs[(size_t)dGuideIndex_] = std::round(dGuideAxis_ == 0 ? px : py);
+        invalidate();
+        return true;
+    }
+    if (ddrag_ == 2) {
+        dz::Element* e = designDoc_.find(designSel_);
+        if (!e) return true;
+        dz::Box b = dStartBox_;
         b.w = std::max(4.0f, b.w + px - dStartX_);
         b.h = std::max(4.0f, b.h + py - dStartY_);
         if (GetKeyState(VK_CONTROL) < 0 && dStartBox_.w > 0) b.h = b.w * dStartBox_.h / dStartBox_.w;   // Ctrl: keep its shape
+        dz::Snapped s{b, {}, {}};
+        if (!shift) s = dz::snap(designDoc_, std::vector<std::string>{designSel_}, b, 6 / designScale_, true);
+        e->w = std::round(s.box.w);
+        e->h = std::round(s.box.h);
+        dGuidesX_ = s.guidesX;
+        dGuidesY_ = s.guidesY;
+        invalidate();
+        return true;
     }
+    // Moving everything selected, snapped as one box.
+    dz::Box b = dStartBox_;
+    b.x += px - dStartX_;
+    b.y += py - dStartY_;
+    std::vector<std::string> moving;
+    for (auto& [id, box] : dStartBoxes_) moving.push_back(id);
     dz::Snapped s{b, {}, {}};
-    if (!shift) s = dz::snap(designDoc_, designSel_, b, 6 / designScale_, ddrag_ == 2);
-    e->x = std::round(s.box.x);
-    e->y = std::round(s.box.y);
-    e->w = std::round(s.box.w);
-    e->h = std::round(s.box.h);
+    if (!shift) s = dz::snap(designDoc_, moving, b, 6 / designScale_, false);
+    const float dx = std::round(s.box.x - dStartBox_.x), dy = std::round(s.box.y - dStartBox_.y);
+    for (auto& [id, box] : dStartBoxes_)
+        if (dz::Element* e = designDoc_.find(id); e && !e->locked) {
+            e->x = box.x + dx;
+            e->y = box.y + dy;
+        }
     dGuidesX_ = s.guidesX;
     dGuidesY_ = s.guidesY;
     invalidate();
@@ -610,9 +728,35 @@ bool CaptureWindow::designerMouseMove(float x, float y, bool leftDown) {
 
 bool CaptureWindow::designerMouseUp() {
     if (ddrag_ == 0) return false;
+    const int was = ddrag_;
     ddrag_ = 0;
     dGuidesX_.clear();
     dGuidesY_.clear();
+    if (was == 3) {
+        // Everything the box touches (whole groups), unless it was just a click.
+        if (dMarquee_.w > 3 || dMarquee_.h > 3) {
+            const float sc = designScale_;
+            const float x0 = (dMarquee_.x - designCanvas_.x) / sc, y0 = (dMarquee_.y - designCanvas_.y) / sc;
+            const float x1 = x0 + dMarquee_.w / sc, y1 = y0 + dMarquee_.h / sc;
+            std::vector<std::string> ids;
+            for (auto& e : designDoc_.elements)
+                if (e.visible && !e.locked && e.x < x1 && e.x + e.w > x0 && e.y < y1 && e.y + e.h > y0)
+                    for (auto& id : dz::pick(designDoc_, e.id))
+                        if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+            designSelect(ids, ids.empty() ? std::string() : ids.back());
+        }
+        dMarquee_ = {};
+        invalidate();
+        return true;
+    }
+    if (was == 4) {
+        // A guide dragged off the page (onto a ruler or beyond) goes.
+        auto& gs = dGuideAxis_ == 0 ? designDoc_.guidesX : designDoc_.guidesY;
+        const float lim = dGuideAxis_ == 0 ? (float)designDoc_.width : (float)designDoc_.height;
+        if (dGuideIndex_ >= 0 && dGuideIndex_ < (int)gs.size() && (gs[(size_t)dGuideIndex_] < 0 || gs[(size_t)dGuideIndex_] > lim))
+            gs.erase(gs.begin() + dGuideIndex_);
+        dGuideIndex_ = -1;
+    }
     if (dz::toJson(designDoc_) != dBefore_) {
         designUndo_.push_back(dBefore_);
         designChanged(false);
@@ -624,16 +768,38 @@ bool CaptureWindow::designerMouseUp() {
 bool CaptureWindow::designerKey(WPARAM vk, bool ctrl, bool shift) {
     if (designFor_.empty()) return false;
     if (ctrl && vk == 'Z') { designUndo(); return true; }
-    dz::Element* e = designDoc_.find(designSel_);
-    if (ctrl && vk == 'D' && e) {
-        designSel_ = dz::duplicate(designDoc_, designSel_);
-        designChanged();
+    if (ctrl && vk == 'A') {   // everything that can be picked
+        std::vector<std::string> all;
+        for (auto& e : designDoc_.elements)
+            if (e.visible && !e.locked) all.push_back(e.id);
+        designSelect(all, all.empty() ? std::string() : all.back());
         return true;
     }
-    if (!e) return false;
+    if (ctrl && vk == 'G') { designGroupSelected(!shift); return true; }
+    const auto sel = designSelection();
+    if (vk == VK_ESCAPE && !sel.empty()) { designSelect({}, {}); return true; }
+    if (sel.empty()) return false;
+    if (ctrl && vk == 'D') {
+        // Copies of everything selected; a whole group's copies make a group of their own.
+        std::vector<std::string> copies;
+        std::map<std::string, std::vector<std::string>> byGroup;
+        for (auto& id : sel) {
+            const std::string g = designDoc_.find(id) ? designDoc_.find(id)->group : std::string();
+            const std::string nid = dz::duplicate(designDoc_, id);
+            if (nid.empty()) continue;
+            if (dz::Element* c = designDoc_.find(nid)) c->group.clear();
+            copies.push_back(nid);
+            if (!g.empty()) byGroup[g].push_back(nid);
+        }
+        for (auto& [g, ids] : byGroup)
+            if (ids.size() >= 2) dz::group(designDoc_, ids);
+        designChanged();
+        designSelect(copies, copies.empty() ? std::string() : copies.back());
+        return true;
+    }
     if (vk == VK_DELETE) {
-        dz::remove(designDoc_, designSel_);
-        designSel_.clear();
+        for (auto& id : sel) dz::remove(designDoc_, id);
+        designSelect({}, {});
         designChanged();
         return true;
     }
@@ -644,8 +810,11 @@ bool CaptureWindow::designerKey(WPARAM vk, bool ctrl, bool shift) {
     else if (vk == VK_UP) dy = -step;
     else if (vk == VK_DOWN) dy = step;
     else return false;
-    e->x += dx;
-    e->y += dy;
+    for (auto& id : sel)
+        if (dz::Element* e = designDoc_.find(id); e && !e->locked) {
+            e->x += dx;
+            e->y += dy;
+        }
     designChanged();
     return true;
 }
@@ -708,6 +877,15 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             items.push_back(MenuItem::item(L"Show only while music plays", 32, L"{song} and {artist}", true, designDoc_.onlyWhilePlaying));
             items.push_back(MenuItem::item(L"Show only during a writing sprint", 33, L"Writing Studio", true, designDoc_.onlyWhileSprint));
             items.push_back(MenuItem::item(L"Show only for celebrations", 34, L"{celebration}, a few seconds", true, designDoc_.onlyCelebrating));
+            items.push_back(MenuItem::sep());
+            {
+                std::vector<MenuItem> grid;
+                for (int g : {0, 10, 20, 40, 50, 100})
+                    grid.push_back(MenuItem::item(g ? std::to_wstring(g) + L" pixels" : std::wstring(L"Off"), 60 + (UINT)g, {}, true, designDoc_.grid == g));
+                items.push_back(MenuItem::sub(L"Grid (snaps when nothing else is near)", grid));
+            }
+            items.push_back(MenuItem::item(L"Remove the guides", 35, std::to_wstring(designDoc_.guidesX.size() + designDoc_.guidesY.size()),
+                                           !designDoc_.guidesX.empty() || !designDoc_.guidesY.empty()));
             POINT pt;
             GetCursorPos(&pt);
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
@@ -753,6 +931,13 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             } else if (cmd == 33) {
                 designDoc_.onlyWhileSprint = !designDoc_.onlyWhileSprint;
                 designChanged();
+            } else if (cmd == 35) {
+                designDoc_.guidesX.clear();
+                designDoc_.guidesY.clear();
+                designChanged();
+            } else if (cmd >= 60 && cmd <= 160) {
+                designDoc_.grid = (int)cmd - 60;
+                designChanged();
             } else if (cmd == 34) {
                 designDoc_.onlyCelebrating = !designDoc_.onlyCelebrating;
                 designChanged();
@@ -770,6 +955,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
     const Rect left{area.x + pad, bodyY, leftW, bodyH};
     const Rect right{area.right() - pad - rightW, bodyY, rightW, bodyH};
     const Rect centre{left.right() + pad, bodyY, right.x - left.right() - pad * 2, bodyH};
+    designCentre_ = centre;
 
     // ---- Left: add, and the layers (top first).
     {
@@ -797,6 +983,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             } else if (k == dz::Kind::Ellipse) {
                 e.fill = brandFill("secondary");
             }
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         };
@@ -817,6 +1004,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.y = std::round((designDoc_.height - e.h) / 2);
             const std::size_t cut = path.find_last_of(L"\\/");
             e.name = narrow(cut == std::wstring::npos ? path : path.substr(cut + 1)).substr(0, 60);
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -832,6 +1020,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.align = "centre";
             e.fill = brandFill("text");
             e.font = dz::kBrandHeading;
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -844,6 +1033,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.y = std::round((designDoc_.height - e.h) / 2);
             e.fill = dz::Fill::solid({255, 255, 255, 255});
             e.radius = 0;
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -858,6 +1048,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.size = 28;
             e.fill = brandFill("text");
             e.font = dz::kBrandBody;
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -877,6 +1068,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.x = std::round((designDoc_.width - e.w) / 2);
             e.y = std::round((designDoc_.height - e.h) / 2);
             e.fill = dz::Fill::linear(gradients()[0].stops, 0);
+            designMulti_.clear();
             designSel_ = dz::add(designDoc_, e);
             designChanged();
         });
@@ -889,10 +1081,23 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             const std::string id = "dz:layer:" + e.id;
             const std::string eid = e.id;
             addHit(id, {row.x, row.y, row.w - 56, row.h}, [this, eid] {
-                designSel_ = eid;
-                invalidate();
+                // A row picks that one element (inside a group too); Shift or Ctrl adds it to the selection.
+                if (GetKeyState(VK_SHIFT) < 0 || GetKeyState(VK_CONTROL) < 0) {
+                    auto sel = designSelection();
+                    auto it = std::find(sel.begin(), sel.end(), eid);
+                    if (it != sel.end()) sel.erase(it);
+                    else sel.push_back(eid);
+                    designSelect(sel, eid);
+                } else designSelect({eid}, eid);
             });
-            const bool sel = e.id == designSel_;
+            const auto selNow = designSelection();
+            const bool sel = std::find(selNow.begin(), selNow.end(), e.id) != selNow.end();
+            if (!e.group.empty()) {   // a group's members: a bar in the group's own colour
+                std::uint32_t h = 2166136261u;
+                for (unsigned char ch : e.group) h = (h ^ ch) * 16777619u;
+                static const char* cols[] = {"#3FCF8E", "#7A5CFF", "#E8C547", "#22C3E6", "#E0566A"};
+                gfx_.fill({row.x - 6, row.y + 4, 3, row.h - 8}, cjui::hexColor(cols[h % 5]));
+            }
             if (sel) gfx_.fillRounded(row, 6, pal_.ribbon.withAlpha(0.18f));
             else if (hoverAmount(id) > 0) gfx_.fillRounded(row, 6, pal_.ink.withAlpha(0.05f * hoverAmount(id)));
             {   // a small picture of its kind
@@ -944,10 +1149,11 @@ void CaptureWindow::drawDesigner(const Rect& area) {
 
     // ---- Centre: the page, fitted, on a checkerboard (see-through parts show as squares).
     {
-        const float sc = std::min(centre.w / designDoc_.width, centre.h / designDoc_.height);
+        const float sc = std::min((centre.w - 24) / designDoc_.width, (centre.h - 46) / designDoc_.height);   // room for the rulers
         designScale_ = sc;
         const float pw = designDoc_.width * sc, ph = designDoc_.height * sc;
-        designCanvas_ = {std::round(centre.x + (centre.w - pw) / 2), std::round(centre.y + (centre.h - ph) / 2), std::round(pw), std::round(ph)};
+        designCanvas_ = {std::round(centre.x + 24 + (centre.w - 24 - pw) / 2), std::round(centre.y + 22 + (centre.h - 46 - ph) / 2), std::round(pw),
+                         std::round(ph)};
         const Rect& c = designCanvas_;
         gfx_.pushClip(c);
         const float cell = 12;
@@ -993,22 +1199,88 @@ void CaptureWindow::drawDesigner(const Rect& area) {
         }
         if (!designPixels_.empty()) gfx_.drawPixels(L"designer:canvas", designPixW_, designPixH_, designPixels_.data(), c, true);
         gfx_.strokeRounded(c, 0, pal_.rule, 1);
+        // The grid (0.14): faint lines at its spacing, every fifth a little stronger.
+        if (designDoc_.grid > 0 && designDoc_.grid * sc >= 4) {
+            gfx_.pushClip(c);
+            const float g = (float)designDoc_.grid;
+            int k = 0;
+            for (float gx = 0; gx <= designDoc_.width; gx += g, ++k)
+                gfx_.line(c.x + gx * sc, c.y, c.x + gx * sc, c.bottom(), cjui::hexColor("#7A5CFF").withAlpha(k % 5 ? 0.12f : 0.28f), 1);
+            k = 0;
+            for (float gy = 0; gy <= designDoc_.height; gy += g, ++k)
+                gfx_.line(c.x, c.y + gy * sc, c.right(), c.y + gy * sc, cjui::hexColor("#7A5CFF").withAlpha(k % 5 ? 0.12f : 0.28f), 1);
+            gfx_.popClip();
+        }
+        // The rulers along the top and left, in page pixels, and the guides placed from them.
+        {
+            const Rect tr{c.x, c.y - 20, c.w, 18}, lr{c.x - 20, c.y, 18, c.h};
+            gfx_.fill(tr, pal_.ink.withAlpha(pal_.dark ? 0.08f : 0.05f));
+            gfx_.fill(lr, pal_.ink.withAlpha(pal_.dark ? 0.08f : 0.05f));
+            addHit("dz:ruler:top", tr, [] {});
+            addHit("dz:ruler:left", lr, [] {});
+            tooltip("dz:ruler:top", L"Click to place a guide; drag one back here to remove it");
+            tooltip("dz:ruler:left", L"Click to place a guide; drag one back here to remove it");
+            float stepPx = 10;
+            for (float s2 : {10.f, 20.f, 50.f, 100.f, 200.f, 500.f, 1000.f}) { stepPx = s2; if (s2 * sc >= 50) break; }
+            for (float v = 0; v <= designDoc_.width; v += stepPx / 5) {
+                const bool major = std::fmod(v, stepPx) < 0.5f;
+                const float xx = c.x + v * sc;
+                gfx_.line(xx, tr.bottom(), xx, tr.bottom() - (major ? 8.0f : 3.0f), pal_.inkFaint, 1);
+                if (major) gfx_.text(std::to_wstring((int)v), {xx + 2, tr.y, 50, 12}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+            }
+            for (float v = 0; v <= designDoc_.height; v += stepPx / 5) {
+                const bool major = std::fmod(v, stepPx) < 0.5f;
+                const float yy = c.y + v * sc;
+                gfx_.line(lr.right(), yy, lr.right() - (major ? 8.0f : 3.0f), yy, pal_.inkFaint, 1);
+            }
+            const Color gc = cjui::hexColor("#22C3E6");
+            for (float gx : designDoc_.guidesX) {
+                gfx_.line(c.x + gx * sc, tr.y, c.x + gx * sc, c.bottom(), gc.withAlpha(0.8f), 1);
+                gfx_.fill({c.x + gx * sc - 3, tr.y, 6, 6}, gc);
+            }
+            for (float gy : designDoc_.guidesY) {
+                gfx_.line(lr.x, c.y + gy * sc, c.right(), c.y + gy * sc, gc.withAlpha(0.8f), 1);
+                gfx_.fill({lr.x, c.y + gy * sc - 3, 6, 6}, gc);
+            }
+        }
         // Guides while dragging, and the selection.
         for (float gx : dGuidesX_) gfx_.line(c.x + gx * sc, c.y, c.x + gx * sc, c.bottom(), cjui::hexColor("#FF3DD6"), 1);
         for (float gy : dGuidesY_) gfx_.line(c.x, c.y + gy * sc, c.right(), c.y + gy * sc, cjui::hexColor("#FF3DD6"), 1);
         gfx_.pushClip({c.x - 6, c.y - 6, c.w + 12, c.h + 12});   // a selection reaching off the page stops at its edge
-        if (const dz::Element* e = designDoc_.find(designSel_)) {
-            const Rect r{c.x + e->x * sc, c.y + e->y * sc, e->w * sc, e->h * sc};
-            gfx_.strokeRounded(r, 0, cjui::hexColor("#3FCF8E"), 1.5f);
-            if (!e->locked) {
-                const Rect hnd{r.right() - 5, r.bottom() - 5, 10, 10};
-                gfx_.fill(hnd, cjui::hexColor("#FFFFFF"));
-                gfx_.strokeRounded(hnd, 0, cjui::hexColor("#3FCF8E"), 1.5f);
+        {
+            const auto sel = designSelection();
+            const Color green = cjui::hexColor("#3FCF8E");
+            for (auto& id : sel)
+                if (const dz::Element* e = designDoc_.find(id))
+                    gfx_.strokeRounded({c.x + e->x * sc, c.y + e->y * sc, e->w * sc, e->h * sc}, 0, green.withAlpha(sel.size() > 1 ? 0.8f : 1.0f),
+                                       sel.size() > 1 ? 1.0f : 1.5f);
+            if (sel.size() > 1) {   // their joint box, dashed
+                const dz::Box jb = dz::boundsOf(designDoc_, sel);
+                const Rect r{c.x + jb.x * sc - 3, c.y + jb.y * sc - 3, jb.w * sc + 6, jb.h * sc + 6};
+                for (float t = 0; t < r.w; t += 10) {
+                    gfx_.line(r.x + t, r.y, r.x + std::min(t + 5, r.w), r.y, green, 1.5f);
+                    gfx_.line(r.x + t, r.bottom(), r.x + std::min(t + 5, r.w), r.bottom(), green, 1.5f);
+                }
+                for (float t = 0; t < r.h; t += 10) {
+                    gfx_.line(r.x, r.y + t, r.x, r.y + std::min(t + 5, r.h), green, 1.5f);
+                    gfx_.line(r.right(), r.y + t, r.right(), r.y + std::min(t + 5, r.h), green, 1.5f);
+                }
+            } else if (sel.size() == 1) {
+                if (const dz::Element* e = designDoc_.find(sel[0]); e && !e->locked) {
+                    const Rect r{c.x + e->x * sc, c.y + e->y * sc, e->w * sc, e->h * sc};
+                    const Rect hnd{r.right() - 5, r.bottom() - 5, 10, 10};
+                    gfx_.fill(hnd, cjui::hexColor("#FFFFFF"));
+                    gfx_.strokeRounded(hnd, 0, green, 1.5f);
+                }
             }
         }
         gfx_.popClip();
-        gfx_.text(L"Drag to move (Shift: no snapping), the corner to resize (Ctrl: keep its shape). Arrow keys nudge; Delete removes; "
-                  L"Ctrl+D copies; Ctrl+Z undoes.",
+        if (ddrag_ == 3 && (dMarquee_.w > 0 || dMarquee_.h > 0)) {
+            gfx_.fill(dMarquee_, cjui::hexColor("#3FCF8E").withAlpha(0.10f));
+            gfx_.strokeRounded(dMarquee_, 0, cjui::hexColor("#3FCF8E"), 1);
+        }
+        gfx_.text(L"Drag to move (Shift: no snapping), the corner to resize (Ctrl: keep its shape). Shift-click or drag a box to select "
+                  L"several; Ctrl+G groups. Arrows nudge; Delete; Ctrl+D copies; Ctrl+Z undoes.",
                   {centre.x, centre.bottom() - 2, centre.w, 18}, Font::Small, pal_.inkFaint, {Align::Center, false, true, true});
     }
 
@@ -1018,6 +1290,67 @@ void CaptureWindow::drawDesigner(const Rect& area) {
 
 void CaptureWindow::drawDesignerProperties(const Rect& r) {
     float y = r.y;
+    // Several selected (0.14): lining them up, spacing them, grouping.
+    if (const auto sel = designSelection(); sel.size() > 1) {
+        bool oneGroup = true, anyGroup = false;
+        const std::string g0 = designDoc_.find(sel[0]) ? designDoc_.find(sel[0])->group : std::string();
+        for (auto& id : sel)
+            if (const dz::Element* x = designDoc_.find(id)) {
+                anyGroup |= !x->group.empty();
+                oneGroup &= !x->group.empty() && x->group == g0;
+            }
+        if (oneGroup && dz::members(designDoc_, g0).size() != sel.size()) oneGroup = false;
+        gfx_.text(oneGroup ? L"GROUP" : L"SELECTION", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 22;
+        gfx_.text(std::to_wstring(sel.size()) + L" elements" + (oneGroup ? L", grouped" : L""), {r.x, y, r.w, 28}, Font::Heading, pal_.ink,
+                  {Align::Left, false, true});
+        y += 40;
+        auto act = [this](std::function<bool(dz::Document&, const std::vector<std::string>&)> f) {
+            const auto s2 = designSelection();
+            if (f(designDoc_, s2)) designChanged();
+        };
+        gfx_.text(L"Line up", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 22;
+        static const char* hows[] = {"left", "centre", "right", "top", "middle", "bottom"};
+        static const wchar_t* names[] = {L"Left", L"Centre", L"Right", L"Top", L"Middle", L"Bottom"};
+        const float bw = (r.w - 16) / 3;
+        for (int i = 0; i < 6; ++i)
+            button(std::string("dz:al:") + hows[i], {r.x + (i % 3) * (bw + 8), y + (i / 3) * 38.0f, bw, 30}, names[i], [act, i] {
+                act([i](dz::Document& d, const std::vector<std::string>& s3) { return dz::align(d, s3, hows[i]); });
+            });
+        y += 82;
+        gfx_.text(L"Space evenly", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 22;
+        const float hw = (r.w - 8) / 2;
+        button("dz:dist:x", {r.x, y, hw, 30}, L"Across", [this, act] {
+            if (designSelection().size() < 3) { flash(L"Spacing evenly needs three or more.", 4); return; }
+            act([](dz::Document& d, const std::vector<std::string>& s3) { return dz::distribute(d, s3, true); });
+        });
+        button("dz:dist:y", {r.x + hw + 8, y, hw, 30}, L"Down", [this, act] {
+            if (designSelection().size() < 3) { flash(L"Spacing evenly needs three or more.", 4); return; }
+            act([](dz::Document& d, const std::vector<std::string>& s3) { return dz::distribute(d, s3, false); });
+        });
+        y += 46;
+        gfx_.text(L"On the page", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 22;
+        button("dz:pg:c", {r.x, y, hw, 30}, L"Centre across", [act] {
+            act([](dz::Document& d, const std::vector<std::string>& s3) { return dz::align(d, s3, "centre", true); });
+        });
+        button("dz:pg:m", {r.x + hw + 8, y, hw, 30}, L"Centre down", [act] {
+            act([](dz::Document& d, const std::vector<std::string>& s3) { return dz::align(d, s3, "middle", true); });
+        });
+        y += 46;
+        button("dz:grp", {r.x, y, hw, 32}, oneGroup ? L"Ungroup" : L"Group", [this, oneGroup] { designGroupSelected(!oneGroup); }, true);
+        if (anyGroup && !oneGroup) button("dz:ungrp", {r.x + hw + 8, y, hw, 32}, L"Ungroup", [this] { designGroupSelected(false); });
+        y += 44;
+        button("dz:msdup", {r.x, y, hw, 30}, L"Duplicate", [this] { designerKey('D', true, false); });
+        button("dz:msdel", {r.x + hw + 8, y, hw, 30}, L"Delete", [this] { designerKey(VK_DELETE, false, false); });
+        y += 44;
+        y += gfx_.text(L"Shift-click adds or takes one away. Alt-click picks one element inside a group to change it on its own; so does "
+                       L"its row in Layers. Ctrl+G groups, Ctrl+Shift+G ungroups, Ctrl+A selects everything, Esc nothing.",
+                       {r.x, y, r.w, 80}, Font::Small, pal_.inkMuted) + 10;
+        return;
+    }
     dz::Element* e = designDoc_.find(designSel_);
     if (!e) {
         gfx_.text(L"PAGE", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
@@ -1036,6 +1369,17 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         return;
     }
     const std::string eid = e->id;
+    if (!e->group.empty()) {   // one element of a group, picked on its own (Alt-click or its row in Layers)
+        const std::string gid = e->group;
+        gfx_.text(L"Part of a group of " + std::to_wstring(dz::members(designDoc_, gid).size()), {r.x, y, r.w - 190, 28}, Font::Small, pal_.inkMuted,
+                  {Align::Left, false, true, true});
+        button("dz:p:selgrp", {r.right() - 186, y, 104, 28}, L"The group", [this, gid] { designSelect(dz::members(designDoc_, gid), designSel_); });
+        button("dz:p:ungrp", {r.right() - 76, y, 76, 28}, L"Ungroup", [this, gid] {
+            dz::ungroup(designDoc_, gid);
+            designChanged();
+        });
+        y += 40;
+    }
     // Each change applies to the element (found again by id: the list may have changed).
     auto edit = [this, eid](std::function<void(dz::Element&)> f) {
         if (dz::Element* x = designDoc_.find(eid)) {
@@ -1529,6 +1873,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         button("dz:p:up", {r.x, y, bw, 30}, L"Up", [this, eid] { if (dz::move(designDoc_, eid, 1)) designChanged(); });
         button("dz:p:down", {r.x + bw + 8, y, bw, 30}, L"Down", [this, eid] { if (dz::move(designDoc_, eid, -1)) designChanged(); });
         button("dz:p:dup", {r.x + (bw + 8) * 2, y, bw, 30}, L"Copy", [this, eid] {
+            designMulti_.clear();
             designSel_ = dz::duplicate(designDoc_, eid);
             designChanged();
         });
