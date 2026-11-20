@@ -1,5 +1,6 @@
 // The Writing workspace (manuscript outline, editor, details) and the import preview.
 #include "studio_app.hpp"
+#include <ctime>
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
@@ -206,6 +207,20 @@ void StudioApp::editorMessage(const std::string& text) {
         saveFailed_ = !lib_->saveNodeContent(id, m["doc"].dump());
         editor_.send(json{{"type", "saved"}, {"id", id}, {"ok", !saveFailed_}}.dump());
         if (saveFailed_) flash(w("Couldn't save the text: " + lib_->lastError()), 15);
+    } else if (type == "sprint") {   // the editor's writing sprint (0.53), for NorthRay Capture
+        if (m.value("running", false)) {
+            sprint_.running = true;
+            sprint_.end = m.value("end", (std::int64_t)0);
+            sprint_.minutes = m.value("minutes", 0);
+            sprint_.words = m.value("words", (std::int64_t)0);
+        } else {
+            sprint_.running = false;
+            sprint_.lastAt = (std::int64_t)std::time(nullptr) * 1000;
+            sprint_.lastWords = m.value("words", (std::int64_t)0);
+            sprint_.lastMinutes = m.value("minutes", 0);
+            sprint_.lastFinished = m.value("finished", false);
+        }
+        writeSummary();
     } else if (type == "saved-state") {
         editorDirty_ = m.value("dirty", false);
     } else if (type == "appCommand") {   // Ctrl+K, Ctrl+/ typed in the text

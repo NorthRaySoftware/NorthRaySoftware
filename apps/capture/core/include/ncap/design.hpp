@@ -111,6 +111,8 @@ struct Document {
     int width = 1920, height = 1080;
     Fill background = Fill::none();
     bool onlyWhilePlaying = false;   // drawn only while music plays ({song} has something)
+    bool onlyWhileSprint = false;    // drawn only while a writing sprint runs in Writing Studio (0.13)
+    bool onlyCelebrating = false;    // drawn only for a few seconds when a celebration fires, coming in afresh (0.13)
     std::vector<Element> elements;   // bottom first
     int nextId = 1;
     const Element* find(const std::string& id) const;
@@ -199,7 +201,10 @@ struct Clock {
     std::int64_t goLiveInMs = -1;   // until the time set to go live (-1: none set)
     std::int64_t plannedMs = -1;    // how long the stream is meant to be (-1: not set)
     std::string nextText;           // the next stream, as words ("Sat 22 Nov, 19:00"; "" not set)
+    std::int64_t sprintLeftMs = -1;  // a writing sprint in Writing Studio: time left (-1: none running) (0.13)
+    std::int64_t celebrateMs = -1;   // since a celebration began (-1: none lately) (0.13)
 };
+constexpr std::int64_t kCelebrationMs = 7000;   // how long a celebration design shows
 struct TimerShown {
     std::string text;
     bool ended = false;     // a countdown at zero
@@ -208,7 +213,9 @@ struct TimerShown {
 };
 TimerShown timerText(const Element& e, const Clock& c);
 std::string durationText(std::int64_t ms);   // "4:59", "1:02:03" (rounded up for countdowns by the caller)
-bool usesTime(const Document& d);
+bool usesTime(const Document& d);   // timers, fading chat, or shown only during sprints or celebrations
+// Whether a design shows anything now: one shown only during sprints or celebrations is hidden otherwise.
+bool shownNow(const Document& d, const Clock& c);
 bool usesChat(const Document& d);   // has a visible chat element            // anything that changes every second (timers)
 
 // QR codes (via Project Nayuki's library): the modules, row by row, true = dark; empty if too long.

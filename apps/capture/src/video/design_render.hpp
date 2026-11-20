@@ -37,6 +37,13 @@ void setLiveTime(std::int64_t ms);
 // `nextText` the next stream in words ("" none).
 void setStreamPlan(std::int64_t goLiveAt, std::int64_t plannedMs, const std::string& nextText);
 
+// From Writing Studio (0.13), set by the window (any thread): a writing sprint's end (milliseconds since 1970, -1 none),
+// a celebration starting now with its words ({celebration}), and the book's world colour that brand-linked designs take
+// in place of the kit's main colour while that book is written ("" none).
+void setWritingSprint(std::int64_t endsAtEpochMs);
+void celebrate(const std::string& text);
+void setWorldColour(const std::string& hex);
+
 // Saves a picture as a PNG.
 bool savePng(const std::wstring& path, const DesignPicture& p);
 

@@ -199,3 +199,65 @@ float CaptureWindow::drawAutomationSettings(float x, float y0, float colW) {
 }
 
 }  // namespace ncap
+
+// ---------------------------------------------------------------- Settings › Writing Studio (0.13)
+
+namespace ncap {
+float CaptureWindow::drawWritingSettings(float x, float y0, float colW) {
+    float y = y0;
+    y += gfx_.text(L"NorthRay Writing Studio tells Capture what you're writing every couple of seconds: the book and chapter, today's words, "
+                   L"the chapter's status, target, viewpoint, place and story day, who's in it, and any writing sprint. Designs show them "
+                   L"with {placeholders}: the Writing templates use them. Nothing is sent back to Writing Studio.",
+                   {x, y, colW, 80}, Font::Small, pal_.inkMuted) + 12;
+    auto row = [&](const std::string& id, const std::wstring& title, const std::wstring& note, bool on, std::function<void()> flip) {
+        toggle(id, x, y + 1, on, std::move(flip));
+        gfx_.text(title, {x + 60, y, colW - 60, 22}, Font::Body, pal_.ink, {Align::Left, false, true});
+        y += 24;
+        y += gfx_.text(note, {x + 60, y, colW - 60, 60}, Font::Small, pal_.inkMuted) + 12;
+    };
+    auto saved = [this] {
+        settings_.save(settingsPath_);
+        writingStamp_ = -1;   // read the summary again with the new setting
+        writingChecked_ = 0;
+        writingTick();
+        invalidate();
+    };
+    row("ws:safe", L"Spoiler-safe", L"Leave out the viewpoint, place, story day and who's in the chapter from every design.",
+        settings_.writing.spoilerSafe, [this, saved] { settings_.writing.spoilerSafe = !settings_.writing.spoilerSafe; saved(); });
+    row("ws:world", L"The world's colour", L"While you write a book, brand-linked designs take its world's colour (its accent in Writing Studio's "
+                                            L"Library) in place of your brand kit's main colour.",
+        settings_.writing.worldColour, [this, saved] { settings_.writing.worldColour = !settings_.writing.worldColour; saved(); });
+    row("ws:cel", L"Celebrations", L"The Celebration design pops up when you reach your daily word goal or finish a writing sprint. Add it to "
+                                    L"your writing scenes from Sources › + › Overlay design.",
+        settings_.writing.celebrate, [this, saved] { settings_.writing.celebrate = !settings_.writing.celebrate; saved(); });
+    row("ws:mark", L"Chapter markers", L"While recording, moving to another chapter adds a marker named after it (a chapter in the MP4 copy).",
+        settings_.writing.markers, [this, saved] { settings_.writing.markers = !settings_.writing.markers; saved(); });
+    row("ws:scenes", L"Scenes that follow Writing Studio", L"Switch to the scene chosen below when you move to another part of Writing Studio.",
+        settings_.writing.scenes, [this, saved] { settings_.writing.scenes = !settings_.writing.scenes; saved(); });
+    if (settings_.writing.scenes) {
+        static const char* keys[] = {"writing", "planning", "worldbuilding", "other"};
+        static const wchar_t* names[] = {L"Writing", L"Planning", L"Worldbuilding", L"Anywhere else"};
+        for (int i = 0; i < 4; ++i) {
+            const auto it = settings_.writing.sceneFor.find(keys[i]);
+            const std::string cur = it != settings_.writing.sceneFor.end() ? it->second : std::string();
+            gfx_.text(names[i], {x + 60, y, 150, 30}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+            button(std::string("ws:sc:") + keys[i], {x + 220, y, std::min(320.0f, colW - 220), 30}, cur.empty() ? L"Stay where it is" : widen(cur),
+                   [this, i, saved] {
+                       std::vector<MenuItem> items{MenuItem::item(L"Stay where it is", 1)};
+                       const auto& all = scenes_.scenes();
+                       for (std::size_t k = 0; k < all.size(); ++k) items.push_back(MenuItem::item(widen(all[k].name), 100 + (UINT)k));
+                       POINT pt;
+                       GetCursorPos(&pt);
+                       const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
+                       if (!c) return;
+                       if (c == 1) settings_.writing.sceneFor.erase(keys[i]);
+                       else if (c - 100 < all.size()) settings_.writing.sceneFor[keys[i]] = all[c - 100].name;
+                       saved();
+                   });
+            y += 38;
+        }
+        y += 6;
+    }
+    return y - y0;
+}
+}  // namespace ncap

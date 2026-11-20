@@ -214,7 +214,8 @@ std::string toJson(const Document& d) {
         els.push_back(j);
     }
     return json{{"format", "northray-capture-design"}, {"version", 1}, {"name", d.name}, {"width", d.width}, {"height", d.height},
-                {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying}}
+                {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying},
+                {"onlyWhileSprint", d.onlyWhileSprint}, {"onlyCelebrating", d.onlyCelebrating}}
         .dump();
 }
 
@@ -234,6 +235,8 @@ Document fromJson(const std::string& text) {
     d.height = (int)num(j, "height", 1080, 16, 8192);
     if (j.contains("background")) d.background = fillFrom(j["background"], Fill::none());
     d.onlyWhilePlaying = j.contains("onlyWhilePlaying") && j["onlyWhilePlaying"].is_boolean() && j["onlyWhilePlaying"].get<bool>();
+    d.onlyWhileSprint = j.contains("onlyWhileSprint") && j["onlyWhileSprint"].is_boolean() && j["onlyWhileSprint"].get<bool>();
+    d.onlyCelebrating = j.contains("onlyCelebrating") && j["onlyCelebrating"].is_boolean() && j["onlyCelebrating"].get<bool>();
     int maxId = 0;
     if (j.contains("elements") && j["elements"].is_array())
         for (auto& o : j["elements"]) {
@@ -281,8 +284,9 @@ Document fromJson(const std::string& text) {
             if (o.contains("timer") && o["timer"].is_object()) {
                 const json& t = o["timer"];
                 e.timerMode = str(t, "mode", "countdown", 16);
-                if (e.timerMode != "countdown" && e.timerMode != "until" && e.timerMode != "stopwatch" && e.timerMode != "live" && e.timerMode != "clock")
-                    e.timerMode = "countdown";
+                // Every mode is kept (0.13: the 0.11 modes, golive, remaining and next, were turned back into countdowns here).
+                static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock", "golive", "remaining", "next", "sprint"};
+                if (std::none_of(std::begin(modes), std::end(modes), [&](const char* m) { return e.timerMode == m; })) e.timerMode = "countdown";
                 e.timerSeconds = (int)num(t, "seconds", 300, 1, 359999);
                 e.timerUntil = (int)num(t, "until", 20 * 60, 0, 24 * 60 - 1);
                 e.timerEnd = str(t, "end", "Starting now!", 200);
@@ -552,6 +556,9 @@ TimerShown timerText(const Element& e, const Clock& c) {
         if (c.plannedMs <= 0) t.text = "No length set";
         else if (c.liveMs < 0) t.text = durationText(c.plannedMs);
         else counting(c.plannedMs - c.liveMs);
+    } else if (e.timerMode == "sprint") {
+        if (c.sprintLeftMs < 0) t.text = "No sprint";
+        else counting(c.sprintLeftMs);
     } else if (e.timerMode == "next") {
         t.text = c.nextText.empty() ? "To be announced" : c.nextText;
     } else {   // clock, 24-hour
@@ -568,7 +575,14 @@ TimerShown timerText(const Element& e, const Clock& c) {
     return t;
 }
 
+bool shownNow(const Document& d, const Clock& c) {
+    if (d.onlyWhileSprint && c.sprintLeftMs < 0) return false;
+    if (d.onlyCelebrating && !(c.celebrateMs >= 0 && c.celebrateMs < kCelebrationMs)) return false;
+    return true;
+}
+
 bool usesTime(const Document& d) {
+    if (d.onlyWhileSprint || d.onlyCelebrating) return true;
     for (auto& e : d.elements)
         if (e.visible && (e.kind == Kind::Timer || (e.kind == Kind::Chat && e.chatFade > 0))) return true;
     return false;
@@ -976,6 +990,161 @@ const std::vector<Template>& templates() {
             b.animMs = 750;
             add(d, b);
             v.push_back({"writing-progress", "Writing progress (chapter and today's words)", "On stream", d});
+        }
+        // From Writing Studio (0.13): a sprint's countdown, the viewpoint character, who's in the chapter, the chapter's
+        // details, and a celebration when the daily goal is reached or a sprint ends.
+        auto picEl = [](const char* name, const char* file, float x, float y, float w, float h, float radius) {
+            Element p;
+            p.kind = Kind::Image;
+            p.name = name;
+            p.file = file;
+            p.cover = true;
+            p.radius = radius;
+            p.x = x, p.y = y, p.w = w, p.h = h;
+            return p;
+        };
+        {
+            Document d;
+            d.name = "Sprint timer";
+            d.width = 700;
+            d.height = 220;
+            d.onlyWhileSprint = true;
+            Element card = rectEl("Card", 10, 10, 680, 200, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#3FCF8E66");
+            card.strokeWidth = 2;
+            card.anim = Anim::Pop;
+            add(d, card);
+            Element k = textEl("Label", "WRITING SPRINT", 40, 34, 620, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::Pop;
+            add(d, k);
+            Element t;
+            t.kind = Kind::Timer;
+            t.name = "Time left";
+            t.timerMode = "sprint";
+            t.timerEnd = "Time!";
+            t.x = 40, t.y = 66, t.w = 620, t.h = 86;
+            t.size = 72;
+            t.bold = true;
+            t.align = "left";
+            t.fill = Fill::solid(hex("#F4F7FB"));
+            t.anim = Anim::Pop;
+            add(d, t);
+            Element w = textEl("Words", "{sprintline}", 40, 154, 620, 40, 28, "#9FB3C8", false, "left");
+            w.anim = Anim::Pop;
+            add(d, w);
+            v.push_back({"sprint-timer", "Sprint timer (shows during a writing sprint)", "On stream", d});
+        }
+        {
+            Document d;
+            d.name = "Character card";
+            d.width = 760;
+            d.height = 260;
+            Element card = rectEl("Card", 10, 10, 740, 240, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#7A5CFF55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideLeft;
+            add(d, card);
+            Element ring = rectEl("Portrait ring", 36, 36, 188, 188, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 94);
+            ring.anim = Anim::SlideLeft;
+            add(d, ring);
+            Element p = picEl("Portrait", "{viewpointpic}", 42, 42, 176, 176, 88);
+            p.anim = Anim::SlideLeft;
+            add(d, p);
+            Element k = textEl("Label", "THROUGH THE EYES OF", 256, 74, 470, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::SlideLeft;
+            add(d, k);
+            Element n = textEl("Name", "{viewpoint}", 256, 108, 470, 80, 50, "#F4F7FB", true, "left");
+            n.anim = Anim::SlideLeft;
+            n.animMs = 650;
+            add(d, n);
+            v.push_back({"character-card", "Character card (the chapter's viewpoint character)", "On stream", d});
+        }
+        {
+            Document d;
+            d.name = "Cast list";
+            d.width = 1200;
+            d.height = 300;
+            Element card = rectEl("Card", 10, 10, 1180, 280, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#3FCF8E55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideUp;
+            add(d, card);
+            Element k = textEl("Label", "IN THIS CHAPTER", 40, 30, 1120, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::SlideUp;
+            add(d, k);
+            for (int i = 0; i < 6; ++i) {
+                const float x = 40 + i * 188.0f;
+                const std::string n = std::to_string(i + 1);
+                Element p = picEl(("Portrait " + n).c_str(), ("{cast" + n + "pic}").c_str(), x + 24, 76, 124, 124, 62);
+                p.anim = Anim::SlideUp;
+                p.animMs = 500 + i * 80;
+                add(d, p);
+                Element t = textEl(("Name " + n).c_str(), ("{cast" + n + "}").c_str(), x, 210, 172, 60, 22, "#F4F7FB", true, "centre");
+                t.anim = Anim::SlideUp;
+                t.animMs = 500 + i * 80;
+                add(d, t);
+            }
+            v.push_back({"cast-list", "Cast list (who's in this chapter)", "On stream", d});
+        }
+        {
+            Document d;
+            d.name = "Chapter card";
+            d.width = 1100;
+            d.height = 320;
+            Element card = rectEl("Card", 10, 10, 1080, 300, Fill::solid(hex("#0B1A2EE6")), 28);
+            card.stroke = hex("#7A5CFF55");
+            card.strokeWidth = 2;
+            card.anim = Anim::SlideUp;
+            add(d, card);
+            Element pic = picEl("Place picture", "{placepic}", 800, 40, 250, 240, 18);
+            pic.anim = Anim::SlideUp;
+            add(d, pic);
+            Element k = textEl("Status", "{status}", 50, 40, 720, 30, 22, "#3FCF8E", true, "left");
+            k.anim = Anim::SlideUp;
+            add(d, k);
+            Element c = textEl("Chapter", "{chapter}", 50, 74, 720, 70, 50, "#F4F7FB", true, "left");
+            c.anim = Anim::SlideUp;
+            add(d, c);
+            Element where = textEl("Where and when", "{place}  ·  {storyday}", 50, 150, 720, 42, 30, "#C9D6E3", false, "left");
+            where.anim = Anim::SlideUp;
+            where.animMs = 650;
+            add(d, where);
+            Element pov = textEl("Viewpoint", "{viewpoint}", 50, 196, 720, 40, 26, "#9FB3C8", false, "left");
+            pov.anim = Anim::SlideUp;
+            pov.animMs = 700;
+            add(d, pov);
+            Element t = textEl("Target", "{targetline}", 50, 244, 720, 40, 26, "#9FB3C8", false, "left");
+            t.anim = Anim::SlideUp;
+            t.animMs = 750;
+            add(d, t);
+            v.push_back({"chapter-card", "Chapter card (status, place, story day, target)", "On stream", d});
+        }
+        {
+            Document d;
+            d.name = "Celebration";
+            d.width = 1000;
+            d.height = 260;
+            d.onlyCelebrating = true;
+            Element glow = rectEl("Glow", 20, 20, 960, 220, Fill::radial({{0, hex("#3FCF8E99")}, {1, hex("#3FCF8E00")}}), 110);
+            glow.anim = Anim::Fade;
+            add(d, glow);
+            Element card = rectEl("Banner", 80, 60, 840, 140, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0), 70);
+            card.shadow = {true, 0, 10, 26, hex("#00000099")};
+            card.anim = Anim::Pop;
+            add(d, card);
+            Element ic;
+            ic.kind = Kind::Icon;
+            ic.icon = "sparkle";
+            ic.name = "Sparkle";
+            ic.x = 110, ic.y = 90, ic.w = 80, ic.h = 80;
+            ic.fill = Fill::solid(hex("#FFFFFF"));
+            ic.anim = Anim::Pop;
+            add(d, ic);
+            Element t = textEl("Words", "{celebration}", 200, 90, 690, 80, 40, "#FFFFFF", true, "left");
+            t.anim = Anim::Pop;
+            t.animMs = 650;
+            add(d, t);
+            v.push_back({"celebration", "Celebration (daily goal reached, sprint done)", "On stream", d});
         }
         {   // A radio show's title and episode, with an on-air badge.
             Document d;

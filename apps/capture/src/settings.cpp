@@ -86,6 +86,18 @@ bool Settings::load(const std::wstring& path) {
     plannedMinutes = std::clamp(cj::valueOr(j, "plannedMinutes", 0), 0, 24 * 60);
     nextStreamAt = cj::valueOr(j, "nextStreamAt", std::string());
     preLiveChecklist = cj::valueOr(j, "preLiveChecklist", false);
+    writing = WritingLink{};
+    if (auto it = j.find("writingStudio"); it != j.end() && it->is_object()) {
+        const nlohmann::json& w = *it;
+        writing.spoilerSafe = cj::valueOr(w, "spoilerSafe", false);
+        writing.worldColour = cj::valueOr(w, "worldColour", true);
+        writing.celebrate = cj::valueOr(w, "celebrate", true);
+        writing.markers = cj::valueOr(w, "markers", true);
+        writing.scenes = cj::valueOr(w, "scenes", false);
+        if (auto sf = w.find("sceneFor"); sf != w.end() && sf->is_object())
+            for (auto& [k, v] : sf->items())
+                if (v.is_string() && (k == "writing" || k == "planning" || k == "worldbuilding" || k == "other")) writing.sceneFor[k] = v.get<std::string>().substr(0, 200);
+    }
     hotkeys.clear();
     if (auto it = j.find("hotkeys"); it != j.end() && it->is_array()) hotkeys = hotkeys::fromJson(it->dump());
     automationRules.clear();
@@ -150,7 +162,9 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"timelapse", timelapse}, {"notesSpeed", notesSpeed}, {"dndReminder", dndReminder}, {"notesSize", notesSize}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"timelapse", timelapse}, {"notesSpeed", notesSpeed}, {"dndReminder", dndReminder}, {"notesSize", notesSize}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems},
+                              {"writingStudio", {{"spoilerSafe", writing.spoilerSafe}, {"worldColour", writing.worldColour}, {"celebrate", writing.celebrate},
+                                                 {"markers", writing.markers}, {"scenes", writing.scenes}, {"sceneFor", writing.sceneFor}}}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";

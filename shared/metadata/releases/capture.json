@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.13.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Writing Studio, live on stream: new designs for a sprint timer (shows only during a writing sprint), the viewpoint character's card, a cast list of who's in the chapter, and a chapter card with its status, place, story day and target.",
+        "Celebrations: the Celebration design pops up when you reach your daily word goal or finish a sprint.",
+        "Settings › Writing Studio: spoiler-safe (leaves the story's details out of every design), your book's world colour on brand-linked designs, a recording marker for each chapter, and scenes that follow the part of Writing Studio you're in.",
+        "{streamwords}: the words you've written this stream. The stream report lists the words, chapters and sprints written during it.",
+        "Fixed: timers set to Until going live, Time left in the stream or Next stream turned back into plain countdowns when Capture was reopened."
+      ]
+    },
+    {
       "version": "0.12.0",
       "date": "2026-11-19",
       "notes": [

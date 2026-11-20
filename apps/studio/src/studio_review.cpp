@@ -2,6 +2,7 @@
 // versions and snapshots, its snapshots, a check of its names against the
 // world's bible, and daily writing goals.
 #include "studio_app.hpp"
+#include "studio/planning.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
@@ -92,7 +93,67 @@ void StudioApp::writeSummary() {
             for (auto* top : lib_->childrenOf(b->id, {})) total += nodeTotalWords(top->id);
             if (liveWords_ >= 0) total += liveWords_ - n->wordCount;
             j["bookWords"] = std::max<std::int64_t>(0, total);
+            // For NorthRay Capture's chapter, character and cast overlays (0.53). Capture hides these when it's set to
+            // be spoiler-safe.
+            j["chapterId"] = n->id;
+            if (n->kind != NodeKind::Part) {
+                j["status"] = label(n->status);
+                j["target"] = n->targetWords;
+            }
+            auto picOf = [&](const Entry* e, bool map) {
+                const std::string& blob = !e->imageBlob.empty() ? e->imageBlob : map ? e->mapBlob : e->imageBlob;
+                return blob.empty() ? std::string() : lib_->blobPath(blob);
+            };
+            if (const Entry* pov = n->povId.empty() ? nullptr : lib_->entry(n->povId); pov && !pov->deleted)
+                j["viewpoint"] = {{"name", pov->name}, {"picture", picOf(pov, false)}};
+            const auto places = plan::nodePlaces(*lib_, b->id);
+            if (auto it = places.find(n->id); it != places.end())
+                if (const Entry* pl = lib_->entry(it->second); pl && !pl->deleted) j["place"] = {{"name", pl->name}, {"picture", picOf(pl, true)}};
+            {
+                const auto times = storyTimes(b->id);
+                if (auto it = times.find(n->id); it != times.end()) {
+                    std::string day;
+                    if (it->second.placed) {
+                        const std::string unit = timelineUnit(b->id);
+                        char buf[32];
+                        std::snprintf(buf, sizeof buf, "%g", it->second.day);
+                        day = std::string(unit == "week" ? "Week " : unit == "month" ? "Month " : unit == "year" ? "Year " : "Day ") + buf;
+                    }
+                    if (!it->second.when.empty()) day += (day.empty() ? "" : ", ") + it->second.when;
+                    if (!day.empty()) j["storyDay"] = day;
+                }
+            }
+            {
+                // Who's in it: the characters found in its text (most mentioned first), up to six.
+                if (pl_.book != b->id || pl_.appearances.empty()) castCache_ = lib_->appearancesIn(b->id);
+                const auto& app = pl_.book == b->id && !pl_.appearances.empty() ? pl_.appearances : castCache_;
+                nlohmann::json cast = nlohmann::json::array();
+                if (auto it = app.find(n->id); it != app.end())
+                    for (const Id& eid : it->second) {
+                        const Entry* e = lib_->entry(eid);
+                        if (!e || e->deleted || e->kind != "character") continue;
+                        cast.push_back({{"name", e->name}, {"picture", picOf(e, false)}});
+                        if (cast.size() >= 6) break;
+                    }
+                j["cast"] = cast;
+            }
+            if (const World* wd = b->worldId.empty() ? nullptr : lib_->world(b->worldId); wd && !wd->accent.empty()) j["worldColour"] = wd->accent;
         }
+    // Which part of the Studio is open, for Capture's scene for each (0.53).
+    {
+        const char* ws = "library";
+        switch (ws_) {
+            case Workspace::Writing: ws = "writing"; break;
+            case Workspace::Planning: ws = "planning"; break;
+            case Workspace::Worldbuilding: ws = "worldbuilding"; break;
+            case Workspace::Review: ws = "review"; break;
+            case Workspace::Typesetting: case Workspace::Preview: case Workspace::Publishing: ws = "publishing"; break;
+            default: break;
+        }
+        j["workspace"] = ws;
+    }
+    if (sprint_.running) j["sprint"] = {{"endsAt", sprint_.end}, {"minutes", sprint_.minutes}, {"words", sprint_.words}};
+    if (sprint_.lastAt) j["lastSprint"] = {{"at", sprint_.lastAt}, {"words", sprint_.lastWords}, {"minutes", sprint_.lastMinutes}, {"finished", sprint_.lastFinished}};
     const std::string text = j.dump(1);
     if (text == lastSummary_) return;
     std::string err;

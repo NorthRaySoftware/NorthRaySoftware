@@ -592,6 +592,10 @@ private:
     std::wstring editorNote_;      // why the editor isn't available, if it isn't
     bool loadPending_ = false;     // send the current node once the page is ready
     std::int64_t liveWords_ = -1, selectionWords_ = 0;
+    // A writing sprint in the editor, passed on to NorthRay Capture (0.53): running now, and the last one to end.
+    std::map<Id, std::vector<Id>> castCache_;   // who appears where, for the summary when Planning hasn't worked it out
+    struct { bool running = false; std::int64_t end = 0, words = 0; int minutes = 0;
+             std::int64_t lastAt = 0, lastWords = 0; int lastMinutes = 0; bool lastFinished = false; } sprint_;
     float binderScroll_ = 0, binderContent_ = 0;
     bool showNodeTrash_ = false;
     bool closePending_ = false;    // closing: waiting for the editor's last save

@@ -1593,3 +1593,36 @@ The second batch of CJ's feature answers.
 - Tested in Wine: the halo and a click ring on a display capture, the menus; typing notes (saved to notes.txt and
   loaded at start), Read scrolling by itself; the destinations page with live meters; the settings rows. Not testable
   here: time-lapse files, the pointer over a real window capture (Wine has no WGC).
+
+## 59. Writing Studio, live on stream (released as 0.13.0 with Writing Studio 0.53.0, 20 Nov 2026)
+
+CJ's 19 answers (claude/studio-capture-answers-2026-11-20.md): Studio sends, Capture reads; no threads or structure on
+stream; spoiler-safe in Capture.
+
+- Writing Studio's summary.json adds, for the chapter in its editor: `chapterId`, `status`, `target`, `viewpoint` and
+  `place` ({name, picture}: the entry's picture, a place's map when it has no picture), `storyDay` ("Day 4, at dawn"),
+  `cast` (up to six characters found in its text, with pictures), `worldColour` (the world's accent), `workspace`
+  (writing, planning, worldbuilding, review, publishing, library), `sprint` ({endsAt epoch ms, minutes, words}, from the
+  editor's new `sprint` message) and `lastSprint` ({at, words, minutes, finished}).
+- core/design: `Clock::sprintLeftMs`, `celebrateMs`; timer mode `sprint`; `Document::onlyWhileSprint` and
+  `onlyCelebrating` (JSON), `shownNow`, and `usesTime` true for them so the source redraws as they appear and go
+  (the worker's change key includes `shownNow`). Fixed: `fromJson` reset the 0.11 timer modes (golive, remaining,
+  next) to countdown. Templates: Sprint timer, Character card ({viewpointpic}, {viewpoint}), Cast list ({castNpic},
+  {castN}), Chapter card ({status}, {chapter}, {place} · {storyday}, {viewpoint}, {targetline}, {placepic}) and
+  Celebration ({celebration}, a pop for `kCelebrationMs`).
+- core/live: `Report::Writing` (words, chapters, sprints, sprint words) from `Collector::writing` (today's words; a
+  smaller count is a new day, carried on from 0) and `Collector::sprint`; in the JSON as "writing"; shown in the report.
+- video/design_render: `setWritingSprint`, `celebrate(text)` (time stamp, {celebration}), `setWorldColour` (replaces the
+  kit's primary while drawing, lightened until its luminance is at least 0.42 so it reads on dark panels).
+- The window (`writingTick`): the new placeholders (always defined, empty without Writing Studio; the story's details
+  empty when spoiler-safe), {sprintwords}/{sprintline}, {streamwords}/{streamline} (today's words since streaming or
+  recording began), report figures, celebrations (the daily goal crossed on the same day; a newly finished sprint; not
+  what had happened before Capture opened) that send "enter" to every onlyCelebrating design, scenes by workspace (on a
+  change only; `switchToSceneNamed`), and a marker named after the chapter when it changes while recording.
+- Settings › Writing Studio (`settings.writing`, JSON "writingStudio"): spoilerSafe, worldColour, celebrate, markers,
+  scenes and sceneFor (writing, planning, worldbuilding, other -> scene name).
+- Tested: capturecore 1946 checks (sprint timer, shown-only flags, timer modes saved, the report's writing figures). In
+  Wine with Writing Studio: the summary's new fields for a chapter with a place and story day; the Chapter card filled
+  (status, chapter, Highcliff · Day 4 with its map); the Sprint timer appearing for a running sprint and going when it
+  ended; the Celebration popping up for about seven seconds; the Planning workspace switching to the chosen scene.
+  Not testable here: chapter markers and the report's writing section (no encoder, so no recording or streaming).

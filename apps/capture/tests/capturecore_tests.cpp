@@ -734,6 +734,24 @@ static void testLive() {
     CHECK(lv::fromJson(lv::toJson(r), back));
     CHECK(back.started == "2026-11-22T19:00" && back.seconds == 12 && back.kbps.size() == 3 && back.scenes.size() == 2 && back.changes.size() == 3 &&
           back.destinations.size() == 1 && back.destinations[0].name == "Twitch" && back.recorded && back.dropped == 3);
+    CHECK(!back.writing.any);
+    // Writing Studio during a stream (0.13): words from where it began, a new day carrying on, chapters, sprints.
+    {
+        lv::Collector w;
+        w.writing(500, "Chapter 1");   // nothing: not running
+        w.begin(s, "Writing");
+        w.writing(1200, "Chapter 3");
+        w.writing(1450, "Chapter 3");
+        w.writing(1600, "Chapter 4");
+        w.writing(30, "Chapter 4");    // midnight: today starts again
+        w.sprint(320);
+        w.sprint(-5);
+        const lv::Report wr = w.finish(60);
+        CHECK(wr.writing.any && wr.writing.words == 430 && wr.writing.chapters == std::vector<std::string>({"Chapter 3", "Chapter 4"}) &&
+              wr.writing.sprints == 2 && wr.writing.sprintWords == 320);
+        lv::Report wb;
+        CHECK(lv::fromJson(lv::toJson(wr), wb) && wb.writing == wr.writing);
+    }
     CHECK(!lv::fromJson("{}", back) && !lv::fromJson("nope", back) && !lv::fromJson(R"({"started":"tomorrow"})", back));
     CHECK(lv::fromJson(R"({"started":"2026-11-22T19:00","kbps":[1,"x",-5],"scenes":[{"name":"A","seconds":-1}]})", back) && back.kbps.size() == 2 &&
           back.kbps[1] == 0 && back.scenes.size() == 1 && back.scenes[0].second == 0);
@@ -1300,6 +1318,11 @@ static void testDesign() {
     for (auto& tp : templates()) {
         CHECK(!tp.doc.elements.empty());
         CHECK(fromJson(toJson(tp.doc)).elements == tp.doc.elements);
+        if (!(fromJson(toJson(tp.doc)).elements == tp.doc.elements)) {
+            const auto back = fromJson(toJson(tp.doc));
+            for (size_t i = 0; i < tp.doc.elements.size() && i < back.elements.size(); ++i)
+                if (!(back.elements[i] == tp.doc.elements[i])) std::printf("  template %s element %s differs\n", tp.id, tp.doc.elements[i].name.c_str());
+        }
     }
     CHECK(fillPlaceholders("{twitch} and {twitch} / {x}", {{"twitch", "twitch.tv/cj"}}) == "twitch.tv/cj and twitch.tv/cj / {x}");
     // Parts between dots whose details aren't set are dropped with their dots; the designer shows the tags.
@@ -2752,6 +2775,41 @@ static void testDesignLive() {
     t.text = "Next stream: {time}";
     CHECK(timerText(t, c).text == "Next stream: Sat 22 Nov, 19:00");
     t.text = "";
+    // 0.13: Writing Studio's sprint, and designs shown only during sprints or celebrations.
+    t.timerMode = "sprint";
+    CHECK(timerText(t, c).text == "No sprint");
+    c.sprintLeftMs = 61000;
+    CHECK(timerText(t, c).text == "1:01");
+    {
+        Document sd;
+        sd.onlyWhileSprint = true;
+        Clock none;
+        CHECK(!shownNow(sd, none) && shownNow(sd, c) && usesTime(sd));
+        Document cd;
+        cd.onlyCelebrating = true;
+        Clock cel;
+        CHECK(!shownNow(cd, cel));
+        cel.celebrateMs = 1000;
+        CHECK(shownNow(cd, cel));
+        cel.celebrateMs = kCelebrationMs + 1;
+        CHECK(!shownNow(cd, cel));
+        Document plain;
+        CHECK(shownNow(plain, none) && !usesTime(plain));
+        const Document back = fromJson(toJson(sd));
+        CHECK(back.onlyWhileSprint && !back.onlyCelebrating && fromJson(toJson(cd)).onlyCelebrating);
+        // Every timer mode survives saving (golive, remaining and next didn't before 0.13).
+        for (const char* m : {"golive", "remaining", "next", "sprint", "clock"}) {
+            Document md;
+            Element te;
+            te.kind = Kind::Timer;
+            te.timerMode = m;
+            add(md, te);
+            CHECK(fromJson(toJson(md)).elements[0].timerMode == m);
+        }
+        bool found = false;
+        for (auto& tp : templates()) if (std::string(tp.id) == "sprint-timer") found = tp.doc.onlyWhileSprint;
+        CHECK(found);
+    }
     c = Clock{};
     t.timerMode = "clock";
     c.localSeconds = 9 * 3600 + 5 * 60 + 59;

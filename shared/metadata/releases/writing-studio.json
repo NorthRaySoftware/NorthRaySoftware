@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.53.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Capture shows more of what you're writing: the chapter's status and target, its viewpoint character and place (with their pictures from the world bible), its story day, who's in it, any writing sprint, which part of the Studio you're in, and your world's colour.",
+        "Nothing is sent anywhere else: it's the same summary file on your PC that Capture already read."
+      ]
+    },
+    {
       "version": "0.52.0",
       "date": "2026-11-20",
       "notes": [

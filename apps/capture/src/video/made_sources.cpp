@@ -678,6 +678,7 @@ private:
                             shown += ts.text + "|";
                             pulse = std::max(pulse, ts.pulse);
                         }
+                    shown += design::shownNow(doc, clock) ? "+" : "-";   // shown only during sprints or celebrations
                     if (shown != lastTimers_ || pulse > 1.0001f || lastPulse_) {
                         lastTimers_ = shown;
                         ++changes_;

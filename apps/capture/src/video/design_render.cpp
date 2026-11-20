@@ -339,6 +339,10 @@ std::mutex gValuesM;
 std::atomic<std::int64_t> gLiveMs{-1};
 std::atomic<ULONGLONG> gLiveAt{0};
 std::atomic<std::int64_t> gGoLiveAt{-1}, gPlannedMs{-1};
+std::atomic<std::int64_t> gSprintEnd{-1};      // epoch ms
+std::atomic<ULONGLONG> gCelebrateAt{0};        // GetTickCount64 when the last celebration began
+std::mutex gWritingM;
+std::string gCelebration, gWorldColour;
 std::mutex gNextM;
 std::string gNextText;
 Placeholders gValues;
@@ -521,8 +525,43 @@ void setStreamPlan(std::int64_t goLiveAt, std::int64_t plannedMs, const std::str
     gNextText = nextText;
 }
 
+void setWritingSprint(std::int64_t endsAt) { gSprintEnd = endsAt; }
+
+void celebrate(const std::string& text) {
+    {
+        std::lock_guard<std::mutex> l(gWritingM);
+        gCelebration = text;
+    }
+    gCelebrateAt = GetTickCount64();
+    std::lock_guard<std::mutex> l(gValuesM);
+    ++gValuesVersion;
+}
+
+void setWorldColour(const std::string& hex) {
+    {
+        std::lock_guard<std::mutex> l(gWritingM);
+        if (hex == gWorldColour) return;
+        gWorldColour = hex;
+    }
+    std::lock_guard<std::mutex> l(gValuesM);
+    ++gValuesVersion;
+}
+
 Clock clockNow(std::int64_t elapsedMs) {
     Clock c;
+    {
+        // Writing Studio's sprint: the time left (one that ended more than a few seconds ago, or never ended because
+        // Writing Studio closed, counts as none).
+        const std::int64_t end = gSprintEnd;
+        if (end > 0) {
+            FILETIME ft;
+            GetSystemTimeAsFileTime(&ft);
+            const std::int64_t nowMs = (std::int64_t)((((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10000ULL) - 11644473600000LL;
+            if (end - nowMs > -3000 && end - nowMs < 4LL * 3600 * 1000) c.sprintLeftMs = std::max<std::int64_t>(0, end - nowMs);
+        }
+        const ULONGLONG at = gCelebrateAt;
+        if (at) c.celebrateMs = (std::int64_t)(GetTickCount64() - at);
+    }
     c.elapsedMs = elapsedMs;
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -549,17 +588,38 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         error = L"Direct2D isn't available";
         return false;
     }
-    const Brand brand = designBrand();
+    Brand brand = designBrand();
+    std::string celebration;
+    {
+        // While writing a book in Writing Studio, its world's colour stands in for the kit's main colour (0.13).
+        std::lock_guard<std::mutex> l(gWritingM);
+        sourceutil::Rgba wc;
+        if (!gWorldColour.empty() && sourceutil::parseColour(gWorldColour, wc)) {
+            // Lightened until it reads on the designs' dark panels (a world's accent is often deep).
+            for (int i = 0; i < 8; ++i) {
+                const float lum = (0.2126f * wc.r + 0.7152f * wc.g + 0.0722f * wc.b) / 255.0f;
+                if (lum >= 0.42f) break;
+                wc.r = (std::uint8_t)(wc.r + (255 - wc.r) * 0.22f);
+                wc.g = (std::uint8_t)(wc.g + (255 - wc.g) * 0.22f);
+                wc.b = (std::uint8_t)(wc.b + (255 - wc.b) * 0.22f);
+            }
+            wc.a = 255;
+            for (auto& bc : brand.colours)
+                if (bc.key == "primary") bc.colour = wc;
+        }
+        celebration = gCelebration;
+    }
     Document d = applyBrand(linked, brand);
-    // Your details, and what's playing ({song}, {artist}).
+    // Your details, and what's playing ({song}, {artist}), and the latest celebration's words.
     Placeholders values = profileValues;
+    values.push_back({"celebration", celebration});
     {
         const sourceutil::TrackInfo t = nowPlaying();
         values.push_back({"song", t.title});
         values.push_back({"artist", t.artist});
     }
     // "Only while music plays": an empty, see-through page when nothing is (the designer still shows it).
-    if (d.onlyWhilePlaying && !showMissing && nowPlaying().title.empty()) {
+    if (!showMissing && ((d.onlyWhilePlaying && nowPlaying().title.empty()) || !shownNow(d, clock))) {
         d.elements.clear();
         d.background = Fill::none();
     }

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.119.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.53.0 and NorthRay Capture 0.13.0: your chapter, characters, places, sprints and celebrations on stream."
+      ]
+    },
+    {
       "version": "0.118.0",
       "date": "2026-11-20",
       "notes": [

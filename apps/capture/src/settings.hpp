@@ -44,6 +44,15 @@ struct Settings {
     float notesSize = 32;              // its text size
     double timelapse = 0;              // seconds between frames for a time-lapse recording (0: off)
     bool preLiveChecklist = false;           // Start streaming shows the pre-live checklist first
+    // Settings › Writing Studio (0.13): what Capture does with Writing Studio's summary.
+    struct WritingLink {
+        bool spoilerSafe = false;   // leave the story's details (viewpoint, place, story day, cast) out of every design
+        bool worldColour = true;    // brand-linked designs take the book's world colour while it's written
+        bool celebrate = true;      // the Celebration design pops up for the daily goal and finished sprints
+        bool markers = true;        // a recording marker named after each chapter moved to
+        bool scenes = false;        // switch scenes by Writing Studio's workspace
+        std::map<std::string, std::string> sceneFor;   // workspace ("writing", "planning", "worldbuilding", "other") -> scene name
+    } writing;
     std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
     std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)
     std::vector<hotkeys::Binding> hotkeys;           // Settings › Hotkeys (core/hotkeys)            // an MP4 copy when a recording ends (the MKV is kept)

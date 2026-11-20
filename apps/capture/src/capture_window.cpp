@@ -1776,6 +1776,9 @@ void CaptureWindow::drawSettings(const Rect& area) {
     section(L"AUTOMATION");
     y += drawAutomationSettings(x, y, colW) + 8;
 
+    section(L"WRITING STUDIO");
+    y += drawWritingSettings(x, y, colW) + 8;
+
     section(L"HOTKEYS");
     y += drawHotkeySettings(x, y, colW) + 8;
 

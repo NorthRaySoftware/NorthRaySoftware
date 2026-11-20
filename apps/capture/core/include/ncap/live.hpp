@@ -45,6 +45,16 @@ struct Report {
     std::vector<std::pair<std::string, double>> scenes;   // each scene's live time, in the order first shown
     std::vector<std::pair<double, std::string>> changes;  // when each scene went live (seconds in)
     bool recorded = false;                    // a recording ran alongside
+    // Writing in NorthRay Writing Studio during the stream (0.13): words written, the chapters worked on (in the order
+    // first written in), and sprints finished with their words.
+    struct Writing {
+        bool any = false;
+        std::int64_t words = 0;
+        std::vector<std::string> chapters;
+        int sprints = 0;
+        std::int64_t sprintWords = 0;
+        bool operator==(const Writing&) const = default;
+    } writing;
 };
 
 // Collects a report while the stream runs. Times are seconds since the stream started.
@@ -59,6 +69,10 @@ public:
     void scene(double t, const std::string& name);   // the live scene changed
     void destination(const Report::Destination& d);  // a destination's final figures (replaces one of the same name)
     void setRecorded() { r_.recorded = true; }
+    // Writing Studio (0.13): today's words now (the first call is the starting point; a smaller number, a new day, starts
+    // counting again from it) and the chapter open; a sprint that ended with its words.
+    void writing(std::int64_t wordsToday, const std::string& chapter);
+    void sprint(std::int64_t words);
     Report finish(double t);
     const Report& sofar() const { return r_; }
 
@@ -71,6 +85,7 @@ private:
     double bucketSum_ = 0;
     int bucketN_ = 0;
     double bucketStart_ = 0;
+    std::int64_t wordsBase_ = -1, wordsLast_ = 0;
 };
 
 std::string toJson(const Report& r);

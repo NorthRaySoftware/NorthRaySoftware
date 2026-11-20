@@ -345,6 +345,13 @@ private:
     std::vector<std::pair<std::string, std::string>> writingValues_;   // from Writing Studio's summary
     ULONGLONG writingChecked_ = 0;
     long long writingStamp_ = -1;
+    // Writing Studio (0.13): what was seen last, for celebrations, scenes by workspace, chapter markers and words this stream.
+    bool writingSeen_ = false, writingLive_ = false;
+    std::string writingDay_, writingWorkspace_, writingChapterId_;
+    long long writingWords_ = 0, writingSprintAt_ = 0, streamWordsBase_ = -1, streamWordsLast_ = 0;
+    void celebrateWriting(const std::string& text);
+    float drawWritingSettings(float x, float y0, float colW);
+    void switchToSceneNamed(const std::string& name, const std::wstring& why);
     void newSceneMenu();
     void sceneFromTemplate(const scene_templates::SceneTemplate& t);
     void addBrandVideo(bool intro);

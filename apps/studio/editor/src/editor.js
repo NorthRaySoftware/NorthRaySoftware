@@ -1172,6 +1172,7 @@ function sprintWords() {
 }
 function startSprint(minutes) {
   sprint = { end: Date.now() + minutes * 60000, minutes, done: 0, base: view ? docWords(view.state.doc) : 0, chapter: currentId };
+  sentSprintWords = -1;
   tickSprint();
   if (view) view.focus();
 }
@@ -1180,16 +1181,24 @@ function stopSprint(finished) {
   const words = sprintWords(), mins = finished ? sprint.minutes : Math.max(1, Math.round((Date.now() - (sprint.end - sprint.minutes * 60000)) / 60000));
   sprint = null;
   clearTimeout(sprintTimer);
+  // The app passes sprints on to NorthRay Capture's sprint overlay (0.53).
+  send({ type: "sprint", running: false, finished: !!finished, words, minutes: mins });
   notice(finished ? `Sprint done: ${words.toLocaleString()} ${words === 1 ? "word" : "words"} in ${mins} minutes.`
                   : `Sprint stopped: ${words.toLocaleString()} ${words === 1 ? "word" : "words"} in ${mins} ${mins === 1 ? "minute" : "minutes"}.`);
   stats();
 }
 let sprintTimer = null;
+let sentSprintWords = -1;
 function tickSprint() {
   clearTimeout(sprintTimer);
   if (!sprint) return;
   if (Date.now() >= sprint.end) { stopSprint(true); return; }
   stats();
+  const w = sprintWords();
+  if (w !== sentSprintWords) {
+    sentSprintWords = w;
+    send({ type: "sprint", running: true, end: sprint.end, minutes: sprint.minutes, words: w });
+  }
   sprintTimer = setTimeout(tickSprint, 1000);
 }
 // A chapter changing mid-sprint: what was written in the last one is kept, and the new one starts from its words now.

@@ -177,7 +177,10 @@ void CaptureWindow::loadProfile() {
         else v.push_back({k, val});
     }
     // Writing Studio's own values are there even when it isn't, empty, so a design never shows "{chapter}".
-    for (const char* k : {"chapter", "chapterwords", "chapterline", "words", "goal", "today", "bookwords", "bookline", "streak", "streakline"})
+    for (const char* k : {"chapter", "chapterwords", "chapterline", "words", "goal", "today", "bookwords", "bookline", "streak", "streakline",
+                          "status", "target", "targetline", "viewpoint", "viewpointpic", "place", "placepic", "storyday", "sprintwords", "sprintline",
+                          "streamwords", "streamline", "cast1", "cast2", "cast3", "cast4", "cast5", "cast6", "cast1pic", "cast2pic", "cast3pic",
+                          "cast4pic", "cast5pic", "cast6pic"})
         if (std::none_of(v.begin(), v.end(), [&](const auto& p) { return p.first == k; })) v.push_back({k, ""});
     v.push_back({"cover", ""});   // stays "" without Writing Studio's cover
     for (auto& [k, val] : writingValues_)
@@ -223,13 +226,23 @@ void CaptureWindow::writingTick() {
     const ULONGLONG now = GetTickCount64();
     if (now - writingChecked_ < 1900) return;
     writingChecked_ = now;
+    // Going live or starting a recording: "words this stream" starts again, so the summary is read afresh.
+    const bool liveNow = streamer_.active() || recorder_.active();
+    if (liveNow != writingLive_) {
+        writingLive_ = liveNow;
+        streamWordsBase_ = -1;
+        writingStamp_ = -1;
+    }
     std::error_code ec;
     const std::filesystem::path p = std::filesystem::path(profilePath()).parent_path() / L"Writing Studio" / L"summary.json";
     const auto t = std::filesystem::last_write_time(p, ec);
     const long long stamp = ec ? 0 : (long long)t.time_since_epoch().count();
     if (stamp == writingStamp_) return;
+    const bool firstRead = writingStamp_ == -1 && !writingSeen_;
     writingStamp_ = stamp;
     std::vector<std::pair<std::string, std::string>> vals;
+    std::int64_t sprintEnds = -1;
+    std::string worldColour;
     if (stamp) {
         std::ifstream f(p, std::ios::binary);
         std::stringstream ss;
@@ -254,26 +267,138 @@ void CaptureWindow::writingTick() {
                 }
                 return (n < 0 ? "-" : "") + out;
             };
-            auto integer = [&](const char* k) { return j.contains(k) && j[k].is_number_integer() ? j[k].get<long long>() : 0LL; };
-            const long long goal = std::max(0LL, integer("dailyGoal"));
-            vals.push_back({"chapter", str("chapter")});
+            auto integer = [&](const nlohmann::json& o, const char* k) { return o.contains(k) && o[k].is_number_integer() ? o[k].get<long long>() : 0LL; };
+            auto wordsText = [&](long long n, const char* after) { return grouped(n) + (n == 1 ? " word" : " words") + after; };
+            const long long goal = std::max(0LL, integer(j, "dailyGoal"));
+            const std::string chapter = str("chapter");
+            vals.push_back({"chapter", chapter});
             vals.push_back({"words", grouped(words)});
             vals.push_back({"goal", goal ? grouped(goal) : std::string()});
             vals.push_back({"today", grouped(words) + (goal ? " of " + grouped(goal) : std::string()) + (words == 1 && !goal ? " word today" : " words today")});
-            const long long book = integer("bookWords"), streak = integer("streak"), chapterWords = integer("chapterWords");
+            const long long book = integer(j, "bookWords"), streak = integer(j, "streak"), chapterWords = integer(j, "chapterWords");
             vals.push_back({"chapterwords", j.contains("chapterWords") ? grouped(chapterWords) : std::string()});
-            vals.push_back({"chapterline", j.contains("chapterWords") ? grouped(chapterWords) + (chapterWords == 1 ? " word" : " words") : std::string()});
+            vals.push_back({"chapterline", j.contains("chapterWords") ? wordsText(chapterWords, "") : std::string()});
             vals.push_back({"bookwords", j.contains("bookWords") ? grouped(book) : std::string()});
-            vals.push_back({"bookline", j.contains("bookWords") ? grouped(book) + (book == 1 ? " word in the book" : " words in the book") : std::string()});
+            vals.push_back({"bookline", j.contains("bookWords") ? wordsText(book, " in the book") : std::string()});
             vals.push_back({"streak", j.contains("streak") ? std::to_string(streak) : std::string()});
             vals.push_back({"streakline", streak > 0 ? std::to_string(streak) + "-day streak" : std::string()});
+            // The chapter's planning (0.13): status and target always; the story's details unless spoiler-safe.
+            const long long target = integer(j, "target");
+            vals.push_back({"status", str("status")});
+            vals.push_back({"target", target > 0 ? grouped(target) : std::string()});
+            vals.push_back({"targetline", target > 0 && j.contains("chapterWords") ? grouped(chapterWords) + " of " + grouped(target) + " words" : std::string()});
+            const bool safe = settings_.writing.spoilerSafe;
+            auto named = [&](const char* k, const char* field) {
+                return !safe && j.contains(k) && j[k].is_object() && j[k].contains(field) && j[k][field].is_string() ? j[k][field].get<std::string>().substr(0, 1024)
+                                                                                                                      : std::string();
+            };
+            vals.push_back({"viewpoint", named("viewpoint", "name")});
+            vals.push_back({"viewpointpic", named("viewpoint", "picture")});
+            vals.push_back({"place", named("place", "name")});
+            vals.push_back({"placepic", named("place", "picture")});
+            vals.push_back({"storyday", safe ? std::string() : str("storyDay")});
+            for (int i = 0; i < 6; ++i) {
+                std::string n, pic;
+                if (!safe && j.contains("cast") && j["cast"].is_array() && i < (int)j["cast"].size() && j["cast"][(size_t)i].is_object()) {
+                    const auto& c = j["cast"][(size_t)i];
+                    n = c.value("name", "").substr(0, 200);
+                    pic = c.value("picture", "").substr(0, 1024);
+                }
+                vals.push_back({"cast" + std::to_string(i + 1), n});
+                vals.push_back({"cast" + std::to_string(i + 1) + "pic", pic});
+            }
+            // The sprint running now.
+            long long sprintWords = 0;
+            if (j.contains("sprint") && j["sprint"].is_object()) {
+                sprintEnds = integer(j["sprint"], "endsAt");
+                sprintWords = integer(j["sprint"], "words");
+            }
+            vals.push_back({"sprintwords", sprintEnds > 0 ? grouped(sprintWords) : std::string()});
+            vals.push_back({"sprintline", sprintEnds > 0 ? wordsText(sprintWords, " this sprint") : std::string()});
+            // Words this stream (or recording): from what today's count was when it began.
+            if (writingLive_) {
+                if (streamWordsBase_ < 0) streamWordsBase_ = words;
+                else if (words < streamWordsLast_) streamWordsBase_ = -(streamWordsLast_ - streamWordsBase_);   // past midnight: carry on from 0
+                streamWordsLast_ = words;
+            }
+            const long long streamWords = writingLive_ ? std::max(0LL, words - streamWordsBase_) : 0;
+            vals.push_back({"streamwords", writingLive_ ? grouped(streamWords) : std::string()});
+            vals.push_back({"streamline", writingLive_ ? wordsText(streamWords, " this stream") : std::string()});
+            worldColour = str("worldColour");
+            // The stream report's writing figures.
+            if (report_.running()) report_.writing(words, chapter);
+            // Celebrations: the daily goal reached, and a sprint finished (not what had already happened when Capture opened).
+            const std::string day = str("day");
+            if (!firstRead && settings_.writing.celebrate && goal > 0 && day == writingDay_ && writingWords_ < goal && words >= goal)
+                celebrateWriting("Daily goal reached: " + wordsText(words, " today!"));
+            long long sprintAt = 0;
+            if (j.contains("lastSprint") && j["lastSprint"].is_object()) {
+                const auto& ls = j["lastSprint"];
+                sprintAt = integer(ls, "at");
+                if (!firstRead && sprintAt && sprintAt != writingSprintAt_) {
+                    const long long w = integer(ls, "words");
+                    if (report_.running()) report_.sprint(w);
+                    if (settings_.writing.celebrate && ls.value("finished", false)) {
+                        const long long m = integer(ls, "minutes");
+                        celebrateWriting("Sprint done: " + wordsText(w, "") + " in " + std::to_string(m) + (m == 1 ? " minute!" : " minutes!"));
+                    }
+                }
+            }
+            writingSprintAt_ = sprintAt;
+            writingDay_ = day;
+            writingWords_ = words;
+            // Writing Studio's workspace: its scene, when set (only on a change, so a scene picked by hand stays).
+            const std::string ws = str("workspace");
+            if (!firstRead && !ws.empty() && !writingWorkspace_.empty() && ws != writingWorkspace_ && settings_.writing.scenes) {
+                const std::string key = ws == "writing" || ws == "planning" || ws == "worldbuilding" ? ws : "other";
+                auto it = settings_.writing.sceneFor.find(key);
+                if (it != settings_.writing.sceneFor.end() && !it->second.empty()) switchToSceneNamed(it->second, L"Writing Studio");
+            }
+            writingWorkspace_ = ws;
+            // A recording marker for each chapter moved to.
+            const std::string chapterId = str("chapterId");
+            if (!firstRead && settings_.writing.markers && recorder_.active() && !chapterId.empty() && !writingChapterId_.empty() &&
+                chapterId != writingChapterId_ && markers_.size() < 2000) {
+                const double secs = recorder_.status().seconds;
+                markers_.push_back({(std::int64_t)(secs * 1e6), chapter.empty() ? std::string("Chapter") : chapter});
+            }
+            writingChapterId_ = chapterId;
         }
     }
+    writingSeen_ = true;
+    video::setWritingSprint(sprintEnds);
+    video::setWorldColour(settings_.writing.worldColour ? worldColour : std::string());
     if (vals == writingValues_) return;
     writingValues_ = vals;
     loadProfile();
     designRendered_.clear();
     invalidate();
+}
+
+// A celebration: its words for {celebration}, and every design shown only for celebrations comes in afresh.
+void CaptureWindow::celebrateWriting(const std::string& text) {
+    video::celebrate(text);
+    for (auto& src : scenes_.sources())
+        if (src.kind == SourceKind::Design && src.settings.find("\"onlyCelebrating\":true") != std::string::npos)
+            if (auto l = live_.find(src.id); l != live_.end() && l->second.capture) l->second.capture->command("enter");
+    log::info("Celebration: " + text);
+}
+
+// Switches the live scene to one named (in studio mode, the program), with a short note saying why.
+void CaptureWindow::switchToSceneNamed(const std::string& name, const std::wstring& why) {
+    const Scene* target = nullptr;
+    for (auto& sc : scenes_.scenes())
+        if (sc.name == name) target = &sc;
+    if (!target) {
+        flash(why + L": there's no scene called " + widen(name) + L" in this scene collection.", 6);
+        return;
+    }
+    const Id current = settings_.studioMode ? programScene_ : scenes_.current();
+    if (current == target->id) return;
+    if (settings_.studioMode) programScene_ = target->id;
+    else scenes_.setCurrent(target->id);
+    scenesChanged();
+    flash(why + L": switched to " + widen(name) + L".", 4);
 }
 
 // ---------------------------------------------------------------- opening and saving
@@ -581,6 +706,8 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             items.push_back(MenuItem::item(L"Stop following the brand kit", 31, L"keeps how it looks now", dz::usesBrand(designDoc_)));
             items.push_back(MenuItem::sep());
             items.push_back(MenuItem::item(L"Show only while music plays", 32, L"{song} and {artist}", true, designDoc_.onlyWhilePlaying));
+            items.push_back(MenuItem::item(L"Show only during a writing sprint", 33, L"Writing Studio", true, designDoc_.onlyWhileSprint));
+            items.push_back(MenuItem::item(L"Show only for celebrations", 34, L"{celebration}, a few seconds", true, designDoc_.onlyCelebrating));
             POINT pt;
             GetCursorPos(&pt);
             const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
@@ -622,6 +749,12 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                                                 : L"Nothing here matches the brand kit's colours or Segoe UI text.", 6);
             } else if (cmd == 32) {
                 designDoc_.onlyWhilePlaying = !designDoc_.onlyWhilePlaying;
+                designChanged();
+            } else if (cmd == 33) {
+                designDoc_.onlyWhileSprint = !designDoc_.onlyWhileSprint;
+                designChanged();
+            } else if (cmd == 34) {
+                designDoc_.onlyCelebrating = !designDoc_.onlyCelebrating;
                 designChanged();
             } else if (cmd == 31) {
                 designDoc_ = dz::unlinkBrand(designDoc_, brand);
@@ -895,8 +1028,11 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
         y += gfx_.text(L"Click an element on the page or in Layers to change it. Text can show your details: {name}, {twitch}, {youtube}, "
                        L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…), and the music playing in a "
                        L"video or sound source: {song} and {artist}. Colours and fonts marked Brand "
-                       L"follow your Brand kit…: change it once and every design using it changes.",
-                       {r.x, y, r.w, 120}, Font::Small, pal_.inkMuted) + 12;
+                       L"follow your Brand kit…: change it once and every design using it changes.\n\n"
+                       L"From Writing Studio: {book}, {series}, {chapter}, {chapterline}, {today}, {bookline}, {streakline}, {status}, "
+                       L"{targetline}, {viewpoint}, {place}, {storyday}, {cast1} to {cast6}, {sprintline}, {streamline} and {celebration}; "
+                       L"pictures can be {cover}, {viewpointpic}, {placepic} or {cast1pic} to {cast6pic}.",
+                       {r.x, y, r.w, 260}, Font::Small, pal_.inkMuted) + 12;
         return;
     }
     const std::string eid = e->id;
@@ -1101,10 +1237,10 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
     }
     // Timer.
     if (e->kind == dz::Kind::Timer) {
-        static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock", "golive", "remaining", "next"};
+        static const char* modes[] = {"countdown", "until", "stopwatch", "live", "clock", "golive", "remaining", "next", "sprint"};
         static const wchar_t* modeNames[] = {L"Countdown for a length", L"Countdown to a time", L"Stopwatch", L"Time live", L"Clock",
-                                             L"Until going live", L"Time left in the stream", L"Next stream"};
-        constexpr int kModes = 8;
+                                             L"Until going live", L"Time left in the stream", L"Next stream", L"Writing sprint (Writing Studio)"};
+        constexpr int kModes = 9;
         int mi = 0;
         for (int i = 0; i < kModes; ++i)
             if (e->timerMode == modes[i]) mi = i;
@@ -1113,7 +1249,7 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             std::vector<MenuItem> items;
             const dz::Element* x = designDoc_.find(eid);
             for (int i = 0; i < kModes; ++i) {
-                if (i == 5) items.push_back(MenuItem::sep());
+                if (i == 5 || i == 8) items.push_back(MenuItem::sep());
                 items.push_back(MenuItem::item(modeNames[i], 100 + (UINT)i, {}, true, x && x->timerMode == modes[i]));
             }
             POINT pt;
@@ -1191,6 +1327,10 @@ void CaptureWindow::drawDesignerProperties(const Rect& r) {
             gfx_.text(L"pulse", {r.x + 170, y, 100, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
             y += 36;
         }
+        if (e->timerMode == "sprint")
+            y += gfx_.text(L"Counts down a writing sprint started from the word count in Writing Studio's writing bar. "
+                           L"{sprintwords} is the words written in it.",
+                           {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 8;
         if (e->timerMode == "golive" || e->timerMode == "remaining" || e->timerMode == "next") {
             const std::wstring note = e->timerMode == "golive"    ? L"Counts down to the time set to go live, in Settings \u203A Streaming \u203A Your stream."
                                       : e->timerMode == "remaining" ? L"Counts down from the stream's length (Settings \u203A Streaming \u203A Your stream) while you're live."

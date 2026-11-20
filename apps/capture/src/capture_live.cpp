@@ -585,6 +585,28 @@ void CaptureWindow::drawReport(const Rect& area) {
         }
         y += 16;
     }
+    // Writing in Writing Studio during the stream (0.13).
+    if (r.writing.any) {
+        y += sectionLabel(x, y, colW, L"Writing");
+        auto grouped = [](std::int64_t n) {
+            std::wstring d = std::to_wstring(n), out;
+            for (std::size_t i = 0; i < d.size(); ++i) {
+                if (i && (d.size() - i) % 3 == 0) out += L',';
+                out += d[i];
+            }
+            return out;
+        };
+        std::wstring line = grouped(r.writing.words) + (r.writing.words == 1 ? L" word written" : L" words written");
+        if (r.writing.sprints)
+            line += L" · " + std::to_wstring(r.writing.sprints) + (r.writing.sprints == 1 ? L" sprint (" : L" sprints (") + grouped(r.writing.sprintWords) + L" words)";
+        y += gfx_.text(line, {x, y, colW, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true}) + 8;
+        if (!r.writing.chapters.empty()) {
+            std::wstring ch;
+            for (auto& c : r.writing.chapters) ch += (ch.empty() ? L"" : L", ") + widen(c);
+            y += gfx_.text(L"Chapters: " + ch, {x, y, colW, 80}, Font::Small, pal_.inkMuted) + 8;
+        }
+        y += 16;
+    }
     // Destinations.
     if (!r.destinations.empty()) {
         y += sectionLabel(x, y, colW, L"Destinations");

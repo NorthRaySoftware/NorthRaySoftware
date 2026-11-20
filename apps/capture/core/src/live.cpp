@@ -107,6 +107,8 @@ void Collector::begin(const Stamp& started, const std::string& scene) {
     r_ = Report{};
     r_.started = stampText(started);
     running_ = true;
+    wordsBase_ = -1;
+    wordsLast_ = 0;
     scene_.clear();
     bucketSum_ = 0;
     bucketN_ = 0;
@@ -177,6 +179,28 @@ Report Collector::finish(double t) {
 
 // --- JSON ---
 
+void Collector::writing(std::int64_t wordsToday, const std::string& chapter) {
+    if (!running_) return;
+    r_.writing.any = true;
+    wordsToday = std::max<std::int64_t>(0, wordsToday);
+    if (wordsBase_ < 0) wordsBase_ = wordsLast_ = wordsToday;
+    if (wordsToday < wordsLast_) {   // a new day (or words taken out): what came before is kept, counting on from here
+        wordsBase_ = -(wordsLast_ - wordsBase_);   // the new day counts from 0
+    }
+    wordsLast_ = wordsToday;
+    r_.writing.words = std::max<std::int64_t>(0, wordsLast_ - wordsBase_);
+    if (!chapter.empty() && std::find(r_.writing.chapters.begin(), r_.writing.chapters.end(), chapter) == r_.writing.chapters.end() &&
+        r_.writing.chapters.size() < 200)
+        r_.writing.chapters.push_back(chapter);
+}
+
+void Collector::sprint(std::int64_t words) {
+    if (!running_) return;
+    r_.writing.any = true;
+    ++r_.writing.sprints;
+    r_.writing.sprintWords += std::max<std::int64_t>(0, words);
+}
+
 std::string toJson(const Report& r) {
     json j;
     j["started"] = r.started;
@@ -198,6 +222,8 @@ std::string toJson(const Report& r) {
     json ch = json::array();
     for (auto& [t, n] : r.changes) ch.push_back({{"at", std::round(t)}, {"scene", n}});
     j["changes"] = ch;
+    if (r.writing.any)
+        j["writing"] = {{"words", r.writing.words}, {"chapters", r.writing.chapters}, {"sprints", r.writing.sprints}, {"sprintWords", r.writing.sprintWords}};
     return j.dump();
 }
 
@@ -214,6 +240,16 @@ bool fromJson(const std::string& text, Report& out) {
     r.sampleSeconds = std::clamp((int)num(j, "sampleSeconds", 5), 1, 600);
     r.dropped = (std::uint64_t)std::max(0.0, num(j, "dropped"));
     r.recorded = j.contains("recorded") && j["recorded"].is_boolean() && j["recorded"].get<bool>();
+    if (j.contains("writing") && j["writing"].is_object()) {
+        const json& w = j["writing"];
+        r.writing.any = true;
+        r.writing.words = (std::int64_t)std::max(0.0, num(w, "words"));
+        r.writing.sprints = (int)std::clamp(num(w, "sprints"), 0.0, 100000.0);
+        r.writing.sprintWords = (std::int64_t)std::max(0.0, num(w, "sprintWords"));
+        if (w.contains("chapters") && w["chapters"].is_array())
+            for (auto& c : w["chapters"])
+                if (c.is_string() && r.writing.chapters.size() < 200) r.writing.chapters.push_back(c.get<std::string>().substr(0, 200));
+    }
     if (j.contains("kbps") && j["kbps"].is_array())
         for (auto& v : j["kbps"])
             if (v.is_number() && r.kbps.size() < Collector::kMaxSamples) r.kbps.push_back(std::max(0.0f, v.get<float>()));

@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.53.0: more for NorthRay Capture (20 Nov 2026)
+
+- `writeSummary` adds the chapter's id, status, target, viewpoint and place (name and picture path; a place's map when
+  it has no picture), story day (from the timeline), cast (characters from `appearancesIn`, up to six, with pictures;
+  `castCache_` when Planning hasn't worked them out), the world's accent, the workspace, and the sprint.
+- The editor sends `{type: "sprint", running, end, minutes, words}` while a sprint runs (when its words change) and
+  `{running: false, finished, words, minutes}` when it ends; the app keeps `sprint_` and writes the summary at once.
+- Capture's side is in apps/capture/docs/ARCHITECTURE.md, section 59.
+
 ## 0.52.0: the timeline (20 Nov 2026)
 
 - Core (`planning.hpp`): `nodePlaces`/`setNodePlace` (setting `nodeplaces:<book>`, node -> place or realm entry);
