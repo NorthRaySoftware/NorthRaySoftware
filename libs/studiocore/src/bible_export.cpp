@@ -141,7 +141,10 @@ std::vector<std::string> paragraphs(const std::string& text) {
 // The relationships an entry has with shown entries, read from its side ("Lives in" Highcliff).
 std::vector<std::pair<std::string, const Entry*>> relationsOf(const Library& lib, const View& v, const Entry& e) {
     std::vector<std::pair<std::string, const Entry*>> out;
-    static const std::set<std::string> family{"Parent of", "Child of", "Partner of", "Married to", "Sibling of"};
+    static const std::set<std::string> family{"Parent of", "Child of", "Partner of", "Married to", "Sibling of", "Twin of",
+                                              "Half-sibling of", "Step-sibling of", "Adoptive sibling of", "Foster sibling of",
+                                              "Adoptive parent of", "Adopted child of", "Step-parent of", "Stepchild of",
+                                              "Foster parent of", "Foster child of"};
     for (const EntryLink& l : lib.linksOf(e.id)) {
         if (family.count(l.label)) continue;   // in the family list
         const bool mine = l.from == e.id;
@@ -263,10 +266,22 @@ const std::vector<FontDef>& fontDefs() {
         {"gentium", "\"Gentium Book Plus\",\"Palatino Linotype\",Georgia,serif", "gentium-book-plus"},
         {"book", "\"Palatino Linotype\",\"Book Antiqua\",Palatino,\"Iowan Old Style\",Georgia,serif", ""},
         {"georgia", "Georgia,\"Times New Roman\",serif", ""},
-        {"garamond", "Garamond,\"EB Garamond\",\"Adobe Garamond Pro\",\"Crimson Text\",Georgia,serif", "crimson-text"},
+        {"garamond", "\"EB Garamond\",Garamond,\"Adobe Garamond Pro\",Georgia,serif", "eb-garamond"},
+        {"baskerville", "\"Libre Baskerville\",Baskerville,Georgia,serif", "libre-baskerville"},
+        {"lora", "Lora,Georgia,serif", "lora"},
+        {"alegreya", "Alegreya,Georgia,serif", "alegreya"},
+        {"spectral", "Spectral,Georgia,serif", "spectral"},
+        {"fell", "\"IM Fell English\",Georgia,serif", "im-fell-english"},
         {"modern", "\"Segoe UI\",system-ui,-apple-system,\"Helvetica Neue\",Arial,sans-serif", ""},
+        {"sourcesans", "\"Source Sans 3\",\"Segoe UI\",system-ui,sans-serif", "source-sans-3"},
         {"humanist", "\"Gill Sans\",\"Gill Sans MT\",Calibri,\"Trebuchet MS\",sans-serif", ""},
+        {"cinzel", "Cinzel,\"Trajan Pro\",Georgia,serif", "cinzel"},
+        {"uncial", "\"Uncial Antiqua\",Georgia,serif", "uncial-antiqua"},
+        {"medieval", "MedievalSharp,Georgia,serif", "medievalsharp"},
+        {"caveat", "Caveat,\"Segoe Print\",cursive", "caveat"},
+        {"dancing", "\"Dancing Script\",\"Segoe Script\",cursive", "dancing-script"},
         {"typewriter", "\"Courier Prime\",\"Courier New\",monospace", "courier-prime"},
+        {"elite", "\"Special Elite\",\"Courier Prime\",monospace", "special-elite"},
     };
     return f;
 }
@@ -350,12 +365,24 @@ const std::vector<FontChoice>& fonts() {
     static const std::vector<FontChoice> f = {
         {"crimson", "Crimson Text (a book serif, included in the site)", "crimson-text"},
         {"gentium", "Gentium Book Plus (wide-ranging accents, included)", "gentium-book-plus"},
+        {"garamond", "EB Garamond (classic book serif, included)", "eb-garamond"},
+        {"baskerville", "Libre Baskerville (sturdy serif, included)", "libre-baskerville"},
+        {"lora", "Lora (warm serif, included)", "lora"},
+        {"alegreya", "Alegreya (calligraphic serif, included)", "alegreya"},
+        {"spectral", "Spectral (elegant screen serif, included)", "spectral"},
+        {"fell", "IM Fell English (old printed book, included)", "im-fell-english"},
         {"book", "Palatino (book)", ""},
         {"georgia", "Georgia (screen serif)", ""},
-        {"garamond", "Garamond (classic)", "crimson-text"},
         {"modern", "Segoe UI (modern sans)", ""},
+        {"sourcesans", "Source Sans 3 (clean sans, included)", "source-sans-3"},
         {"humanist", "Gill Sans (humanist sans)", ""},
+        {"cinzel", "Cinzel (carved capitals for headings, included)", "cinzel"},
+        {"uncial", "Uncial Antiqua (Celtic, for headings, included)", "uncial-antiqua"},
+        {"medieval", "MedievalSharp (medieval hand, for headings, included)", "medievalsharp"},
+        {"caveat", "Caveat (handwriting, included)", "caveat"},
+        {"dancing", "Dancing Script (flowing script, included)", "dancing-script"},
         {"typewriter", "Courier Prime (typewriter, included)", "courier-prime"},
+        {"elite", "Special Elite (worn typewriter, included)", "special-elite"},
     };
     return f;
 }
@@ -759,7 +786,10 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
             const FontDef& f = fontDef(id);
             if (!*f.bundled || done.count(f.bundled)) continue;
             done.insert(f.bundled);
-            const std::string fam = std::string(f.bundled) == "crimson-text" ? "Crimson Text" : std::string(f.bundled) == "gentium-book-plus" ? "Gentium Book Plus" : "Courier Prime";
+            // The family name the stack asks for first ("EB Garamond", Lora).
+            std::string fam = f.stack;
+            if (!fam.empty() && fam[0] == '"') fam = fam.substr(1, fam.find('"', 1) - 1);
+            else fam = fam.substr(0, fam.find(','));
             copyFontFamily(fontsFolder, f.bundled, folder, faces, fam);
         }
         if (!site.write("style.css", faces + websiteCss(look, world ? world->accent : std::string(), true, true))) { error = site.error; return false; }

@@ -241,6 +241,8 @@ std::string title(const Library& lib, const Id& root, bool bloodline) {
     const Entry* r = lib.entry(root);
     if (!r) return {};
     if (!bloodline) return r->name + "'s family tree";
+    for (const auto& g : lib.families(r->worldId, r->worldId.empty() ? r->bookId : Id{}))
+        if (g.root == root && !g.name.empty()) return g.name;   // told apart from a family with the same surname
     const auto lay = lib.familyLayout(root, 150, true);
     std::map<std::string, int> surnames;
     for (auto& p : lay.people)
@@ -273,7 +275,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
     const double headH = o.heading ? 70 * S : 0, keyH = o.key ? 40 * S : 0;
     const int gens = lay.maxGeneration - lay.minGeneration + 1;
     const double treeW = lay.width * (cardW + gapX) - gapX, treeH = gens * cardH + (gens - 1) * gapY;
-    const int W = (int)std::ceil(std::max(treeW, 420 * S) + margin * 2);
+    const int W = (int)std::ceil(std::max(treeW, (o.key ? 700 : 420) * S) + margin * 2);
     const int H = (int)std::ceil(treeH + margin * 2 + headH + keyH);
     if ((double)W * H > 60e6) { out.error = "The tree is too big to draw as one picture."; return out; }
     const RGB paper = hex(0xFFFFFF), ink = hex(0x1B2030), muted = hex(0x5B6170), faint = hex(0x8A8F9C), rule = hex(0xD5D9E2);
@@ -288,7 +290,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
                                 std::to_string(gens) + (gens == 1 ? " generation" : " generations");
         tx.draw(regular, sub, (float)(12.5 * S), margin, margin + 44 * S, muted);
     }
-    const double x0 = margin + (std::max(treeW, 420 * S) - treeW) / 2, y0 = margin + headH;
+    const double x0 = margin + (std::max(treeW, (o.key ? 700 : 420) * S) - treeW) / 2, y0 = margin + headH;
     std::map<Id, std::array<double, 4>> at;   // x, y, w, h
     for (auto& p : lay.people) at[p.id] = {x0 + p.x * (cardW + gapX), y0 + (p.generation - lay.minGeneration) * (cardH + gapY), cardW, cardH};
     auto right = [&](const Id& id) { return at[id][0] + at[id][2]; };
@@ -311,11 +313,55 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         }
     }
     // Children by their parents; two parents in a row who aren't partners are joined by a dashed line.
+    // A child hangs from their main parents (birth, else adoptive, foster, step); other parents get a dotted line of
+    // their own. Adopted, step and foster lines are dotted and labelled; twins come down from one point (0.46).
     std::map<std::vector<Id>, std::vector<Id>> byParents;
+    std::vector<std::pair<Id, Id>> otherParents;
+    auto howOf = [&](const Id& par, const Id& ch) {
+        const auto it = lay.parentHow.find({par, ch});
+        return it == lay.parentHow.end() ? std::string() : it->second;
+    };
+    auto rankHow = [](const std::string& h) { return h.empty() ? 0 : h == "adoptive" ? 1 : h == "foster" ? 2 : 3; };
+    bool kinds = false;
     {
         std::map<Id, std::vector<Id>> parentsOf;
         for (auto& [par, ch] : lay.parentChild) parentsOf[ch].push_back(par);
-        for (auto& [ch, ps] : parentsOf) { std::sort(ps.begin(), ps.end()); byParents[ps].push_back(ch); }
+        for (auto& [ch, ps] : parentsOf) {
+            int best = 9;
+            for (const Id& p : ps) best = std::min(best, rankHow(howOf(p, ch)));
+            std::vector<Id> mainPs;
+            for (const Id& p : ps) {
+                if (rankHow(howOf(p, ch)) == best) mainPs.push_back(p); else otherParents.push_back({p, ch});
+                if (!howOf(p, ch).empty()) kinds = true;
+            }
+            std::sort(mainPs.begin(), mainPs.end());
+            byParents[mainPs].push_back(ch);
+        }
+    }
+    std::set<std::pair<Id, Id>> twinPairs;
+    for (auto& sb : lay.siblings) {
+        if (sb.how == "twin") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
+        if (!sb.sharedParents && sb.how != "" && sb.how != "twin" && sb.how != "half") kinds = true;
+    }
+    auto dots = [&](double ax, double ay, double bx, double by) { cv.dashed(ax, ay, bx, by, lineC, 1.5 * S, 2.2 * S); };
+    auto tagOf = [](const std::string& h) { return h == "adoptive" ? std::string("adopted") : h == "step" ? std::string("step")
+                                                  : h == "foster" ? std::string("foster") : std::string(); };
+    const float tagSz = (float)(10.5 * S);
+    // Several sets of parents over one row of children: each set's line at its own height, so they don't run together.
+    std::map<std::vector<Id>, double> busShift;
+    {
+        std::map<long, std::vector<std::pair<double, std::vector<Id>>>> rows;
+        for (auto& [ps, kids] : byParents) {
+            double top = 1e18, px = 0;
+            for (const Id& k : kids) top = std::min(top, at[k][1]);
+            for (const Id& p : ps) px += at[p][0];
+            rows[std::lround(top)].push_back({ps.empty() ? 0 : px / ps.size(), ps});
+        }
+        for (auto& [row, gs] : rows) {
+            std::sort(gs.begin(), gs.end());
+            const double step = std::min(9 * S, gapY * 0.55 / std::max<size_t>(1, gs.size()));
+            for (size_t i = 0; i < gs.size(); ++i) busShift[gs[i].second] = ((double)i - (gs.size() - 1) / 2.0) * step;
+        }
     }
     for (auto& [ps, kids] : byParents) {
         double ox = 0, oy = 0;
@@ -334,14 +380,51 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         }
         double minX = ox, maxX = ox, topY = 1e18;
         for (const Id& k : kids) {
-            minX = std::min(minX, at[k][0] + at[k][2] / 2);
-            maxX = std::max(maxX, at[k][0] + at[k][2] / 2);
+            double kx = at[k][0] + at[k][2] / 2;
+            for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) kx = (kx + at[o2][0] + at[o2][2] / 2) / 2;
+            minX = std::min(minX, kx);
+            maxX = std::max(maxX, kx);
             topY = std::min(topY, at[k][1]);
         }
-        const double bus = topY - gapY / 2;
+        const double bus = topY - gapY / 2 + busShift[ps];
         cv.line(ox, oy, ox, bus, lineC, 1.5 * S);
         cv.line(minX, bus, maxX, bus, lineC, 1.5 * S);
-        for (const Id& k : kids) cv.line(at[k][0] + at[k][2] / 2, bus, at[k][0] + at[k][2] / 2, at[k][1], lineC, 1.5 * S);
+        for (const Id& k : kids) {
+            const double kx = at[k][0] + at[k][2] / 2, ky = at[k][1];
+            double fromX = kx;
+            for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) fromX = (kx + at[o2][0] + at[o2][2] / 2) / 2;
+            const std::string how = ps.empty() ? std::string() : howOf(ps[0], k);
+            const double midY = bus + (ky - bus) * 0.45;
+            if (how.empty()) {
+                if (fromX != kx) { cv.line(fromX, bus, kx, midY, lineC, 1.5 * S); cv.line(kx, midY, kx, ky, lineC, 1.5 * S); }
+                else cv.line(kx, bus, kx, ky, lineC, 1.5 * S);
+            } else {
+                if (fromX != kx) { dots(fromX, bus, kx, midY); dots(kx, midY, kx, ky); }
+                else dots(kx, bus, kx, ky);
+                tx.draw(italic, tagOf(how), tagSz, kx + 5 * S, bus + 13 * S, muted);
+            }
+        }
+    }
+    for (auto& [par, ch] : otherParents) {
+        if (!at.count(par) || !at.count(ch)) continue;
+        const auto pr = at[par], kr = at[ch];
+        const double px = pr[0] + pr[2] / 2 + 14 * S, kx = kr[0] + kr[2] / 2 + 14 * S, midY = kr[1] - gapY * 0.28;
+        dots(px, pr[1] + pr[3], px, midY);
+        dots(px, midY, kx, midY);
+        dots(kx, midY, kx, kr[1]);
+        tx.draw(italic, tagOf(howOf(par, ch)), tagSz, kx + 5 * S, midY + 13 * S, muted);
+    }
+    for (auto& sb : lay.siblings) {
+        if (sb.sharedParents || !at.count(sb.a) || !at.count(sb.b)) continue;
+        auto ra = at[sb.a], rb = at[sb.b];
+        if (ra[0] > rb[0]) std::swap(ra, rb);
+        const double ax = ra[0] + ra[2] / 2, bx = rb[0] + rb[2] / 2, topY = ra[1] - gapY * 0.3;
+        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "half";
+        if (plain) { cv.line(ax, ra[1], ax, topY, lineC, 1.5 * S); cv.line(ax, topY, bx, topY, lineC, 1.5 * S); cv.line(bx, topY, bx, rb[1], lineC, 1.5 * S); }
+        else { dots(ax, ra[1], ax, topY); dots(ax, topY, bx, topY); dots(bx, topY, bx, rb[1]); }
+        const std::string tag = sb.how == "twin" ? "twins" : sb.how == "half" ? "half-siblings" : sb.how == "step" ? "step-siblings"
+                              : sb.how == "adoptive" ? "adoptive siblings" : sb.how == "foster" ? "foster siblings" : "siblings";
+        tx.draw(italic, tag, tagSz, (ax + bx) / 2 - tx.width(italic, tag, tagSz) / 2, topY - 5 * S, muted);
     }
     // The people.
     for (auto& p : lay.people) {
@@ -400,6 +483,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
             if (kind == 0) cv.line(kx, ky - 4 * S, kx + 26 * S, ky - 4 * S, lineC, 1.5 * S);
             if (kind == 1) { cv.line(kx, ky - 6.2 * S, kx + 26 * S, ky - 6.2 * S, lineC, 1.5 * S); cv.line(kx, ky - 1.8 * S, kx + 26 * S, ky - 1.8 * S, lineC, 1.5 * S); }
             if (kind == 2) cv.dashed(kx, ky - 4 * S, kx + 26 * S, ky - 4 * S, lineC, 1.5 * S, 5 * S);
+            if (kind == 4) cv.dashed(kx, ky - 4 * S, kx + 26 * S, ky - 4 * S, lineC, 1.5 * S, 2.2 * S);
             if (kind == 3) cv.rect(kx + 8 * S, ky - 12 * S, kx + 18 * S, ky + 2 * S, hex(0xF6F7FA)), cv.round(kx + 8 * S, ky - 12 * S, kx + 18 * S, ky + 2 * S, 2 * S, rule, 1 * S);
             kx += 32 * S;
             tx.draw(regular, label, ksz, kx, ky, faint);
@@ -409,6 +493,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         item(1, "married");
         item(2, "parents, not partners");
         item(3, "married in");
+        if (kinds) item(4, "adopted, step or foster");
     }
     // Turned a quarter for a book's page when much wider than tall.
     int OW = W, OH = H;

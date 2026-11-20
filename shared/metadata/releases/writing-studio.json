@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.46.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Kinds of family: twins, half-, step-, adoptive and foster brothers and sisters, and adoptive, step and foster parents and children, in relationships, pasted pages and the family tree.",
+        "On the tree, adopted, step and foster lines are dotted and labelled, twins come down from one point, and someone with two partners sits between them.",
+        "Click a family member on a character's page to change what kind they are; the page names them (twin sister, stepfather, adopted son).",
+        "A founder with two partners no longer makes two copies of one family, and families sharing a surname are told apart (The Smith family (Hal's)).",
+        "Fourteen more typefaces come with Writing Studio: book serifs, a clean sans, handwriting, a typewriter, runes and display lettering, for books, covers, the bible and words set apart as you write.",
+        "Bible cards use the page's whole width, and summaries stop at two lines instead of running under the details."
+      ]
+    },
+    {
       "version": "0.45.0",
       "date": "2026-11-20",
       "notes": [

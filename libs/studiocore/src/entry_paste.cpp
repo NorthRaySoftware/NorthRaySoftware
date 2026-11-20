@@ -370,7 +370,11 @@ std::string blankPage(const std::string& kind, const std::vector<std::string>& s
     t += "\nNotes per book\n";
     if (bookTitles.empty()) t += "Book 1: \n";
     for (auto& b : bookTitles) t += b + ": \n";
-    if (kind == "character") t += "\nFamily\nParents: \nPartner: \nSiblings: \nChildren: \n";
+    // Each kind of family has its own line (0.46); leave any blank.
+    if (kind == "character")
+        t += "\nFamily\nParents: \nAdoptive parents: \nStep-parents: \nFoster parents: \nPartner: \nSpouse: \nSiblings: \nTwin: \n"
+             "Half-siblings: \nStep-siblings: \nAdoptive siblings: \nFoster siblings: \nChildren: \nAdopted children: \nStepchildren: \n"
+             "Foster children: \n";
     t += "\nRelationships\n";
     std::vector<std::string> rel;
     if (kind == "character") rel = {"Friends", "Enemies", "Taught by", "Member of", "Lives in", "Rides", "Owns"};
@@ -392,13 +396,30 @@ bool looksLikePage(const std::string& text) {
 std::string relationFor(const std::string& kind, const std::string& labelIn) {
     std::string k = key(labelIn);
     // "Former teacher", "late husband", "ex-wife": the same relationship.
-    for (const char* pre : {"former ", "ex-", "ex ", "late ", "old ", "one-time ", "current ", "sworn ", "adoptive ", "step-", "step"})
+    for (const char* pre : {"former ", "ex-", "ex ", "late ", "old ", "one-time ", "current ", "sworn "})
         if (k.rfind(pre, 0) == 0 && k.size() > std::string(pre).size() + 2) { k = k.substr(std::string(pre).size()); break; }
     static const std::vector<std::pair<std::vector<const char*>, const char*>> table{
-        {{"parents", "parent", "father", "mother", "mum", "mom", "dad", "birth parents", "adoptive parents"}, "Child of"},
+        {{"parents", "parent", "father", "mother", "mum", "mom", "dad", "birth parents", "birth parent", "birth mother", "birth father",
+          "biological parents", "biological mother", "biological father"}, "Child of"},
         {{"children", "child", "son", "sons", "daughter", "daughters", "kids"}, "Parent of"},
-        {{"siblings", "sibling", "brother", "brothers", "sister", "sisters", "twin", "half-sibling", "half-siblings", "adoptive sister",
-          "adoptive brother"}, "Sibling of"},
+        {{"siblings", "sibling", "brother", "brothers", "sister", "sisters", "full brother", "full sister"}, "Sibling of"},
+        {{"twin", "twins", "twin brother", "twin sister", "twin sibling", "twin of"}, "Twin of"},
+        {{"half-sibling", "half-siblings", "half sibling", "half siblings", "half-brother", "half-brothers", "half brother", "half brothers",
+          "half-sister", "half-sisters", "half sister", "half sisters"}, "Half-sibling of"},
+        {{"step-sibling", "step-siblings", "stepsibling", "stepsiblings", "step sibling", "stepbrother", "stepbrothers", "step-brother",
+          "step brother", "stepsister", "stepsisters", "step-sister", "step sister"}, "Step-sibling of"},
+        {{"adoptive sibling", "adoptive siblings", "adoptive brother", "adoptive sister", "adopted brother", "adopted sister",
+          "adopted sibling", "adopted siblings"}, "Adoptive sibling of"},
+        {{"foster sibling", "foster siblings", "foster brother", "foster brothers", "foster sister", "foster sisters"}, "Foster sibling of"},
+        {{"adoptive parents", "adoptive parent", "adoptive father", "adoptive mother", "adoptive mum", "adoptive dad", "adopted by"},
+         "Adopted child of"},
+        {{"adopted children", "adopted child", "adopted son", "adopted sons", "adopted daughter", "adopted daughters"}, "Adoptive parent of"},
+        {{"step-parents", "step-parent", "stepparents", "stepparent", "stepfather", "step-father", "stepmother", "step-mother", "stepmum",
+          "stepmom", "stepdad", "step-mum", "step-dad"}, "Stepchild of"},
+        {{"stepchildren", "stepchild", "step-children", "step-child", "stepson", "stepsons", "stepdaughter", "stepdaughters", "step-son",
+          "step-daughter"}, "Step-parent of"},
+        {{"foster parents", "foster parent", "foster father", "foster mother", "foster mum", "foster dad", "fostered by"}, "Foster child of"},
+        {{"foster children", "foster child", "foster son", "foster sons", "foster daughter", "foster daughters"}, "Foster parent of"},
         {{"partner", "partners", "girlfriend", "boyfriend", "lover", "betrothed", "fiance", "fiancee", "fiancé", "fiancée"}, "Partner of"},
         {{"spouse", "wife", "husband", "married to"}, "Married to"},
         {{"friends", "friend", "best friend", "best friends", "close friends", "family friend", "family friends", "childhood friends"}, "Friend of"},

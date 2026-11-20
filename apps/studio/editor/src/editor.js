@@ -956,13 +956,18 @@ function buildFontMenu() {
     head("This book");
     item("", bookFontName ? bookFontName : "Book typeface", "book", "the book's own");
     head("This world's fonts");
-    if (!worldFonts.length) {
+    const own = worldFonts.filter((f) => !f.builtIn), built = worldFonts.filter((f) => f.builtIn);
+    if (!own.length) {
       const n = document.createElement("div");
       n.className = "fm-empty";
-      n.textContent = "None yet. Add runes, symbols or handwriting fonts to this world, then set words in them here.";
+      n.textContent = "None of its own yet. Add a world's runes, symbols or handwriting, or use the built-in ones below.";
       menu.append(n);
     }
-    for (const f of worldFonts) item(f.id, String(f.name || f.id), "ff-" + f.id);
+    for (const f of own) item(f.id, String(f.name || f.id), "ff-" + f.id);
+    if (built.length) {
+      head("Built in");
+      for (const f of built) item(f.id, String(f.name || f.id), "ff-" + f.id);
+    }
     const rule = document.createElement("div");
     rule.className = "fm-rule";
     menu.append(rule);

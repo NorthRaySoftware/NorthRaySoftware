@@ -1449,6 +1449,159 @@ static void testEntryPages() {
 }
 
 // A family tree as a picture (0.45), and in the bible's PDF.
+// The program's own typefaces (0.46): each opens with a regular face, and the bible website copies one in.
+static void testBuiltInFonts() {
+    namespace ts = studio::typeset;
+    namespace bible = studio::bible;
+    const std::string fonts = appFolder("fonts");
+    std::set<std::string> names;
+    for (auto& f : ts::fontFamilies(fonts)) {
+        names.insert(f.name);
+        CHECK(!studio::fonts::familyFolder(fonts, f.id).empty());
+    }
+    for (const char* n : {"EB Garamond", "Libre Baskerville", "Lora", "Alegreya", "Spectral", "Source Sans 3", "Caveat", "Dancing Script",
+                          "Cinzel", "Uncial Antiqua", "IM Fell English", "MedievalSharp", "Noto Sans Runic", "Special Elite", "Crimson Text"})
+        CHECK(names.count(n) == 1);
+    for (const char* id : {"garamond", "cinzel", "caveat", "elite", "uncial"}) {
+        bool listed = false;
+        for (auto& c : bible::fonts()) if (std::string(c.id) == id) listed = true;
+        CHECK(listed);
+    }
+    const std::string dir = tempLibrary("builtinfonts");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Alvora");
+    lib->createEntry(world, {}, "character", "Tom Smith");
+    bible::Look look;
+    look.headings = "cinzel";
+    look.body = "garamond";
+    std::string err;
+    int pages = 0;
+    CHECK(bible::exportWebsite(*lib, {world, {}, false, {}}, dir + "/site", err, &pages, look, fonts));
+    std::ifstream css(dir + "/site/style.css");
+    const std::string c((std::istreambuf_iterator<char>(css)), {});
+    CHECK(c.find("font-family:\"Cinzel\"") != std::string::npos || c.find("\"Cinzel\"") != std::string::npos);
+    CHECK(c.find("EB Garamond") != std::string::npos);
+    bool copied = false;
+    for (auto& e : std::filesystem::recursive_directory_iterator(dir + "/site")) if (e.path().filename().string().rfind("EBGaramond-", 0) == 0) copied = true;
+    CHECK(copied);
+}
+
+static void testFamilyKinds() {
+    namespace ft = studio::familytree;
+    namespace pa = studio::paste;
+    const std::string dir = tempLibrary("famkinds");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Alvora");
+    auto person = [&](const char* name, const char* details) {
+        const Id id = lib->createEntry(world, {}, "character", name);
+        Entry e = *lib->entry(id);
+        e.details = details;
+        lib->updateEntry(e);
+        return id;
+    };
+    const Id ralph = person("Ralph Smith", "Gender: Male");
+    const Id maria = person("Maria Smith", "Gender: Female");
+    const Id tom = person("Tom Smith", "Gender: Male");
+    const Id astrid = person("Astrid Smith", "Gender: Female");
+    const Id lillia = person("Lillia Smith", "Gender: Female");
+    const Id jen = person("Jen Holt", "Gender: Female");        // Ralph's second partner
+    const Id rose = person("Rose Smith", "Gender: Female");      // Ralph and Jen's daughter
+    const Id dag = person("Dag Holt", "Gender: Male");           // Jen's son from before
+    const Id ana = person("Ana Bright", "Gender: Female");
+    const Id bo = person("Bo Bright", "Gender: Male");           // Ana's twin, no parents in the bible
+    for (const Id& c : {tom, astrid}) { lib->addLink(ralph, c, "Parent of"); lib->addLink(maria, c, "Parent of"); }
+    lib->addLink(tom, astrid, "Twin of");
+    lib->addLink(lillia, ralph, "Adopted child of");
+    lib->addLink(maria, lillia, "Adoptive parent of");
+    lib->addLink(ralph, jen, "Married to");
+    lib->addLink(ralph, maria, "Married to");   // his late first wife
+    lib->addLink(ralph, rose, "Parent of");
+    lib->addLink(jen, rose, "Parent of");
+    lib->addLink(ralph, dag, "Step-parent of");
+    lib->addLink(jen, dag, "Parent of");
+    lib->addLink(ana, bo, "Twin of");
+    // Kinds read back, either way round, and siblings worked out.
+    const auto tf = lib->familyOf(tom);
+    CHECK(tf.how.at(astrid) == "twin");
+    CHECK(tf.how.at(lillia) == "adoptive");
+    CHECK(tf.how.at(rose) == "half");
+    CHECK(tf.how.at(ralph).empty());
+    const auto lf = lib->familyOf(lillia);
+    CHECK(lf.how.at(ralph) == "adoptive" && lf.how.at(maria) == "adoptive");
+    const auto rf = lib->familyOf(ralph);
+    CHECK(rf.how.at(dag) == "step" && rf.how.at(lillia) == "adoptive" && rf.how.at(tom).empty());
+    CHECK(lib->familyOf(dag).how.at(rose) == "step" || lib->familyOf(dag).how.at(rose) == "half");
+    // The layout: parent kinds, twins side by side, the Brights joined by their own link.
+    const auto lay = lib->familyLayout(ralph, 150, true);
+    CHECK(lay.parentHow.at({ralph, lillia}) == "adoptive" && lay.parentHow.at({ralph, dag}) == "step" && lay.parentHow.at({ralph, tom}).empty());
+    float xt = -1, xa = -1;
+    for (auto& p : lay.people) { if (p.id == tom) xt = p.x; if (p.id == astrid) xa = p.x; }
+    CHECK(std::fabs(xt - xa) < 1.3f);
+    bool twins = false;
+    for (auto& sb : lay.siblings) if (sb.how == "twin" && sb.sharedParents) twins = true;
+    CHECK(twins);
+    const auto bl = lib->familyLayout(ana, 150, true);
+    CHECK(bl.siblings.size() == 1 && bl.siblings[0].how == "twin" && !bl.siblings[0].sharedParents);
+    // Reverse wordings of the new relationships.
+    CHECK(studio::reverseRelation("Twin of") == "Twin of" && studio::reverseRelation("Adoptive parent of") == "Adopted child of" &&
+          studio::reverseRelation("Stepchild of") == "Step-parent of" && studio::reverseRelation("Foster sibling of") == "Foster sibling of");
+    // Pasted wordings.
+    CHECK(pa::relationFor("character", "Twin sister") == "Twin of");
+    CHECK(pa::relationFor("character", "Half-brothers") == "Half-sibling of");
+    CHECK(pa::relationFor("character", "Stepmother") == "Stepchild of");
+    CHECK(pa::relationFor("character", "Stepson") == "Step-parent of");
+    CHECK(pa::relationFor("character", "Adoptive father") == "Adopted child of");
+    CHECK(pa::relationFor("character", "Adopted daughter") == "Adoptive parent of");
+    CHECK(pa::relationFor("character", "Foster brother") == "Foster sibling of");
+    CHECK(pa::relationFor("character", "Former stepsister") == "Step-sibling of");
+    CHECK(pa::relationFor("character", "Brother") == "Sibling of" && pa::relationFor("character", "Parents") == "Child of");
+    // The blank page's family lines, filled in and pasted, make links of each kind.
+    {
+        std::string page = pa::blankPage("character", {}, {});
+        CHECK(page.find("Twin: ") != std::string::npos && page.find("Stepchildren: ") != std::string::npos);
+        auto fill = [&](const std::string& label, const std::string& who) {
+            const size_t at = page.find("\n" + label + ": \n");
+            CHECK(at != std::string::npos);
+            if (at != std::string::npos) page.insert(at + label.size() + 3, who);
+        };
+        page.replace(page.find("Name: "), 6, "Name: Cara Bright");
+        fill("Twin", "Ana Bright");
+        fill("Adoptive parents", "Ralph Smith");
+        fill("Step-siblings", "Dag Holt");
+        fill("Foster children", "Kip Rowan");   // not in the bible: made
+        const Id cara = lib->createEntry(world, {}, "character", "Cara Bright");
+        pa::Report rep;
+        CHECK(pa::apply(*lib, cara, pa::parse(page), {}, rep));
+        auto linked = [&](const Id& other, const char* label) {
+            for (auto& l : lib->linksOf(cara)) if ((l.to == other || l.from == other) && l.label == label) return true;
+            return false;
+        };
+        CHECK(linked(ana, "Twin of") && linked(ralph, "Adopted child of") && linked(dag, "Step-sibling of"));
+        const Entry* kip = nullptr;
+        for (const Entry* x : lib->entriesOf(world)) if (x->name == "Kip Rowan") kip = x;
+        CHECK(kip && linked(kip->id, "Foster parent of"));
+        const auto cf = lib->familyOf(cara);
+        CHECK(cf.how.count(ana) && cf.how.at(ana) == "twin" && cf.how.at(ralph) == "adoptive" && cf.how.at(dag) == "step");
+    }
+    // Two families of one surname are told apart.
+    const Id old1 = person("Hal Smith", "Gender: Male");
+    const Id kid1 = person("Ned Smith", "Gender: Male");
+    lib->addLink(old1, kid1, "Parent of");
+    int smiths = 0;
+    std::set<std::string> names;
+    for (auto& g : lib->families(world)) { if (g.surname == "Smith") { ++smiths; names.insert(g.name); } }
+    CHECK(smiths == 2 && names.size() == 2 && names.count("The Smith family (Hal's)") == 1);
+    for (auto& g : lib->families(world)) if (g.root == maria || g.root == jen) CHECK(g.people >= 8 && g.name.find("Smith") != std::string::npos);
+    CHECK(ft::title(*lib, old1, true) == "The Smith family (Hal's)");
+    // The picture draws with kinds (and says so in its key).
+    const std::string fonts = appFolder("fonts");
+    const auto pic = ft::render(*lib, ralph, fonts);
+    CHECK(pic.ok && pic.people >= 8);
+    if (const char* out = std::getenv("STUDIO_TREE_PNG")) std::ofstream(std::string(out) + "-kinds.png", std::ios::binary) << pic.png;
+}
+
 static void testFamilyTreePicture() {
     namespace ft = studio::familytree;
     const std::string dir = tempLibrary("famtreepic");
@@ -2864,6 +3017,8 @@ int main() {
     testEntryPages();
     testFamilyTree();
     testFamilyTreePicture();
+    testFamilyKinds();
+    testBuiltInFonts();
     testContinuity();
     testBibleExport();
     testEbookHtml();

@@ -43,6 +43,34 @@ static std::wstring upper(std::wstring s) {
     return s;
 }
 
+// `text` cut to at most `lines` lines at `width` (at a word, with an ellipsis), measured the way the screen will draw
+// it. Kept per text and width, since cards ask every frame.
+static std::wstring linesOf(cjui::Gfx& g, const std::wstring& text, float width, Font f, int lines) {
+    static std::map<std::wstring, std::wstring> cache;
+    std::wstring key = std::to_wstring((int)width) + L"|" + std::to_wstring((int)f) + L"|" + std::to_wstring(lines) + L"|" + text;
+    if (auto it = cache.find(key); it != cache.end()) return it->second;
+    if (cache.size() > 4000) cache.clear();
+    const float one = g.measureHeight(L"Ag", 10000, f);
+    const float limit = one * lines + one * 0.5f;
+    std::wstring flat = text;
+    for (auto& c : flat) if (c == L'\n' || c == L'\r' || c == L'\t') c = L' ';
+    std::wstring out = flat;
+    if (g.measureHeight(flat, width, f) > limit) {
+        std::vector<size_t> cuts;   // word ends
+        for (size_t i = 1; i < flat.size(); ++i) if (flat[i] == L' ' && flat[i - 1] != L' ') cuts.push_back(i);
+        size_t lo = 0, hi = cuts.size();   // the most words that fit with "…"
+        while (lo < hi) {
+            const size_t mid = (lo + hi + 1) / 2;
+            if (g.measureHeight(flat.substr(0, cuts[mid - 1]) + L"\u2026", width, f) <= limit) lo = mid; else hi = mid - 1;
+        }
+        out = lo == 0 ? std::wstring() : flat.substr(0, cuts[lo - 1]);
+        while (!out.empty() && (out.back() == L',' || out.back() == L';' || out.back() == L':' || out.back() == L' ')) out.pop_back();
+        out += L"\u2026";
+    }
+    cache[key] = out;
+    return out;
+}
+
 static std::wstring initials(const std::string& name) {
     std::wstring out;
     bool start = true;
@@ -794,11 +822,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
-    const float cw = std::min(r.w - pad * 2, 900.0f);
-    const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
-    float y = m.y;
     const Entry* e = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry);
     if (e && e->deleted) { e = nullptr; wb_.entry.clear(); }
+    // The cards use the page's whole width (0.46); one entry's page keeps a readable measure.
+    const float cw = std::min(r.w - pad * 2, e ? 980.0f : 1640.0f);
+    const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
+    float y = m.y;
 
     if (!e) {
         // ---- All entries (or one kind), as cards.
@@ -893,7 +922,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 for (const auto& fg : fams) {
                     const Entry* rootE = lib_->entry(fg.root);
                     if (!rootE) continue;
-                    const std::wstring nm = (fg.surname.empty() ? w(rootE->name) + L"'s family" : L"The " + w(fg.surname) + L" family") +
+                    const std::wstring nm = w(fg.name) +
                                             L"  \u00B7  " + std::to_wstring(fg.people);
                     const float lw2 = gfx_.measureWidth(nm, Font::Body) + 30;
                     if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 36; }
@@ -981,7 +1010,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             for (const Entry* x : list) if (!placed.count(x->id)) addTree(x, 0, std::string::npos);   // a loop of "Located in"
 
             const float gap = 14;
-            const int cols = std::max(1, (int)((cw + gap) / (250 + gap)));
+            const int cols = std::max(1, (int)((cw + gap) / (290 + gap)));   // 0.46: a little wider, more room for the summary
             const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 118;   // 0.43: picture, two lines, details
             const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
             for (auto& [g, items] : groups) {
@@ -1106,8 +1135,15 @@ void StudioApp::drawWorldPage(const Rect& r) {
                                       kc.mix(pal_.inkMuted, 0.4f), {Align::Left, false, true});
                             ty += 18;
                         }
-                if (!x->summary.empty())
-                    gfx_.text(w(x->summary), {tx, ty, tw, depth > 0 ? 18.0f : 34.0f}, Font::Small, pal_.inkMuted, {Align::Left, depth == 0, true});
+                if (!x->summary.empty()) {
+                    // At most two lines (one under a place's "in ..."), cut at a word with an ellipsis, so the
+                    // summary can never run under the details whatever the screen's text measures (0.46).
+                    const int lines = depth > 0 ? 1 : 2;
+                    const std::wstring s = linesOf(gfx_, w(x->summary), tw, Font::Small, lines);
+                    gfx_.pushClip({tx, ty, tw, std::max(18.0f, cr.bottom() - 32 - ty)});
+                    gfx_.text(s, {tx, ty, tw, 40}, Font::Small, pal_.inkMuted, {Align::Left, lines > 1, false});
+                    gfx_.popClip();
+                }
                 // A few details as chips along the foot: the first ones written that the label doesn't already show.
                 {
                     float chx = tx;
@@ -2438,23 +2474,31 @@ void StudioApp::drawFamilyPanel(const Rect& r) {
         }
         y += 10;
         const auto fam = lib_->familyOf(id);
-        auto group = [&](const char* key, const wchar_t* title, const std::vector<Id>& ids) {
+        auto group = [&](const char* key, const wchar_t* title, const std::vector<Id>& ids, int role) {
             if (ids.empty()) return;
             gfx_.text(title, {c.x, y, c.w, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
             y += 22;
             for (const Id& o : ids) {
                 const Entry* x = lib_->entry(o);
                 if (!x || x->deleted) continue;
-                linkText("fam:pick:" + std::string(key) + ":" + o, c.x + 6, y, w(x->name),
+                const std::wstring nm = w(x->name);
+                linkText("fam:pick:" + std::string(key) + ":" + o, c.x + 6, y, nm,
                          [this, o] { wb_.treeSelected = o; setFocus({Focus::Entry, o, {}}); invalidate(); });
+                // What kind (twin sister, stepfather, adopted son), beside the name (0.46).
+                if (role != 1)
+                    if (auto it = fam.how.find(o); it != fam.how.end())
+                        if (const std::wstring kw = kinWord(o, role, it->second); !kw.empty()) {
+                            const float nx = c.x + 6 + gfx_.measureWidth(nm, Font::Small) + 22;
+                            gfx_.text(kw, {nx, y, c.right() - nx, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
+                        }
                 y += 24;
             }
             y += 8;
         };
-        group("pa", L"PARENTS", fam.parents);
-        group("pt", L"PARTNERS", fam.partners);
-        group("sb", L"BROTHERS AND SISTERS", fam.siblings);
-        group("ch", L"CHILDREN", fam.children);
+        group("pa", L"PARENTS", fam.parents, 0);
+        group("pt", L"PARTNERS", fam.partners, 1);
+        group("sb", L"BROTHERS AND SISTERS", fam.siblings, 2);
+        group("ch", L"CHILDREN", fam.children, 3);
         y += gfx_.text(L"Click someone in the tree to pick them; double-click to see the tree from them.", {c.x, y, c.w, 60}, Font::Small,
                        pal_.inkFaint) + 12;
     }
@@ -2514,9 +2558,65 @@ void StudioApp::zoomFamilyTree(float factor) {
 
 // Adds a parent, partner, sibling or child: someone already in the bible, or a new character
 // (opened with its name ready to type).
+namespace {
+// The kinds of parent, child and brother or sister, with their links (0.46). `role` 0 parent, 2 sibling, 3 child.
+struct KinKind { const char* how; const wchar_t* menu; };
+const std::vector<KinKind>& kinKinds(int role) {
+    static const std::vector<KinKind> parents{{"", L"Birth parent"}, {"adoptive", L"Adoptive parent"}, {"step", L"Step-parent"},
+                                              {"foster", L"Foster parent"}};
+    static const std::vector<KinKind> siblings{{"", L"Brother or sister"}, {"twin", L"Twin"}, {"half", L"Half-brother or half-sister"},
+                                               {"step", L"Stepbrother or stepsister"}, {"adoptive", L"Adoptive brother or sister"},
+                                               {"foster", L"Foster brother or sister"}};
+    static const std::vector<KinKind> children{{"", L"Child"}, {"adoptive", L"Adopted child"}, {"step", L"Stepchild"}, {"foster", L"Foster child"}};
+    return role == 0 ? parents : role == 2 ? siblings : children;
+}
+// The link from `who` that says `other` is their kin of this role and kind.
+struct KinLink { Id from, to; std::string label; };
+KinLink kinLink(const Id& who, const Id& other, int role, const std::string& how) {
+    if (role == 2) {
+        const std::string l = how == "twin" ? "Twin of" : how == "half" ? "Half-sibling of" : how == "step" ? "Step-sibling of"
+                            : how == "adoptive" ? "Adoptive sibling of" : how == "foster" ? "Foster sibling of" : "Sibling of";
+        return {who, other, l};
+    }
+    const std::string l = how == "adoptive" ? "Adoptive parent of" : how == "step" ? "Step-parent of" : how == "foster" ? "Foster parent of" : "Parent of";
+    return role == 0 ? KinLink{other, who, l} : KinLink{who, other, l};
+}
+}  // namespace
+
+// What someone is to a person, in words: "twin sister", "stepfather", "adopted son", "half-brother" (0.46).
+std::wstring StudioApp::kinWord(const Id& other, int role, const std::string& how) {
+    const Entry* o = lib_->entry(other);
+    std::wstring g = o ? w(facetOf(*o, *findFacet("gender"))) : L"";
+    for (auto& c : g) c = (wchar_t)towlower(c);
+    const int sex = g.find(L"female") != std::wstring::npos || g.find(L"woman") != std::wstring::npos || g == L"f" ? 1
+                  : g.find(L"male") != std::wstring::npos || g.find(L"man") != std::wstring::npos || g == L"m" ? 0 : 2;
+    const wchar_t* base = role == 0 ? (sex == 1 ? L"mother" : sex == 0 ? L"father" : L"parent")
+                        : role == 2 ? (sex == 1 ? L"sister" : sex == 0 ? L"brother" : L"sibling")
+                                    : (sex == 1 ? L"daughter" : sex == 0 ? L"son" : L"child");
+    if (how.empty()) return L"";
+    if (how == "twin") return std::wstring(L"twin ") + base;
+    if (how == "half") return std::wstring(L"half-") + base;
+    if (how == "step") return std::wstring(L"step") + base;
+    if (how == "foster") return std::wstring(L"foster ") + base;
+    if (how == "adoptive") return (role == 3 ? std::wstring(L"adopted ") : std::wstring(L"adoptive ")) + base;
+    return L"";
+}
+
 void StudioApp::addFamilyMember(const Id& who, int relation) {
     const Entry* me = lib_->entry(who);
     if (!me) return;
+    POINT pt;
+    GetCursorPos(&pt);
+    // Which kind of parent, brother or sister, or child first (0.46).
+    std::string how;
+    if (relation != 1) {
+        std::vector<cjui::MenuItem> kinds;
+        const auto& ks = kinKinds(relation);
+        for (size_t i = 0; i < ks.size(); ++i) kinds.push_back(cjui::MenuItem::item(ks[i].menu, (UINT)(1 + i)));
+        const UINT k = cjui::showMenu(hwnd(), kinds, pt, pal_);
+        if (!k) return;
+        how = ks[k - 1].how;
+    }
     const auto fam = lib_->familyOf(who);
     std::set<Id> already;
     for (auto* v : {&fam.parents, &fam.partners, &fam.siblings, &fam.children}) already.insert(v->begin(), v->end());
@@ -2524,11 +2624,12 @@ void StudioApp::addFamilyMember(const Id& who, int relation) {
     for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
         if (o->kind == "character" && o->id != who && !already.count(o->id)) people.push_back(o);
     static const wchar_t* what[] = {L"parent", L"partner", L"brother or sister", L"child"};
-    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"New character as " + w(me->name) + L"'s " + what[relation] + L"…", 1)};
+    std::wstring role = what[relation];
+    if (relation != 1 && !how.empty())
+        for (auto& kk : kinKinds(relation)) if (kk.how == how) { role = kk.menu; for (auto& c : role) c = (wchar_t)towlower(c); }
+    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"New character as " + w(me->name) + L"'s " + role + L"…", 1)};
     if (!people.empty()) menu.push_back(cjui::MenuItem::sep());
     for (size_t i = 0; i < people.size() && i < 300; ++i) menu.push_back(cjui::MenuItem::item(w(people[i]->name), (UINT)(10 + i)));
-    POINT pt;
-    GetCursorPos(&pt);
     const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
     if (!ch) return;
     commitFields();
@@ -2540,18 +2641,55 @@ void StudioApp::addFamilyMember(const Id& who, int relation) {
         other = people[ch - 10]->id;
     }
     bool ok = false;
-    switch (relation) {
-        case 0: ok = lib_->addLink(other, who, "Parent of"); break;
-        case 1: ok = lib_->addLink(who, other, "Partner of"); break;
-        case 2: ok = lib_->addLink(who, other, "Sibling of"); break;
-        default: ok = lib_->addLink(who, other, "Parent of"); break;
-    }
+    if (relation == 1) ok = lib_->addLink(who, other, "Partner of");
+    else { const KinLink kl = kinLink(who, other, relation, how); ok = lib_->addLink(kl.from, kl.to, kl.label); }
     if (!ok) { flash(w("Couldn't add them: " + lib_->lastError()), 6); return; }
     if (ch == 1) {
         const bool inTree = !wb_.familyRoot.empty();
         openEntry(other);
         focusFieldSoon_ = FName;
         flash(inTree ? L"Name them; “See the family tree” on their page goes back to the tree." : L"Name them here.", 6);
+    }
+    invalidate();
+}
+
+// A family member's chip: open their page, change what kind of parent, brother or sister, or child they are, or take
+// them out of the family (0.46). Changing the kind replaces the links between the two.
+void StudioApp::familyChipMenu(const Id& who, const Id& other, int role) {
+    const Entry* o = lib_->entry(other);
+    if (!o) return;
+    const auto fam = lib_->familyOf(who);
+    std::string cur;
+    if (auto it = fam.how.find(other); it != fam.how.end()) cur = it->second;
+    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"Open " + w(o->name) + L"'s page", 1)};
+    if (role != 1) {
+        menu.push_back(cjui::MenuItem::sep());
+        const auto& ks = kinKinds(role);
+        for (size_t i = 0; i < ks.size(); ++i) menu.push_back(cjui::MenuItem::item(ks[i].menu, (UINT)(10 + i), {}, true, cur == ks[i].how));
+    }
+    menu.push_back(cjui::MenuItem::sep());
+    menu.push_back(cjui::MenuItem::item(L"Not family after all (remove the link)", 2));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
+    if (!ch) return;
+    if (ch == 1) { openEntry(other); return; }
+    commitFields();
+    // Every family link between the two goes (either way round); then the chosen one is made.
+    static const std::set<std::string> kin{"Parent of", "Child of", "Sibling of", "Twin of", "Half-sibling of", "Step-sibling of",
+                                           "Adoptive sibling of", "Foster sibling of", "Adoptive parent of", "Adopted child of",
+                                           "Step-parent of", "Stepchild of", "Foster parent of", "Foster child of", "Partner of", "Married to"};
+    const bool partnerRole = role == 1;
+    for (const EntryLink& l : lib_->linksOf(who)) {
+        const Id x = l.from == who ? l.to : l.from;
+        if (x != other || !kin.count(l.label)) continue;
+        const bool partnerLink = l.label == "Partner of" || l.label == "Married to";
+        if (partnerLink != partnerRole) continue;
+        lib_->removeLink(l.from, l.to, l.label);
+    }
+    if (ch >= 10) {
+        const KinLink kl = kinLink(who, other, role, kinKinds(role)[ch - 10].how);
+        if (!lib_->addLink(kl.from, kl.to, kl.label)) flash(w("Couldn't change it: " + lib_->lastError()), 6);
     }
     invalidate();
 }
@@ -2576,18 +2714,25 @@ float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
         for (const Id& pid : *row.ids) {
             const Entry* o = lib_->entry(pid);
             if (!o) continue;
-            const std::wstring nm = w(o->name);
-            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 26;
+            // The name, and what they are when it isn't plain (twin sister, stepfather, adopted son).
+            std::string how;
+            if (auto it = fam.how.find(pid); it != fam.how.end() && row.rel != 1) how = it->second;
+            const std::wstring nm = w(o->name), kw = row.rel == 1 ? L"" : kinWord(pid, row.rel, how);
+            const float nw = gfx_.measureWidth(nm, Font::Small), kww = kw.empty() ? 0 : gfx_.measureWidth(kw, Font::Small) + 12;
+            const float lw2 = nw + kww + 26;
             if (lx + lw2 > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
             const Rect chip{lx, y, lw2, 28};
             const std::string id = "wb:famp:" + std::to_string(row.rel) + pid;
-            addHit(id, chip, [this, pid] { openEntry(pid); });
+            addHit(id, chip, [this, who = e.id, pid, rel = row.rel] { familyChipMenu(who, pid, rel); });
+            tooltip(id, L"Open their page, change what kind of family they are, or remove them");
             const float hv = hoverAmount(id);
             const std::wstring g = w(facetOf(*o, *findFacet("gender")));
             const cjui::Color gc = g.empty() ? pal_.rule : genderColor(g, pal_);
             gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
             gfx_.strokeRounded(chip, 14, gc.mix(pal_.ribbon, hv));
-            gfx_.text(nm, chip, Font::Small, pal_.ink, {Align::Center, false, true, true});
+            gfx_.text(nm, {chip.x + 13, chip.y, nw + 2, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+            if (!kw.empty())
+                gfx_.text(kw, {chip.x + 13 + nw + 10, chip.y, kww, chip.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
             if (focused(id)) focusRing(chip);
             lx += lw2 + 8;
         }
@@ -2614,18 +2759,8 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     linkText("wb:famback", r.x + pad, y, L"‹ " + w(root->name), [this, id = root->id] { openEntry(id); });
     y += 34;
     const auto lay = lib_->familyLayout(root->id, 150, wb_.treeBloodline);
-    std::map<std::string, int> surnames;
-    for (auto& p : lay.people)
-        if (const Entry* x = lib_->entry(p.id); x && !p.inLaw) {
-            const std::string& n = x->name;
-            if (const size_t sp = n.rfind(' '); sp != std::string::npos && sp + 1 < n.size()) ++surnames[n.substr(sp + 1)];
-        }
-    std::string surname;
-    int best = 1;
-    for (auto& [sn, n] : surnames) if (n > best) { best = n; surname = sn; }
     const int gens = lay.maxGeneration - lay.minGeneration + 1;
-    const std::wstring title = wb_.treeBloodline ? (surname.empty() ? w(root->name) + L"'s family" : L"The " + w(surname) + L" family")
-                                                 : w(root->name) + L"'s family tree";
+    const std::wstring title = w(studio::familytree::title(*lib_, root->id, wb_.treeBloodline));
     std::wstring sub = std::to_wstring(lay.people.size()) + (lay.people.size() == 1 ? L" person" : L" people") + L" across " +
                        std::to_wstring(gens) + (gens == 1 ? L" generation." : L" generations.");
     if (lay.cut) sub += L" Only the closest 150 are shown.";
@@ -2748,11 +2883,57 @@ void StudioApp::drawFamilyTree(const Rect& r) {
     }
     // Children, grouped by their parents: down from the parents (from the middle of a couple's line), along, and
     // down to each child. The picked person's lines are lit.
+    // A child hangs from their main parents: birth parents, else adoptive, else foster, else step-parents. Any other
+    // parents (a step-parent beside a birth parent, say) get a dotted line of their own (0.46).
     std::map<std::vector<Id>, std::vector<Id>> byParents;
+    std::vector<std::pair<Id, Id>> otherParents;   // parent, child
+    auto howOf = [&](const Id& par, const Id& ch) {
+        const auto it = lay.parentHow.find({par, ch});
+        return it == lay.parentHow.end() ? std::string() : it->second;
+    };
+    auto rankHow = [](const std::string& h) { return h.empty() ? 0 : h == "adoptive" ? 1 : h == "foster" ? 2 : 3; };
     {
         std::map<Id, std::vector<Id>> parentsOf;
         for (auto& [par, ch] : lay.parentChild) parentsOf[ch].push_back(par);
-        for (auto& [ch, ps] : parentsOf) { std::sort(ps.begin(), ps.end()); byParents[ps].push_back(ch); }
+        for (auto& [ch, ps] : parentsOf) {
+            int best = 9;
+            for (const Id& p : ps) best = std::min(best, rankHow(howOf(p, ch)));
+            std::vector<Id> mainPs;
+            for (const Id& p : ps) (rankHow(howOf(p, ch)) == best ? mainPs.push_back(p) : otherParents.push_back({p, ch}));
+            std::sort(mainPs.begin(), mainPs.end());
+            byParents[mainPs].push_back(ch);
+        }
+    }
+    std::set<std::pair<Id, Id>> twinPairs;
+    for (auto& sb : lay.siblings) if (sb.how == "twin") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
+    // Dotted lines (adopted, step, foster) and a dashed one (parents who aren't partners) share these.
+    auto dotted = [&](float x1, float y1, float x2, float y2, cjui::Color c, float t) {
+        const float len = std::hypot(x2 - x1, y2 - y1);
+        if (len < 0.5f) return;
+        const float step = 6 * s, dot = 2.4f * s;
+        for (float d = 0; d < len; d += step) {
+            const float e = std::min(len, d + dot);
+            gfx_.line(x1 + (x2 - x1) * d / len, y1 + (y2 - y1) * d / len, x1 + (x2 - x1) * e / len, y1 + (y2 - y1) * e / len, c, t);
+        }
+    };
+    auto kinTag = [&](const std::string& how) -> std::wstring {
+        return how == "adoptive" ? L"adopted" : how == "step" ? L"step" : how == "foster" ? L"foster" : L"";
+    };
+    // Several sets of parents over one row of children: each set's line at its own height (0.46).
+    std::map<std::vector<Id>, float> busShift;
+    {
+        std::map<long, std::vector<std::pair<float, std::vector<Id>>>> rows;
+        for (auto& [ps, kids] : byParents) {
+            float top = 1e9f, px = 0;
+            for (const Id& k : kids) top = std::min(top, at[k].y);
+            for (const Id& p : ps) px += at[p].x;
+            rows[std::lround(top)].push_back({ps.empty() ? 0 : px / ps.size(), ps});
+        }
+        for (auto& [row, gs] : rows) {
+            std::sort(gs.begin(), gs.end());
+            const float step = std::min(9 * s, gapY * 0.55f / std::max<size_t>(1, gs.size()));
+            for (size_t i = 0; i < gs.size(); ++i) busShift[gs[i].second] = ((float)i - (gs.size() - 1) / 2.0f) * step;
+        }
     }
     for (auto& [ps, kids] : byParents) {
         float ox = 0, oy = 0;
@@ -2782,26 +2963,80 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             oy = by;
         }
         float minX = ox, maxX = ox, topY = 1e9f;
-        for (const Id& k : kids) {
+        for (const Id& k : kids) {   // the line runs to each child, or to the point a pair of twins comes down from
             const Rect kr = at[k];
-            minX = std::min(minX, kr.x + kr.w / 2);
-            maxX = std::max(maxX, kr.x + kr.w / 2);
+            float kx = kr.x + kr.w / 2;
+            for (const Id& o : kids) if (o != k && twinPairs.count({k, o})) kx = (kx + at[o].x + at[o].w / 2) / 2;
+            minX = std::min(minX, kx);
+            maxX = std::max(maxX, kx);
             topY = std::min(topY, kr.y);
         }
         if (topY > 1e8f) continue;
         const bool parentLit = std::find(ps.begin(), ps.end(), lit) != ps.end();
-        const float busY = topY - gapY / 2;
+        const float busY = topY - gapY / 2 + busShift[ps];
         gfx_.line(ox, oy, ox, busY, parentLit ? litC : lineC, parentLit ? 2.2f : 1.4f);
         gfx_.line(minX, busY, maxX, busY, parentLit ? litC : lineC, parentLit ? 2.2f : 1.4f);
         for (const Id& k : kids) {
             const Rect kr = at[k];
             const bool on = parentLit || k == lit;
+            const float kx = kr.x + kr.w / 2;
+            // Twins come down from one point on the line, between them.
+            float fromX = kx;
+            for (const Id& o : kids)
+                if (o != k && twinPairs.count({k, o})) fromX = (kx + at[o].x + at[o].w / 2) / 2;
             if (k == lit && !parentLit) {   // a child picked: the way up to their parents lit
                 gfx_.line(ox, oy, ox, busY, litC, 2.2f);
-                gfx_.line(std::min(ox, kr.x + kr.w / 2), busY, std::max(ox, kr.x + kr.w / 2), busY, litC, 2.2f);
+                gfx_.line(std::min(ox, fromX), busY, std::max(ox, fromX), busY, litC, 2.2f);
             }
-            gfx_.line(kr.x + kr.w / 2, busY, kr.x + kr.w / 2, kr.y, on ? litC : lineC, on ? 2.2f : 1.4f);
+            const std::string how = ps.empty() ? std::string() : howOf(ps[0], k);
+            const cjui::Color c = on ? litC : lineC;
+            const float t = on ? 2.2f : 1.4f;
+            if (fromX != kx) {
+                const float midY = busY + (kr.y - busY) * 0.45f;
+                (how.empty() ? gfx_.line(fromX, busY, kx, midY, c, t) : dotted(fromX, busY, kx, midY, c, t));
+                (how.empty() ? gfx_.line(kx, midY, kx, kr.y, c, t) : dotted(kx, midY, kx, kr.y, c, t));
+            } else if (how.empty()) {
+                gfx_.line(kx, busY, kx, kr.y, c, t);
+            } else {
+                dotted(kx, busY, kx, kr.y, c, t);
+            }
+            if (const std::wstring tag = kinTag(how); !tag.empty() && s > 0.7f)
+                gfx_.text(tag, {kx + 5, busY + 2, 70, 16}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
         }
+    }
+    // Other parents (a step-parent beside a birth parent, say): a dotted line from them to the child, labelled.
+    for (auto& [par, ch] : otherParents) {
+        if (!at.count(par) || !at.count(ch)) continue;
+        const Rect pr = at[par], kr = at[ch];
+        const bool on = par == lit || ch == lit;
+        const cjui::Color c = on ? litC : lineC;
+        const float t = on ? 2.2f : 1.4f;
+        const float px = pr.x + pr.w / 2 + 14 * s, kx = kr.x + kr.w / 2 + 14 * s;
+        const float midY = kr.y - gapY * 0.28f;
+        dotted(px, pr.bottom(), px, midY, c, t);
+        dotted(px, midY, kx, midY, c, t);
+        dotted(kx, midY, kx, kr.y, c, t);
+        if (const std::wstring tag = kinTag(howOf(par, ch)); !tag.empty() && s > 0.7f)
+            gfx_.text(tag, {kx + 5, midY + 2, 70, 16}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+    }
+    // Brothers and sisters joined only by their own link (no parent drawn), or of a kind: a bracket over them.
+    for (auto& sb : lay.siblings) {
+        if (sb.sharedParents || !at.count(sb.a) || !at.count(sb.b)) continue;
+        Rect ra = at[sb.a], rb = at[sb.b];
+        if (ra.x > rb.x) std::swap(ra, rb);
+        const bool on = sb.a == lit || sb.b == lit;
+        const cjui::Color c = on ? litC : lineC;
+        const float t = on ? 2.2f : 1.4f;
+        const float ax = ra.x + ra.w / 2, bx = rb.x + rb.w / 2, topY = ra.y - gapY * 0.3f;
+        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "half";
+        if (plain) {
+            gfx_.line(ax, ra.y, ax, topY, c, t); gfx_.line(ax, topY, bx, topY, c, t); gfx_.line(bx, topY, bx, rb.y, c, t);
+        } else {
+            dotted(ax, ra.y, ax, topY, c, t); dotted(ax, topY, bx, topY, c, t); dotted(bx, topY, bx, rb.y, c, t);
+        }
+        const std::wstring tag = sb.how == "twin" ? L"twins" : sb.how == "half" ? L"half-siblings" : sb.how == "step" ? L"step-siblings"
+                               : sb.how == "adoptive" ? L"adoptive siblings" : sb.how == "foster" ? L"foster siblings" : L"siblings";
+        if (s > 0.7f) gfx_.text(tag, {(ax + bx) / 2 - 60, topY - 17, 120, 16}, Font::Small, pal_.inkFaint, {Align::Center, false, true});
     }
     // The people.
     float bottom = y;
@@ -2840,7 +3075,12 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         }
         const float tx = pic.right() + 10 * s, tw = cr.right() - 8 - tx;
         // The name on up to two lines.
-        gfx_.text(w(x->name), {tx, cr.y + 9 * s, tw, cr.h - 32 * s}, s < 0.8f ? Font::SmallStrong : Font::BodyStrong, pal_.ink, {Align::Left, true, true});
+        {
+            const Font nf = s < 0.8f ? Font::SmallStrong : Font::BodyStrong;
+            gfx_.pushClip({tx, cr.y + 4, tw, cr.h - 26 * s});
+            gfx_.text(linesOf(gfx_, w(x->name), tw, nf, 2), {tx, cr.y + 9 * s, tw, cr.h}, nf, pal_.ink, {Align::Left, true, false});
+            gfx_.popClip();
+        }
         if (p.inLaw) {
             // Married in: their own family's tree is a click away (when they have one).
             const auto theirs = lib_->familyOf(p.id);
@@ -2890,6 +3130,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             if (kind == 0) gfx_.line(kx, cy, kx + 22, cy, lineC, 1.4f);
             if (kind == 1) { gfx_.line(kx, cy - 2, kx + 22, cy - 2, lineC, 1.4f); gfx_.line(kx, cy + 2, kx + 22, cy + 2, lineC, 1.4f); }
             if (kind == 2) for (float dx = 0; dx < 22; dx += 8) gfx_.line(kx + dx, cy, kx + dx + 4, cy, lineC, 1.4f);
+            if (kind == 3) for (float dx = 0; dx < 22; dx += 5) gfx_.line(kx + dx, cy, kx + dx + 2, cy, lineC, 1.4f);
             kx += 28;
             gfx_.text(label, {kx, ky, 200, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
             kx += gfx_.measureWidth(label, Font::Small) + 18;
@@ -2897,6 +3138,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         key(0, L"partners");
         key(1, L"married");
         key(2, L"parents, not partners");
+        key(3, L"adopted, step or foster");
         gfx_.text(L"Click to pick \u00B7 double-click: their tree \u00B7 drag to move", {kx + 10, ky, r.right() - pad - kx - 10, 20}, Font::Small,
                   pal_.inkFaint, {Align::Right, false, true, true});
         const float zy = board.y + 10, zx = board.right() - 10 - 3 * 34;

@@ -415,6 +415,47 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.46.0: kinds of family, more typefaces, tidier cards (20 Nov 2026)
+
+CJ: the world bible stays the focus; sibling kinds in the tree and relationships; every part of the bible must import
+from the templates; more built-in fonts.
+
+- **Relationships** (`entries.cpp`): "Twin of", "Half-sibling of", "Step-sibling of", "Adoptive sibling of", "Foster
+  sibling of" (each its own reverse), and "Adoptive parent of"/"Adopted child of", "Step-parent of"/"Stepchild of",
+  "Foster parent of"/"Foster child of"; offered for characters and in the bible export's family box. `relationFor` maps
+  the wordings (twin sister, half-brothers, stepmother, stepson, adoptive father, adopted daughter, foster brother...)
+  and no longer strips "adoptive"/"step" as prefixes. `blankPage("character")` has a Family line per kind.
+- **Family** (`family.cpp`): `Family::how` per relative: "" (birth / full), "adoptive", "step", "foster", "twin",
+  "half". A linked sibling takes its link's kind; one found through a parent is half when the birth parents differ, or
+  the shared parent's kind; the closest kind wins across parents. `FamilyLayout::parentHow` per (parent, child) and
+  `siblings` ({a, b, how, sharedParents}) for twins and brothers and sisters joined only by their own link. Units with
+  a person holding two or more partners put them in the middle; twins' units are moved side by side. Bloodline
+  founders are followed from founder to founder (partners and other parents with no parents), and `families()` skips a
+  founder whose children are already in a family, so a man with two wives gives one family. `FamilyGroup::name` tells
+  same-surname families apart by the founder's first name ("The Smith family (Hal's)"); `familytree::title` uses it.
+- **Drawing** (app and `family_tree.cpp`): a child hangs from their main parents (birth, else adoptive, foster,
+  step); other parents get a dotted elbow line; adopted/step/foster lines are dotted with a small label; twins come
+  down from one point (the line runs to that point); unparented sibling pairs get a bracket labelled by kind; each set
+  of parents over a row has its line at its own height (`busShift`); key: "adopted, step or foster" (the picture adds
+  it only when used, and is at least 700 pt wide with a key).
+- **App**: `kinWord` ("twin sister", "stepfather", "adopted son") on the Family section's chips and the tree panel;
+  `familyChipMenu` (open, change kind, remove the link: every family link between the two goes, then the chosen one
+  is made); `addFamilyMember` asks the kind first.
+- **Cards**: the cards view is up to 1,640 px wide (an entry's page keeps 980); columns of at least 290 px; summaries
+  through `linesOf(gfx, text, width, font, lines)` (cut at a word with an ellipsis by DirectWrite's own measure, cached)
+  under a clip, so they can't run under the detail chips on Windows. Tree card names use it too.
+- **Fonts**: 14 more families in `apps/studio/fonts` from Google Fonts (via the @expo-google-fonts packages; OFL, Special
+  Elite Apache 2.0; fsType 0): EB Garamond, Libre Baskerville, Lora, Alegreya, Spectral, Source Sans 3, IM Fell English,
+  Cinzel, Uncial Antiqua, MedievalSharp, Caveat, Dancing Script, Special Elite, Noto Sans Runic, each with `name.txt`.
+  They appear wherever the app's fonts are listed (Typesetting, covers, EPUB); the bible website's `fontDefs`/`fonts()`
+  gain them (the @font-face family is the stack's first name). The editor's typeface list adds "Built in" (handwriting,
+  typewriter, runes, old print, display) from the app folder on `fonts.nrstudio.localhost` (now in editor.html's
+  font-src); words marked with them resolve through `familyFolder` across the app and world folders.
+- Tested in core (1430 checks: kinds both ways, half/step worked out, layout kinds, twins adjacent, a filled blank page
+  pasted making every kind, wordings, two Smith families named apart, the picture, the built-in families and a site
+  with Cinzel and EB Garamond copied in) and in Wine (cards at full width, a sibling changed to Twin from its chip and
+  drawn from one point, the founder's tree).
+
 ## 0.45.0: family trees reworked, and printed (20 Nov 2026)
 
 - `studio/family_tree.hpp` (`studiocore`, portable, tested): `familytree::title` names a family ("The Yerasuun family" by the surname most of its people share, else "Tobias's family"; "…'s family tree" for one person's own tree). `familytree::render` draws `Library::familyLayout` to a PNG for paper: cards 196 × 80 (picture through `stbi_load_from_memory` or initials, a two-line name in Gentium Book Plus through FreeType, a vector gender sign and one detail), partner lines (double for a marriage), a dashed line joining co-parents who aren't partners, child buses, "married in" for in-laws, an optional heading and key, and `turnWide` turning a tree wider than 1.3 × its height a quarter for a book page.

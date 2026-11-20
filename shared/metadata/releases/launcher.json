@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.112.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.46.0: kinds of family (twins, step, half, adoptive, foster), fourteen more typefaces, tidier bible cards."
+      ]
+    },
+    {
       "version": "0.111.0",
       "date": "2026-11-20",
       "notes": [

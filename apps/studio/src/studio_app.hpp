@@ -328,6 +328,8 @@ private:
     float drawFamilySection(const Rect& m, float y, const studio::Entry& e);
     void drawFamilyTree(const Rect& r);
     void drawFamilyPanel(const Rect& r);
+    void familyChipMenu(const Id& who, const Id& other, int role);
+    std::wstring kinWord(const Id& other, int role, const std::string& how);
     void addFamilyMember(const Id& who, int relation);   // 0 parent, 1 partner, 2 sibling, 3 child
     void openFamilyTree(const Id& root, bool bloodline = false);   // a person's tree, or a family from its founder
     void saveFamilyTreePicture();

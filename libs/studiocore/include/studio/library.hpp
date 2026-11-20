@@ -477,7 +477,11 @@ public:
     std::vector<KindSuggestion> kindSuggestions(const Id& worldId, const Id& bookId = {}) const;
     // A character's close family, from the bible's relationships ("Parent of", "Child of", "Partner
     // of", "Married to", "Sibling of"); siblings include anyone sharing a parent. Each list by name.
-    struct Family { std::vector<Id> parents, partners, siblings, children; };
+    // `how` (0.46) says what kind each parent, child or sibling is: "" a birth parent or child, or a full brother or
+    // sister; "adoptive", "step" or "foster" for parents, children and siblings; "twin" and "half" for siblings. A
+    // sibling linked with its kind ("Twin of", "Half-sibling of" ...) is that kind; one found through a parent is
+    // "half" when their birth parents differ, and takes the parent's kind when that parent is adoptive, step or foster.
+    struct Family { std::vector<Id> parents, partners, siblings, children; std::map<Id, std::string> how; };
     Family familyOf(const Id& entryId) const;
     Family familyOf(const Id& entryId, bool sharedParents) const;   // false: only its own links
     // Everyone joined to `root` by family (parents, children, partners, siblings), laid out as a tree:
@@ -489,6 +493,11 @@ public:
         std::vector<Person> people;
         std::vector<std::pair<Id, Id>> couples;        // partners, drawn side by side
         std::vector<std::pair<Id, Id>> parentChild;    // parent, child
+        std::map<std::pair<Id, Id>, std::string> parentHow;   // (parent, child) -> "", "adoptive", "step" or "foster"
+        // Brothers and sisters of a kind ("twin", "half", "step", "adoptive", "foster", or "" for full ones joined only by
+        // their own link, with no parent drawn): drawn joined to each other (0.46).
+        struct Siblings { Id a, b; std::string how; bool sharedParents = false; };
+        std::vector<Siblings> siblings;
         int minGeneration = 0, maxGeneration = 0;
         float width = 0;                               // in card widths
         bool cut = false;                              // more people than `limit`: the rest are left out
@@ -501,7 +510,8 @@ public:
     // The families in a world: each founder's bloodline (a founder has no parents in the bible and children whose
     // other parent is a founder too, or none; or a set of brothers and sisters with no parents), named after the
     // surname most of its own people share ("" if none), largest first. `root` is a founder.
-    struct FamilyGroup { Id root; std::string surname; int people = 0; };
+    // `name`: "The Smith family", told apart when two share a surname ("The Smith family (Ralph's)").
+    struct FamilyGroup { Id root; std::string surname; int people = 0; std::string name; };
     std::vector<FamilyGroup> families(const Id& worldId, const Id& bookId = {}) const;
     bool addLink(const Id& from, const Id& to, const std::string& label);
     bool removeLink(const Id& from, const Id& to, const std::string& label);

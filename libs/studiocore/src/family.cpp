@@ -12,10 +12,34 @@ namespace studio {
 
 namespace {
 
-bool isParentLink(const std::string& l) { return l == "Parent of"; }
-bool isChildLink(const std::string& l) { return l == "Child of"; }
+// The kinds of parent, child and sibling links (0.46). Each returns whether the label is one, and its kind.
+bool parentLink(const std::string& l, std::string& how) {
+    if (l == "Parent of") how = "";
+    else if (l == "Adoptive parent of") how = "adoptive";
+    else if (l == "Step-parent of") how = "step";
+    else if (l == "Foster parent of") how = "foster";
+    else return false;
+    return true;
+}
+bool childLink(const std::string& l, std::string& how) {
+    if (l == "Child of") how = "";
+    else if (l == "Adopted child of") how = "adoptive";
+    else if (l == "Stepchild of") how = "step";
+    else if (l == "Foster child of") how = "foster";
+    else return false;
+    return true;
+}
 bool isPartnerLink(const std::string& l) { return l == "Partner of" || l == "Married to"; }
-bool isSiblingLink(const std::string& l) { return l == "Sibling of"; }
+bool siblingLink(const std::string& l, std::string& how) {
+    if (l == "Sibling of") how = "";
+    else if (l == "Twin of") how = "twin";
+    else if (l == "Half-sibling of") how = "half";
+    else if (l == "Step-sibling of") how = "step";
+    else if (l == "Adoptive sibling of") how = "adoptive";
+    else if (l == "Foster sibling of") how = "foster";
+    else return false;
+    return true;
+}
 
 std::string surnameOf(const std::string& name) {
     size_t end = name.size();
@@ -32,20 +56,55 @@ Library::Family Library::familyOf(const Id& id) const { return familyOf(id, true
 Library::Family Library::familyOf(const Id& id, bool sharedParents) const {
     Family f;
     std::set<Id> parents, partners, siblings, children;
+    std::map<Id, std::string> linkedSibling;   // siblings by their own link, with its kind
     auto live = [&](const Id& x) { const Entry* e = entry(x); return e && !e->deleted && x != id; };
     for (const EntryLink& l : linksOf(id)) {
         const bool out = l.from == id;
         const Id other = out ? l.to : l.from;
         if (!live(other)) continue;
-        if ((out && isChildLink(l.label)) || (!out && isParentLink(l.label))) parents.insert(other);
-        else if ((out && isParentLink(l.label)) || (!out && isChildLink(l.label))) children.insert(other);
-        else if (isPartnerLink(l.label)) partners.insert(other);
-        else if (isSiblingLink(l.label)) siblings.insert(other);
+        std::string how;
+        if ((out && childLink(l.label, how)) || (!out && parentLink(l.label, how))) {
+            parents.insert(other);
+            if (!f.how.count(other) || how.empty()) f.how[other] = how;   // a birth link wins over another kind
+        } else if ((out && parentLink(l.label, how)) || (!out && childLink(l.label, how))) {
+            children.insert(other);
+            if (!f.how.count(other) || how.empty()) f.how[other] = how;
+        } else if (isPartnerLink(l.label)) partners.insert(other);
+        else if (siblingLink(l.label, how)) {
+            siblings.insert(other);
+            if (!linkedSibling.count(other) || !how.empty()) linkedSibling[other] = how;   // the more exact kind wins
+        }
     }
-    // Anyone else sharing a parent is a sibling.
-    if (sharedParents)
-        for (const Id& p : parents)
-            for (const Id& c : familyOf(p, false).children) if (c != id) siblings.insert(c);
+    // Anyone else sharing a parent is a sibling: full when their birth parents are the same, half when not, and of the
+    // parent's kind when the parent they share is adoptive, step or foster to either.
+    if (sharedParents) {
+        std::set<Id> myBirth;
+        for (const Id& p : parents) if (f.how[p].empty()) myBirth.insert(p);
+        for (const Id& p : parents) {
+            const Family pf = familyOf(p, false);
+            for (const Id& c : pf.children) {
+                if (c == id || !live(c)) continue;
+                siblings.insert(c);
+                if (linkedSibling.count(c)) continue;
+                std::string how;
+                const std::string mine = f.how[p];
+                const auto it = pf.how.find(c);
+                const std::string theirs = it == pf.how.end() ? std::string() : it->second;
+                if (!mine.empty()) how = mine;
+                else if (!theirs.empty()) how = theirs;
+                else {
+                    std::set<Id> theirBirth;
+                    const Family cf = familyOf(c, false);
+                    for (const Id& q : cf.parents) if (auto h = cf.how.find(q); h == cf.how.end() || h->second.empty()) theirBirth.insert(q);
+                    how = (myBirth.size() >= 2 || theirBirth.size() >= 2) && myBirth != theirBirth ? "half" : "";
+                }
+                // Through two parents, the closer kind stands (full over half, half over step...).
+                auto rank = [](const std::string& h) { return h.empty() ? 0 : h == "half" ? 1 : h == "adoptive" ? 2 : h == "step" ? 3 : 4; };
+                if (auto cur = f.how.find(c); cur == f.how.end() || rank(how) < rank(cur->second)) f.how[c] = how;
+            }
+        }
+    }
+    for (auto& [o, how] : linkedSibling) f.how[o] = how;
     auto sorted = [&](const std::set<Id>& s) {
         std::vector<Id> v(s.begin(), s.end());
         std::sort(v.begin(), v.end(), [&](const Id& a, const Id& b) { return entry(a)->name < entry(b)->name; });
@@ -107,12 +166,17 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
     if (bloodline) {
         // The founder, their brothers and sisters, and the founders they had children with.
         for (const Id& s : famOf(root).siblings) add(s, 0);
-        for (const Id& p : famOf(root).partners)
-            if (famOf(p).parents.empty()) add(p, 0);
-        // The founder's children's other parents, partnered or not, when they have no parents either: founders too.
-        for (const Id& c : famOf(root).children)
-            for (const Id& op : famOf(c).parents)
-                if (op != root && famOf(op).parents.empty()) add(op, 0);
+        // Founders together: partners with no parents, and the other parents (partnered or not, with no parents) of the
+        // founders' children, followed on from each other (a founder's two wives in turn, say) (0.46).
+        for (size_t i = 0; i < order.size(); ++i) {
+            const Id f = order[i];
+            if (gen[f] != 0) continue;
+            for (const Id& p : famOf(f).partners)
+                if (famOf(p).parents.empty()) add(p, 0);
+            for (const Id& c : famOf(f).children)
+                for (const Id& op : famOf(c).parents)
+                    if (op != f && famOf(op).parents.empty()) add(op, 0);
+        }
         std::deque<Id> q(order.begin(), order.end());
         descend(q);
     } else {
@@ -143,6 +207,29 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
     }
     out.couples.assign(couples.begin(), couples.end());
     out.parentChild.assign(pc.begin(), pc.end());
+    for (auto& [par, ch] : pc) {
+        const auto& h = famOf(ch).how;
+        const auto it = h.find(par);
+        out.parentHow[{par, ch}] = it == h.end() ? std::string() : it->second;
+    }
+    // Brothers and sisters of a kind, and any joined only by their own link with no shared parent drawn.
+    {
+        std::set<std::pair<Id, Id>> seen;
+        for (const Id& id : order)
+            for (const Id& sb : famOf(id).siblings) {
+                if (!gen.count(sb) || gen[sb] != gen[id]) continue;
+                const auto key = id < sb ? std::make_pair(id, sb) : std::make_pair(sb, id);
+                if (!seen.insert(key).second) continue;
+                bool shared = false;
+                for (const Id& p : famOf(id).parents)
+                    if (gen.count(p) && std::find(famOf(sb).parents.begin(), famOf(sb).parents.end(), p) != famOf(sb).parents.end()) shared = true;
+                const auto it = famOf(id).how.find(sb);
+                const std::string how = it == famOf(id).how.end() ? std::string() : it->second;
+                if (how.empty() && shared) continue;   // full brothers and sisters: their parents' lines say it
+                if (how == "half" && shared) continue;  // half: shown by hanging from different parents
+                out.siblings.push_back({key.first, key.second, how, shared});
+            }
+    }
     int lo = 0, hi = 0;
     for (auto& [id, g] : gen) { lo = std::min(lo, g); hi = std::max(hi, g); }
     out.minGeneration = lo;
@@ -158,6 +245,30 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
         for (size_t k = 0; k < u.size(); ++k)
             for (const Id& p : famOf(u[k]).partners)
                 if (gen.count(p) && gen[p] == gen[id] && !unitOf.count(p)) { unitOf[p] = (int)units.size(); u.push_back(p); }
+        // Someone with two or more partners goes in the middle, a partner either side, so each couple sits together
+        // (a man between his late first wife and his second, say) (0.46).
+        if (u.size() >= 3) {
+            Id hub;
+            size_t most = 0;
+            for (const Id& m : u) {
+                size_t n = 0;
+                for (const Id& p : famOf(m).partners) if (std::find(u.begin(), u.end(), p) != u.end()) ++n;
+                if (n > most) { most = n; hub = m; }
+            }
+            if (most >= 2) {
+                std::vector<Id> left, right, rest;
+                for (const Id& p : famOf(hub).partners)
+                    if (std::find(u.begin(), u.end(), p) != u.end()) (left.size() <= right.size() ? left : right).push_back(p);
+                for (const Id& m : u)
+                    if (m != hub && std::find(left.begin(), left.end(), m) == left.end() && std::find(right.begin(), right.end(), m) == right.end())
+                        rest.push_back(m);
+                std::vector<Id> ordered(left.rbegin(), left.rend());
+                ordered.push_back(hub);
+                ordered.insert(ordered.end(), right.begin(), right.end());
+                ordered.insert(ordered.end(), rest.begin(), rest.end());
+                u = ordered;
+            }
+        }
         units.push_back(u);
     }
     std::map<Id, float> x;
@@ -177,6 +288,15 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
             wish[ui] = n ? sum / n : 1e9f;   // no parents drawn: after the others, in the order met
         }
         std::stable_sort(us.begin(), us.end(), [&](int a, int b) { return wish[a] < wish[b]; });
+        // Twins side by side: a unit holding someone's twin moves to just after theirs (0.46).
+        for (size_t i = 0; i < us.size(); ++i)
+            for (size_t j = i + 2; j < us.size(); ++j) {
+                bool twins = false;
+                for (const Id& a : units[(size_t)us[i]])
+                    for (const Id& b : units[(size_t)us[j]])
+                        if (auto h = famOf(a).how.find(b); h != famOf(a).how.end() && h->second == "twin") twins = true;
+                if (twins) { const int u = us[j]; us.erase(us.begin() + (long)j); us.insert(us.begin() + (long)i + 1, u); break; }
+            }
         float next = 0;
         for (int ui : us) {
             const auto& u = units[(size_t)ui];
@@ -239,6 +359,8 @@ std::vector<Library::FamilyGroup> Library::families(const Id& worldId, const Id&
         if (own.count(e->id)) continue;
         const Family f = familyOf(e->id);
         if (!f.parents.empty() || f.children.empty()) continue;
+        // Children already in a family: this is that family's founder by another route, not a new family.
+        if (std::any_of(f.children.begin(), f.children.end(), [&](const Id& c) { return own.count(c) > 0; })) continue;
         bool marriedIn = false;
         for (const Id& c : f.children)
             for (const Id& op : familyOf(c).parents)
@@ -252,6 +374,23 @@ std::vector<Library::FamilyGroup> Library::families(const Id& worldId, const Id&
         if (f.parents.empty() && !f.siblings.empty()) addGroup(e->id);
     }
     std::stable_sort(out.begin(), out.end(), [](const FamilyGroup& a, const FamilyGroup& b) { return a.people > b.people; });
+    // Names, told apart by the founder's first name (then their whole name) when two families share a surname.
+    std::map<std::string, int> uses;
+    for (auto& g : out) {
+        const Entry* f = entry(g.root);
+        g.name = g.surname.empty() ? (f ? f->name : std::string()) + "'s family" : "The " + g.surname + " family";
+        ++uses[g.name];
+    }
+    std::map<std::string, int> again;
+    for (auto& g : out) {
+        if (uses[g.name] < 2) continue;
+        const Entry* f = entry(g.root);
+        if (!f) continue;
+        std::string first = f->name.substr(0, f->name.find(' '));
+        std::string name = g.name + " (" + first + "'s)";
+        if (++again[name] > 1) name = g.name + " (" + f->name + "'s)";
+        g.name = name;
+    }
     return out;
 }
 

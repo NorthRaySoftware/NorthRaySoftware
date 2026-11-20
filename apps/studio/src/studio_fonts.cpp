@@ -288,9 +288,18 @@ nlohmann::json StudioApp::editorFonts(const Id& book) const {
     const studio::Book* b = lib_ ? lib_->book(book) : nullptr;
     if (!b) return out;
     const std::string own = ownFontsFolder(b->worldId, b->worldId.empty() ? b->id : Id{});
-    for (const auto& f : fonts::familiesIn(own)) {
+    // The world's own, then the program's built-in faces for setting words apart: handwriting, a typewriter, runes,
+    // old print and carved or Celtic capitals (0.46).
+    std::vector<std::pair<fonts::Family, std::string>> list;
+    for (const auto& f : fonts::familiesIn(own)) list.push_back({f, own});
+    const std::string app = narrow(exeDir() + L"\\fonts");
+    for (const auto& f : fonts::familiesIn(app))
+        for (const char* id : {"caveat", "dancing-script", "special-elite", "courier-prime", "noto-sans-runic", "im-fell-english",
+                               "uncial-antiqua", "medievalsharp", "cinzel"})
+            if (f.id == id) list.push_back({f, app});
+    for (const auto& [f, where] : list) {
         nlohmann::json faces = nlohmann::json::object();
-        const std::string dir = fonts::familyFolder(own, f.id);
+        const std::string dir = fonts::familyFolder(where, f.id);
         std::error_code ec;
         for (auto& e : std::filesystem::directory_iterator(std::filesystem::path(widen(dir)), ec)) {
             const std::string n = narrow(e.path().filename().wstring());
@@ -302,7 +311,7 @@ nlohmann::json StudioApp::editorFonts(const Id& book) const {
             else if (ends("-Bold.ttf")) faces["bold"] = url;
             else if (ends("-Regular.ttf")) faces["regular"] = url;
         }
-        out.push_back({{"id", f.id}, {"name", f.name}, {"faces", faces}});
+        out.push_back({{"id", f.id}, {"name", f.name}, {"faces", faces}, {"builtIn", where == app}});
     }
     return out;
 }

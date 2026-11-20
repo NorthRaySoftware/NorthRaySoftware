@@ -64,6 +64,11 @@ const std::vector<Relation>& relations() {
     static const std::vector<Relation> r{
         // People
         {"Family", "Family"},          {"Parent of", "Child of"},       {"Child of", "Parent of"},     {"Sibling of", "Sibling of"},
+        {"Twin of", "Twin of"},        {"Half-sibling of", "Half-sibling of"}, {"Step-sibling of", "Step-sibling of"},
+        {"Adoptive sibling of", "Adoptive sibling of"}, {"Foster sibling of", "Foster sibling of"},
+        {"Adoptive parent of", "Adopted child of"}, {"Adopted child of", "Adoptive parent of"},
+        {"Step-parent of", "Stepchild of"}, {"Stepchild of", "Step-parent of"},
+        {"Foster parent of", "Foster child of"}, {"Foster child of", "Foster parent of"},
         {"Partner of", "Partner of"},  {"Married to", "Married to"},    {"Loves", "Loved by"},          {"Loved by", "Loves"},
         {"Friend of", "Friend of"},    {"Ally of", "Ally of"},          {"Rival of", "Rival of"},      {"Enemy of", "Enemy of"},
         {"Mentor of", "Student of"},   {"Student of", "Mentor of"},     {"Serves", "Served by"},       {"Served by", "Serves"},
@@ -95,6 +100,10 @@ const std::vector<Relation>& relations() {
 const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
     static const std::vector<RelationChoice> character{
         {"Family", "character"}, {"Parent of", "character"}, {"Child of", "character"}, {"Sibling of", "character"},
+        {"Twin of", "character"}, {"Half-sibling of", "character"}, {"Step-sibling of", "character"},
+        {"Adoptive sibling of", "character"}, {"Foster sibling of", "character"},
+        {"Adoptive parent of", "character"}, {"Adopted child of", "character"}, {"Step-parent of", "character"},
+        {"Stepchild of", "character"}, {"Foster parent of", "character"}, {"Foster child of", "character"},
         {"Partner of", "character"}, {"Married to", "character"}, {"Loves", "character"}, {"Friend of", "character"},
         {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
         {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
