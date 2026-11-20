@@ -415,6 +415,23 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.48.0: places and maps (20 Nov 2026)
+
+- **Map viewer** (`studio_world.cpp`: `openMap`, `drawMapView`, `mapMouseDown/Move/Up`, `mapWheel`; state in `wb_.map*`):
+  the map fitted to a board under a header (back, "Up to the map of ..." for a place pinned on another map, + Pin,
+  Replace), `mapZoom` 1-8 about `mapCX/mapCY` (the map's point at the board's centre, clamped so a zoomed map covers
+  the board); the wheel zooms keeping the pointer's point still; dragging the background pans; a pin pressed and moved
+  is dragged (saved on release), pressed and released opens `pinMenu`; while pinning, a click places it. Labels are
+  placed greedily without overlap (the hovered or dragged one first, always shown); a ring marks a pinned entry with
+  its own map. The page's map, its "Open the map" link and the Places list's map cards open it.
+- `pinMenu` offers "Open the map of ..." for entries with a map; `pinOnMenu` (the pin chooser) is shared.
+- **Place pages**: `placePath` (Located in / Part of / Contains / Includes up through places and realms; Kind of for
+  creatures) drawn as links beside the back link; `drawPlaceSection` ("In this place": places inside, Lives in /
+  Home of, Born in / Birthplace of, Based in / Base of, Took place in / Scene of; + Place inside makes a place Located
+  in this one).
+- Tested in Wine: the Highcliff map opened from its card and page, zoomed with the wheel, panned, a pin dragged and
+  kept, Fit; a place page's section and a new place inside it with its path.
+
 ## 0.47.0: one tree per family, how people joined, replace-all import, the bible site (20 Nov 2026)
 
 From CJ's own Alvora bible PDF: the Smiths shown twice (from Iris through Violet, and from Maria), the Crystallines

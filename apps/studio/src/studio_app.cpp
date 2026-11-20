@@ -1385,6 +1385,7 @@ bool StudioApp::onMouseDown(float x, float y) {
             return true;
         }
     }
+    if (mapMouseDown(x, y)) return true;   // the map viewer: move the map, drag pins (0.48)
     const std::string id = hitAt(x, y);
     // The family tree's background: drag to move the tree about (0.35).
     if (ws_ == Workspace::Worldbuilding && !wb_.familyRoot.empty() && pageRect_.contains(x, y) && id.empty()) {
@@ -1419,6 +1420,7 @@ bool StudioApp::onMouseDown(float x, float y) {
 }
 
 void StudioApp::onMouseMove(float x, float y, bool leftDown) {
+    if (mapMouseMove(x, y, leftDown)) return;
     if (wb_.treePan) {
         if (!leftDown) { wb_.treePan = false; ReleaseCapture(); return; }
         wb_.treeX = std::clamp(wb_.panTreeX - (x - wb_.panX), 0.0f, std::max(0.0f, wb_.treeW - pageRect_.w + 60));
@@ -1474,6 +1476,7 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
 }
 
 bool StudioApp::onMouseUp(float x, float y) {
+    if (mapMouseUp(x, y)) return true;
     if (wb_.treePan) {
         wb_.treePan = false;
         ReleaseCapture();
@@ -1600,6 +1603,7 @@ bool StudioApp::onWheel(float x, float y, float lines) {
         return true;
     }
     if (ws_ == Workspace::Worldbuilding) {
+        if (mapWheel(x, y, lines)) return true;
         if (panelRect_.contains(x, y)) wb_.panelScroll = std::clamp(wb_.panelScroll + lines * 20, 0.0f, std::max(0.0f, wb_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) wb_.sideScroll = std::clamp(wb_.sideScroll + lines * 20, 0.0f, std::max(0.0f, wb_.sideContent - sideRect_.h));
         else if (pageRect_.contains(x, y) && !wb_.familyRoot.empty() && (GetKeyState(VK_CONTROL) & 0x8000)) {

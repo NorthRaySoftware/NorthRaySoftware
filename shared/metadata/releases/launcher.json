@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.114.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.48.0: a map viewer with zoom and draggable pins, maps inside maps, and place pages that show where they are and what's in them."
+      ]
+    },
+    {
       "version": "0.113.0",
       "date": "2026-11-20",
       "notes": [

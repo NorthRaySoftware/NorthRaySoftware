@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.48.0",
+      "date": "2026-11-20",
+      "notes": [
+        "Maps open over the whole page: zoom with the wheel about the pointer, drag to move about, drag pins to move them, and Fit to see it all.",
+        "Maps inside maps: a pinned place with its own map has a ring, its menu opens that map, and that map leads back up.",
+        "Pin names step aside rather than cover each other; pointing at a pin shows its name.",
+        "A place's page shows where it is (Elandroth › Aquiera › …) and what's in it: places inside, who lives or was born there, groups based there and what happened there; + Place inside makes one.",
+        "Creatures show the kinds they belong to the same way."
+      ]
+    },
+    {
       "version": "0.47.0",
       "date": "2026-11-20",
       "notes": [

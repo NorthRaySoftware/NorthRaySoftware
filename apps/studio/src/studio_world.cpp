@@ -283,6 +283,27 @@ static Id parentPlace(const Library& lib, const Entry& e) {
     }
     return {};
 }
+// The places (or realms) an entry sits in, outermost first: "Elandroth › Aquiera" for a city of Aquiera (0.48).
+static std::vector<const Entry*> placePath(const Library& lib, const Entry& e) {
+    std::vector<const Entry*> path;
+    const Entry* x = &e;
+    std::set<Id> seen{e.id};
+    for (int guard = 0; guard < 12; ++guard) {
+        const Entry* up = nullptr;
+        for (const EntryLink& l : lib.linksOf(x->id)) {
+            const bool isUp = (l.from == x->id && (l.label == "Located in" || l.label == "Part of" || (x->kind == "creature" && l.label == "Kind of"))) ||
+                              (l.to == x->id && (l.label == "Contains" || l.label == "Includes" || (x->kind == "creature" && l.label == "Has kind")));
+            if (!isUp) continue;
+            const Entry* o = lib.entry(l.from == x->id ? l.to : l.from);
+            if (o && !o->deleted && !seen.count(o->id) && (o->kind == "place" || o->kind == "realm" || (x->kind == "creature" && o->kind == "creature"))) { up = o; break; }
+        }
+        if (!up) break;
+        seen.insert(up->id);
+        path.insert(path.begin(), up);
+        x = up;
+    }
+    return path;
+}
 // Whether `e` is `root` or sits somewhere under it.
 static bool isUnder(const Library& lib, const Entry& e, const Id& root) {
     const Entry* x = &e;
@@ -352,6 +373,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.item.clear();
     wb_.familyRoot.clear();
     wb_.pinning.clear();
+    wb_.mapView.clear();
     wb_.checks = false;
     wb_.glossary = false;
     wb_.languages = false;
@@ -813,6 +835,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
     if (!wb_.board.empty()) { drawBoard(r); return; }
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
+    if (!wb_.mapView.empty()) { drawMapView(r); return; }
     if (wb_.share) { drawShare(r); return; }
     if (wb_.relationsPage) { drawRelations(r); return; }
     if (wb_.fontsPage) { drawFonts(r); return; }
@@ -952,7 +975,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     if (lx + tw > m.right() && lx > m.x) { lx = m.x; y += th + 34 + gap; }
                     const Rect tr{lx, y, tw, th};
                     const std::string id = "wb:mapcard:" + x->id;
-                    addHit(id, {tr.x, tr.y, tr.w, tr.h + 26}, [this, eid = x->id] { openEntry(eid); });
+                    addHit(id, {tr.x, tr.y, tr.w, tr.h + 26}, [this, eid = x->id] { openMap(eid); });
                     const float hv = hoverAmount(id);
                     softShadow(tr, 4, 0.3f + 0.6f * hv);
                     if (!gfx_.drawImage(w(lib_->blobPath(x->mapBlob)), tr, true)) gfx_.fillRounded(tr, 4, pal_.sunken);
@@ -1187,6 +1210,21 @@ void StudioApp::drawWorldPage(const Rect& r) {
         // ---- One entry.
         const std::wstring back = wb_.kind.empty() ? L"‹ Everything" : L"‹ " + w(entryKindPlural(wb_.kind));
         linkText("wb:back", m.x, y, back, [this] { openEntry({}); });
+        // Where it is: the places it sits in, each a link (0.48).
+        if (e->kind == "place" || e->kind == "realm" || e->kind == "creature") {
+            const auto path = placePath(*lib_, *e);
+            float px = m.x + gfx_.measureWidth(back, Font::Small) + 34;
+            for (size_t i = 0; i < path.size(); ++i) {
+                const std::wstring t = w(path[i]->name);
+                const float tw2 = gfx_.measureWidth(t, Font::Small);
+                if (px + tw2 > m.right()) break;
+                linkText("wb:path:" + path[i]->id, px, y, t, [this, id = path[i]->id] { openEntry(id); });
+                px += tw2 + 18;
+                gfx_.text(L"\u203A", {px - 4, y + 2, 14, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
+                px += 14;
+            }
+            if (!path.empty()) gfx_.text(w(e->name), {px, y + 3, m.right() - px, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        }
         y += 34;
         const bool hasPic = !e->imageBlob.empty();
         const float picW = hasPic ? std::min(220.0f, cw * 0.3f) : 0;
@@ -1325,6 +1363,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
 
         if (e->kind == "character") y = drawFamilySection(m, y, *e);
+        if (e->kind == "place" || e->kind == "realm") y = drawPlaceSection(m, y, *e);
         if (e->kind == "place" || e->kind == "realm") y = drawMapSection(m, y, *e);
 
         // Gallery: pictures of it, kept with the entry.
@@ -2697,6 +2736,67 @@ void StudioApp::familyChipMenu(const Id& who, const Id& other, int role) {
     invalidate();
 }
 
+// A place's (or realm's) page: the places inside it, who lives there or was born there, the groups based there and
+// what happened there, from the bible's links (0.48). Each is a chip that opens the entry; "+ Place inside" makes one.
+float StudioApp::drawPlaceSection(const Rect& m, float y, const Entry& e) {
+    struct Row { const wchar_t* label; std::vector<const Entry*> who; };
+    Row rows[] = {{L"Places inside", {}}, {L"Who lives here", {}}, {L"Born here", {}}, {L"Based here", {}}, {L"What happened here", {}}};
+    std::set<std::pair<int, Id>> seen;
+    for (const EntryLink& l : lib_->linksOf(e.id)) {
+        const bool out = l.from == e.id;
+        const Entry* o = lib_->entry(out ? l.to : l.from);
+        if (!o || o->deleted || o->id == e.id) continue;
+        int row = -1;
+        if ((!out && (l.label == "Located in" || l.label == "Part of")) || (out && (l.label == "Contains" || l.label == "Includes"))) row = 0;
+        else if ((!out && l.label == "Lives in") || (out && l.label == "Home of")) row = 1;
+        else if ((!out && l.label == "Born in") || (out && l.label == "Birthplace of")) row = 2;
+        else if ((!out && l.label == "Based in") || (out && l.label == "Base of")) row = 3;
+        else if ((!out && l.label == "Took place in") || (out && l.label == "Scene of")) row = 4;
+        if (row < 0 || !seen.insert({row, o->id}).second) continue;
+        rows[row].who.push_back(o);
+    }
+    for (auto& r : rows) std::sort(r.who.begin(), r.who.end(), [](const Entry* a, const Entry* b) { return a->name < b->name; });
+    gfx_.text(e.kind == "realm" ? L"IN THIS REALM" : L"IN THIS PLACE", {m.x, y, m.w, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 28;
+    int ri = 0;
+    for (const Row& row : rows) {
+        const int rr = ri++;
+        if (row.who.empty() && rr != 0) continue;
+        gfx_.text(row.label, {m.x, y, 160, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        float lx = m.x + 170;
+        for (const Entry* o : row.who) {
+            const std::wstring nm = w(o->name);
+            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 26;
+            if (lx + lw2 > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
+            const Rect chip{lx, y, lw2, 28};
+            const std::string id = "wb:plc:" + std::to_string(rr) + o->id;
+            addHit(id, chip, [this, oid = o->id] { openEntry(oid); });
+            const float hv = hoverAmount(id);
+            const cjui::Color kc = kindColor(o->kind, pal_.dark);
+            gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
+            gfx_.strokeRounded(chip, 14, kc.withAlpha(0.5f + 0.5f * hv));
+            gfx_.text(nm, chip, Font::Small, pal_.ink, {Align::Center, false, true, true});
+            if (focused(id)) focusRing(chip);
+            lx += lw2 + 8;
+        }
+        if (rr == 0) {
+            const std::wstring add = L"+ Place inside";
+            if (lx + gfx_.measureWidth(add, Font::Small) > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
+            linkText("wb:plcadd", lx + 4, y + 6, add, [this, id = e.id] {
+                commitFields();
+                const Id n = lib_->createEntry(wb_.world, wb_.book, "place", "New place");
+                if (n.empty()) return;
+                lib_->addLink(n, id, "Located in");
+                openEntry(n);
+                focusFieldSoon_ = FName;
+                flash(L"Name it; it's inside the place you came from.", 5);
+            });
+        }
+        y += 34;
+    }
+    return y + 22;
+}
+
 // A character's close family on their page: who, and quick ways to add more.
 float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
     const float cw = m.w;
@@ -3201,14 +3301,58 @@ void StudioApp::chooseMapPicture(const Id& entryId) {
     invalidate();
 }
 
-// A pin clicked: open its entry, move it, or take it off the map.
+// Choose an entry to pin on a map: places inside it first, then everything not pinned yet; the next click on the map
+// says where (0.48: shared by the page's map and the map viewer).
+void StudioApp::pinOnMenu(const Id& id) {
+    const Entry* x = lib_->entry(id);
+    if (!x) return;
+    // Places inside this one first, then everything else not pinned yet.
+    std::vector<const Entry*> inside, rest;
+    std::set<Id> pinned;
+    for (auto& p : x->pins) pinned.insert(p.entry);
+    for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book)) {
+        if (o->id == id || pinned.count(o->id)) continue;
+        bool in = false;
+        for (const EntryLink& l : lib_->linksOf(o->id))
+            if ((l.from == o->id && l.to == id && (l.label == "Located in" || l.label == "Part of")) ||
+                (l.to == o->id && l.from == id && (l.label == "Contains" || l.label == "Includes"))) in = true;
+        (in ? inside : rest).push_back(o);
+    }
+    std::stable_sort(rest.begin(), rest.end(), [](const Entry* a, const Entry* b) { return (a->kind == "place") > (b->kind == "place"); });
+    std::vector<cjui::MenuItem> menu;
+    std::vector<const Entry*> all;
+    for (const Entry* o : inside) { menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (in " + w(x->name) + L")", (UINT)(1 + all.size()))); all.push_back(o); }
+    if (!inside.empty() && !rest.empty()) menu.push_back(cjui::MenuItem::sep());
+    for (const Entry* o : rest) {
+        if (all.size() >= 300) break;
+        menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (" + w(entryKindLabel(o->kind)) + L")", (UINT)(1 + all.size())));
+        all.push_back(o);
+    }
+    if (all.empty()) { flash(L"Everything in the bible is pinned already.", 5); return; }
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
+    if (!ch) return;
+    wb_.pinning = all[ch - 1]->id;
+    invalidate();
+}
+
+// A pin clicked: open its entry (or its own map: maps inside maps, 0.48), move it, or take it off the map.
 void StudioApp::pinMenu(const Id& mapEntry, const Id& pinned) {
     const Entry* p = lib_->entry(pinned);
     if (!p) return;
-    const int i = popupAt(hwnd(), {L"Open " + w(p->name), L"Move the pin", L"Take it off the map"});
+    const bool hasMap = !p->mapBlob.empty();
+    std::vector<std::wstring> items{L"Open " + w(p->name)};
+    if (hasMap) items.push_back(L"Open the map of " + w(p->name));
+    items.push_back(L"Move the pin");
+    items.push_back(L"Take it off the map");
+    int i = popupAt(hwnd(), items);
+    if (i < 0) return;
+    if (!hasMap && i >= 1) ++i;   // the same choices whether or not "Open the map" is there
     if (i == 0) openEntry(pinned);
-    else if (i == 1) { wb_.pinning = pinned; invalidate(); }
-    else if (i == 2) {
+    else if (i == 1) openMap(pinned);
+    else if (i == 2) { wb_.pinning = pinned; invalidate(); }
+    else if (i == 3) {
         if (const Entry* e = lib_->entry(mapEntry)) {
             Entry u = *e;
             u.pins.erase(std::remove_if(u.pins.begin(), u.pins.end(), [&](const Entry::Pin& q) { return q.entry == pinned; }), u.pins.end());
@@ -3253,39 +3397,8 @@ float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
             invalidate();
         });
         act("wb:mapreplace", L"Replace…", [this, id = e.id] { chooseMapPicture(id); });
-        act("wb:mappin", L"+ Pin an entry…", [this, id = e.id] {
-            const Entry* x = lib_->entry(id);
-            if (!x) return;
-            // Places inside this one first, then everything else not pinned yet.
-            std::vector<const Entry*> inside, rest;
-            std::set<Id> pinned;
-            for (auto& p : x->pins) pinned.insert(p.entry);
-            for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book)) {
-                if (o->id == id || pinned.count(o->id)) continue;
-                bool in = false;
-                for (const EntryLink& l : lib_->linksOf(o->id))
-                    if ((l.from == o->id && l.to == id && (l.label == "Located in" || l.label == "Part of")) ||
-                        (l.to == o->id && l.from == id && (l.label == "Contains" || l.label == "Includes"))) in = true;
-                (in ? inside : rest).push_back(o);
-            }
-            std::stable_sort(rest.begin(), rest.end(), [](const Entry* a, const Entry* b) { return (a->kind == "place") > (b->kind == "place"); });
-            std::vector<cjui::MenuItem> menu;
-            std::vector<const Entry*> all;
-            for (const Entry* o : inside) { menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (in " + w(x->name) + L")", (UINT)(1 + all.size()))); all.push_back(o); }
-            if (!inside.empty() && !rest.empty()) menu.push_back(cjui::MenuItem::sep());
-            for (const Entry* o : rest) {
-                if (all.size() >= 300) break;
-                menu.push_back(cjui::MenuItem::item(w(o->name) + L"  (" + w(entryKindLabel(o->kind)) + L")", (UINT)(1 + all.size())));
-                all.push_back(o);
-            }
-            if (all.empty()) { flash(L"Everything in the bible is pinned already.", 5); return; }
-            POINT pt;
-            GetCursorPos(&pt);
-            const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
-            if (!ch) return;
-            wb_.pinning = all[ch - 1]->id;
-            invalidate();
-        });
+        act("wb:mappin", L"+ Pin an entry…", [this, id = e.id] { pinOnMenu(id); });
+        act("wb:mapopen", L"Open the map \u203A", [this, id = e.id] { openMap(id); });
     }
     y += 30;
     const std::wstring path = w(lib_->blobPath(e.mapBlob));
@@ -3317,6 +3430,10 @@ float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
             wb_.pinning.clear();
             invalidate();
         }, false);
+    if (wb_.pinning.empty()) {
+        addHit("wb:mapbig", map, [this, id = e.id] { openMap(id); }, false);   // the map at full size (0.48)
+        tooltip("wb:mapbig", L"Open the map to zoom in, move about and drag pins");
+    }
     softShadow(map, 4, 0.35f);
     if (!gfx_.drawImage(path, map, false)) {
         gfx_.fillRounded(map, 4, pal_.sunken);
@@ -3346,8 +3463,239 @@ float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
         gfx_.circle(px, py, 5 + 2 * hv, kc, true);
     }
     y += map.h + 8;
-    y += gfx_.text(L"Click a pin to open it, move it or take it off.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 22;
+    y += gfx_.text(L"Click a pin to open it, move it or take it off; click the map to open it full size.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 22;
     return y;
+}
+
+// ------------------------------------------------------------- the map viewer (0.48)
+
+void StudioApp::openMap(const Id& entryId) {
+    const Entry* e = lib_ ? lib_->entry(entryId) : nullptr;
+    if (!e || e->mapBlob.empty()) return;
+    commitFields();
+    if (wb_.entry != entryId) openEntry(entryId);
+    wb_.mapView = entryId;
+    wb_.mapZoom = 1;
+    wb_.mapCX = wb_.mapCY = 0.5f;
+    wb_.pinning.clear();
+    wb_.scroll = 0;
+    setFocus({Focus::Entry, entryId, {}});
+    invalidate();
+}
+
+// A map over the whole page: the wheel zooms about the pointer, dragging moves it, pins are dragged to move them and
+// clicked for their menu (open, open their own map, take off). Labels give way to each other, and show on hover.
+void StudioApp::drawMapView(const Rect& r) {
+    const Entry* e = lib_->entry(wb_.mapView);
+    if (!e || e->deleted || e->mapBlob.empty()) { wb_.mapView.clear(); invalidate(); return; }
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const float pad = r.w > 900 ? 40 : 28;
+    float y = r.y + 22;
+    linkText("wb:mapback", r.x + pad, y, L"‹ " + w(e->name), [this, id = e->id] { openEntry(id); });
+    // Up to the map this place is pinned on (a place's map inside its country's, say).
+    {
+        float lx = r.x + pad + gfx_.measureWidth(L"‹ " + w(e->name), Font::Small) + 34;
+        for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
+            if (o->id != e->id && !o->mapBlob.empty())
+                for (auto& p : o->pins)
+                    if (p.entry == e->id) {
+                        const std::wstring t = L"Up to the map of " + w(o->name);
+                        linkText("wb:mapup:" + o->id, lx, y, t, [this, oid = o->id] { openMap(oid); });
+                        lx += gfx_.measureWidth(t, Font::Small) + 30;
+                        break;
+                    }
+    }
+    y += 36;
+    gfx_.text(L"MAP", {r.x + pad, y, 200, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 18;
+    gfx_.text(L"The map of " + w(e->name), {r.x + pad, y, r.w - pad * 2, 40}, Font::Title, pal_.ink, {Align::Left, false, true});
+    y += 46;
+    {
+        float lx = r.x + pad;
+        auto tool = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
+            linkText(id, lx, y, t, std::move(f));
+            lx += gfx_.measureWidth(t, Font::Small) + 30;
+        };
+        tool("wb:mvpin", L"+ Pin an entry…", [this, id = e->id] { pinOnMenu(id); });
+        tool("wb:mvreplace", L"Replace the picture…", [this, id = e->id] { chooseMapPicture(id); });
+        gfx_.text(std::to_wstring(e->pins.size()) + (e->pins.size() == 1 ? L" pin" : L" pins"), {lx, y + 2, 120, 20}, Font::Small, pal_.inkFaint,
+                  {Align::Left, false});
+    }
+    y += 38;
+    if (!wb_.pinning.empty()) {
+        const Entry* pe = lib_->entry(wb_.pinning);
+        const Rect band{r.x + pad, y, r.w - pad * 2, 34};
+        gfx_.fillRounded(band, 6, pal_.ribbon.withAlpha(0.14f));
+        gfx_.text(L"Click on the map where " + (pe ? w(pe->name) : std::wstring(L"it")) + L" is.", {band.x + 12, band.y, band.w - 100, band.h}, Font::Body,
+                  pal_.ink, {Align::Left, false, true, true});
+        linkText("wb:mvpinstop", band.right() - 60, band.y + 9, L"Stop", [this] { wb_.pinning.clear(); invalidate(); });
+        y += 44;
+    }
+    // The board, to the foot of the page.
+    const Rect board{r.x + pad - 12, y, r.w - pad * 2 + 24, std::max(220.0f, r.bottom() - 40 - y)};
+    wb_.mapBoard = board;
+    gfx_.fillRounded(board, 10, pal_.sunken.mix(pal_.paper, 0.45f));
+    const std::wstring path = w(lib_->blobPath(e->mapBlob));
+    const auto [iw, ih] = gfx_.imageSize(path);
+    const float fit = iw > 0 && ih > 0 ? std::min((board.w - 24) / iw, (board.h - 24) / ih) : 1.0f;
+    const float sc = fit * wb_.mapZoom;
+    const float mw = iw > 0 ? iw * sc : board.w, mh = ih > 0 ? ih * sc : board.h;
+    // Keep the centre where the map still covers the board when zoomed in (or centred when it's smaller).
+    auto clampCentre = [&](float c, float size, float view) {
+        if (size <= view) return 0.5f;
+        const float half = view / 2 / size;
+        return std::clamp(c, half, 1 - half);
+    };
+    wb_.mapCX = clampCentre(wb_.mapCX, mw, board.w - 24);
+    wb_.mapCY = clampCentre(wb_.mapCY, mh, board.h - 24);
+    const Rect img{board.x + board.w / 2 - wb_.mapCX * mw, board.y + board.h / 2 - wb_.mapCY * mh, mw, mh};
+    wb_.mapImage = img;
+    gfx_.pushClip(board);
+    if (!gfx_.drawImage(path, img, false)) gfx_.text(L"The map's picture is missing.", board, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+    if (!wb_.pinning.empty()) gfx_.strokeRounded(board.inset(1), 10, pal_.ribbon, 2);
+    // Pins: dots first, then labels where they don't cover one another (the hovered or dragged one always).
+    struct P { Id id; float x, y; const Entry* o; };
+    std::vector<P> ps;
+    for (const auto& p : e->pins) {
+        const Entry* o = lib_->entry(p.entry);
+        if (!o || o->deleted) continue;
+        float fx = (float)p.x, fy = (float)p.y;
+        if (wb_.mapDrag == 2 && wb_.mapPin == p.entry) { fx = wb_.mapPinX; fy = wb_.mapPinY; }
+        ps.push_back({p.entry, img.x + fx * img.w, img.y + fy * img.h, o});
+    }
+    std::vector<Rect> placed;
+    Id hot;
+    for (auto& p : ps) if (hovered("wb:mvp:" + p.id) || (wb_.mapDrag == 2 && wb_.mapPin == p.id)) hot = p.id;
+    std::stable_partition(ps.begin(), ps.end(), [&](const P& p) { return p.id == hot; });   // its label first
+    for (auto& p : ps) {
+        const cjui::Color kc = kindColor(p.o->kind, pal_.dark);
+        const std::string id = "wb:mvp:" + p.id;
+        addHit(id, {p.x - 11, p.y - 11, 22, 22}, [] {}, false);
+        tooltip(id, w(p.o->name) + (p.o->mapBlob.empty() ? L"" : L" (has its own map)") + L": drag to move, click for more");
+        const float hv = hoverAmount(id);
+        const std::wstring nm = w(p.o->name);
+        const float lw = gfx_.measureWidth(nm, Font::Small) + 16;
+        Rect label{p.x + 11, p.y - 11, lw, 22};
+        if (label.right() > board.right() - 4) label.x = p.x - 11 - lw;
+        bool clear = true;
+        for (auto& q : placed)
+            if (label.x < q.right() + 3 && q.x - 3 < label.right() && label.y < q.bottom() + 3 && q.y - 3 < label.bottom()) clear = false;
+        if (clear || p.id == hot) {
+            placed.push_back(label);
+            gfx_.fillRounded(label, 11, pal_.paper.withAlpha(0.9f + 0.1f * hv));
+            gfx_.strokeRounded(label, 11, kc.withAlpha(0.55f + 0.45f * hv));
+            gfx_.text(nm, label, Font::Small, pal_.ink, {Align::Center, false, true, true});
+        }
+        gfx_.circle(p.x, p.y, 8 + 2 * hv, pal_.paper, true);
+        gfx_.circle(p.x, p.y, 6 + 2 * hv, kc, true);
+        if (!p.o->mapBlob.empty()) gfx_.circle(p.x, p.y, 11 + 2 * hv, kc.withAlpha(0.7f), false, 1.4f);   // a ring: it has a map of its own
+    }
+    gfx_.popClip();
+    // Zoom, floating in the board's corner.
+    {
+        const float zy = board.y + 10, zx = board.right() - 10 - 3 * 34;
+        const Rect zr{zx - 4, zy - 4, 3 * 34 + 8, 36};
+        gfx_.fillRounded(zr, 8, pal_.surface);
+        gfx_.strokeRounded(zr, 8, pal_.rule);
+        auto zbtn = [&](int i, const std::string& id, const std::wstring& lbl, std::function<void()> fn, const std::wstring& tip) {
+            const Rect br{zx + i * 34.0f, zy, 30, 28};
+            addHit(id, br, std::move(fn));
+            tooltip(id, tip);
+            gfx_.fillRounded(br, 6, pal_.sunken.withAlpha(hoverAmount(id)));
+            gfx_.text(lbl, br, Font::SmallStrong, pal_.ink, {Align::Center, false, false, true});
+        };
+        zbtn(0, "wb:mvzout", L"−", [this] { wb_.mapZoom = std::max(1.0f, wb_.mapZoom / 1.4f); invalidate(); }, L"Zoom out");
+        zbtn(1, "wb:mvfit", L"Fit", [this] { wb_.mapZoom = 1; wb_.mapCX = wb_.mapCY = 0.5f; invalidate(); }, L"The whole map");
+        zbtn(2, "wb:mvzin", L"+", [this] { wb_.mapZoom = std::min(8.0f, wb_.mapZoom * 1.4f); invalidate(); }, L"Zoom in");
+    }
+    gfx_.text(L"Wheel to zoom · drag the map to move about · drag a pin to move it · click a pin for more", {r.x + pad, board.bottom() + 10, r.w - pad * 2, 20},
+              Font::Small, pal_.inkFaint, {Align::Left, false, true});
+    wb_.content = r.h;
+    gfx_.popClip();
+}
+
+bool StudioApp::mapMouseDown(float x, float y) {
+    if (ws_ != Workspace::Worldbuilding || wb_.mapView.empty() || !wb_.mapBoard.contains(x, y)) return false;
+    const std::string id = hitAt(x, y);
+    if (id.rfind("wb:mvz", 0) == 0 || id == "wb:mvfit") return false;   // the zoom buttons click as usual
+    wb_.mapDownX = x, wb_.mapDownY = y, wb_.mapMoved = false;
+    if (id.rfind("wb:mvp:", 0) == 0 && wb_.pinning.empty()) {
+        wb_.mapDrag = 2;
+        wb_.mapPin = id.substr(7);
+        if (const Entry* e = lib_->entry(wb_.mapView))
+            for (auto& p : e->pins) if (p.entry == wb_.mapPin) { wb_.mapPinX = (float)p.x; wb_.mapPinY = (float)p.y; }
+    } else {
+        wb_.mapDrag = 1;
+        wb_.mapStartCX = wb_.mapCX, wb_.mapStartCY = wb_.mapCY;
+    }
+    SetCapture(hwnd());
+    return true;
+}
+
+bool StudioApp::mapMouseMove(float x, float y, bool leftDown) {
+    if (!wb_.mapDrag) return false;
+    if (!leftDown) { mapMouseUp(x, y); return true; }
+    if (std::hypot(x - wb_.mapDownX, y - wb_.mapDownY) > 4) wb_.mapMoved = true;
+    const Rect& img = wb_.mapImage;
+    if (wb_.mapDrag == 1 && img.w > 0) {
+        wb_.mapCX = wb_.mapStartCX - (x - wb_.mapDownX) / img.w;
+        wb_.mapCY = wb_.mapStartCY - (y - wb_.mapDownY) / img.h;
+    } else if (wb_.mapDrag == 2 && img.w > 0 && wb_.mapMoved) {
+        wb_.mapPinX = std::clamp((x - img.x) / img.w, 0.0f, 1.0f);
+        wb_.mapPinY = std::clamp((y - img.y) / img.h, 0.0f, 1.0f);
+    }
+    invalidate();
+    return true;
+}
+
+bool StudioApp::mapMouseUp(float x, float y) {
+    if (!wb_.mapDrag) return false;
+    const int kind = wb_.mapDrag;
+    wb_.mapDrag = 0;
+    ReleaseCapture();
+    const Rect& img = wb_.mapImage;
+    if (kind == 2) {
+        if (wb_.mapMoved) {
+            if (const Entry* e = lib_->entry(wb_.mapView)) {
+                Entry u = *e;
+                for (auto& p : u.pins) if (p.entry == wb_.mapPin) { p.x = wb_.mapPinX; p.y = wb_.mapPinY; }
+                lib_->updateEntry(u);
+            }
+        } else {
+            pinMenu(wb_.mapView, wb_.mapPin);
+        }
+    } else if (!wb_.mapMoved && !wb_.pinning.empty() && img.contains(x, y)) {
+        // Pinning: the click says where.
+        const float fx = std::clamp((x - img.x) / img.w, 0.0f, 1.0f), fy = std::clamp((y - img.y) / img.h, 0.0f, 1.0f);
+        if (const Entry* e = lib_->entry(wb_.mapView)) {
+            Entry u = *e;
+            bool moved = false;
+            for (auto& p : u.pins) if (p.entry == wb_.pinning) { p.x = fx; p.y = fy; moved = true; }
+            if (!moved) u.pins.push_back({wb_.pinning, fx, fy});
+            lib_->updateEntry(u);
+        }
+        wb_.pinning.clear();
+    }
+    invalidate();
+    return true;
+}
+
+bool StudioApp::mapWheel(float x, float y, float lines) {
+    if (ws_ != Workspace::Worldbuilding || wb_.mapView.empty() || !wb_.mapBoard.contains(x, y)) return false;
+    const Rect img = wb_.mapImage;
+    const float before = wb_.mapZoom, after = std::clamp(before * (lines > 0 ? 1 / 1.15f : 1.15f), 1.0f, 8.0f);
+    if (after == before || img.w <= 0) return true;
+    // About the pointer: the map's point under it stays under it.
+    const float px = (x - img.x) / img.w, py = (y - img.y) / img.h;
+    const float k = before / after;
+    const Rect& b = wb_.mapBoard;
+    const float cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    wb_.mapCX = px - (x - cx) / (img.w / k);
+    wb_.mapCY = py - (y - cy) / (img.h / k);
+    wb_.mapZoom = after;
+    invalidate();
+    return true;
 }
 
 // ------------------------------------------------------------- checks

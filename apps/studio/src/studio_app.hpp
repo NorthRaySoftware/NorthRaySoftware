@@ -343,6 +343,14 @@ private:
     void drawGlossary(const Rect& r);   // every name in the bible, A to Z, with how it's said
     void shareBible();                  // a website or a printable PDF: everything, or a reader's guide
     void pinMenu(const Id& mapEntry, const Id& pinned);
+    void openMap(const Id& entryId);
+    float drawPlaceSection(const cjui::Rect& m, float y, const studio::Entry& e);
+    void drawMapView(const cjui::Rect& r);
+    bool mapMouseDown(float x, float y);
+    bool mapMouseMove(float x, float y, bool leftDown);
+    bool mapMouseUp(float x, float y);
+    bool mapWheel(float x, float y, float lines);
+    void pinOnMenu(const Id& mapEntry);
     float drawKindSuggestions(const Rect& m, float y);
     void addGalleryPictures();
     void galleryMenu(size_t index);
@@ -676,6 +684,14 @@ private:
         int picture = -1;          // the gallery picture selected on the entry's page
         Id familyRoot;             // the family tree shown ("" = none), drawn from this person
         Id pinning;                // placing this entry's pin on the open map: the next click on it says where
+        // The map viewer (0.48): a place's or realm's map over the whole page, zoomed and moved about, pins dragged.
+        Id mapView;
+        float mapZoom = 1, mapCX = 0.5f, mapCY = 0.5f;   // 1 = the whole map fits; the map's point at the board's centre
+        int mapDrag = 0;                                  // 1 moving the map, 2 a pin
+        Id mapPin;                                        // the pin pressed
+        bool mapMoved = false;
+        float mapDownX = 0, mapDownY = 0, mapStartCX = 0, mapStartCY = 0, mapPinX = 0, mapPinY = 0;
+        cjui::Rect mapBoard, mapImage;                    // where the board and the picture were drawn
         bool checks = false;       // the Checks page
         bool glossary = false;     // the Glossary page
         bool languages = false;    // the Languages page (constructed languages)
