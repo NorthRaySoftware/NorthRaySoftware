@@ -65,7 +65,7 @@
     <div class="row">
       <button id="hints" class="pill" title="Style hints: what's marked in this chapter, and your own rules" aria-haspopup="true"></button>
       <button id="prev" class="tb" data-label="Previous chapter" data-key="Ctrl+Up" title="Previous chapter (Ctrl+Up)" aria-label="Previous chapter"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12 5l-5 5 5 5"/></svg></button>
-      <span id="chapname"></span>
+      <button id="chapname" class="chapbtn" aria-haspopup="true" title="All the chapters: choose one to open (Ctrl+K finds anything)"></button>
       <button id="next" class="tb" data-label="Next chapter" data-key="Ctrl+Down" title="Next chapter (Ctrl+Down)" aria-label="Next chapter"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8 5l5 5-5 5"/></svg></button>
     </div>
     <div class="cap">Chapter</div>
@@ -77,6 +77,7 @@
 </div>
 <div id="moremenu" hidden role="menu" aria-label="More tools"></div>
 <div id="fontmenu" hidden role="menu" aria-label="Typeface for these words"></div>
+<div id="chapmenu" hidden role="menu" aria-label="Chapters"></div>
 <div id="viewmenu" role="dialog" aria-label="Writing view" hidden>
   <div class="vm-label">Font</div>
   <div class="vm-row">
@@ -98,6 +99,13 @@
     <button data-set="width" data-value="normal">Normal</button>
     <button data-set="width" data-value="wide">Wide</button>
     <button data-set="width" data-value="fit">Fit</button>
+  </div>
+  <div class="vm-label">Line spacing</div>
+  <div class="vm-row">
+    <button data-set="spacing" data-value="tight">Close</button>
+    <button data-set="spacing" data-value="normal">Normal</button>
+    <button data-set="spacing" data-value="loose">Open</button>
+    <button data-set="spacing" data-value="double">Double</button>
   </div>
   <div class="vm-label">Paper</div>
   <div class="vm-row">

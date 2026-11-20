@@ -527,7 +527,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 2, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "full", hintCats: {}, names: true, paper: "usual" };
+const VIEW_DEFAULTS = { v: 3, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal" };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -538,12 +538,14 @@ const FONTS = {
 };
 const SIZES = [1.0, 1.12, 1.26, 1.42];
 const WIDTHS = { narrow: "36rem", normal: "44rem", wide: "56rem", fit: "calc(100% - 48px)" };
+const SPACINGS = { tight: "1.45", normal: "1.65", loose: "1.9", double: "2.2" };   // line spacing (0.49)
 
 function applyView() {
   const v = viewSettings, root = document.documentElement;
   root.style.setProperty("--text-font", FONTS[v.font] || FONTS.serif);
   root.style.setProperty("--text-size", (SIZES[v.size] ?? SIZES[1]) + "rem");
   root.style.setProperty("--page-width", WIDTHS[v.width] || WIDTHS.normal);
+  root.style.setProperty("--line", SPACINGS[v.spacing] || SPACINGS.normal);
   root.classList.toggle("focus-mode", !!v.focus);
   root.dataset.paper = v.paper === "night" ? "night" : "usual";   // warm night paper for writing in the dark (0.35)
   root.classList.toggle("typewriter", !!v.typewriter);
@@ -575,6 +577,20 @@ const focusLook = new Plugin({
         if (i++ !== here) decos.push(Decoration.node(pos, pos + node.nodeSize, { class: "dim" }));
       });
       return DecorationSet.create(state.doc, decos);
+    },
+  },
+});
+
+// The paragraph being written in (0.49): marked "here", so style hints step out of the way while you write in it.
+const hereLook = new Plugin({
+  props: {
+    decorations(state) {
+      if (readOnly) return null;
+      const $from = state.selection.$from;
+      if ($from.depth < 1) return null;
+      const start = $from.before(1), node = state.doc.nodeAt(start);
+      if (!node) return null;
+      return DecorationSet.create(state.doc, [Decoration.node(start, start + node.nodeSize, { class: "here" })]);
     },
   },
 });
@@ -893,6 +909,42 @@ function setWordsFont(id) {
 }
 
 // The typeface of the selection: a world font's id, "" for the book's own, or null when it's mixed.
+// The chapter list under the chapter's name (0.49): every part, chapter and scene of the book.
+let chapters = [];
+function buildChapterMenu() {
+  const btn = document.getElementById("chapname"), menu = document.getElementById("chapmenu");
+  if (!btn || !menu) return;
+  const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (!menu.hidden) { close(); return; }
+    menu.replaceChildren();
+    if (!chapters.length) { const n = document.createElement("div"); n.className = "fm-empty"; n.textContent = "No chapters yet."; menu.append(n); }
+    for (const c of chapters) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cm-item " + (c.kind || "chapter");
+      b.style.paddingLeft = (10 + 16 * Math.min(4, c.depth | 0)) + "px";
+      const t = document.createElement("span");
+      t.textContent = c.title || (c.kind === "scene" ? "Untitled scene" : c.kind === "part" ? "Untitled part" : "Untitled chapter");
+      b.append(t);
+      if (c.kind !== "part" && c.words > 0) { const w = document.createElement("span"); w.className = "cm-w"; w.textContent = Number(c.words).toLocaleString() + " words"; b.append(w); }
+      if (c.id === currentId) b.setAttribute("aria-current", "true");
+      b.addEventListener("mousedown", (ev) => { ev.preventDefault(); close(); if (c.id !== currentId) { flush(); send({ type: "openNode", id: c.id }); } });
+      menu.append(b);
+    }
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    const r = btn.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left - 60, window.innerWidth - 330)) + "px";
+    menu.style.top = (r.bottom + 4) + "px";
+    const on = menu.querySelector('[aria-current="true"]');
+    if (on) on.scrollIntoView({ block: "center" });
+  });
+  document.addEventListener("mousedown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { close(); if (view) view.focus(); } });
+}
+
 function setChapName(t) {
   const el = document.getElementById("chapname");
   if (!el) return;
@@ -1087,7 +1139,8 @@ function flush() {
 // "Saved just now", then "Saved a moment ago", "Saved 5 minutes ago"... kept up to date (0.35).
 let savedAt = 0, savedState = "saved", savedTicker = null;
 function savedText() {
-  if (savedState === "saving") return "Saving\u2026";
+  // While you type, the last save is still what it says, so the word doesn't flicker on every pause (0.49).
+  if (savedState === "saving" && !savedAt) return "Saving\u2026";
   if (savedState === "failed") return "Not saved";
   if (!savedAt) return "Saved";
   const s = (Date.now() - savedAt) / 1000;
@@ -1278,7 +1331,7 @@ function parseDoc(json) {
 function makeState(docJSON, id) {
   let doc = parseDoc(docJSON);
   if (!doc) doc = schema.node("doc", null, [schema.node("paragraph")]);
-  const plugins = [rules, keymap(keys), keymap(baseKeymap), history({ depth: 200 }), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, lookups, foundLook, comicLook];
+  const plugins = [rules, keymap(keys), keymap(baseKeymap), history({ depth: 200 }), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, hereLook, lookups, foundLook, comicLook];
   // Earlier versions kept from before: start from the oldest and step forward to the text as it is now.
   const older = (id ? store.get(UNDO_PREFIX + id, []) : []).map(parseDoc).filter(Boolean).filter((d) => !d.eq(doc));
   if (!older.length) return EditorState.create({ doc, plugins });
@@ -1304,6 +1357,7 @@ function load(msg) {
   spell.load(document.documentElement.lang, (ok) => { if (ok && view) { applyView(); rehintNow(); } });
   document.getElementById("title").textContent = msg.title || "";
   setChapName(msg.title);
+  if (Array.isArray(msg.chapters)) chapters = msg.chapters;
   const state = makeState(msg.doc, readOnly ? null : msg.id);
   if (!readOnly) rememberVersion(msg.id, state.doc.toJSON(), true);   // how it was when opened, to undo back to later
   if (!view) {
@@ -1509,6 +1563,8 @@ function receive(msg) {
       viewSettings = { ...VIEW_DEFAULTS, ...msg.settings };
       // Settings from before 0.22.1 could have left hints off or quiet by default: show them, unless Off was chosen.
       if (!(msg.settings.v >= 2)) { if (msg.settings.hints !== "off") viewSettings.hints = "full"; viewSettings.v = 2; }
+      // 0.49: fewer underlines. Everyone starts on Quiet (the essential hints) once; Full is a click away in Aa.
+      if (!(msg.settings.v >= 3)) { if (viewSettings.hints === "full") viewSettings.hints = "quiet"; viewSettings.v = 3; setTimeout(() => send({ type: "view", settings: viewSettings }), 0); }
     }
     if ("names" in msg) { setNames(msg.names); setEntries(msg.names); }
     if ("bookFont" in msg) bookFontName = String(msg.bookFont || "");
@@ -1542,6 +1598,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 buildToolbar();
 buildViewMenu();
 buildFontMenu();
+buildChapterMenu();
 buildMoreMenu();
 fitBar();
 initNameCard(send);

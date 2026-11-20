@@ -160,6 +160,14 @@ void StudioApp::sendLoad() {
     json msg = {{"type", "load"}, {"id", n->id}, {"title", n->title}, {"language", b ? b->language : "en-GB"}, {"dark", pal_.dark},
                 {"readOnly", n->deleted != 0}, {"focus", loadFocus_}, {"placeholder", placeholder}};
     loadFocus_ = true;
+    // The book's chapters, for the chapter list under the chapter's name in the bar (0.49).
+    msg["chapters"] = json::array();
+    for (const ManuscriptNode* c : lib_->manuscriptOf(n->bookId)) {
+        int depth = 0;
+        for (const ManuscriptNode* p = lib_->node(c->parentId); p && depth < 4; p = lib_->node(p->parentId)) ++depth;
+        msg["chapters"].push_back({{"id", c->id}, {"title", c->title}, {"kind", c->kind == NodeKind::Part ? "part" : c->kind == NodeKind::Scene ? "scene" : "chapter"},
+                                   {"depth", depth}, {"words", c->wordCount}});
+    }
     msg["doc"] = json::parse(lib_->nodeContent(n->id), nullptr, false);
     if (msg["doc"].is_discarded()) msg["doc"] = json::parse(doc::emptyDoc());
     editor_.send(msg.dump());
@@ -206,6 +214,9 @@ void StudioApp::editorMessage(const std::string& text) {
         else if (name == "shortcuts") showShortcuts();
     } else if (type == "navigate") {
         stepNode(m.value("delta", 0) < 0 ? -1 : 1, true, true);
+    } else if (type == "openNode") {   // a chapter chosen from the list in the bar (0.49)
+        const std::string id = m.value("id", "");
+        if (const ManuscriptNode* c = lib_ ? lib_->node(id) : nullptr; c && c->bookId == writingBook_ && !c->deleted) selectNode(c->id, true);
     } else if (type == "flushed") {
         if (closePending_) { KillTimer(hwnd(), kCloseTimer); closePending_ = false; DestroyWindow(hwnd()); return; }
     } else if (type == "stats") {

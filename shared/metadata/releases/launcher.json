@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.115.0",
+      "date": "2026-11-20",
+      "notes": [
+        "NorthRay Writing Studio 0.49.0: a calmer page to write on, a chapter list in the bar, and line spacing."
+      ]
+    },
+    {
       "version": "0.114.5",
       "date": "2026-11-20",
       "notes": [

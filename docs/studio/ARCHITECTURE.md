@@ -415,6 +415,19 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.49.0: writing, calmer (20 Nov 2026)
+
+CJ: too many underlines, typing feel, moving around, the page look. Checked with tools/editor-harness.cjs.
+
+- `writingView` v3: hints default "quiet"; settings below v3 move from "full" to "quiet" once (sent back so the app
+  keeps it). `hereLook` puts a node decoration `here` on the top-level block holding the selection; CSS hides style
+  hints (not spelling) inside it, so nothing appears under the cursor while typing. Hints are 1 px.
+- The load message carries `chapters` (every node of the book in manuscript order with title, kind, depth and words);
+  `#chapname` is a button opening `#chapmenu`, which sends `openNode` (the app checks the node is the book's and
+  selects it).
+- `spacing` (close 1.45, normal 1.65, open 1.9, double 2.2) as `--line`, in Aa.
+- `savedText` keeps the last "Saved ..." while a save is pending (only "Saving..." before the first).
+
 ## 0.48.5: nested places on the cards, into Writing, an editor harness (20 Nov 2026)
 
 - Cards (Places, and Everything) with nothing found and no type filter: only places whose direct place parent
