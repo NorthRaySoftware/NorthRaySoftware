@@ -1736,3 +1736,14 @@ bookish version.
   uses Georgia and arched portraits, aurora round ones; nothing off the page; Writing progress keeps its chapter words;
   groups in order; aurora follows the kit and bookish doesn't). In Wine: all 28 templates rendered and compared in
   pairs; the Bookish submenu adding Book card (bookish) to a scene.
+
+## 64. Bookish for the whole stream (released as 0.18.0, 21 Nov 2026)
+
+- core/design: `bookishPage` (a parchment gradient page, a soft light, a gold frame with an inner rule and diamond
+  corners, sized from the page), `holdingBookish` (your {name} above a serif title, the gold rule, an italic subtitle and
+  the socials) for Starting Soon, Be Right Back, Ending and the offline banner, and bookish versions of the lower third,
+  facecam frame ("Frame" first with the aurora frame's opening, so `frameAround` fits a camera the same way), socials
+  bar, show title (a deep red ON AIR pill with a gold edge) and Twitch panel. All `<id>-bookish` in the Bookish group.
+- Tested: capturecore 2779 checks (every template but the logo watermark has a bookish twin showing at least the same
+  details at the same width, in Georgia; the facecam openings match). In Wine: all 37 templates rendered by
+  `capture_design_render_check` and compared in pairs.

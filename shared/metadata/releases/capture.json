@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.18.0",
+      "date": "2026-11-21",
+      "notes": [
+        "The bookish look for the rest of a stream: Starting Soon, Be Right Back, Ending and the offline banner on a full page of parchment inside a gold double frame, with your name above the title; and a lower third, facecam frame, socials bar, show title and Twitch panel in parchment, serif type, ink and gold. They're under Overlay design… › Bookish.",
+        "The bookish facecam frame has the same opening as the aurora one, so it fits the camera the same way."
+      ]
+    },
+    {
       "version": "0.17.0",
       "date": "2026-11-21",
       "notes": [

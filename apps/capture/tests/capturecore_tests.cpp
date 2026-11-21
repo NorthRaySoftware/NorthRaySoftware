@@ -3087,6 +3087,31 @@ static void testTemplateLooks() {
             CHECK(e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= a->doc.width + 0.5f && e.y + e.h <= a->doc.height + 0.5f);
     }
     CHECK(twins == 9);
+    // Since 0.18 everything but the logo watermark has a bookish twin (same details), and the facecam frames share
+    // their opening, which scene templates fit the camera into.
+    for (auto& t : templates()) {
+        const std::string id = t.id;
+        if (id == "logo-watermark" || id.size() > 8 && id.substr(id.size() - 8) == "-bookish") continue;
+        const Template* b = nullptr;
+        for (auto& u : templates())
+            if (std::string(u.id) == id + "-bookish") b = &u;
+        CHECK(b != nullptr);
+        if (!b) {
+            std::printf("  no bookish %s\n", id.c_str());
+            continue;
+        }
+        // Everything the aurora one shows (the bookish holding screens add your name), at the same width (the bookish cast
+        // list is taller, for its arched portraits).
+        const auto pa = placeholders(t.doc), pb = placeholders(b->doc);
+        CHECK(std::includes(pb.begin(), pb.end(), pa.begin(), pa.end()) && t.doc.width == b->doc.width);
+        bool serif = false;
+        for (auto& e : b->doc.elements) serif = serif || e.font == "Georgia";
+        CHECK(serif);
+        if (id == "facecam-frame") {
+            const Element &fa = t.doc.elements.front(), &fb = b->doc.elements.front();
+            CHECK(fa.name == "Frame" && fb.name == "Frame" && fa.x == fb.x && fa.y == fb.y && fa.w == fb.w && fa.h == fb.h);
+        }
+    }
     // Writing progress keeps its chapter words, so the 0.10.28 upgrade leaves both alone.
     for (auto& t : templates())
         if (std::string(t.id).rfind("writing-progress", 0) == 0) {

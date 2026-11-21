@@ -1552,6 +1552,113 @@ Document nowPlaying(bool bk) {
     add(d, lookMuted(bk, "Artist", "{artist}", 145, 98, 580, 34, 26, a));
     return d;
 }
+
+// ---- The bookish look for the holding screens and the rest of the stream (0.18).
+// A full page of paper: warm parchment, darker towards the edges, inside a gold double frame.
+void bookishPage(Document& d) {
+    const float W = (float)d.width, H = (float)d.height;
+    d.background = Fill::linear({{0, hex("#F5E8C8")}, {1, hex("#E4CD9A")}}, 90);
+    add(d, ellipseEl("Paper light", W * 0.1f, H * 0.05f, W * 0.8f, H * 0.9f, Fill::radial({{0, hex("#FFF8E655")}, {1, hex("#FFF8E600")}})));
+    const float m = std::min(W, H) * 0.037f;
+    Element outer = rectEl("Gold frame", m, m, W - 2 * m, H - 2 * m, Fill::none(), 8);
+    outer.stroke = hex("#A8853A");
+    outer.strokeWidth = 4;
+    add(d, outer);
+    Element inner = rectEl("Inner rule", m + 14, m + 14, W - 2 * m - 28, H - 2 * m - 28, Fill::none(), 4);
+    inner.stroke = hex("#A8853A99");
+    inner.strokeWidth = 1.5f;
+    add(d, inner);
+    for (auto [cx, cy] : std::vector<std::pair<float, float>>{{m + 7, m + 7}, {W - m - 7, m + 7}, {m + 7, H - m - 7}, {W - m - 7, H - m - 7}}) {
+        Element o = rectEl("Corner ornament", cx - 9, cy - 9, 18, 18, Fill::solid(hex("#A8853A")));
+        o.rotation = 45;
+        add(d, o);
+    }
+}
+Document holdingBookish(const char* name, const char* title, const char* sub) {
+    Document d;
+    d.name = std::string(name) + " (bookish)";
+    bookishPage(d);
+    Element above = lookLabel(true, "Above", "{name}", 260, 290, 1400, 60, Anim::Fade, "centre");
+    above.size = 40;   // a full page: larger than a card's label
+    add(d, above);
+    Element t = lookTitle(true, "Title", title, 160, 360, 1600, 200, 124, Anim::Pop, "centre");
+    add(d, t);
+    lookRule(d, true, 760, 590, 400, Anim::Fade);
+    Element s = lookMuted(true, "Subtitle", sub, 260, 620, 1400, 80, 44, Anim::Fade, "centre");
+    s.animMs = 900;
+    add(d, s);
+    add(d, lookMuted(true, "Socials", "{twitch}   ·   {youtube}   ·   {instagram}", 260, 880, 1400, 60, 32, Anim::None, "centre"));
+    return d;
+}
+Document lowerThirdBookish() {
+    Document d;
+    d.name = "Lower third (bookish)";
+    d.width = 1000, d.height = 180;
+    lookCard(d, true, 20, 30, 900, 120, Anim::SlideLeft, "Bar");
+    add(d, lookTitle(true, "Name", "{name}", 60, 42, 820, 58, 46, Anim::SlideLeft));
+    Element r = lookMuted(true, "Role", "Author · Artist · Broadcaster", 60, 100, 820, 40, 28, Anim::SlideLeft);
+    r.animMs = 700;
+    add(d, r);
+    return d;
+}
+Document facecamBookish() {
+    Document d;
+    d.name = "Facecam frame (bookish)";
+    d.width = 680, d.height = 420;
+    // "Frame" first, with the same opening as the aurora frame: scene templates fit the camera into it.
+    Element f = rectEl("Frame", 20, 20, 640, 360, Fill::none(), 12);
+    f.stroke = hex("#A8853A");
+    f.strokeWidth = 10;
+    f.shadow = {true, 0, 6, 18, hex("#1E140A88"), ""};
+    add(d, f);
+    Element in = rectEl("Inner rule", 32, 32, 616, 336, Fill::none(), 6);
+    in.stroke = hex("#F5E8C8AA");
+    in.strokeWidth = 2;
+    add(d, in);
+    lookCard(d, true, 40, 350, 260, 56, Anim::None, "Name tag");
+    add(d, lookTitle(true, "Name", "{name}", 40, 358, 260, 40, 26, Anim::None, "centre"));
+    return d;
+}
+Document socialsBookish() {
+    Document d;
+    d.name = "Socials bar (bookish)";
+    d.width = 1200, d.height = 90;
+    lookCard(d, true, 4, 10, 1192, 70, Anim::None, "Bar");
+    add(d, lookBody(true, "Handles", "{twitch}   ·   {youtube}   ·   {instagram}", 30, 22, 1140, 46, 30, Anim::None, "centre"));
+    return d;
+}
+Document twitchPanelBookish() {
+    Document d;
+    d.name = "Twitch panel (bookish)";
+    d.width = 320, d.height = 100;
+    d.background = Fill::linear({{0, hex("#F5E8C8")}, {1, hex("#E4CD9A")}}, 90);
+    Element edge = rectEl("Gold edge", 4, 4, 312, 92, Fill::none(), 4);
+    edge.stroke = hex("#A8853A");
+    edge.strokeWidth = 3;
+    add(d, edge);
+    add(d, lookTitle(true, "Label", "About me", 0, 24, 320, 52, 38, Anim::None, "centre"));
+    return d;
+}
+Document showTitleBookish() {
+    Document d;
+    d.name = "Show title (bookish)";
+    d.width = 1100, d.height = 220;
+    lookCard(d, true, 10, 10, 1080, 200, Anim::Fade);
+    Element pill = rectEl("On air", 40, 40, 170, 48, Fill::linear({{0, hex("#9B3A2C")}, {1, hex("#6E2219")}}, 90), 24);
+    pill.stroke = hex("#D9B45A");
+    pill.strokeWidth = 2;
+    pill.anim = Anim::Pop;
+    add(d, pill);
+    Element oa = textEl("On air text", "ON AIR", 40, 44, 170, 40, 24, "#F5E3B0", true);
+    oa.font = kSerif;
+    add(d, oa);
+    add(d, lookIcon(true, "Microphone", "mic", 960, 50, 100, 100, Anim::Fade));
+    add(d, lookTitle(true, "Show", "{show}", 40, 96, 900, 66, 54, Anim::SlideLeft));
+    Element e = lookMuted(true, "Episode", "{episode}", 40, 158, 900, 40, 28, Anim::SlideLeft);
+    e.animMs = 700;
+    add(d, e);
+    return d;
+}
 }  // namespace
 
 bool addChapterWords(Document& d) {
@@ -1682,6 +1789,20 @@ const std::vector<Template>& templates() {
             v.push_back({pairs[i].id, pairs[i].name, pairs[i].group, pairs[i].make(false)});
             v.push_back({bookIds[i].c_str(), pairs[i].bookName, "Bookish (parchment, serif, ink and gold)", pairs[i].make(true)});
         }
+        // And the rest of a stream in the bookish look (0.18).
+        const char* bk = "Bookish (parchment, serif, ink and gold)";
+        v.push_back({"starting-soon-bookish", "Starting Soon", bk, holdingBookish("Starting Soon", "Starting soon", "Settle in with a cup of tea")});
+        v.push_back({"be-right-back-bookish", "Be Right Back", bk, holdingBookish("Be Right Back", "Be right back", "Keep your place, I'll return shortly")});
+        v.push_back({"ending-bookish", "Ending", bk, holdingBookish("Ending", "Thank you for reading along", "Until the next chapter")});
+        {
+            Document d = holdingBookish("Offline banner", "Offline", "{schedule}");
+            v.push_back({"offline-banner-bookish", "Offline banner (1920 × 1080)", bk, d});
+        }
+        v.push_back({"lower-third-bookish", "Lower third", bk, lowerThirdBookish()});
+        v.push_back({"facecam-frame-bookish", "Facecam frame", bk, facecamBookish()});
+        v.push_back({"socials-bar-bookish", "Socials bar", bk, socialsBookish()});
+        v.push_back({"show-title-bookish", "Show title", bk, showTitleBookish()});
+        v.push_back({"twitch-panel-bookish", "Twitch panel (320 × 100)", bk, twitchPanelBookish()});
         {   // A radio show's title and episode, with an on-air badge.
             Document d;
             d.name = "Show title";
