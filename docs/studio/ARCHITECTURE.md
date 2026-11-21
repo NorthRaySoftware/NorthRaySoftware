@@ -415,6 +415,29 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.56.0: notes per book (21 Nov 2026)
+
+CJ's import requests 5-7.
+
+- entry_paste: `bookForLabel` (the old matching, now public: title, title in the label or the label in a title of 4+
+  characters, "Book N" in reading order when the label isn't a title). In `apply` a book whose title has a colon is
+  tried first: the parser reads "Alvora: The Fall of Valona: text" as the label "Alvora", so a book whose title's part
+  before the colon is the label and whose rest begins the text is the hit (the rest, a "(Book 4)" and punctuation are
+  taken off the text); this runs before `bookForLabel`, whose containment rule would otherwise give the book to
+  "Alvora" with the wrong text. A label that isn't `looksLikeBookTitle` (sentence openers, or a word of 4+ letters in
+  lower case) after a matched note is more of that note ("Later: ..."). Other unmatched labels are kept as book notes
+  keyed `kLaterBook + label` ("title:..."), reported in `unmatchedBooks`, instead of going to the notes. Each line in a
+  Notes per book block is a paragraph ("\n\n").
+- `laterBookNotes(entry)` and `claimLaterBookNotes(lib, world, book, booksInOrder)`: kept notes whose label now names
+  a book move onto it (after any note it has). No schema change: the keys live in the page JSON's `bookNotes` like book
+  ids, and everything that lists notes per book goes through the books, so they're ignored there.
+- App: the entry page shows kept notes after the books' ("IN SHARDS OF LIGHT", a line saying why, Remove);
+  `drawWorldPage` claims whenever `changesMade()` has moved (`wb_.claimedAt`); the paste note says the notes are kept.
+- Tested: studiocore 1564 checks (paragraphs and "Later:" kept with the note, a colon title, two later books kept and
+  then claimed by title and by number, sentence starts not taken for books; the Tom and odd-title fixtures now keep
+  their notes for later). In Wine: a page imported onto Ada Wren with paragraphs and a note for "Shards of Light";
+  after renaming Dragonfall to Shards of Light in the library file, the note had moved onto it.
+
 ## 0.55.0: pictures, renames, removes and merges in imports (21 Nov 2026)
 
 CJ's import requests 2-4 (claude/studio-import-family-requests-2026-11-21.md).

@@ -2851,7 +2851,8 @@ static void testEntryPaste() {
     CHECK(e.section("Abilities & powers").rfind("Tom is a trained", 0) == 0 && e.section("Abilities & powers").find("Swordsman.") == std::string::npos);
     CHECK(e.section("History").find("Silverbrick") != std::string::npos);
     CHECK(e.bookNote(b1).find("Gir-Garhm") != std::string::npos && e.bookNote(b2).rfind("Tom stabs", 0) == 0);
-    CHECK(e.notes.find("Book 5:\nTom is the father") != std::string::npos && r.unmatchedBooks.size() == 1);
+    // A book not in Writing Studio yet: its note is kept under its label until it is (0.56).
+    CHECK(e.bookNote("title:Book 5").rfind("Tom is the father", 0) == 0 && e.notes.find("Tom is the father") == std::string::npos && r.unmatchedBooks.size() == 1);
     // Links to entries in the bible (by name or other name); the rest stay as details.
     const auto links = lib->linksOf(t);
     auto linked = [&](const Id& to, const char* label) {
@@ -2901,7 +2902,7 @@ static void testEntryPaste() {
         pa::Report rx;
         CHECK(pa::apply(*lib, xe, odd, {b1, b2}, rx));
         CHECK(lib->entry(xe)->bookNote(b1).empty() && lib->entry(xe)->bookNote(b2) == "Other." && rx.unmatchedBooks.size() == 1);
-        CHECK(lib->entry(xe)->notes.find("The Lost Tome (Book 1):\nSomething.") != std::string::npos);
+        CHECK(lib->entry(xe)->bookNote("title:The Lost Tome (Book 1)") == "Something.");
     }
     // Aaliyah: names written more fully than the bible's, with "the", a kind of relationship said another way.
     {
@@ -3104,6 +3105,63 @@ static void testEntryPaste() {
     CHECK(lib->entry(tv)->name == "Telvana" && lib->entry(tv)->bookNote(b1).find("Telvana\xE2\x80\x99s cliffs") != std::string::npos);
     lib.reset();
     fs::remove_all(dir);
+}
+
+// Notes per book (0.56): titles with a colon, books not added yet, paragraphs.
+static void testBookNotes() {
+    const std::string dir = tempLibrary("book-notes");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id b1 = lib->createBook("Shards of Light", world);
+    const Id b4 = lib->createBook("Alvora: The Fall of Valona", world);
+    const Id tom = lib->createEntry(world, {}, "character", "Tom");
+    namespace pa = studio::paste;
+    const std::string page =
+        "Name: Tom\n"
+        "Notes per book\n"
+        "Shards of Light: Tom finds the shards.\n"
+        "He loses one at the Storm Wall.\n"
+        "Later: he finds it again in the ash.\n"
+        "\n"
+        "A third paragraph.\n"
+        "Alvora: The Fall of Valona: Tom leads the defence.\n"
+        "The Envoy of Telvana: Tom is only a name in a song.\n"
+        "Book 6: Tom's son is born.\n";
+    pa::Report r;
+    CHECK(pa::apply(*lib, tom, pa::parse(page), {b1, b4}, r));
+    const Entry& e = *lib->entry(tom);
+    // Each line its own paragraph; "Later:" stays with the note it's in.
+    CHECK(e.bookNote(b1) == "Tom finds the shards.\n\nHe loses one at the Storm Wall.\n\nLater: he finds it again in the ash.\n\nA third paragraph.");
+    // A colon in the title.
+    CHECK(e.bookNote(b4) == "Tom leads the defence.");
+    // Books not here yet, kept by their labels; nothing in the notes.
+    CHECK(e.bookNote("title:The Envoy of Telvana") == "Tom is only a name in a song." && e.bookNote("title:Book 6") == "Tom's son is born.");
+    CHECK(e.notes.empty() && r.unmatchedBooks.size() == 2);
+    const auto later = pa::laterBookNotes(e);
+    CHECK(later.size() == 2 && later[0].first == "The Envoy of Telvana");
+    // Sentence starts aren't titles; titles are.
+    {
+        const pa::Page p2 = pa::parse("Name: X\nNotes per book\nShards of Light: One.\nIn the end: two.\n");
+        const Id x = lib->createEntry(world, {}, "thing", "X");
+        pa::Report r2;
+        CHECK(pa::apply(*lib, x, p2, {b1, b4}, r2));
+        CHECK(lib->entry(x)->bookNote(b1) == "One.\n\nIn the end: two." && r2.unmatchedBooks.empty());
+    }
+    // The book is added: its note moves onto it; the one still to come waits.
+    CHECK(pa::claimLaterBookNotes(*lib, world, {}, {b1, b4}) == 0);
+    const Id envoy = lib->createBook("The Envoy of Telvana", world);
+    CHECK(pa::claimLaterBookNotes(*lib, world, {}, {b1, b4, envoy}) == 1);
+    CHECK(lib->entry(tom)->bookNote(envoy) == "Tom is only a name in a song." && lib->entry(tom)->bookNote("title:The Envoy of Telvana").empty());
+    CHECK(pa::laterBookNotes(*lib->entry(tom)).size() == 1);
+    // "Book 6" by reading order once there are six.
+    std::vector<Id> six = {b1, b4, envoy};
+    for (int i = 0; i < 3; ++i) six.push_back(lib->createBook("More " + std::to_string(i), world));
+    CHECK(pa::claimLaterBookNotes(*lib, world, {}, six) == 1 && lib->entry(tom)->bookNote(six[5]) == "Tom's son is born.");
+    CHECK(pa::laterBookNotes(*lib->entry(tom)).empty());
+    // Kept in the library, and pasted again changes nothing.
+    pa::Report again;
+    CHECK(pa::apply(*lib, tom, pa::parse("Name: Tom\nNotes per book\nShards of Light: Tom finds the shards.\n"), six, again));
+    CHECK(lib->entry(tom)->bookNote(b1) == "Tom finds the shards.");
 }
 
 // Importing pages that rename, remove and merge entries, and bring their pictures (0.55).
@@ -3422,6 +3480,7 @@ int main() {
     testWorldbuilding();
     testPublish();
     testImportControls();
+    testBookNotes();
     testPlanning();
     testCovers();
     testBibleTidy();

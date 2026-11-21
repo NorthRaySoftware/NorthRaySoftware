@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.56.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Notes per book match titles with a colon in them, such as \"Alvora: The Fall of Valona\", so they no longer have to go by number.",
+        "Notes for a book that isn't in Writing Studio yet are kept on the entry under the title you gave (shown on its page, with Remove), and move onto the book when a book of that title or number is added. They no longer fall into Notes.",
+        "Each line under a book in Notes per book is a paragraph of its own, and a line starting like a sentence (\"Later: …\") stays with the book above it instead of being taken for another book."
+      ]
+    },
+    {
       "version": "0.55.0",
       "date": "2026-11-21",
       "notes": [

@@ -410,6 +410,7 @@ Page parse(const std::string& raw) {
         if (block == Slot::Details) { addDetail(c); continue; }
         if (block == Slot::Family || block == Slot::Relations) { addDetail(c); continue; }
         if (block == Slot::BookNotes && p.bookNotes.empty()) { p.bookNotes.emplace_back(std::string(), std::string()); bookNote = 0; }
+        if (block == Slot::BookNotes) gap = true;   // each line of a book's note is a paragraph of its own (0.56)
         if (std::string* t = textOf(block)) addLine(*t, gap, bullet ? "\xE2\x80\xA2 " + c : c);
         // Before anything recognised (a chat's "Here's the entry…"): left out.
     }
@@ -601,6 +602,85 @@ int numberWord(const std::string& w) {
     return std::atoi(w.c_str());
 }
 
+// Whether a label before a colon reads as a book's title ("Shards of Light", "The Envoy of Telvana", "Book 5") rather
+// than the start of a sentence ("Later", "In the end", "After the battle").
+bool looksLikeBookTitle(const std::string& label) {
+    const std::string k = key(label);
+    if (k.empty()) return false;
+    static const std::regex bookN(R"(^book\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b.*)");
+    if (std::regex_match(k, bookN) || k.find("(book") != std::string::npos) return true;
+    static const std::set<std::string> openers = {"later", "then", "meanwhile", "afterwards", "afterward", "finally", "eventually", "also",
+                                                  "however", "note", "notes", "earlier", "before", "after", "now", "here", "there",
+                                                  "first", "second", "third", "next", "last", "lastly", "still", "yet", "so", "but",
+                                                  "and", "in the end", "at last", "by the end", "in short", "overall", "spoiler", "aside"};
+    if (openers.count(k)) return false;
+    // Every word of four letters or more starts with a capital (or a digit).
+    std::istringstream in(trim(label));
+    int words = 0;
+    for (std::string wd; in >> wd;) {
+        ++words;
+        while (!wd.empty() && !std::isalnum((unsigned char)wd[0]) && (unsigned char)wd[0] < 0x80) wd.erase(0, 1);
+        if (wd.size() >= 4 && std::islower((unsigned char)wd[0])) return false;
+    }
+    return words > 0 && words <= 10 && (std::isupper((unsigned char)trim(label)[0]) || std::isdigit((unsigned char)trim(label)[0]) ||
+                                        (unsigned char)trim(label)[0] >= 0x80);
+}
+
+}  // namespace
+
+const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label) {
+    std::string title = label;
+    static const std::regex num(R"(book\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten))", std::regex::icase);
+    std::smatch m;
+    int n = 0;
+    if (std::regex_search(label, m, num)) {
+        std::string wd = m[1].str();
+        for (auto& ch : wd) ch = (char)std::tolower((unsigned char)ch);
+        n = numberWord(wd);
+    }
+    if (const size_t paren = title.find('('); paren != std::string::npos) title = title.substr(0, paren);
+    const std::string tk = key(title);
+    for (const Book* b : books) if (!tk.empty() && key(b->title) == tk) return b;
+    for (const Book* b : books)
+        if (!tk.empty() && key(b->title).size() >= 4 && (tk.find(key(b->title)) != std::string::npos || key(b->title).find(tk) != std::string::npos))
+            return b;
+    // "Book 2" alone: the second in reading order. A title that's no book's isn't guessed by its number.
+    const bool titled = !tk.empty() && tk.rfind("book", 0) != 0;
+    if (!titled && n >= 1 && n <= (int)books.size()) return books[(size_t)n - 1];
+    return nullptr;
+}
+
+std::vector<std::pair<std::string, std::string>> laterBookNotes(const Entry& e) {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (auto& [k, text] : e.bookNotes)
+        if (k.rfind(kLaterBook, 0) == 0 && !text.empty()) out.emplace_back(k.substr(std::string(kLaterBook).size()), text);
+    return out;
+}
+
+int claimLaterBookNotes(Library& lib, const Id& world, const Id& book, const std::vector<Id>& booksInOrder) {
+    std::vector<const Book*> books;
+    for (const Id& b : booksInOrder) if (const Book* bk = lib.book(b)) books.push_back(bk);
+    if (books.empty()) return 0;
+    int moved = 0;
+    std::vector<Entry> changed;
+    for (const Entry* e : lib.entriesOf(world, world.empty() ? book : Id{})) {
+        bool any = false;
+        Entry x = *e;
+        for (auto& [label, text] : laterBookNotes(*e))
+            if (const Book* b = bookForLabel(books, label)) {
+                x.setBookNote(b->id, mergeText(x.bookNote(b->id), text));
+                x.setBookNote(std::string(kLaterBook) + label, "");
+                ++moved;
+                any = true;
+            }
+        if (any) changed.push_back(x);
+    }
+    for (auto& x : changed) lib.updateEntry(x);
+    return moved;
+}
+
+namespace {
+
 }  // namespace
 
 bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& r, const std::string& baseFolder) {
@@ -679,38 +759,51 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
     for (auto& [t, text] : into)
         if (e.section(t) != text) { e.setSection(t, text); ++r.sections; }
 
-    // Notes for each book.
+    // Notes for each book (0.56: a title with a colon in it; a label that's a sentence's start goes with the note before;
+    // a book that isn't in Writing Studio yet keeps its note under its title until it is).
     std::vector<const Book*> books;
     for (const Id& b : booksInOrder) if (const Book* bk = lib.book(b)) books.push_back(bk);
     std::string extraNotes;
-    for (auto& [label, text] : page.bookNotes) {
+    std::string lastKey;   // the note written last, for a paragraph whose start looked like a label
+    for (auto [label, text] : page.bookNotes) {
         const Book* hit = nullptr;
-        std::string title = label;
-        static const std::regex num(R"(book\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten))", std::regex::icase);
-        std::smatch m;
-        int n = 0;
-        if (std::regex_search(label, m, num)) {
-            std::string wd = m[1].str();
-            for (auto& ch : wd) ch = (char)std::tolower((unsigned char)ch);
-            n = numberWord(wd);
-        }
-        if (const size_t paren = title.find('('); paren != std::string::npos) title = title.substr(0, paren);
-        const std::string tk = key(title);
-        for (const Book* b : books) if (!tk.empty() && key(b->title) == tk) { hit = b; break; }
-        if (!hit)
-            for (const Book* b : books)
-                if (!tk.empty() && key(b->title).size() >= 4 && (tk.find(key(b->title)) != std::string::npos || key(b->title).find(tk) != std::string::npos)) {
-                    hit = b;
-                    break;
+        if (!label.empty()) {
+            // "Alvora: The Fall of Valona: …" was read as the label "Alvora" and the rest.
+            for (const Book* b : books) {
+                const size_t colon = b->title.find(':');
+                if (colon == std::string::npos || key(b->title.substr(0, colon)) != key(label)) continue;
+                const std::string rest = trim(b->title.substr(colon + 1));
+                std::string lt = text, lr = rest;
+                for (auto& ch : lt) ch = (char)std::tolower((unsigned char)ch);
+                for (auto& ch : lr) ch = (char)std::tolower((unsigned char)ch);
+                if (rest.empty() || lt.rfind(lr, 0) != 0) continue;
+                text = trim(text.substr(rest.size()));
+                if (!text.empty() && text[0] == '(') {   // "(Book 4)"
+                    const size_t close = text.find(')');
+                    if (close != std::string::npos && close < 16) text = trim(text.substr(close + 1));
                 }
-        // "Book 2" alone: the second in reading order. A title that's no book's isn't guessed by its number.
-        const bool titled = !tk.empty() && tk.rfind("book", 0) != 0;
-        if (!hit && !titled && n >= 1 && n <= (int)books.size()) hit = books[(size_t)n - 1];
+                while (!text.empty() && (text[0] == ':' || text[0] == '.' || text[0] == '-' || text[0] == ' ')) text.erase(0, 1);
+                if (text.rfind("\xE2\x80\x94", 0) == 0 || text.rfind("\xE2\x80\x93", 0) == 0) text = trim(text.substr(3));
+                hit = b;
+                break;
+            }
+        }
+        if (!hit) hit = bookForLabel(books, label);
         if (hit) {
             if (e.bookNote(hit->id) != text) { e.setBookNote(hit->id, text); ++r.bookNotes; }
+            lastKey = hit->id;
+        } else if (!label.empty() && !lastKey.empty() && !looksLikeBookTitle(label)) {
+            // "Later: he returns" under a book's note: more of that note, not another book.
+            const std::string more = label + ": " + text;
+            e.setBookNote(lastKey, mergeText(e.bookNote(lastKey), more));
+        } else if (!label.empty()) {
+            // A book that isn't here yet: kept under its title until it is.
+            const std::string k = std::string(kLaterBook) + label;
+            if (e.bookNote(k) != text) { e.setBookNote(k, text); ++r.bookNotes; }
+            r.unmatchedBooks.push_back(label);
+            lastKey = k;
         } else {
-            extraNotes = mergeText(extraNotes, (label.empty() ? std::string() : label + ":\n") + text);
-            if (!label.empty()) r.unmatchedBooks.push_back(label);
+            extraNotes = mergeText(extraNotes, text);
         }
     }
 

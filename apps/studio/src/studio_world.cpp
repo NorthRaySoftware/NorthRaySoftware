@@ -4,6 +4,7 @@
 // relationships and where it appears in the manuscripts; the right-hand panel
 // edits it.
 #include "studio_app.hpp"
+#include "studio/entry_paste.hpp"
 #include "studio/family_tree.hpp"
 #include "cjui/dialog.hpp"
 #include "studio/bible_export.hpp"
@@ -835,6 +836,14 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
 }
 
 void StudioApp::drawWorldPage(const Rect& r) {
+    // Notes kept for books that weren't here yet move onto them once they are (0.56): looked at when anything changed.
+    if (const auto changes = lib_->changesMade(); changes != wb_.claimedAt) {
+        wb_.claimedAt = changes;
+        if (studio::paste::claimLaterBookNotes(*lib_, wb_.world, wb_.book, booksInReadingOrder(*lib_, wb_.world, wb_.book)) > 0) {
+            wb_.claimedAt = lib_->changesMade();
+            loadedFocus_ = {Focus::None, "-", ""};
+        }
+    }
     wb_.scopeEntries = lib_->entriesOf(wb_.world, wb_.book);
     if (!wb_.board.empty()) { drawBoard(r); return; }
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
@@ -1455,6 +1464,27 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 });
                 y += 26;
                 y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
+            }
+            // Notes for books that aren't in Writing Studio yet (0.56): kept until the book is added, then moved onto it.
+            for (auto& [label, note] : studio::paste::laterBookNotes(*e)) {
+                gfx_.text(L"IN " + upper(w(label)), {m.x, y, cw - 140, 18}, Font::Label, pal_.inkFaint, {Align::Left, false, true, true});
+                const std::string k = std::string(studio::paste::kLaterBook) + label;
+                const Id eid = e->id;
+                linkText("wb:bnlater:" + label, m.right() - gfx_.measureWidth(L"Remove", Font::Small), y - 2, L"Remove", [this, eid, k, label] {
+                    const Entry* x = lib_->entry(eid);
+                    if (!x) return;
+                    if (cjui::messageBox(hwnd(), (L"Remove the notes kept for " + w(label) + L"?").c_str(), L"Notes per book",
+                                         MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+                        return;
+                    Entry u = *x;
+                    u.setBookNote(k, "");
+                    lib_->updateEntry(u);
+                    invalidate();
+                });
+                y += 22;
+                y += gfx_.text(L"Not in Writing Studio yet: these notes move onto the book when a book of that title is added.",
+                               {m.x, y, std::min(cw, 680.0f), 40}, Font::Small, pal_.inkMuted) + 6;
+                y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbl" + label + ":") + 24;
             }
         }
 

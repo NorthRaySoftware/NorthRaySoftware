@@ -201,7 +201,7 @@ void StudioApp::pasteEntryPage(const Id& entryId, const std::string& text, bool 
     std::wstring msg = replaceAll ? L"The page now has only what you pasted (its pictures kept)." : L"Replaced " + w(said) + L" with what you pasted.";
     if (!report.unmatchedBooks.empty())
         msg += L" Notes for " + w(report.unmatchedBooks[0]) + (report.unmatchedBooks.size() > 1 ? L" and others" : L"") +
-               L" went to the notes (no book of that name).";
+               L" are kept until the book is in Writing Studio.";
     msg += L" Ctrl+Z puts it back.";
     flash(msg, 10);
     wb_.mentionsFor.clear();

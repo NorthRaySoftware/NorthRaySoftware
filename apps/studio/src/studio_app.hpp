@@ -765,6 +765,7 @@ private:
         std::optional<PasteUndo> pasteUndo;   // the last page pasted onto an entry, to put back (0.37)
         std::optional<studio::Library::BibleReset> resetUndo;   // the last reset, to take back (0.38.1)
         std::optional<studio::paste::Import> importUndo;        // the last pages imported, to take back (0.39)
+        std::int64_t claimedAt = -1;   // changesMade() when kept book notes were last looked at (0.56)
         bool relationsPage = false;           // the Relationships page (0.38.2)
         bool fontsPage = false;               // the Fonts page (0.40)
         bool kindsOpen = false;               // "Check these kinds" opened from its one-line note (0.43)

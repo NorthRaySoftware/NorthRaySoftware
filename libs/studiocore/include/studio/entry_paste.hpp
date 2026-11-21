@@ -54,7 +54,7 @@ struct Report {
     int gallery = 0;                           // pictures added to the gallery (0.55)
     std::vector<std::string> missingPictures;  // paths that couldn't be read as pictures
     int aliases = 0, details = 0, sections = 0, bookNotes = 0, links = 0, notes = 0;
-    std::vector<std::string> unmatchedBooks;   // labels kept in the notes instead
+    std::vector<std::string> unmatchedBooks;   // books not in Writing Studio yet: their notes are kept for when they are (0.56)
     std::vector<Id> created;                   // entries made for names in Family or Relationships not in the bible yet
     std::string words() const;                 // "the name, 3 other names, the summary, 18 details, …"
 };
@@ -72,6 +72,18 @@ struct Report {
 // are listed in the report.
 bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& report,
            const std::string& baseFolder = {});
+
+// ---------------------------------------------------------------- notes per book (0.56)
+//
+// A book's note is found by the book's title (with "(Book 2)" after it or not, a colon in the title too), or by "Book 2"
+// in reading order. A note for a book that isn't in Writing Studio yet is kept on the entry under the label it was
+// given ("title:<label>" among its book notes) until a book of that title (or number) is there, then moved onto it.
+constexpr const char* kLaterBook = "title:";
+const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label);
+// The notes kept for books not here yet: label and text.
+std::vector<std::pair<std::string, std::string>> laterBookNotes(const Entry& e);
+// Moves every kept note whose book is now in `booksInOrder` onto that book (added after any note it has); how many.
+int claimLaterBookNotes(Library& lib, const Id& world, const Id& book, const std::vector<Id>& booksInOrder);
 
 // The relationship a pasted label stands for, read from an entry of `kind` ("Parents" -> "Child of"); "" if none.
 std::string relationFor(const std::string& kind, const std::string& label);
