@@ -415,6 +415,37 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.55.0: pictures, renames, removes and merges in imports (21 Nov 2026)
+
+CJ's import requests 2-4 (claude/studio-import-family-requests-2026-11-21.md).
+
+- entry_paste: `Page` gains `picture`, `gallery` (path, caption), `formerly`, `mergeFrom`, `mergeInto` and `remove`, from
+  new slots (Picture/Main picture/Image/Portrait; Gallery/Pictures/Images as a block or "a.png; b.png | B" on one line;
+  Formerly/Former name(s)/Previously/Renamed from/Old name; Remove/Delete with yes; Merge into/Merged into/Merge with;
+  Merged from/Merge in). Gallery lines are "path | caption", taken only while they look like paths (a folder separator,
+  or an extension of up to five letters or digits), and a known "Label: value" or a marked heading ends the block, so
+  "Appearance" after a gallery is still a section. `blankPage` has Picture and Gallery lines.
+- `apply(..., baseFolder)`: each path (relative ones from `baseFolder`) read if it's a regular file under 80 MB that
+  `imageInfo` recognises, added with `addArtwork(..., "Bible")`; Picture sets `imageBlob` and joins the gallery; Gallery
+  pictures are added (or take the caption) and the first becomes the main picture when there's none. Paths that fail
+  go to `Report::missingPictures`.
+- `importPages(..., baseFolder)`: pages parsed once; an entry is found by name (kind, then any), a `Formerly` name, or a
+  unique other name (renamed by `apply`, recorded in `Import::renamed`). Remove and Merge into pages are handled first
+  and skipped after: `trashEntry` (`removed`), `mergeEntries(into, it)` (the merged entry and its links kept in
+  `mergedAway`/`mergedAwayLinks`; the kept one noted as updated), or a rename when nothing has the Merge into name.
+  "Merged from" names are merged into the page's entry before pages are applied. Unmatched names go to `notFound`.
+  `Import::words` adds renamed, merged, removed and pictures.
+- App (`studio_paste.cpp`): a file's folder is passed as `baseFolder`; the confirmation counts renaming, merging and
+  removing pages; with renames, merges, removals, unmatched names or unreadable pictures the result is a message box
+  listing them (else the flash as before). Undo restores merged-away entries (`restore`, then their text and links)
+  and removed ones.
+- Tested: studiocore 1547 checks (parsing each line, a blank page leaving them empty, a heading after the gallery;
+  an import renaming by Formerly and by other name, a picture and a captioned gallery picture from relative paths, a
+  missing one reported, Merge into and Merged from with a link moving, Remove, two unmatched names, the same import
+  again changing nothing, Merge into a new name renaming, a single paste with a picture). In Wine with a file and two
+  PNGs beside it: Maren renamed and pictured with her gallery, New place merged into Akunda, Demon removed, the missing
+  picture listed.
+
 ## 0.54.0: plans fill in the chapters a book has (21 Nov 2026)
 
 From CJ's import requests (claude/studio-import-family-requests-2026-11-21.md, item 1): Shards of Light's chapter

@@ -3106,6 +3106,94 @@ static void testEntryPaste() {
     fs::remove_all(dir);
 }
 
+// Importing pages that rename, remove and merge entries, and bring their pictures (0.55).
+static void testImportControls() {
+    const std::string dir = tempLibrary("import-controls");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    // Pictures beside the import file, one in a folder of its own, and one that isn't a picture.
+    const std::string folder = dir + "/import";
+    std::filesystem::create_directories(folder + "/art");
+    std::ofstream(folder + "/tom.png", std::ios::binary) << pngOf(400, 600);
+    std::ofstream(folder + "/art/forge.png", std::ios::binary) << pngOf(800, 500);
+    std::ofstream(folder + "/art/storm.png", std::ios::binary) << pngOf(800, 501);
+    std::ofstream(folder + "/notes.txt") << "not a picture";
+    const std::string absolute = folder + "/art/storm.png";
+
+    // Parsing the new lines.
+    const auto pg = paste::parse("Name: Armstrong\nFormerly: Armstong, \"Arm\"\nPicture: tom.png\nGallery:\nart/forge.png | At the forge\n" + absolute +
+                                 "\nnotes.txt\nSummary: A smith.\n");
+    CHECK((pg.name == "Armstrong" && pg.formerly == std::vector<std::string>{"Armstong", "Arm"} && pg.picture == "tom.png"));
+    CHECK(pg.gallery.size() == 3 && pg.gallery[0] == std::make_pair(std::string("art/forge.png"), std::string("At the forge")) &&
+          pg.gallery[1].first == absolute && pg.gallery[1].second.empty() && pg.summary == "A smith.");
+    CHECK(paste::parse("Name: X\nRemove: yes\n").remove && !paste::parse("Name: X\nRemove: no\n").remove);
+    CHECK(paste::parse("Name: X\nMerge into: House Malrok\n").mergeInto == "House Malrok");
+    CHECK((paste::parse("Name: X\nMerged from: Sunfire, Old Sunfire\n").mergeFrom == std::vector<std::string>{"Sunfire", "Old Sunfire"}));
+    CHECK(paste::parse("Name: X\nGallery: a.png; b.png | B\n").gallery.size() == 2);
+    // A heading after the gallery ends it; it isn't a picture's path.
+    const auto withHeading = paste::parse("Name: X\nGallery:\nart/a.png\n\nAppearance\nTall and grey.\n");
+    CHECK(withHeading.gallery.size() == 1 && withHeading.sections.size() == 1 && withHeading.sections[0].first == "Appearance");
+    // A blank page leaves them all empty.
+    const auto blank = paste::parse(paste::blankPage("character", {}, {}));
+    CHECK(blank.picture.empty() && blank.gallery.empty() && blank.formerly.empty() && !blank.remove);
+
+    // The bible as it was: a misspelt name, a king under his old name, old pages to go and to merge.
+    const Id armstong = lib->createEntry(world, {}, "character", "Armstong");
+    const Id george = lib->createEntry(world, {}, "character", "Prince George");
+    const Id malrokOld = lib->createEntry(world, {}, "group", "House Malrok (old)");
+    const Id malrok = lib->createEntry(world, {}, "group", "House Malrok");
+    const Id sunfire = lib->createEntry(world, {}, "magic", "Sunfire");
+    const Id sunOld = lib->createEntry(world, {}, "magic", "Sun Fire");
+    const Id gone = lib->createEntry(world, {}, "place", "Old Keep");
+    if (Entry e = *lib->entry(sunOld); true) { e.summary = "The old page."; lib->updateEntry(e); }
+    lib->addLink(sunOld, george, "Used by");
+
+    const std::string text =
+        "# Characters\n\n"
+        "Name: Armstrong\nFormerly: Armstong\nPicture: tom.png\nGallery:\nart/forge.png | At the forge\nmissing.png\n\nSummary: A smith.\n\n"
+        "Name: King George\nOther names: Prince George\nSummary: The king.\n\n"
+        "# Groups\n\nName: House Malrok (old)\nMerge into: House Malrok\n\n"
+        "# Magic\n\nName: Sunfire\nMerged from: Sun Fire\nSummary: Light made fire.\n\n"
+        "# Places\n\nName: Old Keep\nRemove: yes\n\nName: Nowhere Hall\nRemove: yes\n\n"
+        "Name: Lost Tower\nMerge into: The Tower\n";
+    // (Lost Tower doesn't exist: nothing to merge, so it's not found.)
+    paste::Import im;
+    CHECK(paste::importPages(*lib, world, {}, paste::splitPages(text, "character"), {}, im, false, folder));
+    // Renamed rather than made again.
+    CHECK(lib->entry(armstong)->name == "Armstrong" && lib->entry(george)->name == "King George" && im.made.empty());
+    CHECK(im.renamed.size() == 2 && lib->entry(george)->summary == "The king.");
+    // Pictures: the main one, the gallery with its caption, and the missing one reported.
+    const Entry* arm = lib->entry(armstong);
+    CHECK(!arm->imageBlob.empty() && arm->gallery.size() == 2 && arm->gallery[1].caption == "At the forge");
+    CHECK(im.pictures == 2 && im.missingPictures == std::vector<std::string>{"missing.png"});
+    CHECK(lib->artworks().size() >= 2);
+    // Merged one way and the other; removed; not found.
+    CHECK(lib->entry(malrokOld)->deleted && !lib->entry(malrok)->deleted);
+    CHECK(lib->entry(sunOld)->deleted && lib->entry(sunfire)->summary == "Light made fire." && im.mergedAway.size() == 2);
+    bool linkMoved = false;
+    for (auto& l : lib->linksOf(sunfire)) linkMoved = linkMoved || (l.to == george || l.from == george);
+    CHECK(linkMoved);
+    CHECK(lib->entry(gone)->deleted && im.removed == std::vector<Id>{gone});
+    CHECK((im.notFound == std::vector<std::string>{"Nowhere Hall", "Lost Tower"}));
+    CHECK(im.words().find("2 entries renamed") != std::string::npos && im.words().find("1 entry removed") != std::string::npos);
+    // The same import again: nothing new, nothing renamed.
+    paste::Import again;
+    CHECK(paste::importPages(*lib, world, {}, paste::splitPages(text, "character"), {}, again, false, folder));
+    CHECK(again.made.empty() && again.renamed.empty() && lib->entry(armstong)->gallery.size() == 2);
+
+    // "Merge into" a name nobody has: the entry is renamed to it.
+    const Id tower = lib->createEntry(world, {}, "place", "Tower of Ash");
+    paste::Import ren;
+    CHECK(paste::importPages(*lib, world, {}, paste::splitPages("Name: Tower of Ash\nKind: place\nMerge into: The Ash Tower\n", "place"), {}, ren));
+    CHECK(lib->entry(tower)->name == "The Ash Tower" && ren.renamed.size() == 1);
+
+    // A single page pasted onto an entry brings its picture too.
+    const Id lone = lib->createEntry(world, {}, "character", "Lone");
+    paste::Report rep;
+    CHECK(paste::apply(*lib, lone, paste::parse("Name: Lone\nPicture: " + absolute + "\nSummary: Alone.\n"), {}, rep));
+    CHECK(rep.picture && !lib->entry(lone)->imageBlob.empty() && rep.words().find("the picture") != std::string::npos);
+}
+
 static void testPlanning() {
     const std::string dir = tempLibrary("planning");
     auto lib = openOk(dir);
@@ -3333,6 +3421,7 @@ int main() {
     testReview();
     testWorldbuilding();
     testPublish();
+    testImportControls();
     testPlanning();
     testCovers();
     testBibleTidy();

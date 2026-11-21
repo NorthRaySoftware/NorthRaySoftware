@@ -1,10 +1,14 @@
 #include "studio/entry_paste.hpp"
 #include "studio/document.hpp"
+#include "studio/artwork.hpp"
 
 #include <algorithm>
 #include <set>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <regex>
 #include <sstream>
 
@@ -52,7 +56,8 @@ std::string normalise(const std::string& in) {
     return out;
 }
 
-enum class Slot { None, Name, Aliases, Say, Summary, Details, Notes, BookNotes, Family, Relations, Spoilers, Section };
+enum class Slot { None, Name, Aliases, Say, Summary, Details, Notes, BookNotes, Family, Relations, Spoilers, Section,
+                  Picture, Gallery, Formerly, Remove, MergeInto, MergeFrom };
 
 Slot slotOf(const std::string& k) {
     static const std::vector<std::pair<const char*, Slot>> table{
@@ -69,7 +74,14 @@ Slot slotOf(const std::string& k) {
         {"notes per book", Slot::BookNotes}, {"notes by book", Slot::BookNotes}, {"book notes", Slot::BookNotes},
         {"per book", Slot::BookNotes}, {"by book", Slot::BookNotes}, {"in each book", Slot::BookNotes}, {"appearances", Slot::BookNotes},
         {"family", Slot::Family}, {"relationships", Slot::Relations}, {"relations", Slot::Relations}, {"connections", Slot::Relations},
-        {"links", Slot::Relations}, {"spoilers", Slot::Spoilers}, {"spoiler", Slot::Spoilers}};
+        {"links", Slot::Relations}, {"spoilers", Slot::Spoilers}, {"spoiler", Slot::Spoilers},
+        // 0.55
+        {"picture", Slot::Picture}, {"main picture", Slot::Picture}, {"image", Slot::Picture}, {"portrait", Slot::Picture},
+        {"gallery", Slot::Gallery}, {"pictures", Slot::Gallery}, {"images", Slot::Gallery},
+        {"formerly", Slot::Formerly}, {"former name", Slot::Formerly}, {"former names", Slot::Formerly}, {"previously", Slot::Formerly},
+        {"renamed from", Slot::Formerly}, {"old name", Slot::Formerly}, {"remove", Slot::Remove}, {"delete", Slot::Remove},
+        {"merge into", Slot::MergeInto}, {"merged into", Slot::MergeInto}, {"merge with", Slot::MergeInto},
+        {"merged from", Slot::MergeFrom}, {"merge in", Slot::MergeFrom}, {"merges in", Slot::MergeFrom}};
     for (auto& [w, s] : table) if (k == w) return s;
     return Slot::None;
 }
@@ -123,6 +135,18 @@ void addLine(std::string& to, bool& gap, const std::string& line) {
     gap = false;
 }
 
+std::vector<std::string> splitList(const std::string& s, char sep) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : s + sep) {
+        if (c == sep) {
+            if (!trim(cur).empty()) out.push_back(trim(cur));
+            cur.clear();
+        } else cur += c;
+    }
+    return out;
+}
+
 std::vector<std::string> splitNames(const std::string& s) {
     std::vector<std::string> out;
     std::string cur;
@@ -169,8 +193,35 @@ Page parse(const std::string& raw) {
         }
     };
     auto addDetail = [&](const std::string& l) { p.details += (p.details.empty() ? "" : "\n") + l; };
+    auto unquote = [](std::string t) {
+        t = trim(t);
+        if (t.size() >= 2 && (t.front() == '"' || t.front() == '\'') && t.back() == t.front()) t = trim(t.substr(1, t.size() - 2));
+        return t;
+    };
+    // A gallery line: "path | caption" (or a tab between).
+    auto addGallery = [&](const std::string& line) {
+        std::string path = line, caption;
+        size_t bar = line.find(" | ");
+        if (bar == std::string::npos) bar = line.find('|');
+        if (bar != std::string::npos) {
+            path = line.substr(0, bar);
+            caption = trim(line.substr(bar + (line.compare(bar, 3, " | ") == 0 ? 3 : 1)));
+        }
+        path = unquote(path);
+        if (!path.empty()) p.gallery.emplace_back(path, caption);
+    };
     auto setSingle = [&](Slot s, const std::string& v) {
         if (v.empty()) return;
+        if (s == Slot::Picture) { p.picture = unquote(v); return; }
+        if (s == Slot::Gallery) { for (auto& g : splitList(v, ';')) addGallery(g); return; }
+        if (s == Slot::Formerly) { for (auto& f : splitNames(v)) p.formerly.push_back(unquote(f)); return; }
+        if (s == Slot::MergeFrom) { for (auto& f : splitNames(v)) p.mergeFrom.push_back(unquote(f)); return; }
+        if (s == Slot::MergeInto) { p.mergeInto = unquote(v); return; }
+        if (s == Slot::Remove) {
+            const std::string k = key(v);
+            p.remove = k == "yes" || k == "true" || k == "y" || k == "remove" || k == "delete" || k == "remove it" || k == "delete it";
+            return;
+        }
         if (s == Slot::Name) p.name = v;
         else if (s == Slot::Say) p.pronunciation = v;
         else if (s == Slot::Aliases)
@@ -236,7 +287,14 @@ Page parse(const std::string& raw) {
         // A known heading on its own ("Summary", "**Details**", "## Notes per book", "Family:").
         const Slot known = slotOf(key(c));
         if (known != Slot::None && words(c) <= 5) {
-            if (known == Slot::Name || known == Slot::Aliases || known == Slot::Say) { awaiting = known; ++p.parts; ++p.known; block = Slot::None; continue; }
+            if (known == Slot::Name || known == Slot::Aliases || known == Slot::Say || known == Slot::Picture || known == Slot::Formerly ||
+                known == Slot::MergeInto || known == Slot::MergeFrom || known == Slot::Remove) {
+                awaiting = known;
+                ++p.parts;
+                ++p.known;
+                block = Slot::None;
+                continue;
+            }
             if (known == Slot::Details && seenDetails) {
                 // A second "Details": a section of that name (Lore's template has one), not more detail lines.
                 std::string t = c;
@@ -249,6 +307,24 @@ Page parse(const std::string& raw) {
             if (known == Slot::Details) seenDetails = true;
             startBlock(known);
             continue;
+        }
+
+        // Under "Gallery": each line a picture's path, with " | caption" after it (paths have colons in them, so this comes
+        // before "Label: value").
+        if (block == Slot::Gallery) {
+            std::string lab, val;
+            const bool field = splitField(c, lab, val) && slotOf(key(lab)) != Slot::None;   // "Summary: …" ends the gallery
+            // A path: a folder in it, or a file's extension ("tom.png"); "Appearance" on its own is a heading.
+            std::string path = c.substr(0, c.find('|'));
+            while (!path.empty() && path.back() == ' ') path.pop_back();
+            const size_t dot = path.rfind('.');
+            const bool pathLike = path.find_first_of("/\\") != std::string::npos ||
+                                  (dot != std::string::npos && dot + 1 < path.size() && path.size() - dot <= 6 &&
+                                   std::all_of(path.begin() + (long)dot + 1, path.end(), [](unsigned char ch) { return std::isalnum(ch); }));
+            if (!field && !marked && pathLike) {
+                addGallery(c);
+                continue;
+            }
         }
 
         // Within the notes per book: a book's label starts its note.
@@ -280,7 +356,8 @@ Page parse(const std::string& raw) {
         std::string label, value;
         if (!bullet && splitField(c, label, value)) {
             const Slot s = slotOf(key(label));
-            if (!value.empty() && (s == Slot::Name || s == Slot::Aliases || s == Slot::Say)) {
+            if (!value.empty() && (s == Slot::Name || s == Slot::Aliases || s == Slot::Say || s == Slot::Picture || s == Slot::Formerly ||
+                                   s == Slot::Remove || s == Slot::MergeInto || s == Slot::MergeFrom || s == Slot::Gallery)) {
                 setSingle(s, value);
                 ++p.parts;
                 ++p.known;
@@ -364,7 +441,8 @@ std::string blankPage(const std::string& kind, const std::vector<std::string>& s
     else if (kind == "magic") details = {"Source", "Colour", "Cost", "Difficulty"};
     else if (kind == "event") details = {"When", "Where", "Outcome"};
     else details = {"When", "Where"};
-    std::string t = "Name: \nOther names: \nHow it's said: \n\nSummary\n\n\nDetails\n";
+    // Picture: and Gallery: take paths to picture files (0.55).
+    std::string t = "Name: \nOther names: \nHow it's said: \nPicture: \nGallery: \n\nSummary\n\n\nDetails\n";
     for (auto* d : details) t += std::string(d) + ": \n";
     for (auto& s : sections) t += "\n" + s + "\n\n";
     t += "\nNotes per book\n";
@@ -525,10 +603,49 @@ int numberWord(const std::string& w) {
 
 }  // namespace
 
-bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& r) {
+bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<Id>& booksInOrder, Report& r, const std::string& baseFolder) {
     const Entry* cur = lib.entry(entryId);
     if (!cur) return false;
     Entry e = *cur;
+    // Pictures by path (0.55): read, checked to be a picture, kept in Artwork; the blob is what the entry holds.
+    auto readPicture = [&](const std::string& path) -> std::string {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::path fp = fs::u8path(path);
+        if (fp.is_relative() && !baseFolder.empty()) fp = fs::u8path(baseFolder) / fp;
+        if (!fs::is_regular_file(fp, ec) || fs::file_size(fp, ec) > 80u * 1024 * 1024) return {};
+        std::ifstream f(fp, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (bytes.empty() || !imageInfo(bytes).ok) return {};
+        const auto stem = fp.stem().u8string();
+        const Id aid = lib.addArtwork(bytes, std::string(stem.begin(), stem.end()), "Bible");
+        const Artwork* a = aid.empty() ? nullptr : lib.artwork(aid);
+        return a ? a->blob : std::string();
+    };
+    auto inGallery = [&](const std::string& blob) {
+        return std::find_if(e.gallery.begin(), e.gallery.end(), [&](const Entry::Picture& g) { return g.blob == blob; });
+    };
+    if (!page.picture.empty()) {
+        const std::string blob = readPicture(page.picture);
+        if (blob.empty()) r.missingPictures.push_back(page.picture);
+        else {
+            if (e.imageBlob != blob) { e.imageBlob = blob; r.picture = true; }
+            if (inGallery(blob) == e.gallery.end()) e.gallery.push_back({blob, ""});
+        }
+    }
+    for (auto& [path, caption] : page.gallery) {
+        const std::string blob = readPicture(path);
+        if (blob.empty()) { r.missingPictures.push_back(path); continue; }
+        auto it = inGallery(blob);
+        if (it == e.gallery.end()) {
+            e.gallery.push_back({blob, caption});
+            ++r.gallery;
+        } else if (!caption.empty() && it->caption != caption) {
+            it->caption = caption;
+            ++r.gallery;
+        }
+        if (e.imageBlob.empty()) { e.imageBlob = blob; r.picture = true; }   // the first picture is the main one
+    }
     // What's pasted replaces what was there, part by part; parts the paste doesn't have are left alone.
     if (!page.name.empty() && page.name != e.name) { e.name = page.name; r.name = true; }
     if (!page.aliases.empty()) {
@@ -734,6 +851,8 @@ std::string Report::words() const {
     if (aliases) parts.push_back(count(aliases, "other name", "other names"));
     if (pronunciation) parts.push_back("how it's said");
     if (summary) parts.push_back("the summary");
+    if (picture) parts.push_back("the picture");
+    if (gallery) parts.push_back(count(gallery, "gallery picture", "gallery pictures"));
     if (details) parts.push_back(count(details, "detail", "details"));
     if (sections) parts.push_back(count(sections, "section", "sections"));
     if (bookNotes) parts.push_back(count(bookNotes, "book's notes", "books' notes"));
@@ -966,22 +1085,86 @@ bool clearEntryText(Library& lib, const Id& entryId) {
 }
 
 bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
-                 Import& out, bool replaceAll) {
+                 Import& out, bool replaceAll, const std::string& baseFolder) {
     const Id scopeBook = world.empty() ? book : Id{};
-    std::vector<Id> target(pages.size());
-    std::set<Id> seen;
-    // Every page's entry first: found, or made, so pages naming each other link.
-    for (size_t i = 0; i < pages.size(); ++i) {
+    std::vector<Page> parsed;
+    for (const Batch& b : pages) parsed.push_back(parse(b.text));
+    // An entry by a name: of the page's kind, else any kind.
+    auto byName = [&](const std::string& name, const std::string& kind) -> const Entry* {
+        if (trim(name).empty()) return nullptr;
+        const Entry* e = lib.findEntryNamed(world, scopeBook, name, kind);
+        return e ? e : lib.findEntryNamed(world, scopeBook, name);
+    };
+    // The page's entry: by its name, then a former name, then one of its other names (only if one entry has it).
+    auto findFor = [&](size_t i, std::string* foundAs) -> const Entry* {
         const Batch& b = pages[i];
-        const Entry* e = lib.findEntryNamed(world, scopeBook, b.name, b.kind);
-        if (!e) e = lib.findEntryNamed(world, scopeBook, b.name);
-        if (e) {
-            target[i] = e->id;
-            if (seen.insert(e->id).second && std::find(out.made.begin(), out.made.end(), e->id) == out.made.end()) {
-                out.updated.push_back(e->id);
-                out.before.push_back(*e);
-                out.linksBefore.push_back(lib.linksOf(e->id));
+        if (const Entry* e = byName(b.name, b.kind)) return e;
+        for (auto& f : parsed[i].formerly)
+            if (const Entry* e = byName(f, b.kind)) { if (foundAs) *foundAs = e->name; return e; }
+        const Entry* one = nullptr;
+        bool twice = false;
+        for (auto& a : parsed[i].aliases)
+            if (const Entry* e = byName(a, b.kind)) {
+                if (one && one != e) twice = true;
+                one = e;
             }
+        if (one && !twice) { if (foundAs) *foundAs = one->name; return one; }
+        return nullptr;
+    };
+    std::set<Id> seen;
+    auto noteUpdated = [&](const Entry& e) {
+        if (seen.insert(e.id).second && std::find(out.made.begin(), out.made.end(), e.id) == out.made.end()) {
+            out.updated.push_back(e.id);
+            out.before.push_back(e);
+            out.linksBefore.push_back(lib.linksOf(e.id));
+        }
+    };
+    auto mergeAway = [&](const Id& keep, const Id& other) {
+        const Entry* o = lib.entry(other);
+        if (!o || keep == other) return false;
+        out.mergedAway.push_back(*o);
+        out.mergedAwayLinks.push_back(lib.linksOf(other));
+        return lib.mergeEntries(keep, other);
+    };
+
+    // Pages that remove or merge their entry instead of filling it in.
+    std::vector<bool> skip(pages.size(), false);
+    for (size_t i = 0; i < pages.size(); ++i) {
+        const Page& pg = parsed[i];
+        if (!pg.remove && pg.mergeInto.empty()) continue;
+        skip[i] = true;
+        const Entry* e = findFor(i, nullptr);
+        if (!e) { out.notFound.push_back(pages[i].name); continue; }
+        if (pg.remove) {
+            const Id id = e->id;
+            if (lib.trashEntry(id)) out.removed.push_back(id);
+            continue;
+        }
+        const Entry* into = byName(pg.mergeInto, pages[i].kind);
+        if (into && into->id != e->id) {
+            noteUpdated(*into);
+            const Id keep = into->id, other = e->id;
+            if (!mergeAway(keep, other)) return false;
+        } else if (!into) {
+            // Nothing called that: the entry takes that name.
+            noteUpdated(*e);
+            out.renamed.push_back({e->id, e->name});
+            Entry x = *e;
+            x.name = pg.mergeInto;
+            if (!lib.updateEntry(x)) return false;
+        }
+    }
+
+    // Every other page's entry first: found, or made, so pages naming each other link.
+    std::vector<Id> target(pages.size());
+    for (size_t i = 0; i < pages.size(); ++i) {
+        if (skip[i]) continue;
+        const Batch& b = pages[i];
+        std::string foundAs;
+        if (const Entry* e = findFor(i, &foundAs)) {
+            target[i] = e->id;
+            noteUpdated(*e);
+            if (!foundAs.empty() && foundAs != b.name) out.renamed.push_back({e->id, foundAs});
             continue;
         }
         const Id id = lib.createEntry(world, scopeBook, b.kind, b.name);
@@ -990,14 +1173,29 @@ bool importPages(Library& lib, const Id& world, const Id& book, const std::vecto
         seen.insert(id);
         out.made.push_back(id);
     }
+    // "Merged from": those entries are merged into the page's before it's applied.
+    for (size_t i = 0; i < pages.size(); ++i) {
+        if (skip[i]) continue;
+        for (auto& name : parsed[i].mergeFrom) {
+            const Entry* o = byName(name, pages[i].kind);
+            if (!o) { out.notFound.push_back(name); continue; }
+            if (o->id == target[i]) continue;
+            if (!mergeAway(target[i], o->id)) return false;
+        }
+    }
     if (replaceAll)
         for (const Id& id : out.updated)
             if (!clearEntryText(lib, id)) return false;
     std::set<Id> changed;
     for (size_t i = 0; i < pages.size(); ++i) {
+        if (skip[i]) continue;
         Report r;
-        if (!apply(lib, target[i], parse(pages[i].text), booksInOrder, r)) return false;
+        Page pg = parsed[i];
+        if (pg.name.empty()) pg.name = pages[i].name;   // a page found by a former name takes its own
+        if (!apply(lib, target[i], pg, booksInOrder, r, baseFolder)) return false;
         out.links += r.links;
+        out.pictures += (r.picture ? 1 : 0) + r.gallery;
+        for (auto& m : r.missingPictures) out.missingPictures.push_back(m);
         for (const Id& x : r.created) out.extra.push_back(x);
         if (!r.words().empty()) changed.insert(target[i]);
     }
@@ -1012,6 +1210,10 @@ std::string Import::words() const {
     if (updated.size() > (size_t)unchanged) parts.push_back(count(updated.size() - unchanged, "entry updated", "entries updated"));
     if (links) parts.push_back(count((size_t)links, "link", "links"));
     if (!extra.empty()) parts.push_back(count(extra.size(), "entry made for a name the pages mention", "entries made for names the pages mention"));
+    if (!renamed.empty()) parts.push_back(count(renamed.size(), "entry renamed", "entries renamed"));
+    if (!mergedAway.empty()) parts.push_back(count(mergedAway.size(), "entry merged into another", "entries merged into others"));
+    if (!removed.empty()) parts.push_back(count(removed.size(), "entry removed", "entries removed"));
+    if (pictures) parts.push_back(count((size_t)pictures, "picture", "pictures"));
     std::string o;
     for (size_t i = 0; i < parts.size(); ++i) o += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];
     return o;

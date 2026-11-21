@@ -417,10 +417,12 @@ void StudioApp::importManyPages(bool fromClipboard) {
     } else {
         text = textFromBytes(bytes);
     }
-    importPagesText(text, w(narrow(path.substr(path.find_last_of(L"\\/") + 1))));
+    // Pictures named on the pages by a relative path are found beside the file (0.55).
+    const size_t slash = path.find_last_of(L"\\/");
+    importPagesText(text, w(narrow(path.substr(slash + 1))), slash == std::wstring::npos ? std::string() : narrow(path.substr(0, slash)));
 }
 
-void StudioApp::importPagesText(const std::string& text, const std::wstring& from) {
+void StudioApp::importPagesText(const std::string& text, const std::wstring& from, const std::string& baseFolder) {
     std::vector<paste::Batch> pages = paste::splitPages(text, "");
     if (pages.empty()) {
         cjui::messageBox(hwnd(),
@@ -485,6 +487,25 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
                 L" (other names, summary, details, sections, notes, spoilers, family and relationships) is replaced by the page. Pictures, galleries and maps stay.";
         }
     }
+    // Pages that remove or merge entries, said before anything is done (0.55).
+    {
+        int removes = 0, merges = 0, renames = 0;
+        for (auto& b : pages) {
+            const paste::Page pg = paste::parse(b.text);
+            removes += pg.remove;
+            merges += !pg.mergeInto.empty() ? 1 : (int)pg.mergeFrom.size();
+            renames += !pg.formerly.empty();
+        }
+        std::vector<std::wstring> what;
+        if (renames) what.push_back(std::to_wstring(renames) + (renames == 1 ? L" page renames an entry by its “Formerly” line" : L" pages rename entries by their “Formerly” lines"));
+        if (merges) what.push_back(std::to_wstring(merges) + (merges == 1 ? L" entry is merged into another" : L" entries are merged into others"));
+        if (removes) what.push_back(std::to_wstring(removes) + (removes == 1 ? L" page removes its entry" : L" pages remove their entries"));
+        if (!what.empty()) {
+            q += L"\n\n";
+            for (size_t i = 0; i < what.size(); ++i) q += (i ? (i + 1 == what.size() ? L" and " : L", ") : L"") + what[i];
+            q += L". Merged and removed entries go to the Trash.";
+        }
+    }
     q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
     if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     std::string err;
@@ -495,7 +516,7 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
     mirrorBackups();
     paste::Import imp;
     const bool ok = paste::importPages(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{}, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), imp,
-                                       replaceAll);
+                                       replaceAll, baseFolder);
     wb_.importUndo = imp;
     wb_.pasteUndo.reset();
     wb_.mentionsFor.clear();
@@ -504,9 +525,41 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         flash(w("The import stopped part way: " + lib_->lastError() + ". Ctrl+Z takes back what was done."), 10);
     } else {
         const std::string said = imp.words();
-        flash(said.empty() ? std::wstring(L"Every page was already in the bible as it is.")
-                           : L"Imported: " + w(said) + L". Ctrl+Z takes it back.",
-              10);
+        // Renames, merges, removals and pictures that couldn't be found are worth a proper note (0.55); else a flash.
+        std::wstring more;
+        auto listOf = [](const std::vector<std::string>& v) {
+            std::wstring s;
+            for (size_t i = 0; i < v.size() && i < 8; ++i) s += (i ? L", " : L"") + w(v[i]);
+            if (v.size() > 8) s += L"…";
+            return s;
+        };
+        if (!imp.renamed.empty()) {
+            std::vector<std::string> r;
+            for (auto& [id, was] : imp.renamed)
+                if (const Entry* e = lib_->entry(id)) r.push_back(was + " \xE2\x86\x92 " + e->name);
+            more += L"\n\nRenamed: " + listOf(r) + L".";
+        }
+        if (!imp.mergedAway.empty()) {
+            std::vector<std::string> m;
+            for (auto& e : imp.mergedAway) m.push_back(e.name);
+            more += L"\n\nMerged into another entry (and put in the Trash): " + listOf(m) + L".";
+        }
+        if (!imp.removed.empty()) {
+            std::vector<std::string> r;
+            for (auto& id : imp.removed)
+                if (const Entry* e = lib_->entry(id)) r.push_back(e->name);
+            more += L"\n\nPut in the Trash: " + listOf(r) + L".";
+        }
+        if (!imp.notFound.empty()) more += L"\n\nNo entry of that name to remove or merge: " + listOf(imp.notFound) + L".";
+        if (!imp.missingPictures.empty())
+            more += L"\n\nThese pictures couldn't be read (a path that isn't there, or a file that isn't a picture): " + listOf(imp.missingPictures) + L".";
+        if (more.empty())
+            flash(said.empty() ? std::wstring(L"Every page was already in the bible as it is.")
+                               : L"Imported: " + w(said) + L". Ctrl+Z takes it back.",
+                  10);
+        else
+            cjui::messageBox(hwnd(), (L"Imported: " + w(said) + L"." + more + L"\n\nCtrl+Z takes the whole import back.").c_str(), L"Import many pages",
+                             MB_OK | MB_ICONINFORMATION);
     }
     sendView();   // the names, for Writing's links and spell checker
     SetFocus(hwnd());
@@ -530,6 +583,18 @@ bool StudioApp::undoPagesImport() {
         for (auto& l : old)
             if (std::none_of(now.begin(), now.end(), [&](const EntryLink& x) { return same(x, l); })) lib_->addLink(l.from, l.to, l.label);
     }
+    // Entries merged into others: back from the Trash, as they were, with their links (0.55).
+    for (size_t i = 0; i < imp.mergedAway.size(); ++i) {
+        const Entry& was = imp.mergedAway[i];
+        lib_->restore(was.id);
+        lib_->updateEntry(was);
+        const auto now = lib_->linksOf(was.id);
+        for (auto& l : imp.mergedAwayLinks[i])
+            if (std::none_of(now.begin(), now.end(), [&](const EntryLink& x) { return x.from == l.from && x.to == l.to && x.label == l.label; }))
+                lib_->addLink(l.from, l.to, l.label);
+    }
+    // Entries it removed: back from the Trash.
+    for (const Id& id : imp.removed) lib_->restore(id);
     // Entries the import made: to the Trash.
     for (const Id& id : imp.extra) lib_->trashEntry(id);
     for (const Id& id : imp.made) lib_->trashEntry(id);

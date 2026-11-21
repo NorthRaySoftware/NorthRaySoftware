@@ -518,7 +518,7 @@ private:
     void importManyPages(bool fromClipboard);
     void copyBlankPageFor(const std::string& kind);
     void copyBlankPageText(const std::string& kind, const std::vector<std::string>& sections);   // many bible pages from a file or the clipboard (0.39)
-    void importPagesText(const std::string& text, const std::wstring& from);
+    void importPagesText(const std::string& text, const std::wstring& from, const std::string& baseFolder = {});
     bool undoPagesImport();
     void setFieldText(Field f, const std::string& utf8);
     std::string fieldText(Field f) const;

@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.55.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Pictures in imports: a \"Picture:\" line takes a picture file's path for the entry's main picture, and lines under \"Gallery:\" add pictures to its gallery, each with a caption after a bar (\"art/tom.png | Tom at the forge\"). Paths can be whole or start from the imported file's folder; the pictures go into Artwork too.",
+        "Renaming through an import: a page is found by a name on its \"Formerly:\" line, or by one of its other names, and the entry is renamed instead of a second one being made.",
+        "Removing and merging through an import: \"Remove: yes\" puts a page's entry in the Trash; \"Merge into: House Malrok\" merges it into another entry; \"Merged from: Sun Fire\" on the page you keep does the same the other way round.",
+        "Import many pages says beforehand how many pages rename, merge or remove entries, and lists each one afterwards, with any pictures that couldn't be read. Ctrl+Z brings merged and removed entries back.",
+        "The blank page to fill in has Picture and Gallery lines."
+      ]
+    },
+    {
       "version": "0.54.0",
       "date": "2026-11-21",
       "notes": [
