@@ -415,6 +415,27 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.54.0: plans fill in the chapters a book has (21 Nov 2026)
+
+From CJ's import requests (claude/studio-import-family-requests-2026-11-21.md, item 1): Shards of Light's chapter
+details couldn't be imported without duplicating all 23 chapters.
+
+- planning: `importOutline` matches each item to a node the book has before making one. A part by title; a chapter by
+  title, then by `titleCore` (the title without a leading "Chapter 3:" / "3." / "Ch. 3", lower case), then by
+  `titleNumber` among the story's chapters (matter 0; front and back matter match by title only), unless the title's
+  core names another chapter; a scene by title within its (matched or new) chapter. Each node matches once. A matched
+  node gets the plan's synopsis, status, target and viewpoint only when given, its place and when replaced, threads and
+  beats added; its title is kept. `OutlineImport` gains updatedParts/Chapters/Scenes and `updated`; `PlanningImport::any`
+  counts them. `parseOutline` starts a chapter at a numbered line (`numberedChapter`: "Chapter 3", "Chapter 3: Ashes",
+  "Chapter 12 - The Wall", not a sentence), keeping the line as its title.
+- The app's import note: "Filled in 3 chapters already in the book, matched by title or chapter number."
+- Tested: studiocore 1520 checks (number and core parsing; a book with a part, a numbered chapter, a titled one with a
+  scene and a front-matter prologue: matched by core title, by number, by scene title; untouched fields kept; threads
+  added; a new scene under its chapter and a new chapter under its part; exporting and re-importing adds nothing; a
+  number naming another chapter's title goes to that chapter). In Wine on The Grey Wanderer: a plan with "Chapter 1",
+  "Chapter: Ashes and Embers", "Chapter 3: The Storm Wall" and a new chapter: three filled in (the third by its title,
+  not its number), one added.
+
 ## 0.53.0: more for NorthRay Capture (20 Nov 2026)
 
 - `writeSummary` adds the chapter's id, status, target, viewpoint and place (name and picture path; a place's map when

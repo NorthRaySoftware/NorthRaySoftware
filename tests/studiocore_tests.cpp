@@ -3252,6 +3252,72 @@ static void testPlanning() {
         CHECK(plan::timelineEvents(*lib, b5).empty());
     }
 
+    // A plan for a book that already has its chapters (0.54): matched by title or number and filled in, not added again.
+    {
+        CHECK(plan::titleNumber("Chapter 12: Ashes") == 12 && plan::titleNumber("12. Ashes") == 12 && plan::titleNumber("Ch. 3") == 3 &&
+              plan::titleNumber("7") == 7 && plan::titleNumber("The 12 Kings") == 0 && plan::titleNumber("12th Night") == 0 &&
+              plan::titleNumber("Chapterhouse") == 0);
+        CHECK(plan::titleCore("Chapter 12: Ashes and Embers") == "ashes and embers" && plan::titleCore("12. Ashes") == "ashes" &&
+              plan::titleCore("Chapter 4") == "" && plan::titleCore("Chapter 4 \xE2\x80\x94 The Wall") == "the wall" &&
+              plan::titleCore("The Forge") == "the forge");
+        const Id b6 = lib->createBook("Shards of Light", world);
+        const Id p1 = lib->createNode(b6, {}, NodeKind::Part, "Part One");
+        const Id c1 = lib->createNode(b6, p1, NodeKind::Chapter, "Chapter 1: The Forge");
+        const Id c2 = lib->createNode(b6, p1, NodeKind::Chapter, "The Storm Wall");
+        const Id s2 = lib->createNode(b6, c2, NodeKind::Scene, "Night watch");
+        const Id c3 = lib->createNode(b6, p1, NodeKind::Chapter, "Chapter 3");
+        const Id front = lib->createNode(b6, {}, NodeKind::Chapter, "Prologue");   // front matter: not counted
+        if (ManuscriptNode n = *lib->node(front); true) { n.matter = 1; lib->updateNode(n); }
+        if (ManuscriptNode n = *lib->node(c2); true) {
+            n.synopsis = "Kept.";
+            n.status = NodeStatus::Revised;
+            n.targetWords = 5000;
+            lib->updateNode(n);
+        }
+        plan::OutlineImport o6;
+        CHECK(plan::importOutline(*lib, b6,
+                                  "Part: Part One\n"
+                                  "Chapter: The Forge\nViewpoint: Tom\nPlace: The Forge\nWhen: Day 2\nThreads: The shards\nTom finds the ledger.\n"
+                                  "Chapter: The Storm Wall\nThreads: Love\n"
+                                  "Scene: Night watch\nPOV: Sarrah Valen\nThe watch.\n"
+                                  "Scene: Dawn\n"
+                                  "Chapter 3: Ashes\nStatus: Draft\nTarget: 4000\nIt burns.\n"
+                                  "Chapter: A New One\n",
+                                  o6));
+        CHECK(o6.updatedParts == 1 && o6.updatedChapters == 3 && o6.updatedScenes == 1 && o6.chapters == 1 && o6.scenes == 1 && o6.parts == 0);
+        CHECK(o6.updated.size() == 5 && o6.made.size() == 2);
+        // By title, with "Chapter 1:" in front on one side only.
+        CHECK(lib->node(c1)->povId == tom && lib->node(c1)->synopsis == "Tom finds the ledger." && lib->node(c1)->title == "Chapter 1: The Forge");
+        Id forge;
+        for (const Entry* e : lib->entriesOf(world, {})) if (e->name == "Elandroth Forge") forge = e->id;
+        CHECK(!forge.empty() && plan::nodePlaces(*lib, b6).at(c1) == forge);
+        CHECK(nlohmann::json::parse(lib->setting("timeline:" + b6))["nodes"][c1]["day"] == 2);
+        // What the plan doesn't say is left alone; threads are added.
+        CHECK(lib->node(c2)->synopsis == "Kept." && lib->node(c2)->status == NodeStatus::Revised && lib->node(c2)->targetWords == 5000);
+        const auto th6 = plan::threadsOf(*lib, b6);
+        CHECK(th6.has(c1, th6.named("The shards")->id) && th6.has(c2, th6.named("Love")->id));
+        // A scene by title within its chapter; a new scene goes under it.
+        CHECK(lib->node(s2)->synopsis == "The watch." && !lib->node(s2)->povId.empty());
+        const auto kids = lib->childrenOf(b6, c2);
+        CHECK(kids.size() == 2 && kids[1]->title == "Dawn");
+        // By number among the story's chapters (the prologue isn't one), keeping its title.
+        CHECK(lib->node(c3)->synopsis == "It burns." && lib->node(c3)->status == NodeStatus::Draft && lib->node(c3)->targetWords == 4000 &&
+              lib->node(c3)->title == "Chapter 3");
+        // The new chapter is added under the part.
+        const auto all6 = lib->manuscriptOf(b6);
+        bool newOne = false;
+        for (auto* n : all6) newOne = newOne || (n->title == "A New One" && n->parentId == p1 && n->status == NodeStatus::Outline);
+        CHECK(newOne);
+        // The same plan again changes nothing in number: everything is matched.
+        plan::OutlineImport o7;
+        CHECK(plan::importOutline(*lib, b6, plan::outlineText(*lib, b6), o7));
+        CHECK(o7.made.empty() && o7.updatedChapters == 5 && lib->manuscriptOf(b6).size() == all6.size());
+        // A number that names another chapter's title goes to that chapter, not the number.
+        plan::OutlineImport o8;
+        CHECK(plan::importOutline(*lib, b6, "Chapter 1: The Storm Wall\nRenumbered.\n", o8));
+        CHECK(o8.updatedChapters == 1 && lib->node(c2)->synopsis == "Renumbered." && lib->node(c1)->synopsis == "Tom finds the ledger.");
+    }
+
     // Markdown headings: two levels are chapters and scenes.
     const auto md = plan::parseOutline("# The Forge\nSome words.\n## Night watch\n# The Storm\n");
     CHECK(md.size() == 3 && md[0].kind == NodeKind::Chapter && md[1].kind == NodeKind::Scene && md[0].synopsis == "Some words.");

@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.54.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Import planning fills in the chapters a book already has instead of adding them again: each part, chapter and scene is matched by its title (a \"Chapter 3:\" in front is ignored), or a chapter by its number among the story's chapters, and its synopsis, status, target, viewpoint, place, when, threads and beats are filled in from the plan. What the plan leaves out stays as it was; anything not matched is added.",
+        "\"Chapter 3\" and \"Chapter 3: Ashes\" lines start a chapter in a plan, as \"Chapter:\" does.",
+        "The note after importing says how many parts, chapters and scenes were filled in."
+      ]
+    },
+    {
       "version": "0.53.0",
       "date": "2026-11-20",
       "notes": [

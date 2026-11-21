@@ -601,6 +601,58 @@ bool setTimelineEvent(Library& lib, const Id& book, const Id& entry, std::option
     return lib.setSetting("timeline:" + book, j.dump());
 }
 
+// A chapter's number in its title: "Chapter 12", "Chapter 12: Ashes", "Ch. 12", "12", "12. Ashes", "12: Ashes"; 0 if none.
+int titleNumber(const std::string& title) {
+    std::string t = lower(trim(title));
+    for (const char* w : {"chapter", "chap.", "chap", "ch."}) {
+        const std::string ws = w;
+        if (t.rfind(ws, 0) == 0 && (t.size() == ws.size() || !std::isalpha((unsigned char)t[ws.size()]))) {
+            t = trim(t.substr(ws.size()));
+            break;
+        }
+    }
+    size_t e = 0;
+    while (e < t.size() && std::isdigit((unsigned char)t[e])) ++e;
+    if (e == 0 || e > 6) return 0;
+    if (e < t.size() && std::isalnum((unsigned char)t[e])) return 0;   // "12th", "3rd"
+    return std::stoi(t.substr(0, e));
+}
+
+// A title without a leading "Chapter 12:" or "12." and in lower case ("Ashes and Embers"); "" if it's only a number.
+std::string titleCore(const std::string& title) {
+    std::string t = trim(title);
+    if (titleNumber(t) > 0) {
+        std::string l = lower(t);
+        size_t i = 0;
+        for (const char* w : {"chapter", "chap.", "chap", "ch."}) {
+            const std::string ws = w;
+            if (l.rfind(ws, 0) == 0) { i = ws.size(); break; }
+        }
+        while (i < t.size() && !std::isdigit((unsigned char)t[i])) ++i;
+        while (i < t.size() && std::isdigit((unsigned char)t[i])) ++i;
+        while (i < t.size() && (t[i] == ':' || t[i] == '.' || t[i] == '-' || t[i] == ' ' || t[i] == ',' || (unsigned char)t[i] == 0xE2)) {
+            if ((unsigned char)t[i] == 0xE2 && i + 2 < t.size()) i += 3;   // an en or em dash
+            else ++i;
+        }
+        t = t.substr(std::min(i, t.size()));
+    }
+    return lower(trim(t));
+}
+
+// A line that starts a numbered chapter: "Chapter 3", "Chapter 3: Ashes", "Chapter 12 - The Wall" (not "Chapter 3 ends
+// with…", which is a sentence).
+bool numberedChapter(const std::string& line) {
+    const std::string l = lower(trim(line));
+    if (l.rfind("chapter ", 0) != 0) return false;
+    size_t i = 8;
+    while (i < l.size() && l[i] == ' ') ++i;
+    const size_t d = i;
+    while (i < l.size() && std::isdigit((unsigned char)l[i])) ++i;
+    if (i == d || i - d > 4) return false;
+    while (i < l.size() && l[i] == ' ') ++i;
+    return i == l.size() || l[i] == ':' || l[i] == '.' || l[i] == '-' || (unsigned char)l[i] == 0xE2;
+}
+
 // ------------------------------------------------------------------ outlines
 
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure) {
@@ -638,6 +690,7 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             else starts = kindOfLevel(h), title = rest;
         } else if (field(l, {"part"}, v)) starts = NodeKind::Part, title = v;
         else if (field(l, {"chapter"}, v)) starts = NodeKind::Chapter, title = v;
+        else if (numberedChapter(l)) starts = NodeKind::Chapter, title = l;   // "Chapter 3: Ashes", "Chapter 12" (0.54)
         else if (field(l, {"scene"}, v)) starts = NodeKind::Scene, title = v;
         if (starts) {
             OutlineItem it;
@@ -782,25 +835,72 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     json tl = parseObj(lib.setting("timeline:" + book));
     if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
     const bool hadUnit = tl.contains("unit");
+    // Parts, chapters and scenes already in the book are matched and filled in rather than added again (0.54): by title
+    // (with or without a "Chapter 3:" before it), else a chapter by its number among the story's chapters.
+    std::vector<const ManuscriptNode*> partsHad, chaptersHad, storyChapters;   // titles match any chapter; numbers count the story's
+    for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
+        if (n->kind == NodeKind::Part) partsHad.push_back(n);
+        else if (n->kind == NodeKind::Chapter) {
+            chaptersHad.push_back(n);
+            if (n->matter == 0) storyChapters.push_back(n);
+        }
+    }
+    std::set<Id> used;
+    auto matchIn = [&](const std::vector<const ManuscriptNode*>& pool, const std::string& title, bool byNumber) -> Id {
+        const std::vector<const ManuscriptNode*>& numbered = &pool == &chaptersHad ? storyChapters : pool;
+        const std::string want = lower(trim(title)), core = titleCore(title);
+        for (const ManuscriptNode* n : pool)
+            if (!used.count(n->id) && lower(trim(n->title)) == want) return n->id;
+        if (!core.empty())
+            for (const ManuscriptNode* n : pool)
+                if (!used.count(n->id) && titleCore(n->title) == core) return n->id;
+        if (byNumber)
+            if (const int num = titleNumber(title); num > 0 && num <= (int)numbered.size() && !used.count(numbered[(size_t)num - 1]->id)) {
+                // By number only when the title names no other chapter of the book.
+                bool namesAnother = false;
+                if (!core.empty())
+                    for (const ManuscriptNode* n : pool) namesAnother = namesAnother || titleCore(n->title) == core;
+                if (!namesAnother) return numbered[(size_t)num - 1]->id;
+            }
+        return {};
+    };
     Id part, chapter;
     for (const OutlineItem& it : items) {
         Id parent;
         if (it.kind == NodeKind::Chapter) parent = part;
         else if (it.kind == NodeKind::Scene) parent = !chapter.empty() ? chapter : part;
-        Id id = lib.createNode(book, parent, it.kind, it.title);
-        if (id.empty()) id = lib.createNode(book, {}, it.kind, it.title);
-        if (id.empty()) continue;
-        out.made.push_back(id);
-        if (it.kind == NodeKind::Part) { part = id; chapter.clear(); ++out.parts; }
-        else if (it.kind == NodeKind::Chapter) { chapter = id; ++out.chapters; }
-        else ++out.scenes;
+        Id id;
+        if (it.kind == NodeKind::Part) id = matchIn(partsHad, it.title, false);
+        else if (it.kind == NodeKind::Chapter) id = matchIn(chaptersHad, it.title, true);
+        else if (!parent.empty()) id = matchIn(lib.childrenOf(book, parent), it.title, false);
+        const bool isNew = id.empty();
+        if (isNew) {
+            id = lib.createNode(book, parent, it.kind, it.title);
+            if (id.empty()) id = lib.createNode(book, {}, it.kind, it.title);
+            if (id.empty()) continue;
+            out.made.push_back(id);
+            if (it.kind == NodeKind::Part) ++out.parts;
+            else if (it.kind == NodeKind::Chapter) ++out.chapters;
+            else ++out.scenes;
+        } else {
+            used.insert(id);
+            out.updated.push_back(id);
+            if (it.kind == NodeKind::Part) ++out.updatedParts;
+            else if (it.kind == NodeKind::Chapter) ++out.updatedChapters;
+            else ++out.updatedScenes;
+        }
+        if (it.kind == NodeKind::Part) { part = id; chapter.clear(); }
+        else if (it.kind == NodeKind::Chapter) chapter = id;
         ManuscriptNode n = *lib.node(id);
-        n.synopsis = it.synopsis;
+        // A chapter already there keeps what the plan doesn't say; a new one starts as an outline.
+        if (isNew || !it.synopsis.empty()) n.synopsis = it.synopsis;
         if (!it.status.empty())
             if (auto s = nodeStatusFrom(lower(trim(it.status)))) n.status = *s;
-        if (it.kind == NodeKind::Part) n.status = NodeStatus::Draft;
-        else if (it.status.empty()) n.status = NodeStatus::Outline;
-        n.targetWords = it.target;
+        if (isNew) {
+            if (it.kind == NodeKind::Part) n.status = NodeStatus::Draft;
+            else if (it.status.empty()) n.status = NodeStatus::Outline;
+        }
+        if (isNew || it.target > 0) n.targetWords = it.target;
         if (!it.viewpoint.empty()) {
             n.povId = person(it.viewpoint);
             if (n.povId.empty() && std::find(out.unknownViewpoints.begin(), out.unknownViewpoints.end(), it.viewpoint) == out.unknownViewpoints.end())
@@ -859,7 +959,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     setThreads(lib, book, th);
     lib.setSetting("timeline:" + book, tl.dump());
     if (bsChanged) setBookStructure(lib, book, bs);
-    return !out.made.empty() || bsChanged;
+    return !out.made.empty() || !out.updated.empty() || bsChanged;
 }
 
 // ------------------------------------------------------------------ all of it
@@ -871,7 +971,7 @@ std::string structureScope(const Library& lib, const Id& book) {
 }
 
 bool PlanningImport::any() const {
-    return !outline.made.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced;
+    return !outline.made.empty() || !outline.updated.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced;
 }
 
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out) {

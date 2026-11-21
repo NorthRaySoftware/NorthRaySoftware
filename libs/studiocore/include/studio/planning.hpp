@@ -116,14 +116,25 @@ struct OutlineItem {
 };
 // `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);
+// A chapter's number in its title ("Chapter 12: Ashes", "12. Ashes", "Ch. 12"; 0 if none), and the title without it, in
+// lower case ("ashes"; "" if it's only a number) (0.54).
+int titleNumber(const std::string& title);
+std::string titleCore(const std::string& title);
 std::string outlineText(const Library& lib, const Id& book);
 struct OutlineImport {
-    int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;
+    int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;   // made
+    int updatedParts = 0, updatedChapters = 0, updatedScenes = 0;      // already in the book, filled in (0.54)
+    std::vector<Id> updated;
     std::vector<std::string> unknownViewpoints, unknownBeats, unknownPlaces;
     std::string structure;   // the structure set by "Book structure:", by name ("" none)
     bool unknownStructure = false;
     std::vector<Id> made;
 };
+// Parts, chapters and scenes already in the book are matched and filled in instead of added again (0.54): a part by
+// its title, a chapter by its title (ignoring a "Chapter 3:" in front on either side) or else by its number among the
+// story's chapters ("Chapter 3", "3. The Forge"; not when the title names another chapter), a scene by its title within
+// its chapter. What the plan gives replaces what's there (synopsis, status, target, viewpoint, place, when) or is added
+// (threads, beats); what it doesn't give is left alone. The rest is added, under the part or chapter it follows.
 // Adds the outline at the end of the book: new parts, chapters and scenes with their synopsis, status, target and
 // viewpoint (a character of the book's world, by name or other name), tagged with their threads (made when new) and
 // placed on the timeline ("Day 3" sets the day; other words the description).

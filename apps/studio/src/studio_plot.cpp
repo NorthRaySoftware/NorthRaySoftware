@@ -1227,6 +1227,16 @@ void StudioApp::importPlanText() {
         for (size_t i = 0; i < made.size(); ++i) msg += (i ? (i + 1 == made.size() ? L" and " : L", ") : L"") + made[i];
         msg += L".";
     }
+    // Parts, chapters and scenes already in the book, filled in rather than added again (0.54).
+    std::vector<std::wstring> filled;
+    if (o.updatedParts) filled.push_back(plural(o.updatedParts, L"part", L"parts"));
+    if (o.updatedChapters) filled.push_back(plural(o.updatedChapters, L"chapter", L"chapters"));
+    if (o.updatedScenes) filled.push_back(plural(o.updatedScenes, L"scene", L"scenes"));
+    if (!filled.empty()) {
+        std::wstring f;
+        for (size_t i = 0; i < filled.size(); ++i) f += (i ? (i + 1 == filled.size() ? L" and " : L", ") : L"") + filled[i];
+        msg += (msg.empty() ? L"" : L"\n\n") + std::wstring(L"Filled in ") + f + L" already in the book, matched by title or chapter number.";
+    }
     if (r.structuresReplaced) msg += L"\n\nUpdated " + plural(r.structuresReplaced, L"structure", L"structures") + L" of yours with the same name.";
     if (r.threads.updated) msg += L"\n\nAdded to " + plural(r.threads.updated, L"thread", L"threads") + L" you already had.";
     if (!o.structure.empty()) msg += L"\n\nThe book follows " + w(o.structure) + (o.beats ? L", with " + plural(o.beats, L"beat", L"beats") + L" matched." : L".");
