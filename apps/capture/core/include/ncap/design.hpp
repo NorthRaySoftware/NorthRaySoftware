@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ncap::design {
@@ -77,6 +78,42 @@ float glowLevel(float coverage, float strength);
 // one-pixel soft edge. The letters themselves stay fully covered. Wrong sizes give the coverage back unchanged.
 std::vector<std::uint8_t> grow(const std::vector<std::uint8_t>& coverage, int w, int h, float radius);
 
+// A picture's filters (0.16), applied to its pixels: blur first, then the colour changes in this order.
+struct Filters {
+    float brightness = 0;    // -100..100
+    float contrast = 0;      // -100..100
+    float saturation = 100;  // 0 (grey) .. 200 %
+    float blur = 0;          // 0..40 pixels on the page
+    Rgba tint{0, 0, 0, 0};   // its colour; alpha unused
+    float tintAmount = 0;    // 0..100 %
+    bool operator==(const Filters&) const = default;
+    bool any() const { return !(*this == Filters{}); }
+};
+// The looks offered in the designer: name and filters ("" name: none).
+struct FilterLook {
+    const char* name;
+    Filters filters;
+};
+const std::vector<FilterLook>& filterLooks();
+// Applies the filters to straight-alpha RGBA pixels (w x h) in place. `blurPx` is the blur in these pixels (the
+// renderer scales the page's blur to the picture's own size); colour changes leave alpha alone.
+void applyFilters(std::vector<std::uint8_t>& rgba, int w, int h, const Filters& f, float blurPx);
+
+// Pictures cut to a shape (0.16): the shapes' keys and their outlines in a w x h box (from 0,0), as a closed polygon
+// (curves as short lines). "" or an unknown key: none (the box with its rounded corners).
+const std::vector<std::string>& maskKeys();   // circle, arch, hexagon, diamond, star, heart
+std::vector<std::pair<float, float>> maskOutline(const std::string& mask, float w, float h);
+
+// Cropping a picture (0.16) when it fills its box: zoomed in (1..8) and moved, keeping `focus` (fractions of the
+// picture) at the box's centre where it can. The part of the picture (iw x ih) shown in a bw x bh box.
+struct Area {
+    float x = 0, y = 0, w = 0, h = 0;
+};
+Area pictureArea(float iw, float ih, float bw, float bh, float zoom, float fx, float fy);
+// Dragging the picture by (dx, dy) box pixels inside its box: the focus moves the other way, kept where the picture
+// still fills the box.
+void panPicture(float iw, float ih, float bw, float bh, float zoom, float& fx, float& fy, float dx, float dy);
+
 // Timer, Qr and Icon draw like text or shapes: a timer is text that counts, a QR code is squares from a
 // link, an icon is one of the built-in drawings (icons()).
 enum class Kind { Text, Rect, Ellipse, Image, Timer, Qr, Icon, Chat };
@@ -110,6 +147,9 @@ struct Element {
     // Picture.
     std::string file;                        // a path (or a library file)
     bool cover = true;                       // fill the box (cropping) or fit inside it
+    float picZoom = 1, picX = 0.5f, picY = 0.5f;   // filling the box: zoomed in and moved (0.16; see pictureArea)
+    std::string mask;                        // cut to a shape (maskKeys; "" none) (0.16)
+    Filters filters;                         // (0.16)
     // Timer.
     std::string timerMode = "countdown";     // countdown (for a length), until (a time of day), stopwatch, live (time since going live), clock,
                                              // golive (to the time set to go live), remaining (the planned length less the time live),

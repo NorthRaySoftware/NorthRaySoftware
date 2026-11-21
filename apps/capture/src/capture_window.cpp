@@ -828,6 +828,14 @@ bool CaptureWindow::onRightClick(float x, float y) {
 
 bool CaptureWindow::onWheel(float x, float y, float lines) {
     if (!settingsOpen_ && !asking_ && notesWheel(x, y, lines)) return true;
+    if (settingsOpen_ && !asking_ && !designFor_.empty() && !dCropFor_.empty() && designCanvas_.contains(x, y)) {   // zooming a picture being cropped
+        if (ncap::design::Element* e = designDoc_.find(dCropFor_)) {
+            e->picZoom = std::clamp(e->picZoom * std::pow(1.04f, -lines), 1.0f, 8.0f);   // about an eighth a notch
+            designChanged(false);
+            invalidate();
+        }
+        return true;
+    }
     if (settingsOpen_ && !asking_ && !designFor_.empty() && dPropRect_.contains(x, y)) {   // the designer's properties
         dPropScroll_ = std::clamp(dPropScroll_ + lines * 24, 0.0f, std::max(0.0f, dPropContentH_ - dPropRect_.h));
         invalidate();

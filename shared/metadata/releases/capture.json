@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.16.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Crop pictures in designs by dragging: Crop › Move the picture…, then drag the picture inside its box and zoom with the mouse wheel (or the Zoom slider). The whole picture shows faintly around the box while you do, so you can see what's left out. Reset puts it back.",
+        "Shapes for pictures: a circle, an arch, a hexagon, a diamond, a star or a heart, as well as the box with rounded corners. Outlines, shadows and glows follow the shape.",
+        "Filters for pictures: brightness, contrast, colour, blur and a tint of any colour, or start from a look: Black and white, Sepia, Warm, Cool, Faded, Vivid, Soft focus, Moonlight or Parchment.",
+        "A picture set to Fit inside is cut to its shape at the size it's shown, rather than its box."
+      ]
+    },
+    {
       "version": "0.15.0",
       "date": "2026-11-20",
       "notes": [

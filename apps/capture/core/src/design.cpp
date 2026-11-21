@@ -245,6 +245,182 @@ std::vector<std::uint8_t> grow(const std::vector<std::uint8_t>& coverage, int w,
     return out;
 }
 
+// ---------------------------------------------------------------- pictures (0.16)
+
+const std::vector<FilterLook>& filterLooks() {
+    static const std::vector<FilterLook> looks = [] {
+        auto tint = [](const char* h, float amount, Filters f) {
+            Rgba c;
+            sourceutil::parseColour(h, c);
+            c.a = 0;
+            f.tint = c;
+            f.tintAmount = amount;
+            return f;
+        };
+        Filters bw;
+        bw.saturation = 0;
+        Filters sepia = tint("#704214", 40, bw);
+        sepia.contrast = 5;
+        Filters warm;
+        warm.saturation = 110;
+        warm = tint("#FF9A3C", 15, warm);
+        Filters cool = tint("#3C8DFF", 15, Filters{});
+        Filters faded;
+        faded.contrast = -30, faded.brightness = 12, faded.saturation = 80;
+        Filters vivid;
+        vivid.contrast = 15, vivid.saturation = 140;
+        Filters soft;
+        soft.blur = 3, soft.brightness = 6;
+        Filters moon;
+        moon.saturation = 40, moon.brightness = -10;
+        moon = tint("#5C7AFF", 25, moon);
+        Filters parchment;
+        parchment.saturation = 30, parchment.contrast = -10;
+        parchment = tint("#C9A66B", 35, parchment);
+        return std::vector<FilterLook>{{"Black and white", bw}, {"Sepia", sepia}, {"Warm", warm},   {"Cool", cool},
+                                       {"Faded", faded},        {"Vivid", vivid}, {"Soft focus", soft}, {"Moonlight", moon},
+                                       {"Parchment", parchment}};
+    }();
+    return looks;
+}
+
+namespace {
+// Three box blurs (close to a Gaussian) of premultiplied RGBA, radius r.
+void blurRgba(std::vector<float>& p, int w, int h, int r) {
+    if (r <= 0) return;
+    std::vector<float> t(p.size());
+    const float n = 2.0f * r + 1;
+    for (int pass = 0; pass < 3; ++pass) {
+        for (int y = 0; y < h; ++y)
+            for (int ch = 0; ch < 4; ++ch) {
+                const float* row = &p[(size_t)y * w * 4];
+                float sum = 0;
+                for (int x = -r; x <= r; ++x) sum += row[(size_t)std::clamp(x, 0, w - 1) * 4 + ch];
+                for (int x = 0; x < w; ++x) {
+                    t[((size_t)y * w + x) * 4 + ch] = sum / n;
+                    sum += row[(size_t)std::min(x + r + 1, w - 1) * 4 + ch] - row[(size_t)std::max(x - r, 0) * 4 + ch];
+                }
+            }
+        for (int x = 0; x < w; ++x)
+            for (int ch = 0; ch < 4; ++ch) {
+                float sum = 0;
+                for (int y = -r; y <= r; ++y) sum += t[((size_t)std::clamp(y, 0, h - 1) * w + x) * 4 + ch];
+                for (int y = 0; y < h; ++y) {
+                    p[((size_t)y * w + x) * 4 + ch] = sum / n;
+                    sum += t[((size_t)std::min(y + r + 1, h - 1) * w + x) * 4 + ch] - t[((size_t)std::max(y - r, 0) * w + x) * 4 + ch];
+                }
+            }
+    }
+}
+}  // namespace
+
+void applyFilters(std::vector<std::uint8_t>& rgba, int w, int h, const Filters& f, float blurPx) {
+    if (w <= 0 || h <= 0 || rgba.size() != (size_t)w * h * 4 || !f.any()) return;
+    const int r = std::isfinite(blurPx) && f.blur > 0 ? std::clamp((int)std::lround(blurPx / 2), 0, 400) : 0;
+    if (r > 0) {
+        std::vector<float> p(rgba.size());
+        for (size_t i = 0; i < rgba.size(); i += 4) {
+            const float a = rgba[i + 3] / 255.0f;
+            p[i] = rgba[i] * a, p[i + 1] = rgba[i + 1] * a, p[i + 2] = rgba[i + 2] * a, p[i + 3] = rgba[i + 3];
+        }
+        blurRgba(p, w, h, r);
+        for (size_t i = 0; i < rgba.size(); i += 4) {
+            const float a = p[i + 3];
+            rgba[i + 3] = (std::uint8_t)std::clamp(std::lround(a), 0L, 255L);
+            for (int k = 0; k < 3; ++k) rgba[i + (size_t)k] = a > 0.5f ? (std::uint8_t)std::clamp(std::lround(p[i + (size_t)k] * 255.0f / a), 0L, 255L) : 0;
+        }
+    }
+    const bool colour = f.brightness != 0 || f.contrast != 0 || f.saturation != 100 || f.tintAmount > 0;
+    if (!colour) return;
+    const float bright = f.brightness * 2.55f, c = f.contrast * 2.55f;
+    const float factor = (259.0f * (c + 255.0f)) / (255.0f * (259.0f - c));
+    const float sat = f.saturation / 100.0f, tint = f.tintAmount / 100.0f;
+    std::uint8_t lut[256];   // brightness and contrast, the same for every channel
+    for (int v = 0; v < 256; ++v) lut[v] = (std::uint8_t)std::clamp(std::lround(factor * (v + bright - 128) + 128), 0L, 255L);
+    for (size_t i = 0; i < rgba.size(); i += 4) {
+        float ch[3] = {(float)lut[rgba[i]], (float)lut[rgba[i + 1]], (float)lut[rgba[i + 2]]};
+        const float l = 0.2126f * ch[0] + 0.7152f * ch[1] + 0.0722f * ch[2];
+        const float tc[3] = {(float)f.tint.r, (float)f.tint.g, (float)f.tint.b};
+        for (int k = 0; k < 3; ++k) {
+            float v = l + (ch[k] - l) * sat;
+            v += (tc[k] - v) * tint;
+            rgba[i + (size_t)k] = (std::uint8_t)std::clamp(std::lround(v), 0L, 255L);
+        }
+    }
+}
+
+const std::vector<std::string>& maskKeys() {
+    static const std::vector<std::string> keys = {"circle", "arch", "hexagon", "diamond", "star", "heart"};
+    return keys;
+}
+
+std::vector<std::pair<float, float>> maskOutline(const std::string& mask, float w, float h) {
+    std::vector<std::pair<float, float>> pts;
+    if (!(w > 0) || !(h > 0) || !std::isfinite(w) || !std::isfinite(h)) return pts;
+    constexpr float pi = 3.14159265358979f;
+    // Stretches points to fill the box exactly (for shapes made in their own units).
+    auto fit = [&](std::vector<std::pair<float, float>> raw) {
+        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+        for (auto [x, y] : raw) x0 = std::min(x0, x), y0 = std::min(y0, y), x1 = std::max(x1, x), y1 = std::max(y1, y);
+        for (auto& [x, y] : raw) x = (x - x0) / (x1 - x0) * w, y = (y - y0) / (y1 - y0) * h;
+        return raw;
+    };
+    if (mask == "circle") {
+        for (int i = 0; i < 96; ++i) {
+            const float a = 2 * pi * i / 96;
+            pts.push_back({w / 2 + std::cos(a) * w / 2, h / 2 + std::sin(a) * h / 2});
+        }
+    } else if (mask == "arch") {   // a doorway: straight sides, a round top (as round as the box allows)
+        const float ry = std::min(w / 2, h);
+        pts.push_back({0, h});
+        for (int i = 0; i <= 48; ++i) {
+            const float a = pi + pi * i / 48;   // left, over the top, to the right
+            pts.push_back({w / 2 + std::cos(a) * w / 2, ry + std::sin(a) * ry});
+        }
+        pts.push_back({w, h});
+    } else if (mask == "hexagon") {
+        pts = {{w * 0.25f, 0}, {w * 0.75f, 0}, {w, h / 2}, {w * 0.75f, h}, {w * 0.25f, h}, {0, h / 2}};
+    } else if (mask == "diamond") {
+        pts = {{w / 2, 0}, {w, h / 2}, {w / 2, h}, {0, h / 2}};
+    } else if (mask == "star") {
+        std::vector<std::pair<float, float>> raw;
+        for (int i = 0; i < 10; ++i) {
+            const float a = -pi / 2 + pi * i / 5, rad = i % 2 ? 0.42f : 1.0f;
+            raw.push_back({std::cos(a) * rad, std::sin(a) * rad});
+        }
+        pts = fit(raw);
+    } else if (mask == "heart") {
+        std::vector<std::pair<float, float>> raw;
+        for (int i = 0; i < 120; ++i) {
+            const float t = 2 * pi * i / 120, s = std::sin(t);
+            raw.push_back({16 * s * s * s, -(13 * std::cos(t) - 5 * std::cos(2 * t) - 2 * std::cos(3 * t) - std::cos(4 * t))});
+        }
+        pts = fit(raw);
+    }
+    return pts;
+}
+
+Area pictureArea(float iw, float ih, float bw, float bh, float zoom, float fx, float fy) {
+    if (!(iw > 0) || !(ih > 0) || !(bw > 0) || !(bh > 0)) return {0, 0, std::max(0.0f, iw), std::max(0.0f, ih)};
+    zoom = std::isfinite(zoom) ? std::clamp(zoom, 1.0f, 8.0f) : 1.0f;
+    fx = std::isfinite(fx) ? std::clamp(fx, 0.0f, 1.0f) : 0.5f;
+    fy = std::isfinite(fy) ? std::clamp(fy, 0.0f, 1.0f) : 0.5f;
+    const float scale = std::max(bw / iw, bh / ih) * zoom;   // picture pixels to box pixels
+    const float sw = std::min(iw, bw / scale), sh = std::min(ih, bh / scale);
+    const float cx = std::clamp(fx * iw, sw / 2, iw - sw / 2), cy = std::clamp(fy * ih, sh / 2, ih - sh / 2);
+    return {cx - sw / 2, cy - sh / 2, sw, sh};
+}
+
+void panPicture(float iw, float ih, float bw, float bh, float zoom, float& fx, float& fy, float dx, float dy) {
+    if (!(iw > 0) || !(ih > 0) || !(bw > 0) || !(bh > 0) || !std::isfinite(dx) || !std::isfinite(dy)) return;
+    // Start from where it shows now (the focus may be past what's reachable), then move against the drag.
+    const Area a = pictureArea(iw, ih, bw, bh, zoom, fx, fy);
+    const float perBoxX = a.w / bw, perBoxY = a.h / bh;   // picture pixels per box pixel
+    const float cx = a.x + a.w / 2 - dx * perBoxX, cy = a.y + a.h / 2 - dy * perBoxY;
+    fx = std::clamp(cx, a.w / 2, iw - a.w / 2) / iw;
+    fy = std::clamp(cy, a.h / 2, ih - a.h / 2) / ih;
+}
+
 const char* key(Kind k) { return kKinds[(int)k]; }
 bool parse(const std::string& s, Kind& out) {
     for (int i = 0; i < 8; ++i)
@@ -314,6 +490,17 @@ std::string toJson(const Document& d) {
         }
         if (e.kind == Kind::Qr) j["qr"] = e.qr;
         if (e.kind == Kind::Icon) j["icon"] = e.icon;
+        if (e.kind == Kind::Image) {   // 0.16: written only when changed
+            json pic = json::object();
+            if (e.picZoom != 1 || e.picX != 0.5f || e.picY != 0.5f) pic["zoom"] = e.picZoom, pic["x"] = e.picX, pic["y"] = e.picY;
+            if (!e.mask.empty()) pic["mask"] = e.mask;
+            if (e.filters.any()) {
+                const Filters& f = e.filters;
+                pic["filters"] = {{"brightness", f.brightness}, {"contrast", f.contrast}, {"saturation", f.saturation}, {"blur", f.blur},
+                                  {"tint", colourJson(f.tint)}, {"tintAmount", f.tintAmount}};
+            }
+            if (!pic.empty()) j["picture"] = pic;
+        }
         if (e.kind == Kind::Chat) {
             j["chat"] = {{"count", e.chatCount}, {"fade", e.chatFade}, {"bubbles", e.chatBubbles}, {"bubble", colourJson(e.chatBubble)},
                          {"bubbleBrand", e.chatBubbleBrand}, {"nameColours", e.chatNameColours}, {"side", e.chatSide}};
@@ -441,6 +628,25 @@ Document fromJson(const std::string& text) {
                 if (e.chatSide != "left" && e.chatSide != "right" && e.chatSide != "mine") e.chatSide.clear();
             }
             e.cover = flag(o, "cover", true);
+            if (o.contains("picture") && o["picture"].is_object()) {
+                const json& pic = o["picture"];
+                e.picZoom = num(pic, "zoom", 1, 1, 8);
+                e.picX = num(pic, "x", 0.5f, 0, 1);
+                e.picY = num(pic, "y", 0.5f, 0, 1);
+                e.mask = str(pic, "mask", "", 16);
+                if (std::find(maskKeys().begin(), maskKeys().end(), e.mask) == maskKeys().end()) e.mask.clear();
+                if (pic.contains("filters") && pic["filters"].is_object()) {
+                    const json& fj = pic["filters"];
+                    Filters& f = e.filters;
+                    f.brightness = num(fj, "brightness", 0, -100, 100);
+                    f.contrast = num(fj, "contrast", 0, -100, 100);
+                    f.saturation = num(fj, "saturation", 100, 0, 200);
+                    f.blur = num(fj, "blur", 0, 0, 40);
+                    f.tint = colourFrom(fj.contains("tint") ? fj["tint"] : json(), {0, 0, 0, 0});
+                    f.tint.a = 0;   // unused: the amount says how much
+                    f.tintAmount = num(fj, "tintAmount", 0, 0, 100);
+                }
+            }
             d.elements.push_back(e);
         }
     d.nextId = std::max((int)num(j, "nextId", 1, 1, 1000000), maxId + 1);

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <atomic>
+#include <memory>
 #include <mutex>
 
 namespace ncap::video {
@@ -127,6 +128,112 @@ ComPtr<IDWriteTextLayout> layoutFor(Ctx& c, const Element& e, const std::wstring
     fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     c.dw->CreateTextLayout(text.c_str(), (UINT32)text.size(), fmt.Get(), e.w, e.h, &lay);
     return lay;
+}
+
+// Pictures with filters (0.16): decoded to pixels once per file (and its modification time), and filtered once per
+// file, filters and blur size; a few of each are kept, since designs redraw often (timers, chat) and photos are big.
+struct Pixels {
+    std::vector<std::uint8_t> rgba;   // straight alpha
+    int w = 0, h = 0;
+};
+std::string fileStamp(const std::string& file) {
+    WIN32_FILE_ATTRIBUTE_DATA a{};
+    if (!GetFileAttributesExW(widen(file).c_str(), GetFileExInfoStandard, &a)) return {};
+    return std::to_string(((std::uint64_t)a.ftLastWriteTime.dwHighDateTime << 32) | a.ftLastWriteTime.dwLowDateTime) + ":" +
+           std::to_string(((std::uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow);
+}
+std::mutex gPixelsM;
+std::vector<std::pair<std::string, std::shared_ptr<const Pixels>>> gDecoded, gFiltered;   // newest last
+std::shared_ptr<const Pixels> cached(std::vector<std::pair<std::string, std::shared_ptr<const Pixels>>>& list, const std::string& key) {
+    std::lock_guard<std::mutex> l(gPixelsM);
+    for (auto& [k, v] : list)
+        if (k == key) return v;
+    return nullptr;
+}
+void keep(std::vector<std::pair<std::string, std::shared_ptr<const Pixels>>>& list, const std::string& key, std::shared_ptr<const Pixels> p) {
+    std::lock_guard<std::mutex> l(gPixelsM);
+    list.push_back({key, std::move(p)});
+    if (list.size() > 6) list.erase(list.begin());
+}
+std::shared_ptr<const Pixels> decodePicture(Ctx& c, const std::string& file, const std::string& stamp) {
+    const std::string key = file + "|" + stamp;
+    if (auto p = cached(gDecoded, key)) return p;
+    ComPtr<IWICBitmapDecoder> dec;
+    ComPtr<IWICBitmapFrameDecode> fr;
+    ComPtr<IWICFormatConverter> conv;
+    if (FAILED(c.wic->CreateDecoderFromFilename(widen(file).c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) ||
+        FAILED(dec->GetFrame(0, &fr)) || FAILED(c.wic->CreateFormatConverter(&conv)) ||
+        FAILED(conv->Initialize(fr.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeMedianCut)))
+        return nullptr;
+    UINT w = 0, h = 0;
+    if (FAILED(conv->GetSize(&w, &h)) || w == 0 || h == 0 || (std::uint64_t)w * h > 64ull * 1024 * 1024) return nullptr;
+    auto p = std::make_shared<Pixels>();
+    p->w = (int)w, p->h = (int)h;
+    p->rgba.resize((size_t)w * h * 4);
+    if (FAILED(conv->CopyPixels(nullptr, w * 4, (UINT)p->rgba.size(), p->rgba.data()))) return nullptr;
+    keep(gDecoded, key, p);
+    return p;
+}
+// The filtered picture as a bitmap; `shown` is how many page pixels one picture pixel covers (for the blur's size).
+ComPtr<ID2D1Bitmap> filteredPicture(Ctx& c, ID2D1RenderTarget* rt, const std::string& file, const Element& e) {
+    ComPtr<ID2D1Bitmap> bmp;
+    const std::string stamp = fileStamp(file);
+    auto src = decodePicture(c, file, stamp);
+    if (!src) return bmp;
+    // How big the picture shows on the page, so the blur is in page pixels whatever the picture's size.
+    float shown;
+    if (e.cover) {
+        const Area a = pictureArea((float)src->w, (float)src->h, e.w, e.h, e.picZoom, e.picX, e.picY);
+        shown = a.w > 0 ? e.w / a.w : 1;
+    } else {
+        shown = std::min(e.w / src->w, e.h / src->h);
+    }
+    const float blurPx = shown > 0 ? e.filters.blur / shown : 0;
+    const Filters& f = e.filters;
+    char key[256];
+    snprintf(key, sizeof key, "|%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%.1f|%.0f", f.brightness, f.contrast, f.saturation, f.blur, f.tint.r, f.tint.g, f.tint.b,
+             f.tintAmount, std::round(blurPx));
+    const std::string fkey = file + "|" + stamp + key;
+    auto done = cached(gFiltered, fkey);
+    if (!done) {
+        auto p = std::make_shared<Pixels>(*src);
+        applyFilters(p->rgba, p->w, p->h, f, blurPx);
+        keep(gFiltered, fkey, p);
+        done = p;
+    }
+    std::vector<std::uint8_t> bgra(done->rgba.size());   // premultiplied BGRA for Direct2D
+    for (size_t i = 0; i < bgra.size(); i += 4) {
+        const unsigned a = done->rgba[i + 3];
+        bgra[i] = (std::uint8_t)(done->rgba[i + 2] * a / 255);
+        bgra[i + 1] = (std::uint8_t)(done->rgba[i + 1] * a / 255);
+        bgra[i + 2] = (std::uint8_t)(done->rgba[i] * a / 255);
+        bgra[i + 3] = (std::uint8_t)a;
+    }
+    rt->CreateBitmap(D2D1::SizeU((UINT)done->w, (UINT)done->h), bgra.data(), (UINT)done->w * 4,
+                     D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &bmp);
+    return bmp;
+}
+
+// The shape a picture is cut to (0.16): its mask's outline, or the box with its rounded corners.
+ComPtr<ID2D1Geometry> pictureShape(Ctx& c, const Element& e, const D2D1_RECT_F& at, float r) {
+    ComPtr<ID2D1Geometry> out;
+    const float x0 = at.left, y0 = at.top, w = at.right - at.left, h = at.bottom - at.top;
+    const auto pts = maskOutline(e.mask, w, h);
+    if (pts.size() >= 3) {
+        ComPtr<ID2D1PathGeometry> path;
+        ComPtr<ID2D1GeometrySink> sink;
+        if (SUCCEEDED(c.d2->CreatePathGeometry(&path)) && SUCCEEDED(path->Open(&sink))) {
+            sink->BeginFigure(D2D1::Point2F(x0 + pts[0].first, y0 + pts[0].second), D2D1_FIGURE_BEGIN_FILLED);
+            for (size_t i = 1; i < pts.size(); ++i) sink->AddLine(D2D1::Point2F(x0 + pts[i].first, y0 + pts[i].second));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            if (SUCCEEDED(sink->Close())) out = path;
+        }
+        if (out) return out;
+    }
+    ComPtr<ID2D1RoundedRectangleGeometry> rr;
+    r = std::min(r, std::min(w, h) / 2);
+    if (SUCCEEDED(c.d2->CreateRoundedRectangleGeometry(D2D1::RoundedRect(at, r, r), &rr))) out = rr;
+    return out;
 }
 
 // Text as one outline shape (0.15): a text renderer that, instead of drawing, writes each run of glyphs into one path at
@@ -394,31 +501,50 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
         case Kind::Image: {
             // A value can name the file ("{cover}": the book Writing Studio says is being written).
             const std::string file = e.file.find('{') == std::string::npos ? e.file : fillPlaceholders(e.file, values, false);
-            ComPtr<ID2D1Bitmap> bmp = file.empty() ? nullptr : loadPicture(c, rt, file);
+            ComPtr<ID2D1Bitmap> bmp;
+            if (!file.empty()) bmp = e.filters.any() ? filteredPicture(c, rt, file, e) : loadPicture(c, rt, file);
             if (!bmp && file.empty() && !showMissing) break;   // e.g. no brand logo or cover yet: nothing on stream
             if (!bmp) {
-                if (!shadowPass) {   // a placeholder so it can be seen and picked
+                ComPtr<ID2D1Geometry> shape = pictureShape(c, e, box, r);
+                if (!shadowPass && shape) {   // a placeholder so it can be seen and picked
                     ComPtr<ID2D1SolidColorBrush> ph;
                     rt->CreateSolidColorBrush(D2D1::ColorF(0.5f, 0.55f, 0.62f, 0.35f * alpha), &ph);
-                    rt->FillRoundedRectangle(D2D1::RoundedRect(box, r, r), ph.Get());
+                    rt->FillGeometry(shape.Get(), ph.Get());
                 }
                 break;
             }
+            // The picture fills its shape as a brush (so the shape cuts it on any graphics driver): filling the box, it's
+            // zoomed and moved as cropped (0.16); fitting inside, the shape is cut from the fitted picture.
             const D2D1_SIZE_F s = bmp->GetSize();
-            const float k = e.cover ? std::max(e.w / s.width, e.h / s.height) : std::min(e.w / s.width, e.h / s.height);
-            const float dw = s.width * k, dh = s.height * k;
-            const D2D1_RECT_F dst = D2D1::RectF(e.x + (e.w - dw) / 2, e.y + (e.h - dh) / 2, e.x + (e.w + dw) / 2, e.y + (e.h + dh) / 2);
-            ComPtr<ID2D1RoundedRectangleGeometry> clip;
-            c.d2->CreateRoundedRectangleGeometry(D2D1::RoundedRect(box, r, r), &clip);
-            rt->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip.Get()), nullptr);
-            if (shadowPass) rt->FillRectangle(dst, black.Get());
-            else rt->DrawBitmap(bmp.Get(), dst, alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-            rt->PopLayer();
-            if (stroke)
-                rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(box.left + e.strokeWidth / 2, box.top + e.strokeWidth / 2, box.right - e.strokeWidth / 2,
-                                                                       box.bottom - e.strokeWidth / 2),
-                                                           r, r),
-                                         stroke.Get(), e.strokeWidth);
+            D2D1_RECT_F at = box;
+            D2D1_MATRIX_3X2_F m;
+            if (e.cover) {
+                const Area a = pictureArea(s.width, s.height, e.w, e.h, e.picZoom, e.picX, e.picY);
+                if (!(a.w > 0) || !(a.h > 0)) break;
+                const float sx = e.w / a.w, sy = e.h / a.h;
+                m = D2D1::Matrix3x2F::Scale(sx, sy) * D2D1::Matrix3x2F::Translation(e.x - a.x * sx, e.y - a.y * sy);
+            } else {
+                const float k = std::min(e.w / s.width, e.h / s.height);
+                const float dw = s.width * k, dh = s.height * k;
+                at = D2D1::RectF(e.x + (e.w - dw) / 2, e.y + (e.h - dh) / 2, e.x + (e.w + dw) / 2, e.y + (e.h + dh) / 2);
+                m = D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(at.left, at.top);
+            }
+            ComPtr<ID2D1Geometry> shape = pictureShape(c, e, at, r);
+            if (!shape) break;
+            if (shadowPass) rt->FillGeometry(shape.Get(), black.Get());
+            else {
+                ComPtr<ID2D1BitmapBrush> pb;
+                if (SUCCEEDED(rt->CreateBitmapBrush(bmp.Get(),
+                                                    D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR),
+                                                    D2D1::BrushProperties(alpha, m), &pb)))
+                    rt->FillGeometry(shape.Get(), pb.Get());
+            }
+            // The outline, just inside the edge. A shape's (mask's) outline is a picture of its own from renderDesign, so
+            // here only the box's: a rounded rectangle half the thickness in.
+            if (stroke && e.mask.empty()) {
+                const float t = e.strokeWidth / 2, rr = std::max(0.0f, std::min(r, std::min(at.right - at.left, at.bottom - at.top) / 2) - t);
+                rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(at.left + t, at.top + t, at.right - t, at.bottom - t), rr, rr), stroke.Get(), e.strokeWidth);
+            }
             break;
         }
     }
@@ -770,15 +896,17 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
     // Text outlines (0.15) are grown from the letters' own pixels (design::grow) into a picture of their own, drawn
     // under the letters: even all round at any thickness, on any graphics driver. `bare` is each element as drawn
     // over its outline picture (its outline taken off).
-    std::vector<ShadowPic> shadows(d.elements.size()), glows(d.elements.size()), outlines(d.elements.size());
+    std::vector<ShadowPic> shadows(d.elements.size()), glows(d.elements.size()), outlines(d.elements.size()), overs(d.elements.size());
     std::vector<Element> bare(d.elements.begin(), d.elements.end());
     for (std::size_t i = 0; i < d.elements.size(); ++i) {
         const Element& e = d.elements[i];
         const bool sh = e.visible && e.shadow.on && e.shadow.colour.a > 0, gl = e.visible && e.glow.on && e.glow.colour.a > 0;
         const bool ol = e.visible && (e.kind == Kind::Text || e.kind == Kind::Timer) && e.strokeWidth > 0 && e.stroke.a > 0;
-        if (!sh && !gl && !ol) continue;
+        // A picture cut to a shape (0.16): its outline is a band just inside the shape, from the shape's own pixels.
+        const bool band = e.visible && e.kind == Kind::Image && !e.mask.empty() && e.strokeWidth > 0 && e.stroke.a > 0;
+        if (!sh && !gl && !ol && !band) continue;
         Element letters = e;
-        if (ol) letters.strokeWidth = 0, letters.stroke.a = 0;
+        if (ol || band) letters.strokeWidth = 0, letters.stroke.a = 0;
         const int shBlur = sh ? std::max(0, (int)std::lround(e.shadow.blur * scale / 2)) : 0;
         const int glBlur = gl ? std::max(1, (int)std::lround(e.glow.size * scale / 2)) : 0;
         const float margin = std::max(shBlur, glBlur) * 3.0f + 2 + e.strokeWidth * scale;
@@ -825,6 +953,16 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
             make(0, e.stroke, -1, outlines[i]);
             if (outlines[i].bmp) bare[i] = letters;
         }
+        if (band) {
+            std::vector<std::uint8_t> outside(shape.size());
+            for (size_t k = 0; k < shape.size(); ++k) outside[k] = (std::uint8_t)(255 - shape[k]);
+            const auto reach = grow(outside, bw, bh, e.strokeWidth * scale);   // within the thickness of the outside
+            const std::vector<std::uint8_t> keepShape = shape;
+            for (size_t k = 0; k < shape.size(); ++k) shape[k] = std::min(keepShape[k], reach[k]);
+            make(0, e.stroke, -1, overs[i]);
+            shape = keepShape;
+            if (overs[i].bmp) bare[i] = letters;
+        }
     }
 
     rt->BeginDraw();
@@ -862,6 +1000,7 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         if (wiping) rt->PushAxisAlignedClip(D2D1::RectF(e.x, e.y - 1e4f, e.x + e.w * p.reveal, e.y + e.h + 1e4f), D2D1_ANTIALIAS_MODE_ALIASED);
         drawShape(c, rt.Get(), bare[i], values, alpha, false, showMissing, clock);
         if (wiping) rt->PopAxisAlignedClip();
+        under(overs[i], 0, 0);   // (over it, despite the name: a shaped picture's outline)
     }
     if (FAILED(rt->EndDraw())) {
         error = L"The design couldn't be drawn";

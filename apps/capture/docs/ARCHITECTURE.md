@@ -1678,3 +1678,34 @@ The second part of CJ's overlay-polish answers: drag gradient stops on a bar, gl
   on Writing progress: the Gold gradient on the title spanning the words, its direction, a stop dragged, one added and
   recoloured violet, one pulled off; a 4 px and a 14 px outline (even, round; checked in a saved PNG); glow on the title
   and on an ellipse; the panel scrolling.
+
+## 62. Pictures (released as 0.16.0, 21 Nov 2026)
+
+The third part of CJ's overlay-polish answers: crop by dragging, shapes, filters.
+
+- core/design: Element `picZoom` (1-8), `picX`/`picY` (the focus, fractions of the picture), `mask` and `filters`, in
+  JSON as "picture" only when changed. `pictureArea` (the part of the picture shown when it fills its box: the cover
+  scale times the zoom, centred on the focus, kept inside the picture) and `panPicture` (the focus moved against a drag in
+  box pixels, from where it shows now, clamped to where the picture still fills the box). `maskKeys` and `maskOutline`
+  (circle, arch, hexagon, diamond, star, heart as closed polygons filling a w x h box; star and heart made in their own
+  units and stretched to it). `Filters` (brightness, contrast, saturation, blur, tint and its amount), `filterLooks`
+  (nine) and `applyFilters` (a premultiplied three-pass box blur, then a brightness/contrast lookup table, saturation
+  about Rec. 709 luma, and the tint mixed in; alpha untouched by the colour changes).
+- video/design_render: a picture is drawn as a bitmap brush filling its shape (geometry: the mask's polygon, or the
+  rounded box). Layers with a geometric mask were tried first and Wine ignores the mask. The brush's transform maps
+  `pictureArea` onto the box (cover) or the whole picture onto its fitted rectangle (fit, which the shape is then cut
+  from). Pictures with filters are decoded once per file and modification time (WIC to RGBA, at most 64 M pixels, six
+  kept) and filtered once per file, filters and blur size (six kept); the blur is converted from page pixels to the
+  picture's own. A shaped picture's outline is a band just inside the shape: the shape's mask from the pre-pass,
+  `grow`n from the outside by the thickness and intersected with the shape, drawn over the picture. Stroking the
+  geometry was tried and Wine drew spikes at the heart's points. The box's outline is still a rounded rectangle.
+- Designer: Shape (menu), Crop (Move the picture… / Done, Reset, Zoom 100-800%) when it fills its box, Look (menu) and
+  Brightness, Contrast, Colour, Blur, Tint and Tint amount. While cropping (`dCropFor_`), a drag on the picture
+  (`ddrag_` 6) calls `panPicture`, the wheel over the canvas zooms (x1.04 a line), the whole picture shows at 35% around
+  the box, and Esc, Done, another selection or a click elsewhere ends it. `cropPicture` finds the file and its size
+  (the brand logo too; not placeholders like {cover}).
+- Tested: capturecore 2494 checks (crop areas at zoom 1 and 2, corners, nonsense clamped, wide boxes; panning both ways
+  and at the edges; every shape inside and filling its box with the right area; each filter, the blur keeping light and
+  flat pictures flat and not darkening see-through edges; looks; JSON both ways and nonsense). In Wine with a
+  1200 x 1600 picture: the circle, crop mode (zoom by wheel, drag, the faint whole picture), Sepia, blur, a heart with
+  a 4 px gold outline (clean; checked in a saved PNG).

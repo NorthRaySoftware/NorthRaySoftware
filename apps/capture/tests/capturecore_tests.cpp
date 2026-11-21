@@ -2893,6 +2893,151 @@ static void testDesignLive() {
     CHECK(iconFigures("M 1 1 L 2").size() == 1);   // stops at bad input, keeps what it had
 }
 
+static void testDesignPictures() {
+    std::printf("design pictures: crop, shapes, filters\n");
+    using namespace ncap::design;
+    // Cropping: at zoom 1 a wide picture in a square box shows its middle square; zoomed in, less of it; moved, kept inside.
+    auto near = [](float u, float v) { return std::fabs(u - v) < 0.01f; };
+    Area a = pictureArea(2000, 1000, 300, 300, 1, 0.5f, 0.5f);
+    CHECK(near(a.x, 500) && near(a.y, 0) && near(a.w, 1000) && near(a.h, 1000));
+    a = pictureArea(2000, 1000, 300, 300, 2, 0.5f, 0.5f);
+    CHECK(near(a.w, 500) && near(a.h, 500) && near(a.x, 750) && near(a.y, 250));
+    a = pictureArea(2000, 1000, 300, 300, 2, 0.0f, 0.0f);   // the top-left corner, no further
+    CHECK(a.x == 0 && a.y == 0);
+    a = pictureArea(2000, 1000, 300, 300, 2, 1.0f, 1.0f);
+    CHECK(a.x + a.w == 2000 && a.y + a.h == 1000);
+    a = pictureArea(2000, 1000, 300, 300, 99, std::nanf(""), 2);   // zoom clamped to 8, nonsense focus centred
+    CHECK(std::fabs(a.w - 125) < 0.01f && std::fabs(a.x + a.w / 2 - 1000) < 0.01f && a.y + a.h == 1000);
+    a = pictureArea(0, 1000, 300, 300, 1, 0.5f, 0.5f);
+    CHECK(a.w == 0);
+    // The box's shape is kept: a wide box shows a wide part.
+    a = pictureArea(1000, 1000, 400, 100, 1, 0.5f, 0.5f);
+    CHECK(a.w == 1000 && a.h == 250 && a.y == 375);
+    // Dragging: the picture follows the pointer (so the focus moves the other way) and stops at the edges.
+    float fx = 0.5f, fy = 0.5f;
+    panPicture(2000, 1000, 300, 300, 2, fx, fy, 30, 0);   // 30 box px right = 50 picture px: the focus 50 px left
+    CHECK(std::fabs(fx * 2000 - 950) < 0.01f && fy == 0.5f);
+    panPicture(2000, 1000, 300, 300, 2, fx, fy, 100000, -100000);
+    CHECK(std::fabs(fx * 2000 - 250) < 0.01f && std::fabs(fy * 1000 - 750) < 0.01f);   // as far as it goes
+    float gx = 0.5f, gy = 0.5f;
+    panPicture(2000, 1000, 300, 300, 1, gx, gy, 0, 50);   // at zoom 1 a wide picture can't move up or down
+    CHECK(near(gy, 0.5f));
+
+    // Shapes: inside their box, the areas they should have, and none for an unknown key.
+    auto area = [](const std::vector<std::pair<float, float>>& p) {
+        double s = 0;
+        for (size_t i = 0; i < p.size(); ++i) {
+            const auto [x0, y0] = p[i];
+            const auto [x1, y1] = p[(i + 1) % p.size()];
+            s += (double)x0 * y1 - (double)x1 * y0;
+        }
+        return std::fabs(s) / 2;
+    };
+    for (auto& k : maskKeys()) {
+        const auto p = maskOutline(k, 200, 100);
+        CHECK(p.size() >= 4);
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+        for (auto [x, y] : p) {
+            CHECK(x >= -0.01f && x <= 200.01f && y >= -0.01f && y <= 100.01f);
+            x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+        }
+        CHECK(x0 < 0.5f && x1 > 199.5f && y0 < 0.5f && y1 > 99.5f);   // each fills its box
+    }
+    CHECK(std::fabs(area(maskOutline("circle", 200, 100)) / 20000 - 3.14159 / 4) < 0.01);
+    CHECK(std::fabs(area(maskOutline("diamond", 200, 100)) / 20000 - 0.5) < 1e-6);
+    CHECK(std::fabs(area(maskOutline("hexagon", 200, 100)) / 20000 - 0.75) < 1e-6);
+    const double arch = area(maskOutline("arch", 100, 200)) / 20000;   // a 50-radius half circle on a 150-high body
+    CHECK(std::fabs(arch - (100 * 150 + 3.14159 * 50 * 50 / 2) / 20000) < 0.01);
+    CHECK(area(maskOutline("star", 100, 100)) < 5000 && area(maskOutline("heart", 100, 100)) > 4000);
+    CHECK(maskOutline("blob", 100, 100).empty() && maskOutline("circle", 0, 100).empty() && maskOutline("", 10, 10).empty());
+
+    // Filters.
+    auto px = [](std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t al) { return std::vector<std::uint8_t>{r, g, b, al}; };
+    std::vector<std::uint8_t> p = px(100, 150, 200, 77);
+    applyFilters(p, 1, 1, Filters{}, 0);
+    CHECK(p == px(100, 150, 200, 77));   // none: untouched
+    Filters f;
+    f.saturation = 0;
+    applyFilters(p, 1, 1, f, 0);
+    CHECK(p[0] == p[1] && p[1] == p[2] && p[3] == 77 && std::abs((int)p[0] - 143) <= 1);   // grey at its luma, alpha kept
+    p = px(100, 150, 200, 255);
+    Filters br;
+    br.brightness = 20;
+    applyFilters(p, 1, 1, br, 0);
+    CHECK(p[0] == 151 && p[1] == 201 && p[2] == 251);
+    p = px(100, 128, 200, 255);
+    Filters ct;
+    ct.contrast = 50;
+    applyFilters(p, 1, 1, ct, 0);
+    CHECK(p[0] < 100 && p[1] == 128 && p[2] > 200);   // away from the middle, the middle stays
+    p = px(10, 20, 30, 255);
+    Filters ti;
+    ti.tint = {200, 100, 50, 0};
+    ti.tintAmount = 100;
+    applyFilters(p, 1, 1, ti, 0);
+    CHECK(p == px(200, 100, 50, 255));
+    ti.tintAmount = 50;
+    p = px(0, 0, 0, 255);
+    applyFilters(p, 1, 1, ti, 0);
+    CHECK(p == px(100, 50, 25, 255));
+    // Blur spreads a white dot over a black picture, keeps the total light, and leaves a flat picture flat.
+    {
+        const int W = 21, H = 21;
+        std::vector<std::uint8_t> img((size_t)W * H * 4, 0);
+        for (size_t i = 3; i < img.size(); i += 4) img[i] = 255;
+        img[((size_t)10 * W + 10) * 4] = 255;
+        Filters bl;
+        bl.blur = 6;
+        applyFilters(img, W, H, bl, 6);
+        long total = 0;
+        for (size_t i = 0; i < img.size(); i += 4) total += img[i];
+        CHECK(img[((size_t)10 * W + 10) * 4] < 255 && img[((size_t)10 * W + 12) * 4] > 0 && std::abs(total - 255) < 40);
+        CHECK(img[((size_t)10 * W + 9) * 4] == img[((size_t)10 * W + 11) * 4]);   // even both ways
+        std::vector<std::uint8_t> flat((size_t)W * H * 4, 90);
+        applyFilters(flat, W, H, bl, 6);
+        bool same = true;
+        for (auto v : flat) same = same && v == 90;
+        CHECK(same);
+        // See-through pixels don't darken the edges of what's next to them (premultiplied blur).
+        std::vector<std::uint8_t> half((size_t)W * H * 4, 0);
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < 10; ++x) {
+                const size_t i = ((size_t)y * W + x) * 4;
+                half[i] = 255, half[i + 1] = 255, half[i + 2] = 255, half[i + 3] = 255;
+            }
+        applyFilters(half, W, H, bl, 6);
+        const size_t edge = ((size_t)10 * W + 11) * 4;
+        CHECK(half[edge + 3] > 0 && half[edge + 3] < 255 && half[edge] == 255);
+    }
+    std::vector<std::uint8_t> wrong(7, 1);
+    applyFilters(wrong, 1, 1, f, 0);   // wrong size: left alone
+    CHECK(wrong == std::vector<std::uint8_t>(7, 1));
+    for (auto& look : filterLooks()) CHECK(look.filters.any() && std::string(look.name).size() > 2);
+
+    // Saved and read back; nonsense dropped; untouched pictures write nothing new.
+    Document d;
+    Element e;
+    e.id = "p1";
+    e.kind = Kind::Image;
+    e.file = "C:/x.png";
+    e.picZoom = 2.5f, e.picX = 0.2f, e.picY = 0.9f;
+    e.mask = "heart";
+    e.filters = filterLooks()[1].filters;
+    d.elements.push_back(e);
+    Element plain = e;
+    plain.id = "p2";
+    plain.picZoom = 1, plain.picX = 0.5f, plain.picY = 0.5f, plain.mask.clear(), plain.filters = {};
+    d.elements.push_back(plain);
+    const std::string js = toJson(d);
+    CHECK(js.find("\"picture\"") == js.rfind("\"picture\""));
+    const Document back = fromJson(js);
+    CHECK(back.elements[0] == e && back.elements[1] == plain);
+    const Document bad = fromJson(
+        R"({"elements":[{"id":"q","kind":"image","picture":{"zoom":50,"x":-3,"mask":"octopus","filters":{"saturation":900,"blur":-2,"tintAmount":"lots"}}}]})");
+    CHECK(bad.elements.size() == 1 && bad.elements[0].picZoom == 8 && bad.elements[0].picX == 0 && bad.elements[0].mask.empty());
+    CHECK(bad.elements[0].filters.saturation == 200 && bad.elements[0].filters.blur == 0 && bad.elements[0].filters.tintAmount == 0);
+}
+
 static void testDesignEffects() {
     std::printf("design effects: gradient stops, glow\n");
     using namespace ncap::design;
@@ -3172,6 +3317,7 @@ int main() {
     testDesign();
     testDesignLive();
     testDesignEffects();
+    testDesignPictures();
     testBrandKit();
     testChat();
     testTrackNames();

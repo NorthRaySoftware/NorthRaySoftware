@@ -192,6 +192,9 @@ private:
     void drawDesigner(const cjui::Rect& area);
     void drawDesignerProperties(const cjui::Rect& r);
     void drawDesignerPropertiesBody(const cjui::Rect& r);   // sets dPropEnd_ to where it finished
+    // A picture element's file and its size in pixels, for cropping (0.16): false for a picture that's a placeholder
+    // ({cover}) or can't be read.
+    bool cropPicture(const ncap::design::Element& e, std::wstring& path, float& iw, float& ih);
     void designChanged(bool keepUndo = true);
     void designUndo();
     void exportDesign();
@@ -480,6 +483,9 @@ private:
     bool dStopMoved_ = false, dStopOff_ = false;
     float dStopDownX_ = 0;
     std::wstring dGradKey_;
+    // Cropping a picture (0.16): the element being cropped (dragging it moves the picture inside it; the wheel zooms).
+    std::string dCropFor_;
+    float dCropLastX_ = 0, dCropLastY_ = 0;
     // The properties panel scrolls with the wheel when it's taller than the window (0.15; no scroll bar: faded edges).
     cjui::Rect dPropRect_{};
     float dPropScroll_ = 0, dPropContentH_ = 0, dPropEnd_ = 0;

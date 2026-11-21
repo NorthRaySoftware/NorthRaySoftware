@@ -593,6 +593,18 @@ void CaptureWindow::designGroupSelected(bool make) {
     }
 }
 
+bool CaptureWindow::cropPicture(const dz::Element& e, std::wstring& path, float& iw, float& ih) {
+    if (e.kind != dz::Kind::Image) return false;
+    std::string f = e.file;
+    if (f == dz::kBrandLogo) f = video::designBrand().logo;
+    if (f.empty() || f.find('{') != std::string::npos) return false;
+    path = widen(f);
+    const auto [w, h] = gfx_.imageSize(path);
+    if (w == 0 || h == 0) return false;
+    iw = (float)w, ih = (float)h;
+    return true;
+}
+
 bool CaptureWindow::designerMouseDown(float x, float y) {
     if (designFor_.empty()) return false;
     const float sc = designScale_;
@@ -622,6 +634,19 @@ bool CaptureWindow::designerMouseDown(float x, float y) {
         invalidate();
         return true;
     }
+    // Cropping a picture (0.16): dragging it moves the picture inside its box.
+    if (!dCropFor_.empty() && designCanvas_.contains(x, y))
+        if (const dz::Element* e = designDoc_.find(dCropFor_)) {
+            const float sc2 = designScale_;
+            if (Rect{designCanvas_.x + e->x * sc2, designCanvas_.y + e->y * sc2, e->w * sc2, e->h * sc2}.contains(x, y)) {
+                dBefore_ = dz::toJson(designDoc_);
+                dCropLastX_ = x, dCropLastY_ = y;
+                ddrag_ = 6;
+                return true;
+            }
+            dCropFor_.clear();   // a click elsewhere ends cropping
+            invalidate();
+        }
     // The rulers (0.14): a click makes a guide there, or picks one up; dragged back onto the ruler, it goes.
     const Rect topRuler{designCanvas_.x, designCanvas_.y - 20, designCanvas_.w, 18}, leftRuler{designCanvas_.x - 20, designCanvas_.y, 18, designCanvas_.h};
     if (topRuler.contains(x, y) || leftRuler.contains(x, y)) {
@@ -705,6 +730,17 @@ bool CaptureWindow::designerMouseMove(float x, float y, bool leftDown) {
     if (!leftDown) return designerMouseUp();
     const float px = (x - designCanvas_.x) / designScale_, py = (y - designCanvas_.y) / designScale_;
     const bool shift = GetKeyState(VK_SHIFT) < 0;   // Shift: no snapping
+    if (ddrag_ == 6) {   // moving a picture inside its box
+        dz::Element* e = designDoc_.find(dCropFor_);
+        std::wstring path;
+        float iw = 0, ih = 0;
+        if (!e || !cropPicture(*e, path, iw, ih)) return true;
+        dz::panPicture(iw, ih, e->w, e->h, e->picZoom, e->picX, e->picY, (x - dCropLastX_) / designScale_, (y - dCropLastY_) / designScale_);
+        dCropLastX_ = x, dCropLastY_ = y;
+        designChanged(false);
+        invalidate();
+        return true;
+    }
     if (ddrag_ == 5) {   // a gradient stop
         dz::Element* e = designDoc_.find(dGradFor_);
         if (!e || dStopSel_ < 0) return true;
@@ -822,6 +858,11 @@ bool CaptureWindow::designerKey(WPARAM vk, bool ctrl, bool shift) {
     }
     if (ctrl && vk == 'G') { designGroupSelected(!shift); return true; }
     const auto sel = designSelection();
+    if (vk == VK_ESCAPE && !dCropFor_.empty()) {
+        dCropFor_.clear();
+        invalidate();
+        return true;
+    }
     if (vk == VK_ESCAPE && !sel.empty()) { designSelect({}, {}); return true; }
     if (sel.empty()) return false;
     if (ctrl && vk == 'D') {
@@ -1288,6 +1329,26 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 gfx_.fill({lr.x, c.y + gy * sc - 3, 6, 6}, gc);
             }
         }
+        // Cropping a picture (0.16): the whole picture, faint, beyond its box, so you can see what's left out.
+        if (!dCropFor_.empty()) {
+            const dz::Element* e = designDoc_.find(dCropFor_);
+            std::wstring path;
+            float iw = 0, ih = 0;
+            if (!e || designSel_ != dCropFor_ || !e->cover) dCropFor_.clear();
+            else if (cropPicture(*e, path, iw, ih)) {
+                const dz::Area a = dz::pictureArea(iw, ih, e->w, e->h, e->picZoom, e->picX, e->picY);
+                const float k = e->w / a.w * sc;
+                const Rect whole{c.x + e->x * sc - a.x * k, c.y + e->y * sc - a.y * k, iw * k, ih * k};
+                gfx_.pushClip(centre);
+                gfx_.drawImage(path, whole, true, 0.35f);
+                gfx_.strokeRounded(whole, 0, pal_.inkFaint, 1);
+                gfx_.popClip();
+                const Rect bx{c.x + e->x * sc, c.y + e->y * sc, e->w * sc, e->h * sc};
+                gfx_.strokeRounded(bx, 0, cjui::hexColor("#FFC83D"), 2);
+                gfx_.text(L"Drag the picture to move it in its box; the mouse wheel zooms. Esc or Done when it's right.",
+                          {centre.x, centre.y + 4, centre.w, 18}, Font::SmallStrong, cjui::hexColor("#FFC83D"), {Align::Center, false, true, true});
+            }
+        }
         // Guides while dragging, and the selection.
         for (float gx : dGuidesX_) gfx_.line(c.x + gx * sc, c.y, c.x + gx * sc, c.bottom(), cjui::hexColor("#FF3DD6"), 1);
         for (float gy : dGuidesY_) gfx_.line(c.x, c.y + gy * sc, c.right(), c.y + gy * sc, cjui::hexColor("#FF3DD6"), 1);
@@ -1697,7 +1758,7 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
         y += 36;
         if (e->stroke.a) sliderRow("sw", L"Thickness", e->strokeWidth, 0, 40, L" px", [](dz::Element& x, float v) { x.strokeWidth = v; });
     }
-    if (e->kind == dz::Kind::Rect || e->kind == dz::Kind::Image)
+    if (e->kind == dz::Kind::Rect || (e->kind == dz::Kind::Image && e->mask.empty()))
         sliderRow("rad", L"Corners", e->radius, 0, std::max(1.0f, std::min(e->w, e->h) / 2), L" px", [](dz::Element& x, float v) { x.radius = v; });
     // Glow (0.15): light round the shape, its outline or its letters.
     {
@@ -2020,6 +2081,91 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
         });
         button("dz:p:cover", {r.right() - 112, y, 112, 30}, e->cover ? L"Fill the box" : L"Fit inside", [edit] { edit([](dz::Element& z) { z.cover = !z.cover; }); });
         y += 38;
+        // Its shape (0.16).
+        static const wchar_t* kMaskNames[] = {L"Circle", L"Arch", L"Hexagon", L"Diamond", L"Star", L"Heart"};
+        static_assert(std::size(kMaskNames) == 6, "a name for every shape");
+        std::wstring maskName = L"The box (rounded corners)";
+        for (std::size_t i = 0; i < dz::maskKeys().size() && i < std::size(kMaskNames); ++i)
+            if (e->mask == dz::maskKeys()[i]) maskName = kMaskNames[i];
+        label(L"Shape");
+        button("dz:p:mask", {r.x + 112, y - 2, r.w - 112, 30}, maskName, [this, eid, edit] {
+            const dz::Element* x = designDoc_.find(eid);
+            if (!x) return;
+            std::vector<MenuItem> items = {MenuItem::item(L"The box (rounded corners)", 100, {}, true, x->mask.empty()), MenuItem::sep()};
+            for (std::size_t i = 0; i < dz::maskKeys().size() && i < std::size(kMaskNames); ++i)
+                items.push_back(MenuItem::item(kMaskNames[i], 101 + (UINT)i, {}, true, x->mask == dz::maskKeys()[i]));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (cmd == 100) edit([](dz::Element& z) { z.mask.clear(); });
+            else if (cmd > 100 && cmd <= 100 + dz::maskKeys().size()) {
+                const std::string k = dz::maskKeys()[cmd - 101];
+                edit([k](dz::Element& z) { z.mask = k; });
+            }
+        });
+        y += 36;
+        // Cropping (0.16): when it fills its box, it can be zoomed and moved inside it.
+        if (e->cover) {
+            std::wstring path;
+            float iw = 0, ih = 0;
+            const bool can = cropPicture(*e, path, iw, ih);
+            label(L"Crop");
+            const bool cropping = dCropFor_ == eid;
+            button("dz:p:crop", {r.x + 112, y - 2, r.w - 112 - 84, 30}, cropping ? L"Done" : L"Move the picture…", [this, eid, can] {
+                if (!can) return flash(L"Crop a picture once it's chosen: a placeholder like {cover} can't be moved yet.", 6);
+                dCropFor_ = dCropFor_ == eid ? std::string() : eid;
+                invalidate();
+            }, cropping);
+            button("dz:p:cropreset", {r.right() - 78, y - 2, 78, 30}, L"Reset", [edit] {
+                edit([](dz::Element& z) { z.picZoom = 1, z.picX = 0.5f, z.picY = 0.5f; });
+            });
+            y += 36;
+            sliderRow("zoom", L"Zoom", e->picZoom * 100, 100, 800, L"%", [](dz::Element& x, float v) { x.picZoom = v / 100; });
+        }
+        // Filters (0.16): a look to start from, then each adjustment.
+        {
+            std::wstring lookName = e->filters.any() ? L"Your own" : L"None";
+            for (auto& lk : dz::filterLooks())
+                if (lk.filters == e->filters) lookName = widen(lk.name);
+            label(L"Look");
+            button("dz:p:look", {r.x + 112, y - 2, r.w - 112, 30}, lookName, [this, eid, edit] {
+                const dz::Element* x = designDoc_.find(eid);
+                if (!x) return;
+                std::vector<MenuItem> items = {MenuItem::item(L"None", 100, {}, true, !x->filters.any()), MenuItem::sep()};
+                const auto& looks = dz::filterLooks();
+                for (std::size_t i = 0; i < looks.size(); ++i) items.push_back(MenuItem::item(widen(looks[i].name), 101 + (UINT)i, {}, true, looks[i].filters == x->filters));
+                POINT pt;
+                GetCursorPos(&pt);
+                const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+                if (cmd == 100) edit([](dz::Element& z) { z.filters = {}; });
+                else if (cmd > 100 && cmd <= 100 + looks.size()) {
+                    const dz::Filters f = looks[cmd - 101].filters;
+                    edit([f](dz::Element& z) { z.filters = f; });
+                }
+            });
+            y += 36;
+            sliderRow("fbr", L"Brightness", e->filters.brightness, -100, 100, L"", [](dz::Element& x, float v) { x.filters.brightness = v; });
+            sliderRow("fct", L"Contrast", e->filters.contrast, -100, 100, L"", [](dz::Element& x, float v) { x.filters.contrast = v; });
+            sliderRow("fsat", L"Colour", e->filters.saturation, 0, 200, L"%", [](dz::Element& x, float v) { x.filters.saturation = v; });
+            sliderRow("fblur", L"Blur", e->filters.blur, 0, 40, L" px", [](dz::Element& x, float v) { x.filters.blur = v; });
+            label(L"Tint");
+            button("dz:p:tint", {r.x + 112, y - 2, r.w - 112, 30}, e->filters.tintAmount > 0 ? widen(su::colourText({e->filters.tint.r, e->filters.tint.g, e->filters.tint.b, 255})) : L"None",
+                   [this, eid, edit, colourMenu] {
+                       const dz::Element* x = designDoc_.find(eid);
+                       if (!x) return;
+                       const su::Rgba now{x->filters.tint.r, x->filters.tint.g, x->filters.tint.b, (std::uint8_t)(x->filters.tintAmount > 0 ? 255 : 0)};
+                       colourMenu(now, "", [edit](su::Rgba c, std::string) {
+                           edit([c](dz::Element& z) {
+                               z.filters.tint = {c.r, c.g, c.b, 0};
+                               if (c.a == 0) z.filters.tintAmount = 0;
+                               else if (z.filters.tintAmount <= 0) z.filters.tintAmount = 30;
+                           });
+                       }, true);
+                   });
+            y += 36;
+            if (e->filters.tintAmount > 0)
+                sliderRow("ftint", L"Tint amount", e->filters.tintAmount, 0, 100, L"%", [](dz::Element& x, float v) { x.filters.tintAmount = v; });
+        }
     }
     // Entrance.
     {
