@@ -109,17 +109,39 @@ ComPtr<ID2D1Bitmap> loadPicture(Ctx& c, ID2D1RenderTarget* rt, const std::string
     return bmp;
 }
 
+bool hasFamily(IDWriteFontCollection* coll, const std::wstring& name) {
+    UINT32 idx = 0;
+    BOOL exists = FALSE;
+    return coll && SUCCEEDED(coll->FindFamilyName(name.c_str(), &idx, &exists)) && exists;
+}
+
+// A font that's there: the one asked for, or (0.17) the nearest kind that is, serif for serif, so a design made on
+// another PC never loses its words.
+std::wstring familyFor(Ctx& c, const std::string& font) {
+    const std::wstring want = widen(font);
+    ComPtr<IDWriteFontCollection> sys;
+    c.dw->GetSystemFontCollection(&sys);
+    if (hasFamily(c.fonts.Get(), want) || hasFamily(sys.Get(), want) || !sys) return want;
+    static const wchar_t* serifs[] = {L"Georgia", L"Palatino Linotype", L"Book Antiqua", L"Cambria", L"Constantia", L"Garamond", L"Times New Roman"};
+    bool serif = want.find(L"Serif") != std::wstring::npos;
+    for (auto* f : serifs) serif = serif || want == f;
+    static const wchar_t* serifChain[] = {L"Georgia", L"Palatino Linotype", L"Cambria", L"Times New Roman", L"Liberation Serif", L"DejaVu Serif"};
+    static const wchar_t* sansChain[] = {L"Segoe UI", L"Arial", L"Tahoma", L"Liberation Sans", L"DejaVu Sans"};
+    if (serif)
+        for (auto* f : serifChain)
+            if (hasFamily(sys.Get(), f)) return f;
+    for (auto* f : sansChain)
+        if (hasFamily(sys.Get(), f)) return f;
+    return want;
+}
+
 ComPtr<IDWriteTextLayout> layoutFor(Ctx& c, const Element& e, const std::wstring& text) {
     ComPtr<IDWriteTextFormat> fmt;
     ComPtr<IDWriteTextLayout> lay;
     // The kit's collection only when it has the font: otherwise Windows' own, so missing fonts fall back.
-    IDWriteFontCollection* coll = nullptr;
-    if (c.fonts) {
-        UINT32 idx = 0;
-        BOOL exists = FALSE;
-        if (SUCCEEDED(c.fonts->FindFamilyName(widen(e.font).c_str(), &idx, &exists)) && exists) coll = c.fonts.Get();
-    }
-    if (FAILED(c.dw->CreateTextFormat(widen(e.font).c_str(), coll, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+    const std::wstring family = familyFor(c, e.font);
+    IDWriteFontCollection* coll = hasFamily(c.fonts.Get(), family) ? c.fonts.Get() : nullptr;
+    if (FAILED(c.dw->CreateTextFormat(family.c_str(), coll, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                                       e.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, e.size, L"en-gb", &fmt)) &&
         FAILED(c.dw->CreateTextFormat(L"Segoe UI", nullptr, e.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                                       e.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, e.size, L"en-gb", &fmt)))
@@ -431,7 +453,17 @@ void drawShape(Ctx& c, ID2D1RenderTarget* rt, const Element& e, const Placeholde
                 // The name: bold, in the viewer's colour (made lighter if it would be hard to read).
                 Rgba nc = e.chatNameColours ? (it->colour.a ? it->colour : chat::defaultColour(it->login)) : (main ? main->colour : Rgba{63, 207, 142, 255});
                 const float lum = (0.2126f * nc.r + 0.7152f * nc.g + 0.0722f * nc.b) / 255.f;
-                if (lum < 0.45f) nc = {(std::uint8_t)(nc.r + (255 - nc.r) * 0.45f), (std::uint8_t)(nc.g + (255 - nc.g) * 0.45f), (std::uint8_t)(nc.b + (255 - nc.b) * 0.45f), 255};
+                // On light cards (parchment, 0.17) names are darkened instead, like coloured inks.
+                const Rgba bc = e.chatBubble;
+                const bool lightCards = e.chatBubbles && bc.a > 120 && (0.2126f * bc.r + 0.7152f * bc.g + 0.0722f * bc.b) / 255.f > 0.6f;
+                if (lightCards) {
+                    float l = lum;
+                    for (int k = 0; k < 6 && l > 0.32f; ++k) {
+                        nc = {(std::uint8_t)(nc.r * 0.7f), (std::uint8_t)(nc.g * 0.7f), (std::uint8_t)(nc.b * 0.7f), 255};
+                        l = (0.2126f * nc.r + 0.7152f * nc.g + 0.0722f * nc.b) / 255.f;
+                    }
+                } else if (lum < 0.45f)
+                    nc = {(std::uint8_t)(nc.r + (255 - nc.r) * 0.45f), (std::uint8_t)(nc.g + (255 - nc.g) * 0.45f), (std::uint8_t)(nc.b + (255 - nc.b) * 0.45f), 255};
                 ComPtr<ID2D1SolidColorBrush> nb;
                 rt->CreateSolidColorBrush(shadowPass ? D2D1::ColorF(0, 0, 0, alpha) : col(nc, alpha), &nb);
                 const DWRITE_TEXT_RANGE nameRange{0, (UINT32)(it->action ? t.size() : name.size())};

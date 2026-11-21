@@ -105,6 +105,11 @@ else()
   target_include_directories(capture_mp4_copy_check PRIVATE src)
   target_link_libraries(capture_mp4_copy_check PRIVATE capturecore cjcore)
   target_link_options(capture_mp4_copy_check PRIVATE -static -municode)
+  # Not a test by itself: every design template drawn to PNGs with sample details (tests/design_render_check.cpp).
+  add_executable(capture_design_render_check tests/design_render_check.cpp src/video/design_render.cpp)
+  target_include_directories(capture_design_render_check PRIVATE src)
+  target_link_libraries(capture_design_render_check PRIVATE capturecore cjcore ole32 d2d1 dwrite windowscodecs uuid)
+  target_link_options(capture_design_render_check PRIVATE -static -municode)
 endif()
 
 add_custom_command(TARGET NorthRayCapture POST_BUILD

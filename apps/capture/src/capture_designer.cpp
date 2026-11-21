@@ -405,16 +405,18 @@ void CaptureWindow::switchToSceneNamed(const std::string& name, const std::wstri
 
 void CaptureWindow::addDesign() {
     // Start from a template or an empty page.
+    // A submenu for each group of templates (0.17: there are two looks of many, too many for one list).
     std::vector<MenuItem> items = {MenuItem::item(L"An empty page (1920 × 1080)", 1), MenuItem::sep()};
     const auto& ts = dz::templates();
-    std::string group;
-    for (std::size_t i = 0; i < ts.size(); ++i) {
-        if (ts[i].group != group) {
-            group = ts[i].group;
-            items.push_back(MenuItem::item(widen(group), 2, {}, false));
-        }
-        items.push_back(MenuItem::item(L"   " + widen(ts[i].name), 100 + (UINT)i,
-                                       std::to_wstring(ts[i].doc.width) + L" × " + std::to_wstring(ts[i].doc.height)));
+    std::vector<std::string> groups;
+    for (auto& t : ts)
+        if (std::find(groups.begin(), groups.end(), t.group) == groups.end()) groups.push_back(t.group);
+    for (auto& g : groups) {
+        std::vector<MenuItem> sub;
+        for (std::size_t i = 0; i < ts.size(); ++i)
+            if (ts[i].group == g)
+                sub.push_back(MenuItem::item(widen(ts[i].name), 100 + (UINT)i, std::to_wstring(ts[i].doc.width) + L" × " + std::to_wstring(ts[i].doc.height)));
+        items.push_back(MenuItem::sub(widen(g), sub));
     }
     POINT pt;
     GetCursorPos(&pt);

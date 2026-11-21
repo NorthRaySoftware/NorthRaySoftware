@@ -2696,7 +2696,8 @@ static void testBrandKit() {
     CHECK(!dz::usesBrand(u) && u.find(rid)->fill.stops[0].colour == ncap::sourceutil::Rgba(255, 0, 0, 0x55) && u.find(tid)->font == "Georgia");
 
     // Every template follows the kit, and the watermark uses the logo.
-    for (auto& tp : dz::templates()) CHECK(dz::usesBrand(tp.doc));
+    // Every template follows the kit, but the bookish ones (0.17), which keep their parchment, ink and gold.
+    for (auto& tp : dz::templates()) CHECK(dz::usesBrand(tp.doc) == (std::string(tp.group).rfind("Bookish", 0) != 0));
     bool logo = false;
     for (auto& tp : dz::templates())
         for (auto& e : tp.doc.elements) logo = logo || e.file == dz::kBrandLogo;
@@ -3038,6 +3039,70 @@ static void testDesignPictures() {
     CHECK(bad.elements[0].filters.saturation == 200 && bad.elements[0].filters.blur == 0 && bad.elements[0].filters.tintAmount == 0);
 }
 
+static void testTemplateLooks() {
+    std::printf("templates in two looks\n");
+    using namespace ncap::design;
+    // Every aurora writing, chat and now-playing template has a bookish twin showing the same details.
+    auto placeholders = [](const Document& d) {
+        std::set<std::string> out;
+        for (auto& e : d.elements)
+            for (const std::string* t : {&e.text, &e.file}) {
+                std::size_t p = 0;
+                while ((p = t->find('{', p)) != std::string::npos) {
+                    const std::size_t q = t->find('}', p);
+                    if (q == std::string::npos) break;
+                    out.insert(t->substr(p, q - p + 1));
+                    p = q;
+                }
+            }
+        return out;
+    };
+    int twins = 0;
+    for (const char* id : {"chat-box", "now-playing", "book-card", "writing-progress", "chapter-card", "character-card", "cast-list", "sprint-timer",
+                           "celebration"}) {
+        const Template *a = nullptr, *b = nullptr;
+        for (auto& t : templates()) {
+            if (std::string(t.id) == id) a = &t;
+            if (std::string(t.id) == std::string(id) + "-bookish") b = &t;
+        }
+        CHECK(a && b);
+        if (!a || !b) continue;
+        ++twins;
+        CHECK(placeholders(a->doc) == placeholders(b->doc));
+        CHECK(a->doc.onlyWhileSprint == b->doc.onlyWhileSprint && a->doc.onlyCelebrating == b->doc.onlyCelebrating &&
+              a->doc.onlyWhilePlaying == b->doc.onlyWhilePlaying);
+        CHECK(usesChat(a->doc) == usesChat(b->doc));
+        bool serif = false, aroundCircle = false, arched = false, inside = true;
+        for (auto& e : b->doc.elements) {
+            serif = serif || e.font == "Georgia";
+            arched = arched || e.mask == "arch";
+            inside = inside && e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= b->doc.width + 0.5f && e.y + e.h <= b->doc.height + 0.5f;
+        }
+        for (auto& e : a->doc.elements) aroundCircle = aroundCircle || e.mask == "circle";
+        CHECK(serif && inside);
+        // Portraits: round in aurora, arched in bookish.
+        const bool portraits = placeholders(a->doc).count("{viewpointpic}") || placeholders(a->doc).count("{cast1pic}");
+        CHECK(!portraits || (aroundCircle && arched));
+        for (auto& e : a->doc.elements)   // nothing of aurora's light spills off its page
+            CHECK(e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= a->doc.width + 0.5f && e.y + e.h <= a->doc.height + 0.5f);
+    }
+    CHECK(twins == 9);
+    // Writing progress keeps its chapter words, so the 0.10.28 upgrade leaves both alone.
+    for (auto& t : templates())
+        if (std::string(t.id).rfind("writing-progress", 0) == 0) {
+            Document d = t.doc;
+            CHECK(!addChapterWords(d));
+        }
+    // Groups stay together in order.
+    int last = -1;
+    for (auto& t : templates()) {
+        const std::string g = t.group;
+        const int rank = g == "Holding screens" ? 0 : g == "On stream" ? 1 : g == "Writing" ? 2 : g.rfind("Bookish", 0) == 0 ? 3 : 4;
+        CHECK(rank >= last);
+        last = rank;
+    }
+}
+
 static void testDesignEffects() {
     std::printf("design effects: gradient stops, glow\n");
     using namespace ncap::design;
@@ -3318,6 +3383,7 @@ int main() {
     testDesignLive();
     testDesignEffects();
     testDesignPictures();
+    testTemplateLooks();
     testBrandKit();
     testChat();
     testTrackNames();

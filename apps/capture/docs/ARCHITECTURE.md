@@ -1709,3 +1709,30 @@ The third part of CJ's overlay-polish answers: crop by dragging, shapes, filters
   flat pictures flat and not darkening see-through edges; looks; JSON both ways and nonsense). In Wine with a
   1200 x 1600 picture: the circle, crop mode (zoom by wheel, drag, the faint whole picture), Sepia, blur, a heart with
   a 4 px gold outline (clean; checked in a saved PNG).
+
+## 63. Templates in two looks (released as 0.17.0, 21 Nov 2026)
+
+The last part of CJ's overlay-polish answers: the writing templates and chat and now playing, each in an aurora and a
+bookish version.
+
+- core/design: the nine templates are built by functions taking the look (`bookCard`, `writingProgress`, `chapterCard`,
+  `characterCard`, `castList`, `sprintTimer`, `celebration`, `chatBox`, `nowPlaying`) from shared pieces: `lookCard`
+  (aurora: a night gradient panel, a green edge, a shadow and two radial aurora lights kept inside the card; bookish:
+  a parchment gradient, a 3 px gold edge, a shadow and an inner rule), `lookLabel` (gradient letters / gold serif
+  italic), `lookTitle` (white with a green glow / ink serif), `lookBody`, `lookMuted`, `lookRule` (gradient line / gold
+  line with a diamond), `lookPortrait` (circle mask, green outline and glow / arch mask, gold outline and shadow, each
+  over a backing that shows until there's a picture) and `lookIcon`. The aurora versions keep the old ids (scene
+  templates use them); the bookish ones are `<id>-bookish` in the group "Bookish (parchment, serif, ink and gold)".
+  Aurora's colours are the default kit's, so linkToBrand links them; bookish keeps its own (the brand test now expects
+  that). Groups sort Holding screens, On stream, Writing, Bookish, Panels. Chat box gained a header (icon and label);
+  bookish chat has Georgia text on parchment cards.
+- video/design_render: `familyFor` picks a font that's there (the one asked for, else a serif chain for serif fonts,
+  else a sans chain), since a missing family drew no text at all in Wine. Chat names on light cards (luminance over
+  0.6) are darkened to under 0.32 instead of lightened.
+- Designer: Overlay design… lists each group as a submenu.
+- tests/design_render_check.cpp (`capture_design_render_check`, not shipped): renders every template with sample details,
+  a song, sample chat, a running sprint and a celebration to PNGs, for looking at; used to check both looks side by side.
+- Tested: capturecore 2688 checks (each of the nine has a twin with the same placeholders and show-only flags; bookish
+  uses Georgia and arched portraits, aurora round ones; nothing off the page; Writing progress keeps its chapter words;
+  groups in order; aurora follows the kit and bookish doesn't). In Wine: all 28 templates rendered and compared in
+  pairs; the Bookish submenu adding Book card (bookish) to a scene.

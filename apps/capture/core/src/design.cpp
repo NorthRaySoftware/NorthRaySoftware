@@ -1227,6 +1227,331 @@ Document holding(const char* name, const char* title, const char* sub) {
     add(d, soc);
     return d;
 }
+
+// ---- The two looks for the writing, chat and now-playing templates (0.17): aurora (night panels, aurora light, glowing
+// titles, gradient labels, round portraits) and bookish (parchment, serif type, ink and gold, arched portraits).
+// Aurora's colours are the default brand kit's, so it follows the kit; bookish keeps its own.
+constexpr const char* kSerif = "Georgia";
+void lookCard(Document& d, bool bk, float x, float y, float w, float h, Anim a, const char* name = "Card") {
+    Element c = rectEl(name, x, y, w, h,
+                       bk ? Fill::linear({{0, hex("#F7EDD5")}, {1, hex("#EAD7AC")}}, 90) : Fill::linear({{0, hex("#0B1A2EF2")}, {1, hex("#10263EEE")}}, 90),
+                       bk ? 12.0f : 28.0f);
+    c.stroke = hex(bk ? "#A8853A" : "#3FCF8E44");
+    c.strokeWidth = bk ? 3.0f : 2.0f;
+    c.shadow = bk ? Shadow{true, 0, 8, 22, hex("#1E140A80"), ""} : Shadow{true, 0, 10, 30, hex("#00000099"), ""};
+    c.anim = a;
+    add(d, c);
+    if (bk) {   // a fine second rule inside the edge, as on a book's title page
+        Element r = rectEl("Inner rule", x + 9, y + 9, w - 18, h - 18, Fill::none(), 6);
+        r.stroke = hex("#A8853A99");
+        r.strokeWidth = 1.5f;
+        r.anim = a;
+        add(d, r);
+    } else {   // aurora light, kept inside the card
+        Element g1 = ellipseEl("Aurora light (violet)", x + w * 0.5f, y, w * 0.5f, h, Fill::radial({{0, hex("#7A5CFF30")}, {1, hex("#7A5CFF00")}}));
+        g1.anim = a;
+        add(d, g1);
+        Element g2 = ellipseEl("Aurora light (green)", x, y + h * 0.2f, w * 0.45f, h * 0.8f, Fill::radial({{0, hex("#3FCF8E26")}, {1, hex("#3FCF8E00")}}));
+        g2.anim = a;
+        add(d, g2);
+    }
+}
+Element lookLabel(bool bk, const char* name, const char* text, float x, float y, float w, float h, Anim a, const char* align = "left") {
+    Element e = textEl(name, text, x, y, w, h, bk ? 24.0f : 22.0f, bk ? "#8C6A22" : "#3FCF8E", !bk, align);
+    if (bk) {
+        e.font = kSerif;
+        e.italic = true;
+    } else {
+        e.fill = Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#22C3E6")}}, 0);   // gradient letters (0.15)
+    }
+    e.anim = a;
+    return e;
+}
+Element lookTitle(bool bk, const char* name, const char* text, float x, float y, float w, float h, float size, Anim a, const char* align = "left") {
+    Element e = textEl(name, text, x, y, w, h, size, bk ? "#2A1C0E" : "#F4F7FB", true, align);
+    if (bk) e.font = kSerif;
+    else e.glow = {true, 20, 1.0f, hex("#3FCF8E55"), ""};
+    e.anim = a;
+    return e;
+}
+Element lookBody(bool bk, const char* name, const char* text, float x, float y, float w, float h, float size, Anim a, const char* align = "left") {
+    Element e = textEl(name, text, x, y, w, h, size, bk ? "#4A3622" : "#C9D6E3", false, align);
+    if (bk) e.font = kSerif;
+    e.anim = a;
+    return e;
+}
+Element lookMuted(bool bk, const char* name, const char* text, float x, float y, float w, float h, float size, Anim a, const char* align = "left") {
+    Element e = textEl(name, text, x, y, w, h, size, bk ? "#7A6243" : "#9FB3C8", false, align);
+    if (bk) {
+        e.font = kSerif;
+        e.italic = true;
+    }
+    e.anim = a;
+    return e;
+}
+// A rule under a heading: aurora's gradient line, or a gold line with a diamond at its middle.
+void lookRule(Document& d, bool bk, float x, float y, float w, Anim a) {
+    if (bk) {
+        Element l = rectEl("Gold rule", x, y, w, 2, Fill::solid(hex("#A8853A")));
+        l.anim = a;
+        add(d, l);
+        Element o = rectEl("Ornament", x + w / 2 - 6, y - 5, 12, 12, Fill::solid(hex("#A8853A")));
+        o.rotation = 45;
+        o.anim = a;
+        add(d, o);
+    } else {
+        Element l = rectEl("Accent line", x, y, w, 4, Fill::linear({{0, hex("#3FCF8E")}, {0.5f, hex("#22C3E6")}, {1, hex("#7A5CFF")}}, 0), 2);
+        l.anim = a == Anim::None ? Anim::Wipe : a;
+        add(d, l);
+    }
+}
+Element picEl(const char* name, const char* file, float x, float y, float w, float h, float radius) {
+    Element p;
+    p.kind = Kind::Image;
+    p.name = name;
+    p.file = file;
+    p.cover = true;
+    p.radius = radius;
+    p.x = x, p.y = y, p.w = w, p.h = h;
+    p.fill = Fill::none();
+    return p;
+}
+// A portrait: round with a glowing ring (aurora) or arched with a gold edge (bookish), over a backing that shows until
+// there's a picture.
+void lookPortrait(Document& d, bool bk, const char* name, const char* file, float x, float y, float w, float h, Anim a, int ms) {
+    Element back = bk ? rectEl("Portrait backing", x, y, w, h, Fill::linear({{0, hex("#D9C394")}, {1, hex("#C2A66E")}}, 90), w / 2)
+                      : ellipseEl("Portrait backing", x, y, w, h, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135));
+    back.name = std::string(name) + " backing";
+    back.anim = a;
+    back.animMs = ms;
+    add(d, back);
+    Element p = picEl(name, file, x, y, w, h, 0);
+    p.mask = bk ? "arch" : "circle";
+    p.stroke = hex(bk ? "#A8853A" : "#3FCF8E");
+    p.strokeWidth = 4;
+    if (bk) p.shadow = {true, 0, 4, 12, hex("#1E140A66"), ""};
+    else p.glow = {true, 18, 1.2f, hex("#3FCF8E88"), ""};
+    p.anim = a;
+    p.animMs = ms;
+    add(d, p);
+}
+Element lookIcon(bool bk, const char* name, const char* icon, float x, float y, float w, float h, Anim a) {
+    Element ic;
+    ic.kind = Kind::Icon;
+    ic.icon = icon;
+    ic.name = name;
+    ic.x = x, ic.y = y, ic.w = w, ic.h = h;
+    ic.fill = bk ? Fill::linear({{0, hex("#D9B45A")}, {1, hex("#9A7424")}}, 90) : Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0);
+    if (!bk) ic.glow = {true, 16, 1.0f, hex("#3FCF8E66"), ""};
+    ic.anim = a;
+    return ic;
+}
+
+Document bookCard(bool bk) {
+    Document d;
+    d.name = bk ? "Book card (bookish)" : "Book card";
+    d.width = 900, d.height = 320;
+    const Anim a = Anim::SlideLeft;
+    lookCard(d, bk, 10, 10, 880, 300, a);
+    Element cover = rectEl("Cover (until there is a picture)", 40, 40, 160, 240,
+                           bk ? Fill::linear({{0, hex("#6B2E1E")}, {1, hex("#3E1A12")}}, 135) : Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 8);
+    cover.shadow = {true, 0, 6, 18, hex("#00000080"), ""};
+    cover.anim = a;
+    add(d, cover);
+    Element ic = lookIcon(bk, "Book", "book", 85, 125, 70, 70, a);
+    if (!bk) ic.fill = Fill::solid(hex("#F4F7FB")), ic.glow = {};
+    add(d, ic);
+    Element pic = picEl("Cover picture", "{cover}", 40, 40, 160, 240, 8);
+    if (bk) pic.stroke = hex("#A8853A"), pic.strokeWidth = 2;
+    pic.anim = a;
+    add(d, pic);
+    add(d, lookLabel(bk, "Label", bk ? "Now writing" : "NOW WRITING", 240, 48, 620, 34, a));
+    add(d, lookTitle(bk, "Title", "{book}", 240, 86, 620, 120, bk ? 50.0f : 52.0f, a));
+    lookRule(d, bk, 240, 214, 220, a);
+    Element s = lookMuted(bk, "Series", "{series}", 240, 228, 620, 44, 28, a);
+    s.animMs = 700;
+    add(d, s);
+    return d;
+}
+Document writingProgress(bool bk) {
+    Document d;
+    d.name = bk ? "Writing progress (bookish)" : "Writing progress";
+    d.width = 1100, d.height = 300;
+    const Anim a = Anim::SlideUp;
+    lookCard(d, bk, 10, 10, 1080, 280, a);
+    add(d, lookLabel(bk, "Label", bk ? "Chapter" : "CHAPTER", 50, 36, 700, 34, a));
+    Element cw = lookLabel(bk, "Chapter words", "{chapterline}", 50, 36, 1000, 34, a, "right");
+    add(d, cw);
+    add(d, lookTitle(bk, "Chapter", "{chapter}", 50, 72, 1000, 70, 50, a));
+    lookRule(d, bk, 50, 150, 260, a);
+    Element t = lookBody(bk, "Today", "{today}", 50, 164, 1000, 46, 34, a);
+    t.animMs = 650;
+    add(d, t);
+    Element b = lookMuted(bk, "Book and streak", "{bookline}  ·  {streakline}", 50, 218, 1000, 40, 26, a);
+    b.animMs = 750;
+    add(d, b);
+    return d;
+}
+Document chapterCard(bool bk) {
+    Document d;
+    d.name = bk ? "Chapter card (bookish)" : "Chapter card";
+    d.width = 1100, d.height = 320;
+    const Anim a = Anim::SlideUp;
+    lookCard(d, bk, 10, 10, 1080, 300, a);
+    Element pic = picEl("Place picture", "{placepic}", bk ? 830 : 800, bk ? 36 : 40, bk ? 200 : 250, bk ? 248 : 240, 18);
+    if (bk) {
+        pic.mask = "arch";
+        pic.stroke = hex("#A8853A"), pic.strokeWidth = 4;
+        pic.shadow = {true, 0, 4, 12, hex("#1E140A66"), ""};
+    } else {
+        pic.glow = {true, 16, 1.0f, hex("#7A5CFF66"), ""};
+    }
+    pic.anim = a;
+    add(d, pic);
+    add(d, lookLabel(bk, "Status", "{status}", 50, 36, 720, 34, a));
+    add(d, lookTitle(bk, "Chapter", "{chapter}", 50, 72, 740, 70, 50, a));
+    lookRule(d, bk, 50, 148, 240, a);
+    Element where = lookBody(bk, "Where and when", "{place}  ·  {storyday}", 50, 160, 740, 42, 30, a);
+    where.animMs = 650;
+    add(d, where);
+    Element pov = lookMuted(bk, "Viewpoint", "{viewpoint}", 50, 206, 740, 40, 26, a);
+    pov.animMs = 700;
+    add(d, pov);
+    Element t = lookMuted(bk, "Target", "{targetline}", 50, 250, 740, 40, 26, a);
+    t.animMs = 750;
+    add(d, t);
+    return d;
+}
+Document characterCard(bool bk) {
+    Document d;
+    d.name = bk ? "Character card (bookish)" : "Character card";
+    d.width = 760, d.height = 260;
+    const Anim a = Anim::SlideLeft;
+    lookCard(d, bk, 10, 10, 740, 240, a);
+    if (bk) lookPortrait(d, bk, "Portrait", "{viewpointpic}", 50, 30, 150, 200, a, 500);
+    else lookPortrait(d, bk, "Portrait", "{viewpointpic}", 42, 42, 176, 176, a, 500);
+    add(d, lookLabel(bk, "Label", bk ? "Through the eyes of" : "THROUGH THE EYES OF", 250, 70, 480, 34, a));
+    Element n = lookTitle(bk, "Name", "{viewpoint}", 250, 106, 480, 80, 50, a);
+    n.animMs = 650;
+    add(d, n);
+    lookRule(d, bk, 250, 188, 200, a);
+    return d;
+}
+Document castList(bool bk) {
+    Document d;
+    d.name = bk ? "Cast list (bookish)" : "Cast list";
+    d.width = 1200, d.height = bk ? 340.0f : 300;
+    const Anim a = Anim::SlideUp;
+    lookCard(d, bk, 10, 10, 1180, d.height - 20, a);
+    add(d, lookLabel(bk, "Label", bk ? "In this chapter" : "IN THIS CHAPTER", 40, 26, 1120, 34, a));
+    for (int i = 0; i < 6; ++i) {
+        const float x = 40 + i * 188.0f;
+        const std::string n = std::to_string(i + 1);
+        const std::string name = "Portrait " + n, pic = "{cast" + n + "pic}", who = "{cast" + n + "}", nameEl = "Name " + n;
+        if (bk) lookPortrait(d, bk, name.c_str(), pic.c_str(), x + 33, 72, 106, 150, a, 500 + i * 80);
+        else lookPortrait(d, bk, name.c_str(), pic.c_str(), x + 24, 76, 124, 124, a, 500 + i * 80);
+        Element t = bk ? lookBody(bk, nameEl.c_str(), who.c_str(), x, 236, 172, 70, 22, a, "centre")
+                       : textEl(nameEl.c_str(), who.c_str(), x, 210, 172, 60, 22, "#F4F7FB", true, "centre");
+        t.anim = a;
+        t.animMs = 500 + i * 80;
+        add(d, t);
+    }
+    return d;
+}
+Document sprintTimer(bool bk) {
+    Document d;
+    d.name = bk ? "Sprint timer (bookish)" : "Sprint timer";
+    d.width = 700, d.height = 220;
+    d.onlyWhileSprint = true;
+    const Anim a = Anim::Pop;
+    lookCard(d, bk, 10, 10, 680, 200, a);
+    add(d, lookLabel(bk, "Label", bk ? "A writing sprint" : "WRITING SPRINT", 40, 30, 620, 34, a));
+    Element t;
+    t.kind = Kind::Timer;
+    t.name = "Time left";
+    t.timerMode = "sprint";
+    t.timerEnd = bk ? "Pens down!" : "Time!";
+    t.x = 40, t.y = 64, t.w = 620, t.h = 86;
+    t.size = 72;
+    t.bold = true;
+    t.align = "left";
+    if (bk) {
+        t.font = kSerif;
+        t.fill = Fill::solid(hex("#2A1C0E"));
+    } else {
+        t.fill = Fill::linear({{0, hex("#F4F7FB")}, {1, hex("#BFF3DC")}}, 90);
+        t.glow = {true, 22, 1.2f, hex("#3FCF8E66"), ""};
+    }
+    t.anim = a;
+    add(d, t);
+    add(d, lookMuted(bk, "Words", "{sprintline}", 40, 154, 620, 40, 28, a));
+    return d;
+}
+Document celebration(bool bk) {
+    Document d;
+    d.name = bk ? "Celebration (bookish)" : "Celebration";
+    d.width = 1000, d.height = 260;
+    d.onlyCelebrating = true;
+    Element glow = rectEl("Glow", 20, 20, 960, 220, Fill::radial({{0, hex(bk ? "#E8C46A99" : "#3FCF8E99")}, {1, hex(bk ? "#E8C46A00" : "#3FCF8E00")}}), 110);
+    glow.anim = Anim::Fade;
+    add(d, glow);
+    if (bk) {
+        lookCard(d, bk, 80, 60, 840, 140, Anim::Pop, "Banner");
+    } else {
+        Element card = rectEl("Banner", 80, 60, 840, 140, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0), 70);
+        card.shadow = {true, 0, 10, 26, hex("#00000099"), ""};
+        card.anim = Anim::Pop;
+        add(d, card);
+    }
+    Element ic = lookIcon(bk, "Sparkle", bk ? "star" : "sparkle", 112, 90, 80, 80, Anim::Pop);
+    if (!bk) ic.fill = Fill::solid(hex("#FFFFFF")), ic.glow = {true, 14, 1.0f, hex("#FFFFFF88"), ""};
+    add(d, ic);
+    Element t = textEl("Words", "{celebration}", 204, 90, 690, 80, 40, bk ? "#2A1C0E" : "#FFFFFF", true, "left");
+    if (bk) t.font = kSerif, t.italic = true;
+    t.anim = Anim::Pop;
+    t.animMs = 650;
+    add(d, t);
+    return d;
+}
+Document chatBox(bool bk) {
+    Document d;
+    d.name = bk ? "Chat box (bookish)" : "Chat box";
+    d.width = 600, d.height = 760;
+    lookCard(d, bk, 0, 0, 600, 64, Anim::None, "Header");
+    Element ic = lookIcon(bk, "Chat icon", "chat", 22, 14, 36, 36, Anim::None);
+    add(d, ic);
+    add(d, lookLabel(bk, "Label", bk ? "From the reading room" : "LIVE CHAT", 72, 15, 500, 34, Anim::None));
+    Element e;
+    e.kind = Kind::Chat;
+    e.name = "Chat";
+    e.x = 0, e.y = 80, e.w = 600, e.h = 680;
+    e.size = 28;
+    e.chatCount = 8;
+    e.chatSide = "left";
+    if (bk) {
+        e.font = kSerif;
+        e.fill = Fill::solid(hex("#2A1C0E"));
+        e.chatBubble = hex("#F7EDD5F0");
+        e.chatBubbleBrand = "";
+    } else {
+        e.fill = Fill::solid(hex("#F4F7FB"));
+    }
+    add(d, e);
+    return d;
+}
+Document nowPlaying(bool bk) {
+    Document d;
+    d.name = bk ? "Now playing (bookish)" : "Now playing";
+    d.width = 760, d.height = 150;
+    d.onlyWhilePlaying = true;
+    const Anim a = Anim::SlideLeft;
+    lookCard(d, bk, 10, 10, 740, 130, a);
+    add(d, lookIcon(bk, "Music", "music", 40, 35, 80, 80, a));
+    add(d, lookLabel(bk, "Label", bk ? "Now playing" : "NOW PLAYING", 145, 22, 580, 34, a));
+    add(d, lookTitle(bk, "Song", "{song}", 145, 52, 580, 48, 38, a));
+    add(d, lookMuted(bk, "Artist", "{artist}", 145, 98, 580, 34, 26, a));
+    return d;
+}
 }  // namespace
 
 bool addChapterWords(Document& d) {
@@ -1332,303 +1657,30 @@ const std::vector<Template>& templates() {
             add(d, e);
             v.push_back({"logo-watermark", "Logo watermark (your brand logo)", "On stream", d});
         }
-        {
-            Document d;
-            d.name = "Chat box";
-            d.width = 600;
-            d.height = 700;
-            Element e;
-            e.kind = Kind::Chat;
-            e.name = "Chat";
-            e.x = 0, e.y = 0, e.w = 600, e.h = 700;
-            e.fill = Fill::solid(hex("#F4F7FB"));
-            e.size = 28;
-            e.chatCount = 8;
-            e.chatSide = "left";
-            add(d, e);
-            v.push_back({"chat-box", "Chat box (your Twitch chat, live)", "On stream", d});
-        }
-        {
-            Document d;
-            d.name = "Now playing";
-            d.width = 760;
-            d.height = 150;
-            d.onlyWhilePlaying = true;
-            Element card;
-            card.kind = Kind::Rect;
-            card.name = "Card";
-            card.x = 10, card.y = 10, card.w = 740, card.h = 130;
-            card.radius = 28;
-            card.fill = Fill::solid(hex("#0B1A2EE6"));
-            card.stroke = hex("#3FCF8E55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideLeft;
-            add(d, card);
-            Element ic;
-            ic.kind = Kind::Icon;
-            ic.icon = "music";
-            ic.name = "Music";
-            ic.x = 40, ic.y = 35, ic.w = 80, ic.h = 80;
-            ic.fill = Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0);
-            ic.anim = Anim::SlideLeft;
-            add(d, ic);
-            Element k;
-            k.kind = Kind::Text;
-            k.name = "Label";
-            k.text = "NOW PLAYING";
-            k.x = 145, k.y = 26, k.w = 580, k.h = 28;
-            k.size = 20;
-            k.bold = true;
-            k.fill = Fill::solid(hex("#3FCF8E"));
-            k.anim = Anim::SlideLeft;
-            add(d, k);
-            Element t;
-            t.kind = Kind::Text;
-            t.name = "Song";
-            t.text = "{song}";
-            t.x = 145, t.y = 52, t.w = 580, t.h = 48;
-            t.size = 38;
-            t.bold = true;
-            t.fill = Fill::solid(hex("#F4F7FB"));
-            t.anim = Anim::SlideLeft;
-            add(d, t);
-            Element a;
-            a.kind = Kind::Text;
-            a.name = "Artist";
-            a.text = "{artist}";
-            a.x = 145, a.y = 98, a.w = 580, a.h = 34;
-            a.size = 26;
-            a.fill = Fill::solid(hex("#9FB3C8"));
-            a.anim = Anim::SlideLeft;
-            add(d, a);
-            v.push_back({"now-playing", "Now playing (your music's title and artist)", "On stream", d});
-        }
-        {   // The book you're writing or reading: a cover, its title and series (reading and author streams).
-            Document d;
-            d.name = "Book card";
-            d.width = 900;
-            d.height = 320;
-            Element card = rectEl("Card", 10, 10, 880, 300, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#3FCF8E55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideLeft;
-            add(d, card);
-            Element cover = rectEl("Cover (until there is a picture)", 40, 40, 160, 240,
-                                   Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 10);
-            cover.shadow = {true, 0, 6, 18, hex("#00000080")};
-            cover.anim = Anim::SlideLeft;
-            add(d, cover);
-            Element ic;
-            ic.kind = Kind::Icon;
-            ic.icon = "book";
-            ic.name = "Book";
-            ic.x = 85, ic.y = 125, ic.w = 70, ic.h = 70;
-            ic.fill = Fill::solid(hex("#F4F7FB"));
-            ic.anim = Anim::SlideLeft;
-            add(d, ic);
-            Element pic;   // the cover itself, over the panel, when Writing Studio (or {cover} in Your details) names one
-            pic.kind = Kind::Image;
-            pic.name = "Cover picture";
-            pic.file = "{cover}";
-            pic.cover = true;
-            pic.radius = 10;
-            pic.x = 40, pic.y = 40, pic.w = 160, pic.h = 240;
-            pic.anim = Anim::SlideLeft;
-            add(d, pic);
-            Element k = textEl("Label", "NOW WRITING", 240, 52, 620, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::SlideLeft;
-            add(d, k);
-            Element t = textEl("Title", "{book}", 240, 88, 620, 120, 52, "#F4F7FB", true, "left");
-            t.anim = Anim::SlideLeft;
-            add(d, t);
-            Element s = textEl("Series", "{series}", 240, 214, 620, 44, 28, "#9FB3C8", false, "left");
-            s.anim = Anim::SlideLeft;
-            s.animMs = 700;
-            add(d, s);
-            v.push_back({"book-card", "Book card (your book's title and series)", "On stream", d});
-        }
-        {   // Writing live: the chapter, today's words against the goal, the streak and the book so far, from Writing Studio.
-            Document d;
-            d.name = "Writing progress";
-            d.width = 1100;
-            d.height = 300;
-            Element card = rectEl("Card", 10, 10, 1080, 280, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#7A5CFF55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideUp;
-            add(d, card);
-            Element k = textEl("Label", "CHAPTER", 50, 40, 1000, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::SlideUp;
-            add(d, k);
-            add(d, chapterWordsElement());
-            Element c = textEl("Chapter", "{chapter}", 50, 74, 1000, 70, 50, "#F4F7FB", true, "left");
-            c.anim = Anim::SlideUp;
-            add(d, c);
-            Element t = textEl("Today", "{today}", 50, 158, 1000, 46, 34, "#F4F7FB", false, "left");
-            t.anim = Anim::SlideUp;
-            t.animMs = 650;
-            add(d, t);
-            Element b = textEl("Book and streak", "{bookline}  \u00B7  {streakline}", 50, 214, 1000, 40, 26,
-                               "#9FB3C8", false, "left");
-            b.anim = Anim::SlideUp;
-            b.animMs = 750;
-            add(d, b);
-            v.push_back({"writing-progress", "Writing progress (chapter and today's words)", "On stream", d});
-        }
-        // From Writing Studio (0.13): a sprint's countdown, the viewpoint character, who's in the chapter, the chapter's
-        // details, and a celebration when the daily goal is reached or a sprint ends.
-        auto picEl = [](const char* name, const char* file, float x, float y, float w, float h, float radius) {
-            Element p;
-            p.kind = Kind::Image;
-            p.name = name;
-            p.file = file;
-            p.cover = true;
-            p.radius = radius;
-            p.x = x, p.y = y, p.w = w, p.h = h;
-            return p;
+        // The writing, chat and now-playing templates in two looks (0.17): aurora (the same ids as before, so scene
+        // templates still find them) and bookish.
+        struct Pair {
+            const char *id, *name, *bookName;
+            Document (*make)(bool);
+            const char* group;
         };
-        {
-            Document d;
-            d.name = "Sprint timer";
-            d.width = 700;
-            d.height = 220;
-            d.onlyWhileSprint = true;
-            Element card = rectEl("Card", 10, 10, 680, 200, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#3FCF8E66");
-            card.strokeWidth = 2;
-            card.anim = Anim::Pop;
-            add(d, card);
-            Element k = textEl("Label", "WRITING SPRINT", 40, 34, 620, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::Pop;
-            add(d, k);
-            Element t;
-            t.kind = Kind::Timer;
-            t.name = "Time left";
-            t.timerMode = "sprint";
-            t.timerEnd = "Time!";
-            t.x = 40, t.y = 66, t.w = 620, t.h = 86;
-            t.size = 72;
-            t.bold = true;
-            t.align = "left";
-            t.fill = Fill::solid(hex("#F4F7FB"));
-            t.anim = Anim::Pop;
-            add(d, t);
-            Element w = textEl("Words", "{sprintline}", 40, 154, 620, 40, 28, "#9FB3C8", false, "left");
-            w.anim = Anim::Pop;
-            add(d, w);
-            v.push_back({"sprint-timer", "Sprint timer (shows during a writing sprint)", "On stream", d});
-        }
-        {
-            Document d;
-            d.name = "Character card";
-            d.width = 760;
-            d.height = 260;
-            Element card = rectEl("Card", 10, 10, 740, 240, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#7A5CFF55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideLeft;
-            add(d, card);
-            Element ring = rectEl("Portrait ring", 36, 36, 188, 188, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 94);
-            ring.anim = Anim::SlideLeft;
-            add(d, ring);
-            Element p = picEl("Portrait", "{viewpointpic}", 42, 42, 176, 176, 88);
-            p.anim = Anim::SlideLeft;
-            add(d, p);
-            Element k = textEl("Label", "THROUGH THE EYES OF", 256, 74, 470, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::SlideLeft;
-            add(d, k);
-            Element n = textEl("Name", "{viewpoint}", 256, 108, 470, 80, 50, "#F4F7FB", true, "left");
-            n.anim = Anim::SlideLeft;
-            n.animMs = 650;
-            add(d, n);
-            v.push_back({"character-card", "Character card (the chapter's viewpoint character)", "On stream", d});
-        }
-        {
-            Document d;
-            d.name = "Cast list";
-            d.width = 1200;
-            d.height = 300;
-            Element card = rectEl("Card", 10, 10, 1180, 280, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#3FCF8E55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideUp;
-            add(d, card);
-            Element k = textEl("Label", "IN THIS CHAPTER", 40, 30, 1120, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::SlideUp;
-            add(d, k);
-            for (int i = 0; i < 6; ++i) {
-                const float x = 40 + i * 188.0f;
-                const std::string n = std::to_string(i + 1);
-                Element p = picEl(("Portrait " + n).c_str(), ("{cast" + n + "pic}").c_str(), x + 24, 76, 124, 124, 62);
-                p.anim = Anim::SlideUp;
-                p.animMs = 500 + i * 80;
-                add(d, p);
-                Element t = textEl(("Name " + n).c_str(), ("{cast" + n + "}").c_str(), x, 210, 172, 60, 22, "#F4F7FB", true, "centre");
-                t.anim = Anim::SlideUp;
-                t.animMs = 500 + i * 80;
-                add(d, t);
-            }
-            v.push_back({"cast-list", "Cast list (who's in this chapter)", "On stream", d});
-        }
-        {
-            Document d;
-            d.name = "Chapter card";
-            d.width = 1100;
-            d.height = 320;
-            Element card = rectEl("Card", 10, 10, 1080, 300, Fill::solid(hex("#0B1A2EE6")), 28);
-            card.stroke = hex("#7A5CFF55");
-            card.strokeWidth = 2;
-            card.anim = Anim::SlideUp;
-            add(d, card);
-            Element pic = picEl("Place picture", "{placepic}", 800, 40, 250, 240, 18);
-            pic.anim = Anim::SlideUp;
-            add(d, pic);
-            Element k = textEl("Status", "{status}", 50, 40, 720, 30, 22, "#3FCF8E", true, "left");
-            k.anim = Anim::SlideUp;
-            add(d, k);
-            Element c = textEl("Chapter", "{chapter}", 50, 74, 720, 70, 50, "#F4F7FB", true, "left");
-            c.anim = Anim::SlideUp;
-            add(d, c);
-            Element where = textEl("Where and when", "{place}  ·  {storyday}", 50, 150, 720, 42, 30, "#C9D6E3", false, "left");
-            where.anim = Anim::SlideUp;
-            where.animMs = 650;
-            add(d, where);
-            Element pov = textEl("Viewpoint", "{viewpoint}", 50, 196, 720, 40, 26, "#9FB3C8", false, "left");
-            pov.anim = Anim::SlideUp;
-            pov.animMs = 700;
-            add(d, pov);
-            Element t = textEl("Target", "{targetline}", 50, 244, 720, 40, 26, "#9FB3C8", false, "left");
-            t.anim = Anim::SlideUp;
-            t.animMs = 750;
-            add(d, t);
-            v.push_back({"chapter-card", "Chapter card (status, place, story day, target)", "On stream", d});
-        }
-        {
-            Document d;
-            d.name = "Celebration";
-            d.width = 1000;
-            d.height = 260;
-            d.onlyCelebrating = true;
-            Element glow = rectEl("Glow", 20, 20, 960, 220, Fill::radial({{0, hex("#3FCF8E99")}, {1, hex("#3FCF8E00")}}), 110);
-            glow.anim = Anim::Fade;
-            add(d, glow);
-            Element card = rectEl("Banner", 80, 60, 840, 140, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0), 70);
-            card.shadow = {true, 0, 10, 26, hex("#00000099")};
-            card.anim = Anim::Pop;
-            add(d, card);
-            Element ic;
-            ic.kind = Kind::Icon;
-            ic.icon = "sparkle";
-            ic.name = "Sparkle";
-            ic.x = 110, ic.y = 90, ic.w = 80, ic.h = 80;
-            ic.fill = Fill::solid(hex("#FFFFFF"));
-            ic.anim = Anim::Pop;
-            add(d, ic);
-            Element t = textEl("Words", "{celebration}", 200, 90, 690, 80, 40, "#FFFFFF", true, "left");
-            t.anim = Anim::Pop;
-            t.animMs = 650;
-            add(d, t);
-            v.push_back({"celebration", "Celebration (daily goal reached, sprint done)", "On stream", d});
+        static const Pair pairs[] = {
+            {"chat-box", "Chat box (your Twitch chat, live)", "Chat box (parchment cards)", chatBox, "On stream"},
+            {"now-playing", "Now playing (your music's title and artist)", "Now playing", nowPlaying, "On stream"},
+            {"book-card", "Book card (your book's title and series)", "Book card", bookCard, "Writing"},
+            {"writing-progress", "Writing progress (chapter and today's words)", "Writing progress", writingProgress, "Writing"},
+            {"chapter-card", "Chapter card (status, place, story day, target)", "Chapter card", chapterCard, "Writing"},
+            {"character-card", "Character card (the chapter's viewpoint character)", "Character card", characterCard, "Writing"},
+            {"cast-list", "Cast list (who's in this chapter)", "Cast list", castList, "Writing"},
+            {"sprint-timer", "Sprint timer (shows during a writing sprint)", "Sprint timer", sprintTimer, "Writing"},
+            {"celebration", "Celebration (daily goal reached, sprint done)", "Celebration", celebration, "Writing"},
+        };
+        static std::vector<std::string> bookIds;   // kept alive: Template holds const char*
+        bookIds.clear();
+        for (auto& pr : pairs) bookIds.push_back(std::string(pr.id) + "-bookish");
+        for (std::size_t i = 0; i < std::size(pairs); ++i) {
+            v.push_back({pairs[i].id, pairs[i].name, pairs[i].group, pairs[i].make(false)});
+            v.push_back({bookIds[i].c_str(), pairs[i].bookName, "Bookish (parchment, serif, ink and gold)", pairs[i].make(true)});
         }
         {   // A radio show's title and episode, with an on-air badge.
             Document d;
@@ -1662,7 +1714,10 @@ const std::vector<Template>& templates() {
         }
         // Keep each group together (the watermark was added last).
         std::stable_sort(v.begin(), v.end(), [](const Template& x, const Template& y) {
-            auto rank = [](const char* g) { return std::string(g) == "Holding screens" ? 0 : std::string(g) == "On stream" ? 1 : 2; };
+            auto rank = [](const char* g) {
+                const std::string s(g);
+                return s == "Holding screens" ? 0 : s == "On stream" ? 1 : s == "Writing" ? 2 : s.rfind("Bookish", 0) == 0 ? 3 : 4;
+            };
             return rank(x.group) < rank(y.group);
         });
         const Brand b = defaultBrand();

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.17.0",
+      "date": "2026-11-21",
+      "notes": [
+        "The writing templates redesigned (Book card, Writing progress, Chapter card, Character card, Cast list, Sprint timer and Celebration), with chat and now playing: glowing titles, gradient labels, soft aurora light in the cards, and round portraits with a glowing ring.",
+        "Each of them now comes in a bookish version too: parchment cards with a gold edge and an inner rule, serif type, ink and gold, a gold rule with a diamond, and arched portraits. In the bookish chat, viewers' names are darkened like coloured inks so they read on parchment.",
+        "Overlay design… now groups its templates into submenus: Holding screens, On stream, Writing, Bookish and Panels.",
+        "A design using a font this PC doesn't have now uses the nearest one it does (a serif for a serif) instead of losing its words."
+      ]
+    },
+    {
       "version": "0.16.0",
       "date": "2026-11-21",
       "notes": [
