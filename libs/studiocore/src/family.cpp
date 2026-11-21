@@ -29,10 +29,11 @@ bool childLink(const std::string& l, std::string& how) {
     else return false;
     return true;
 }
-bool isPartnerLink(const std::string& l) { return l == "Partner of" || l == "Married to"; }
+bool isPartnerLink(const std::string& l) { return l == "Partner of" || l == "Married to" || l == "Engaged to"; }
 bool siblingLink(const std::string& l, std::string& how) {
     if (l == "Sibling of") how = "";
     else if (l == "Twin of") how = "twin";
+    else if (l == "Triplet of") how = "triplet";
     else if (l == "Half-sibling of") how = "half";
     else if (l == "Step-sibling of") how = "step";
     else if (l == "Adoptive sibling of") how = "adoptive";
@@ -55,7 +56,7 @@ Library::Family Library::familyOf(const Id& id) const { return familyOf(id, true
 
 Library::Family Library::familyOf(const Id& id, bool sharedParents) const {
     Family f;
-    std::set<Id> parents, partners, siblings, children;
+    std::set<Id> parents, partners, siblings, children, former;
     std::map<Id, std::string> linkedSibling;   // siblings by their own link, with its kind
     auto live = [&](const Id& x) { const Entry* e = entry(x); return e && !e->deleted && x != id; };
     for (const EntryLink& l : linksOf(id)) {
@@ -69,12 +70,31 @@ Library::Family Library::familyOf(const Id& id, bool sharedParents) const {
         } else if ((out && parentLink(l.label, how)) || (!out && childLink(l.label, how))) {
             children.insert(other);
             if (!f.how.count(other) || how.empty()) f.how[other] = how;
-        } else if (isPartnerLink(l.label)) partners.insert(other);
+        } else if (isPartnerLink(l.label)) {
+            partners.insert(other);
+            const std::string h = l.label == "Married to" ? "married" : l.label == "Engaged to" ? "engaged" : "";
+            auto& cur = f.partnerHow[other];
+            if (cur != "married") cur = h.empty() ? cur : h;   // married over engaged over a plain partner
+        } else if (l.label == "Former partner of") former.insert(other);
         else if (siblingLink(l.label, how)) {
             siblings.insert(other);
             if (!linkedSibling.count(other) || !how.empty()) linkedSibling[other] = how;   // the more exact kind wins
         }
     }
+    // A triplet's triplets are this person's too (Zia linked to Jimmy and Johney makes Jimmy and Johney triplets) (0.57).
+    {
+        std::vector<Id> trip;
+        for (auto& [o, how] : linkedSibling) if (how == "triplet") trip.push_back(o);
+        for (const Id& t : trip)
+            for (const EntryLink& l : linksOf(t)) {
+                if (l.label != "Triplet of") continue;
+                const Id x = l.from == t ? l.to : l.from;
+                if (!live(x)) continue;
+                siblings.insert(x);
+                linkedSibling[x] = "triplet";
+            }
+    }
+    for (const Id& p : partners) former.erase(p);   // partners again now
     // Anyone else sharing a parent is a sibling: full when their birth parents are the same, half when not, and of the
     // parent's kind when the parent they share is adoptive, step or foster to either.
     if (sharedParents) {
@@ -114,6 +134,7 @@ Library::Family Library::familyOf(const Id& id, bool sharedParents) const {
     f.partners = sorted(partners);
     f.siblings = sorted(siblings);
     f.children = sorted(children);
+    f.formerPartners = sorted(former);
     return f;
 }
 
@@ -298,7 +319,7 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
                 bool twins = false;
                 for (const Id& a : units[(size_t)us[i]])
                     for (const Id& b : units[(size_t)us[j]])
-                        if (auto h = famOf(a).how.find(b); h != famOf(a).how.end() && h->second == "twin") twins = true;
+                        if (auto h = famOf(a).how.find(b); h != famOf(a).how.end() && (h->second == "twin" || h->second == "triplet")) twins = true;
                 if (twins) { const int u = us[j]; us.erase(us.begin() + (long)j); us.insert(us.begin() + (long)i + 1, u); break; }
             }
         float next = 0;
@@ -336,14 +357,16 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
         FamilyLayout::Person p{id, gen[id], x[id] - minX, inLaws.count(id) > 0, {}};
         if (p.inLaw) {
             // How they joined (0.47): married to one of the family, their partner, or a parent of a child of theirs.
-            bool married = false, partner = false;
+            bool married = false, partner = false, engaged = false, former = false;
             for (const EntryLink& l : linksOf(id)) {
                 const Id other = l.from == id ? l.to : l.from;
                 if (!gen.count(other) || inLaws.count(other)) continue;
                 if (l.label == "Married to") married = true;
                 else if (l.label == "Partner of") partner = true;
+                else if (l.label == "Engaged to") engaged = true;
+                else if (l.label == "Former partner of") former = true;
             }
-            p.joined = married ? "married" : partner ? "partner" : "parent";
+            p.joined = married ? "married" : engaged ? "engaged" : partner ? "partner" : former ? "former" : "parent";
         }
         out.people.push_back(p);
     }

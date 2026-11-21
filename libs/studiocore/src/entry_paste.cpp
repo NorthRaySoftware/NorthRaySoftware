@@ -474,6 +474,21 @@ bool looksLikePage(const std::string& text) {
 
 std::string relationFor(const std::string& kind, const std::string& labelIn) {
     std::string k = key(labelIn);
+    // A partner who no longer is ("ex-wife", "former partner", "divorced from") is a former partner (0.57); a late one
+    // stays a partner.
+    {
+        static const std::vector<const char*> partnerWords{"partner", "partners", "wife", "wives", "husband", "husbands", "spouse",
+                                                           "girlfriend", "boyfriend", "lover", "fiance", "fiancee", "fiancé", "fiancée"};
+        for (const char* pre : {"former ", "ex-", "ex ", "one-time ", "estranged "})
+            if (k.rfind(pre, 0) == 0) {
+                const std::string rest = k.substr(std::string(pre).size());
+                if (std::find(partnerWords.begin(), partnerWords.end(), rest) != partnerWords.end()) k = "former partner of";
+            }
+        static const std::vector<const char*> exes{"ex", "exes", "divorced from", "divorced", "separated from", "former partner of"};
+        if (std::find(exes.begin(), exes.end(), k) != exes.end()) {
+            for (auto& c : relationsFor(kind)) if (std::string(c.label) == "Former partner of") return c.label;
+        }
+    }
     // "Former teacher", "late husband", "ex-wife": the same relationship.
     for (const char* pre : {"former ", "ex-", "ex ", "late ", "old ", "one-time ", "current ", "sworn "})
         if (k.rfind(pre, 0) == 0 && k.size() > std::string(pre).size() + 2) { k = k.substr(std::string(pre).size()); break; }
@@ -483,6 +498,8 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         {{"children", "child", "son", "sons", "daughter", "daughters", "kids"}, "Parent of"},
         {{"siblings", "sibling", "brother", "brothers", "sister", "sisters", "full brother", "full sister"}, "Sibling of"},
         {{"twin", "twins", "twin brother", "twin sister", "twin sibling", "twin of"}, "Twin of"},
+        {{"triplet", "triplets", "triplet brother", "triplet brothers", "triplet sister", "triplet sisters", "triplet sibling",
+          "triplet siblings", "triplet of"}, "Triplet of"},
         {{"half-sibling", "half-siblings", "half sibling", "half siblings", "half-brother", "half-brothers", "half brother", "half brothers",
           "half-sister", "half-sisters", "half sister", "half sisters"}, "Half-sibling of"},
         {{"step-sibling", "step-siblings", "stepsibling", "stepsiblings", "step sibling", "stepbrother", "stepbrothers", "step-brother",
@@ -499,7 +516,9 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
           "step-daughter"}, "Step-parent of"},
         {{"foster parents", "foster parent", "foster father", "foster mother", "foster mum", "foster dad", "fostered by"}, "Foster child of"},
         {{"foster children", "foster child", "foster son", "foster sons", "foster daughter", "foster daughters"}, "Foster parent of"},
-        {{"partner", "partners", "girlfriend", "boyfriend", "lover", "betrothed", "fiance", "fiancee", "fiancé", "fiancée"}, "Partner of"},
+        {{"partner", "partners", "girlfriend", "boyfriend", "lover", "mate", "mates"}, "Partner of"},
+        {{"betrothed", "fiance", "fiancee", "fiancé", "fiancée", "fiances", "fiancees", "fiancés", "fiancées", "engaged to", "engaged",
+          "betrothed to", "intended", "husband-to-be", "wife-to-be"}, "Engaged to"},
         {{"spouse", "wife", "husband", "married to"}, "Married to"},
         {{"friends", "friend", "best friend", "best friends", "close friends", "family friend", "family friends", "childhood friends"}, "Friend of"},
         {{"enemies", "enemy", "nemesis", "foes", "foe"}, "Enemy of"},
@@ -518,6 +537,7 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         {{"home", "lives at"}, "Lives in"},
         {{"birthplace", "born"}, "Born in"},
         {{"mount", "mounts", "steed", "dragon"}, "Rides"},
+        {{"uses", "use", "used"}, "Used"},
         {{"used by", "users", "known users", "wielded by", "practitioners", "practised by", "practiced by"}, "Practised by"},
         {{"source", "sources", "origin", "comes from"}, "Comes from"},
         {{"opposed by", "opposes", "opposite", "counter", "countered by"}, "Enemy of"},
@@ -1293,6 +1313,32 @@ bool importPages(Library& lib, const Id& world, const Id& book, const std::vecto
         if (!r.words().empty()) changed.insert(target[i]);
     }
     for (const Id& id : out.updated) if (!changed.count(id)) ++out.unchanged;
+    // Characters in the family with no gender line (0.57): they read as "sibling", "child" or "partner" for want of it.
+    {
+        std::set<Id> checked;
+        auto check = [&](const Id& id) {
+            if (!checked.insert(id).second) return;
+            const Entry* e = lib.entry(id);
+            if (!e || e->deleted || e->kind != "character") return;
+            bool family = false;
+            for (const EntryLink& l : lib.linksOf(id)) {
+                if (!isFamilyRelation(l.label)) continue;
+                const Entry* o = lib.entry(l.from == id ? l.to : l.from);
+                if (o && !o->deleted && o->kind == "character") { family = true; break; }
+            }
+            if (!family) return;
+            std::istringstream in(e->details);
+            for (std::string l; std::getline(in, l);) {
+                std::string lab, val;
+                if (!splitField(l, lab, val) || trim(val).empty()) continue;
+                const std::string k = key(lab);
+                if (k == "gender" || k == "sex" || k == "gender or sex" || k == "gender/sex") return;
+            }
+            out.noGender.push_back(id);
+        };
+        for (auto* v : {&out.made, &out.updated, &out.extra})
+            for (const Id& id : *v) check(id);
+    }
     return true;
 }
 

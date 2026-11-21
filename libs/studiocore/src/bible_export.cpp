@@ -141,12 +141,8 @@ std::vector<std::string> paragraphs(const std::string& text) {
 // The relationships an entry has with shown entries, read from its side ("Lives in" Highcliff).
 std::vector<std::pair<std::string, const Entry*>> relationsOf(const Library& lib, const View& v, const Entry& e) {
     std::vector<std::pair<std::string, const Entry*>> out;
-    static const std::set<std::string> family{"Parent of", "Child of", "Partner of", "Married to", "Sibling of", "Twin of",
-                                              "Half-sibling of", "Step-sibling of", "Adoptive sibling of", "Foster sibling of",
-                                              "Adoptive parent of", "Adopted child of", "Step-parent of", "Stepchild of",
-                                              "Foster parent of", "Foster child of"};
     for (const EntryLink& l : lib.linksOf(e.id)) {
-        if (family.count(l.label)) continue;   // in the family list
+        if (isFamilyRelation(l.label)) continue;   // in the family list
         const bool mine = l.from == e.id;
         const Entry* o = lib.entry(mine ? l.to : l.from);
         if (!o || !v.shows(o->id)) continue;
@@ -582,6 +578,7 @@ std::string kinWord(const Entry& o, int role, const std::string& how) {
                      : role == 2 ? (sex == 1 ? "sister" : sex == 0 ? "brother" : "sibling")
                                  : (sex == 1 ? "daughter" : sex == 0 ? "son" : "child");
     if (how == "twin") return std::string("twin ") + base;
+    if (how == "triplet") return std::string("triplet ") + base;
     if (how == "half") return std::string("half-") + base;
     if (how == "step") return std::string("step") + base;
     if (how == "foster") return std::string("foster ") + base;
@@ -621,10 +618,12 @@ std::vector<std::pair<std::string, std::vector<const Entry*>>> familyLines(const
             const int sx = sexOf(*o);
             std::string word;
             if (r == 1) {
-                bool married = false;
-                for (const EntryLink& l : lib.linksOf(e.id))
-                    if (l.label == "Married to" && (l.from == i || l.to == i)) married = true;
-                word = married ? (sx == 1 ? "wife" : sx == 0 ? "husband" : "spouse") : "partner";
+                const auto ph = f.partnerHow.find(i);
+                const std::string kind = ph == f.partnerHow.end() ? std::string() : ph->second;
+                word = kind == "married" ? (sx == 1 ? "wife" : sx == 0 ? "husband" : "spouse")
+                     : kind == "engaged" ? (sx == 1 ? "fianc\xC3\xA9" "e" : sx == 0 ? "fianc\xC3\xA9" : "betrothed") : "partner";
+            } else if (r == 4) {
+                word = "former partner";
             } else {
                 word = kinWord(*o, r, howOf(i));
                 if (word.empty()) word = r == 0 ? (sx == 1 ? "mother" : sx == 0 ? "father" : "parent")
@@ -641,6 +640,7 @@ std::vector<std::pair<std::string, std::vector<const Entry*>>> familyLines(const
     role(1, f.partners);
     role(2, f.siblings);
     role(3, f.children);
+    role(4, f.formerPartners);
     for (auto& [label, who] : fam) if (who.size() > 1) label = pluralOf[label];
     return fam;
 }

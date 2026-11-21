@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.57.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Former partners: \"Ex-husband\", \"Ex-wife\", \"Former partner\" or \"Divorced from\" (or + Former partner on a page) keeps someone as the parent of their children without drawing them as a couple. Pages list them under Former partners; the tree marks them Ex-partner.",
+        "Engaged couples: \"Fiancé\", \"Fiancée\", \"Betrothed\" or \"Engaged to\" links two people as engaged. They're drawn as a couple, and the one with a gender is named as fiancé or fiancée. + Partner asks for partner, married, engaged or former partner, and clicking a partner changes which.",
+        "Triplets: \"Triplets\" (or Triplet under + Brother or sister) links all three, so linking one to the other two makes those two triplets as well. They stand together in the tree and come down from one point.",
+        "Creatures have a Family part: parents, partners, brothers and sisters (twins and triplets too) and children, all creatures, with their own family tree.",
+        "After importing pages, the note names any character with family but no gender, who would otherwise be called sibling, child or partner rather than sister, son or wife.",
+        "Founded and Founded by, Used and Used by, Mentor of, Scene of and Origin of are built in for the kinds they suit, so imports no longer make them your world's own relationships. A \"Used by\" you made before now counts as the built-in one."
+      ]
+    },
+    {
       "version": "0.56.0",
       "date": "2026-11-21",
       "notes": [

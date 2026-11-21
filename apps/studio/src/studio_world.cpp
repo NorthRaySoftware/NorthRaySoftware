@@ -1488,7 +1488,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
         }
 
-        if (e->kind == "character") y = drawFamilySection(m, y, *e);
+        if (e->kind == "character" || e->kind == "creature") y = drawFamilySection(m, y, *e);
         if (e->kind == "place" || e->kind == "realm") y = drawPlaceSection(m, y, *e);
         if (e->kind == "place" || e->kind == "realm") y = drawMapSection(m, y, *e);
 
@@ -1669,15 +1669,11 @@ void StudioApp::drawWorldPage(const Rect& r) {
         y += 28;
         std::vector<EntryLink> links;
         // A character's parents, partners, brothers and sisters and children are under Family, not again here (0.48.4).
-        static const std::set<std::string> familyLabels{"Parent of", "Child of", "Partner of", "Married to", "Sibling of", "Twin of",
-                                                        "Half-sibling of", "Step-sibling of", "Adoptive sibling of", "Foster sibling of",
-                                                        "Adoptive parent of", "Adopted child of", "Step-parent of", "Stepchild of",
-                                                        "Foster parent of", "Foster child of"};
         for (const EntryLink& l : lib_->linksOf(e->id)) {
             if ((e->kind == "group" || e->kind == "race") && isMembership(l)) continue;   // listed under Members
-            if (e->kind == "character" && familyLabels.count(l.label)) {
+            if ((e->kind == "character" || e->kind == "creature") && isFamilyRelation(l.label)) {
                 const Entry* o = lib_->entry(l.from == e->id ? l.to : l.from);
-                if (o && o->kind == "character") continue;
+                if (o && o->kind == e->kind) continue;
             }
             links.push_back(l);
         }
@@ -2789,8 +2785,9 @@ void StudioApp::drawFamilyPanel(const Rect& r) {
                 linkText("fam:pick:" + std::string(key) + ":" + o, c.x + 6, y, nm,
                          [this, o] { wb_.treeSelected = o; setFocus({Focus::Entry, o, {}}); invalidate(); });
                 // What kind (twin sister, stepfather, adopted son), beside the name (0.46).
-                if (role != 1)
-                    if (auto it = fam.how.find(o); it != fam.how.end())
+                const auto& hows = role == 1 ? fam.partnerHow : fam.how;
+                if (role != 4)
+                    if (auto it = hows.find(o); it != hows.end())
                         if (const std::wstring kw = kinWord(o, role, it->second); !kw.empty()) {
                             const float nx = c.x + 6 + gfx_.measureWidth(nm, Font::Small) + 22;
                             gfx_.text(kw, {nx, y, c.right() - nx, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
@@ -2803,6 +2800,7 @@ void StudioApp::drawFamilyPanel(const Rect& r) {
         group("pt", L"PARTNERS", fam.partners, 1);
         group("sb", L"BROTHERS AND SISTERS", fam.siblings, 2);
         group("ch", L"CHILDREN", fam.children, 3);
+        group("fp", L"FORMER PARTNERS", fam.formerPartners, 4);
         y += gfx_.text(L"Click someone in the tree to pick them; double-click to see the tree from them.", {c.x, y, c.w, 60}, Font::Small,
                        pal_.inkFaint) + 12;
     }
@@ -2868,17 +2866,25 @@ struct KinKind { const char* how; const wchar_t* menu; };
 const std::vector<KinKind>& kinKinds(int role) {
     static const std::vector<KinKind> parents{{"", L"Birth parent"}, {"adoptive", L"Adoptive parent"}, {"step", L"Step-parent"},
                                               {"foster", L"Foster parent"}};
-    static const std::vector<KinKind> siblings{{"", L"Brother or sister"}, {"twin", L"Twin"}, {"half", L"Half-brother or half-sister"},
+    static const std::vector<KinKind> siblings{{"", L"Brother or sister"}, {"twin", L"Twin"}, {"triplet", L"Triplet"},
+                                               {"half", L"Half-brother or half-sister"},
                                                {"step", L"Stepbrother or stepsister"}, {"adoptive", L"Adoptive brother or sister"},
                                                {"foster", L"Foster brother or sister"}};
     static const std::vector<KinKind> children{{"", L"Child"}, {"adoptive", L"Adopted child"}, {"step", L"Stepchild"}, {"foster", L"Foster child"}};
-    return role == 0 ? parents : role == 2 ? siblings : children;
+    // Partners (0.57): together, married, engaged, or no longer together. Role 4, former partners, has the same kinds.
+    static const std::vector<KinKind> partners{{"", L"Partner"}, {"married", L"Married"}, {"engaged", L"Engaged"},
+                                               {"former", L"Former partner (no longer together)"}};
+    return role == 0 ? parents : role == 2 ? siblings : role == 1 || role == 4 ? partners : children;
 }
 // The link from `who` that says `other` is their kin of this role and kind.
 struct KinLink { Id from, to; std::string label; };
 KinLink kinLink(const Id& who, const Id& other, int role, const std::string& how) {
+    if (role == 1 || role == 4) {
+        const std::string l = how == "married" ? "Married to" : how == "engaged" ? "Engaged to" : how == "former" ? "Former partner of" : "Partner of";
+        return {who, other, l};
+    }
     if (role == 2) {
-        const std::string l = how == "twin" ? "Twin of" : how == "half" ? "Half-sibling of" : how == "step" ? "Step-sibling of"
+        const std::string l = how == "twin" ? "Twin of" : how == "triplet" ? "Triplet of" : how == "half" ? "Half-sibling of" : how == "step" ? "Step-sibling of"
                             : how == "adoptive" ? "Adoptive sibling of" : how == "foster" ? "Foster sibling of" : "Sibling of";
         return {who, other, l};
     }
@@ -2898,7 +2904,13 @@ std::wstring StudioApp::kinWord(const Id& other, int role, const std::string& ho
                         : role == 2 ? (sex == 1 ? L"sister" : sex == 0 ? L"brother" : L"sibling")
                                     : (sex == 1 ? L"daughter" : sex == 0 ? L"son" : L"child");
     if (how.empty()) return L"";
+    if (role == 1) {   // partners: what a married or engaged one is (0.57)
+        if (how == "married") return sex == 1 ? L"wife" : sex == 0 ? L"husband" : L"married";
+        if (how == "engaged") return sex == 1 ? L"fianc\u00E9e" : sex == 0 ? L"fianc\u00E9" : L"engaged";
+        return L"";
+    }
     if (how == "twin") return std::wstring(L"twin ") + base;
+    if (how == "triplet") return std::wstring(L"triplet ") + base;
     if (how == "half") return std::wstring(L"half-") + base;
     if (how == "step") return std::wstring(L"step") + base;
     if (how == "foster") return std::wstring(L"foster ") + base;
@@ -2911,9 +2923,9 @@ void StudioApp::addFamilyMember(const Id& who, int relation) {
     if (!me) return;
     POINT pt;
     GetCursorPos(&pt);
-    // Which kind of parent, brother or sister, or child first (0.46).
-    std::string how;
-    if (relation != 1) {
+    // Which kind of parent, partner, brother or sister, or child first (0.46; partners 0.57). A former partner is one.
+    std::string how = relation == 4 ? "former" : "";
+    if (relation != 4) {
         std::vector<cjui::MenuItem> kinds;
         const auto& ks = kinKinds(relation);
         for (size_t i = 0; i < ks.size(); ++i) kinds.push_back(cjui::MenuItem::item(ks[i].menu, (UINT)(1 + i)));
@@ -2923,15 +2935,20 @@ void StudioApp::addFamilyMember(const Id& who, int relation) {
     }
     const auto fam = lib_->familyOf(who);
     std::set<Id> already;
-    for (auto* v : {&fam.parents, &fam.partners, &fam.siblings, &fam.children}) already.insert(v->begin(), v->end());
+    for (auto* v : {&fam.parents, &fam.partners, &fam.siblings, &fam.children, &fam.formerPartners}) already.insert(v->begin(), v->end());
+    // A creature's family are creatures; a character's, characters (0.57).
+    const std::string kind = me->kind == "creature" ? "creature" : "character";
     std::vector<const Entry*> people;
     for (const Entry* o : lib_->entriesOf(wb_.world, wb_.book))
-        if (o->kind == "character" && o->id != who && !already.count(o->id)) people.push_back(o);
-    static const wchar_t* what[] = {L"parent", L"partner", L"brother or sister", L"child"};
+        if (o->kind == kind && o->id != who && !already.count(o->id)) people.push_back(o);
+    static const wchar_t* what[] = {L"parent", L"partner", L"brother or sister", L"child", L"former partner"};
     std::wstring role = what[relation];
-    if (relation != 1 && !how.empty())
+    if (how == "former") role = L"former partner";
+    else if (relation == 1 && how == "married") role = L"husband or wife";
+    else if (relation == 1 && how == "engaged") role = L"fianc\u00E9 or fianc\u00E9e";
+    else if (relation != 1 && relation != 4 && !how.empty())
         for (auto& kk : kinKinds(relation)) if (kk.how == how) { role = kk.menu; for (auto& c : role) c = (wchar_t)towlower(c); }
-    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"New character as " + w(me->name) + L"'s " + role + L"…", 1)};
+    std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(std::wstring(kind == "creature" ? L"New creature as " : L"New character as ") + w(me->name) + L"'s " + role + L"…", 1)};
     if (!people.empty()) menu.push_back(cjui::MenuItem::sep());
     for (size_t i = 0; i < people.size() && i < 300; ++i) menu.push_back(cjui::MenuItem::item(w(people[i]->name), (UINT)(10 + i)));
     const UINT ch = cjui::showMenu(hwnd(), menu, pt, pal_);
@@ -2939,14 +2956,13 @@ void StudioApp::addFamilyMember(const Id& who, int relation) {
     commitFields();
     Id other;
     if (ch == 1) {
-        other = lib_->createEntry(wb_.world, wb_.book, "character", "New character");
+        other = lib_->createEntry(wb_.world, wb_.book, kind, kind == "creature" ? "New creature" : "New character");
         if (other.empty()) return;
     } else {
         other = people[ch - 10]->id;
     }
     bool ok = false;
-    if (relation == 1) ok = lib_->addLink(who, other, "Partner of");
-    else { const KinLink kl = kinLink(who, other, relation, how); ok = lib_->addLink(kl.from, kl.to, kl.label); }
+    { const KinLink kl = kinLink(who, other, relation, how); ok = lib_->addLink(kl.from, kl.to, kl.label); }
     if (!ok) { flash(w("Couldn't add them: " + lib_->lastError()), 6); return; }
     if (ch == 1) {
         const bool inTree = !wb_.familyRoot.empty();
@@ -2963,10 +2979,11 @@ void StudioApp::familyChipMenu(const Id& who, const Id& other, int role) {
     const Entry* o = lib_->entry(other);
     if (!o) return;
     const auto fam = lib_->familyOf(who);
-    std::string cur;
-    if (auto it = fam.how.find(other); it != fam.how.end()) cur = it->second;
+    std::string cur = role == 4 ? "former" : "";
+    if (role == 1) { if (auto it = fam.partnerHow.find(other); it != fam.partnerHow.end()) cur = it->second; }
+    else if (role != 4) { if (auto it = fam.how.find(other); it != fam.how.end()) cur = it->second; }
     std::vector<cjui::MenuItem> menu{cjui::MenuItem::item(L"Open " + w(o->name) + L"'s page", 1)};
-    if (role != 1) {
+    {
         menu.push_back(cjui::MenuItem::sep());
         const auto& ks = kinKinds(role);
         for (size_t i = 0; i < ks.size(); ++i) menu.push_back(cjui::MenuItem::item(ks[i].menu, (UINT)(10 + i), {}, true, cur == ks[i].how));
@@ -2980,14 +2997,11 @@ void StudioApp::familyChipMenu(const Id& who, const Id& other, int role) {
     if (ch == 1) { openEntry(other); return; }
     commitFields();
     // Every family link between the two goes (either way round); then the chosen one is made.
-    static const std::set<std::string> kin{"Parent of", "Child of", "Sibling of", "Twin of", "Half-sibling of", "Step-sibling of",
-                                           "Adoptive sibling of", "Foster sibling of", "Adoptive parent of", "Adopted child of",
-                                           "Step-parent of", "Stepchild of", "Foster parent of", "Foster child of", "Partner of", "Married to"};
-    const bool partnerRole = role == 1;
+    const bool partnerRole = role == 1 || role == 4;
     for (const EntryLink& l : lib_->linksOf(who)) {
         const Id x = l.from == who ? l.to : l.from;
-        if (x != other || !kin.count(l.label)) continue;
-        const bool partnerLink = l.label == "Partner of" || l.label == "Married to";
+        if (x != other || !isFamilyRelation(l.label)) continue;
+        const bool partnerLink = l.label == "Partner of" || l.label == "Married to" || l.label == "Engaged to" || l.label == "Former partner of";
         if (partnerLink != partnerRole) continue;
         lib_->removeLink(l.from, l.to, l.label);
     }
@@ -3066,7 +3080,7 @@ float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
     const auto fam = lib_->familyOf(e.id);
     wb_.anchors.push_back({L"Family", y - m.y});
     gfx_.text(L"FAMILY", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    const bool any = !fam.parents.empty() || !fam.partners.empty() || !fam.siblings.empty() || !fam.children.empty();
+    const bool any = !fam.parents.empty() || !fam.partners.empty() || !fam.siblings.empty() || !fam.children.empty() || !fam.formerPartners.empty();
     if (any) {
         const std::wstring t = L"See the family tree \u203A";
         linkText("wb:famtree", m.right() - gfx_.measureWidth(t, Font::Small), y - 2, t, [this, id = e.id] { openFamilyTree(id); });
@@ -3074,7 +3088,8 @@ float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
     y += 28;
     struct Row { const wchar_t* label; const std::vector<Id>* ids; int rel; const wchar_t* add; };
     const Row rows[] = {{L"Parents", &fam.parents, 0, L"+ Parent"}, {L"Partners", &fam.partners, 1, L"+ Partner"},
-                        {L"Brothers and sisters", &fam.siblings, 2, L"+ Brother or sister"}, {L"Children", &fam.children, 3, L"+ Child"}};
+                        {L"Brothers and sisters", &fam.siblings, 2, L"+ Brother or sister"}, {L"Children", &fam.children, 3, L"+ Child"},
+                        {L"Former partners", &fam.formerPartners, 4, L"+ Former partner"}};
     for (const Row& row : rows) {
         gfx_.text(row.label, {m.x, y, 160, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
         float lx = m.x + 170;
@@ -3083,8 +3098,9 @@ float StudioApp::drawFamilySection(const Rect& m, float y, const Entry& e) {
             if (!o) continue;
             // The name, and what they are when it isn't plain (twin sister, stepfather, adopted son).
             std::string how;
-            if (auto it = fam.how.find(pid); it != fam.how.end() && row.rel != 1) how = it->second;
-            const std::wstring nm = w(o->name), kw = row.rel == 1 ? L"" : kinWord(pid, row.rel, how);
+            const auto& hows = row.rel == 1 ? fam.partnerHow : fam.how;
+            if (auto it = hows.find(pid); it != hows.end() && row.rel != 4) how = it->second;
+            const std::wstring nm = w(o->name), kw = row.rel == 4 ? L"" : kinWord(pid, row.rel, how);
             const float nw = gfx_.measureWidth(nm, Font::Small), kww = kw.empty() ? 0 : gfx_.measureWidth(kw, Font::Small) + 12;
             const float lw2 = nw + kww + 26;
             if (lx + lw2 > m.right() && lx > m.x + 170) { lx = m.x + 170; y += 34; }
@@ -3272,7 +3288,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         }
     }
     std::set<std::pair<Id, Id>> twinPairs;
-    for (auto& sb : lay.siblings) if (sb.how == "twin") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
+    for (auto& sb : lay.siblings) if (sb.how == "twin" || sb.how == "triplet") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
     // Dotted lines (adopted, step, foster) and a dashed one (parents who aren't partners) share these.
     auto dotted = [&](float x1, float y1, float x2, float y2, cjui::Color c, float t) {
         const float len = std::hypot(x2 - x1, y2 - y1);
@@ -3333,7 +3349,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         for (const Id& k : kids) {   // the line runs to each child, or to the point a pair of twins comes down from
             const Rect kr = at[k];
             float kx = kr.x + kr.w / 2;
-            for (const Id& o : kids) if (o != k && twinPairs.count({k, o})) kx = (kx + at[o].x + at[o].w / 2) / 2;
+            { float sum = kx; int n = 1; for (const Id& o : kids) if (o != k && twinPairs.count({k, o})) { sum += at[o].x + at[o].w / 2; ++n; } kx = sum / n; }
             minX = std::min(minX, kx);
             maxX = std::max(maxX, kx);
             topY = std::min(topY, kr.y);
@@ -3349,8 +3365,11 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             const float kx = kr.x + kr.w / 2;
             // Twins come down from one point on the line, between them.
             float fromX = kx;
-            for (const Id& o : kids)
-                if (o != k && twinPairs.count({k, o})) fromX = (kx + at[o].x + at[o].w / 2) / 2;
+            {   // triplets from one point too, under the middle of the three (0.57)
+                float sum = kx; int n = 1;
+                for (const Id& o : kids) if (o != k && twinPairs.count({k, o})) { sum += at[o].x + at[o].w / 2; ++n; }
+                fromX = sum / n;
+            }
             if (k == lit && !parentLit) {   // a child picked: the way up to their parents lit
                 gfx_.line(ox, oy, ox, busY, litC, 2.2f);
                 gfx_.line(std::min(ox, fromX), busY, std::max(ox, fromX), busY, litC, 2.2f);
@@ -3395,13 +3414,13 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         const cjui::Color c = on ? litC : lineC;
         const float t = on ? 2.2f : 1.4f;
         const float ax = ra.x + ra.w / 2, bx = rb.x + rb.w / 2, topY = ra.y - gapY * 0.3f;
-        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "half";
+        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "triplet" || sb.how == "half";
         if (plain) {
             gfx_.line(ax, ra.y, ax, topY, c, t); gfx_.line(ax, topY, bx, topY, c, t); gfx_.line(bx, topY, bx, rb.y, c, t);
         } else {
             dotted(ax, ra.y, ax, topY, c, t); dotted(ax, topY, bx, topY, c, t); dotted(bx, topY, bx, rb.y, c, t);
         }
-        const std::wstring tag = sb.how == "twin" ? L"twins" : sb.how == "half" ? L"half-siblings" : sb.how == "step" ? L"step-siblings"
+        const std::wstring tag = sb.how == "twin" ? L"twins" : sb.how == "triplet" ? L"triplets" : sb.how == "half" ? L"half-siblings" : sb.how == "step" ? L"step-siblings"
                                : sb.how == "adoptive" ? L"adoptive siblings" : sb.how == "foster" ? L"foster siblings" : L"siblings";
         if (s > 0.7f) gfx_.text(tag, {(ax + bx) / 2 - 60, topY - 17, 120, 16}, Font::Small, pal_.inkFaint, {Align::Center, false, true});
     }
@@ -3452,7 +3471,8 @@ void StudioApp::drawFamilyTree(const Rect& r) {
             // Married in: their own family's tree is a click away (when they have one).
             const auto theirs = lib_->familyOf(p.id);
             const bool has = !theirs.parents.empty() || !theirs.siblings.empty();
-            const std::wstring how = p.joined == "married" ? L"Married in" : p.joined == "partner" ? L"Partner" : L"Other parent";
+            const std::wstring how = p.joined == "married" ? L"Married in" : p.joined == "engaged" ? L"Engaged" : p.joined == "partner" ? L"Partner"
+                                   : p.joined == "former" ? L"Ex-partner" : L"Other parent";
             const std::wstring lbl = has ? how + L" · their family ›" : how;
             const Rect lr{tx, cr.y + cr.h - 26 * s, tw, 18};
             if (has) {

@@ -69,7 +69,8 @@ const std::vector<Relation>& relations() {
         {"Adoptive parent of", "Adopted child of"}, {"Adopted child of", "Adoptive parent of"},
         {"Step-parent of", "Stepchild of"}, {"Stepchild of", "Step-parent of"},
         {"Foster parent of", "Foster child of"}, {"Foster child of", "Foster parent of"},
-        {"Partner of", "Partner of"},  {"Married to", "Married to"},    {"Loves", "Loved by"},          {"Loved by", "Loves"},
+        {"Partner of", "Partner of"},  {"Married to", "Married to"},    {"Engaged to", "Engaged to"},  {"Former partner of", "Former partner of"},
+        {"Triplet of", "Triplet of"},    {"Loves", "Loved by"},          {"Loved by", "Loves"},
         {"Friend of", "Friend of"},    {"Ally of", "Ally of"},          {"Rival of", "Rival of"},      {"Enemy of", "Enemy of"},
         {"Mentor of", "Student of"},   {"Student of", "Mentor of"},     {"Serves", "Served by"},       {"Served by", "Serves"},
         {"Member of", "Has member"},   {"Has member", "Member of"},     {"Leader of", "Led by"},       {"Led by", "Leader of"},
@@ -83,6 +84,7 @@ const std::vector<Relation>& relations() {
         {"Located in", "Contains"},    {"Contains", "Located in"},      {"Borders", "Borders"},        {"Capital of", "Has capital"},
         {"Has capital", "Capital of"}, {"Road to", "Road to"},          {"Trades with", "Trades with"}, {"At war with", "At war with"},
         {"Based in", "Base of"},       {"Base of", "Based in"},         {"Part of", "Includes"},       {"Includes", "Part of"},
+        {"Used", "Used by"},           {"Used by", "Used"},
         {"Owns", "Owned by"},          {"Owned by", "Owns"},            {"Made", "Made by"},           {"Made by", "Made"},
         {"Guards", "Guarded by"},      {"Guarded by", "Guards"},        {"Named after", "Gave its name to"},
         {"Gave its name to", "Named after"},
@@ -100,32 +102,36 @@ const std::vector<Relation>& relations() {
 const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
     static const std::vector<RelationChoice> character{
         {"Family", "character"}, {"Parent of", "character"}, {"Child of", "character"}, {"Sibling of", "character"},
-        {"Twin of", "character"}, {"Half-sibling of", "character"}, {"Step-sibling of", "character"},
+        {"Twin of", "character"}, {"Triplet of", "character"}, {"Half-sibling of", "character"}, {"Step-sibling of", "character"},
         {"Adoptive sibling of", "character"}, {"Foster sibling of", "character"},
         {"Adoptive parent of", "character"}, {"Adopted child of", "character"}, {"Step-parent of", "character"},
         {"Stepchild of", "character"}, {"Foster parent of", "character"}, {"Foster child of", "character"},
-        {"Partner of", "character"}, {"Married to", "character"}, {"Loves", "character"}, {"Friend of", "character"},
+        {"Partner of", "character"}, {"Married to", "character"}, {"Engaged to", "character"}, {"Former partner of", "character"},
+        {"Loves", "character"}, {"Friend of", "character"},
         {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
         {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
         {"Member of", "group race"}, {"Leader of", "group race"}, {"Rules", "place group realm"}, {"Lives in", "place realm"}, {"Born in", "place realm"},
-        {"Founded", "place group"}, {"Owns", "thing place"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore magic"},
+        {"Founded", "place group"}, {"Owns", "thing place"}, {"Used", "thing magic"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore magic"},
         {"Rides", "creature"}, {"Tames", "creature"}, {"Hunts", "creature character"},
         {"Took part in", "event"}, {"Caused", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> realm{
         {"Contains", "place realm"}, {"Part of", "realm"}, {"Includes", "realm"}, {"Borders", "realm"}, {"Ruled by", "character group race"},
         {"Home of", "character race creature group"}, {"Native home of", "creature race"}, {"Origin of", "lore thing character race"},
         {"Road to", "realm place"}, {"At war with", "realm group race"}, {"Ally of", "realm group race"}, {"Scene of", "event"},
+        {"Founded by", "character group race"},
         {"Explained by", "lore"}, {"Related to", ""}};
     static const std::vector<RelationChoice> race{
         {"Has member", "character"}, {"Led by", "character group"}, {"Native to", "place"}, {"Lives in", "place"},
         {"Rules", "place"}, {"Ally of", "race group place"}, {"Rival of", "race group"}, {"Enemy of", "race group place"},
-        {"Kind of", "race"}, {"Has kind", "race"}, {"Comes from", "place lore"}, {"Believes in", "lore"}, {"Practises", "lore"},
+        {"Kind of", "race"}, {"Has kind", "race"}, {"Comes from", "place lore"}, {"Founded", "place group realm"}, {"Origin of", "lore thing magic"}, {"Believes in", "lore"}, {"Practises", "lore"},
         {"Made by", "character race"}, {"Took part in", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> creature{
         {"Native to", "place"}, {"Lives in", "place"}, {"Ridden by", "character"}, {"Tamed by", "character group"},
         {"Hunts", "creature character"}, {"Hunted by", "character group creature"}, {"Guards", "place thing character"},
         {"Serves", "character group"}, {"Made by", "character group"}, {"Kind of", "creature"}, {"Has kind", "creature"},
-        {"Parent of", "creature"}, {"Child of", "creature"}, {"Enemy of", "creature character group"},
+        {"Parent of", "creature"}, {"Child of", "creature"}, {"Sibling of", "creature"}, {"Twin of", "creature"},
+        {"Triplet of", "creature"}, {"Half-sibling of", "creature"}, {"Partner of", "creature"}, {"Former partner of", "creature"},
+        {"Mentor of", "creature character"}, {"Used by", "character group"}, {"Origin of", "lore thing"}, {"Enemy of", "creature character group"},
         {"Ally of", "creature character group"}, {"Comes from", "place lore"}, {"Took part in", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> place{
         {"Located in", "place realm"}, {"Contains", "place thing"}, {"Borders", "place"}, {"Capital of", "place"},
@@ -138,24 +144,27 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Has member", "character"}, {"Led by", "character"}, {"Based in", "place"}, {"Rules", "place group"},
         {"Ally of", "group character place"}, {"Rival of", "group character"}, {"Enemy of", "group character place"},
         {"Serves", "character group"}, {"Part of", "group"}, {"Includes", "group"}, {"Founded by", "character"},
+        {"Founded", "place group"}, {"Used", "thing magic"}, {"Mentor of", "character"}, {"Origin of", "lore thing"},
         {"Owns", "thing place"}, {"Believes in", "lore"}, {"Practises", "lore"}, {"Took part in", "event"},
         {"Caused", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> thing{
-        {"Owned by", "character group"}, {"Made by", "character group"}, {"Located in", "place"},
+        {"Owned by", "character group"}, {"Made by", "character group"}, {"Used by", "character group creature"}, {"Located in", "place"},
         {"Guarded by", "character group"}, {"Guards", "place thing"}, {"Part of", "thing"}, {"Includes", "thing"},
         {"Comes from", "place lore"}, {"Named after", ""}, {"Took part in", "event"}, {"Caused", "event"},
-        {"Related to", ""}};
+        {"Origin of", "lore thing event"}, {"Scene of", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> lore{
         {"Believed by", "character group place"}, {"Practised by", "character group"}, {"Comes from", "place group event"},
         {"Explains", ""}, {"Explained by", "lore"}, {"Part of", "lore"}, {"Includes", "lore"}, {"Origin of", "thing character"},
+        {"Founded by", "character group"}, {"Used by", "character group"},
         {"Related to", ""}};
     static const std::vector<RelationChoice> magic{
-        {"Practised by", "character group race"}, {"Comes from", "place realm lore thing event"}, {"Part of", "magic lore"},
+        {"Practised by", "character group race"}, {"Used by", "character group race creature"}, {"Origin of", "thing lore"},
+        {"Comes from", "place realm lore thing event"}, {"Part of", "magic lore"},
         {"Includes", "magic"}, {"Explained by", "lore"}, {"Made", "thing"}, {"Enemy of", "magic group"}, {"Related to", ""}};
     static const std::vector<RelationChoice> event{
         {"Involved", "character group thing"}, {"Took place in", "place"}, {"Caused by", "character group event thing"},
         {"Led to", "event"}, {"Followed from", "event"}, {"Part of", "event"}, {"Includes", "event"},
-        {"Origin of", "lore thing"}, {"Related to", ""}};
+        {"Origin of", "lore thing"}, {"Scene of", "event"}, {"Founded", "place group"}, {"Related to", ""}};
     if (kind == "realm") return realm;
     if (kind == "race") return race;
     if (kind == "creature") return creature;
@@ -167,6 +176,14 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
     if (kind == "magic") return magic;
     if (kind == "event") return event;
     return character;
+}
+
+bool isFamilyRelation(const std::string& l) {
+    static const std::set<std::string> family{"Parent of", "Child of", "Partner of", "Married to", "Engaged to", "Former partner of",
+                                              "Sibling of", "Twin of", "Triplet of", "Half-sibling of", "Step-sibling of",
+                                              "Adoptive sibling of", "Foster sibling of", "Adoptive parent of", "Adopted child of",
+                                              "Step-parent of", "Stepchild of", "Foster parent of", "Foster child of"};
+    return family.count(l) > 0;
 }
 
 std::string reverseRelation(const std::string& label) {
@@ -684,6 +701,8 @@ std::vector<CustomRelation> Library::customRelations(const Id& worldId, const Id
         if (r.is_object() && r.contains("label") && r["label"].is_string()) {
             CustomRelation c{capitalised(r["label"].get<std::string>()), r.contains("reverse") && r["reverse"].is_string() ? capitalised(r["reverse"].get<std::string>()) : std::string()};
             if (c.label.empty() || c.label.size() > 60) continue;
+            // One the bible has come to know itself (0.57: "Used by") is no longer the world's own.
+            if (std::any_of(relations().begin(), relations().end(), [&](const Relation& b) { return lowerAscii(b.label) == lowerAscii(c.label); })) continue;
             if (c.reverse.empty()) c.reverse = guessReverseRelation(c.label);
             if (std::none_of(out.begin(), out.end(), [&](const CustomRelation& x) { return lowerAscii(x.label) == lowerAscii(c.label); })) out.push_back(c);
         }

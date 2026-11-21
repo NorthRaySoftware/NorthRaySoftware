@@ -3471,6 +3471,88 @@ static void testPlanning() {
     CHECK(md3.size() == 3 && md3[0].kind == NodeKind::Part && md3[2].kind == NodeKind::Scene);
 }
 
+// 0.57: former partners, engaged couples, triplets, creature families, the missing-gender warning, more wordings.
+static void testFamilyAndWordings() {
+    const std::string dir = tempLibrary("family-057");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    namespace pa = studio::paste;
+    const std::string text =
+        "# Lysa\nDetails\nGender: Female\n\nFamily\nChildren: Lyra\nEx-husband: Ralos\n\n"
+        "# Ralos\nDetails\nGender: Male\n\nFamily\nChildren: Lyra\n\n"
+        "# Lyra\nDetails\nGender: Female\n\n"
+        "# Elliot\nDetails\nGender: Male\n\nFamily\nFiancee: Emma\n\n"
+        "# Zia\nDetails\nGender: Female\n\nFamily\nParents: Ralos\nTriplets: Jimmy, Johney\n\n"
+        "# Jimmy\nDetails\nGender: Male\n\nFamily\nParents: Ralos\n\n"
+        "# Johney\nDetails\nGender: Male\n\nFamily\nParents: Ralos\n\n"
+        "Creatures\n# Ra'min\nSummary\nA wyvern.\n\nFamily\nTwin: K'alis\n\n"
+        "Things\n# Sunblade\nRelationships\nUsed by: Elliot\nOrigin of: The Old Song\n\n"
+        "Groups\n# The Wardens\nRelationships\nFounded: Highwatch\nMentor of: Elliot\n\n"
+        "Places\n# Highwatch\nRelationships\nScene of: The Siege\nFounded by: The Wardens\n";
+    const auto pages = pa::splitPages(text, "character");
+    pa::Import imp;
+    CHECK(pa::importPages(*lib, world, {}, pages, {}, imp));
+    auto named = [&](const char* n) { const Entry* e = lib->findEntryNamed(world, {}, n); return e ? e->id : Id{}; };
+    const Id lysa = named("Lysa"), ralos = named("Ralos"), lyra = named("Lyra"), elliot = named("Elliot"), emma = named("Emma");
+    // A former partner: Lyra's father, not Lysa's partner.
+    const auto fl = lib->familyOf(lysa);
+    CHECK(fl.partners.empty() && fl.formerPartners.size() == 1 && fl.formerPartners[0] == ralos);
+    const auto lay = lib->familyLayout(lyra);
+    CHECK(lay.couples.empty());
+    {
+        const auto ly = lib->familyLayout(lysa);
+        bool former = false;
+        for (auto& p : ly.people) if (p.id == ralos && p.joined == "former") former = true;
+        CHECK(former && ly.couples.empty());
+    }
+    // Engaged: a partner, drawn as a couple, called engaged.
+    const auto fe = lib->familyOf(elliot);
+    CHECK(fe.partners.size() == 1 && fe.partners[0] == emma && fe.partnerHow.at(emma) == "engaged");
+    CHECK(lib->familyLayout(elliot).couples.size() == 1);
+    // Triplets: Zia linked to both makes Jimmy and Johney triplets too, though they share a parent.
+    const Id zia = named("Zia"), jimmy = named("Jimmy"), johney = named("Johney");
+    const auto fj = lib->familyOf(jimmy);
+    CHECK(fj.how.count(johney) && fj.how.at(johney) == "triplet" && fj.how.at(zia) == "triplet");
+    {
+        // Side by side in the tree.
+        const auto t = lib->familyLayout(zia);
+        std::map<Id, float> x;
+        for (auto& p : t.people) x[p.id] = p.x;
+        const float lo = std::min({x[zia], x[jimmy], x[johney]}), hi = std::max({x[zia], x[jimmy], x[johney]});
+        CHECK(hi - lo < 2.6f && (x[lyra] < lo || x[lyra] > hi));   // the three together, their half-sister to one side
+    }
+    // Creatures have family: the twin wyverns.
+    const Entry* ramin = lib->findEntryNamed(world, {}, "Ra'min", "creature");
+    const Entry* kalis = lib->findEntryNamed(world, {}, "K'alis");
+    CHECK(ramin && kalis && kalis->kind == "creature");
+    if (ramin && kalis) {
+        const auto fr = lib->familyOf(ramin->id);
+        CHECK(fr.siblings.size() == 1 && fr.how.at(kalis->id) == "twin");
+    }
+    // The gender warning: Emma has family but no gender; Lysa has both.
+    CHECK(std::find(imp.noGender.begin(), imp.noGender.end(), emma) != imp.noGender.end());
+    CHECK(std::find(imp.noGender.begin(), imp.noGender.end(), lysa) == imp.noGender.end());
+    CHECK(std::find(imp.noGender.begin(), imp.noGender.end(), named("Sunblade")) == imp.noGender.end());
+    // The wordings are the bible's own, none of the world's.
+    auto linked = [&](const Id& a, const char* label) {
+        for (const EntryLink& l : lib->linksOf(a)) if (l.from == a && l.label == label) return true;
+        return false;
+    };
+    CHECK(linked(named("Sunblade"), "Used by") && linked(named("Sunblade"), "Origin of"));
+    CHECK(linked(named("The Wardens"), "Founded") && linked(named("The Wardens"), "Mentor of"));
+    CHECK(linked(named("Highwatch"), "Scene of") && lib->linksOf(named("Highwatch")).size() == 2);   // "Founded by" is the Wardens' "Founded"
+    CHECK(lib->customRelations(world, {}).empty());
+    CHECK(reverseRelation("Used by") == "Used" && reverseRelation("Engaged to") == "Engaged to" && isFamilyRelation("Former partner of"));
+    // Words the importer knows.
+    CHECK(pa::relationFor("character", "ex-wife") == "Former partner of" && pa::relationFor("character", "divorced from") == "Former partner of");
+    CHECK(pa::relationFor("character", "fiancé") == "Engaged to" && pa::relationFor("character", "late husband") == "Married to");
+    CHECK(pa::relationFor("character", "triplet sister") == "Triplet of" && pa::relationFor("creature", "twins") == "Twin of");
+    // A "Used by" the world made itself before is no longer listed as its own.
+    lib->setCustomRelations(world, {}, {{"Used by", "Uses"}, {"Admires", "Admired by"}});
+    const auto own = lib->customRelations(world, {});
+    CHECK(own.size() == 1 && own[0].label == "Admires");
+}
+
 int main() {
     testEntryPaste();
     testWorldFonts();
@@ -3481,6 +3563,7 @@ int main() {
     testPublish();
     testImportControls();
     testBookNotes();
+    testFamilyAndWordings();
     testPlanning();
     testCovers();
     testBibleTidy();

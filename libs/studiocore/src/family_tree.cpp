@@ -340,8 +340,8 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
     }
     std::set<std::pair<Id, Id>> twinPairs;
     for (auto& sb : lay.siblings) {
-        if (sb.how == "twin") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
-        if (!sb.sharedParents && sb.how != "" && sb.how != "twin" && sb.how != "half") kinds = true;
+        if (sb.how == "twin" || sb.how == "triplet") { twinPairs.insert({sb.a, sb.b}); twinPairs.insert({sb.b, sb.a}); }
+        if (!sb.sharedParents && sb.how != "" && sb.how != "twin" && sb.how != "triplet" && sb.how != "half") kinds = true;
     }
     auto dots = [&](double ax, double ay, double bx, double by) { cv.dashed(ax, ay, bx, by, lineC, 1.5 * S, 2.2 * S); };
     auto tagOf = [](const std::string& h) { return h == "adoptive" ? std::string("adopted") : h == "step" ? std::string("step")
@@ -381,7 +381,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         double minX = ox, maxX = ox, topY = 1e18;
         for (const Id& k : kids) {
             double kx = at[k][0] + at[k][2] / 2;
-            for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) kx = (kx + at[o2][0] + at[o2][2] / 2) / 2;
+            { double sum = kx; int n = 1; for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) { sum += at[o2][0] + at[o2][2] / 2; ++n; } kx = sum / n; }
             minX = std::min(minX, kx);
             maxX = std::max(maxX, kx);
             topY = std::min(topY, at[k][1]);
@@ -392,7 +392,7 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         for (const Id& k : kids) {
             const double kx = at[k][0] + at[k][2] / 2, ky = at[k][1];
             double fromX = kx;
-            for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) fromX = (kx + at[o2][0] + at[o2][2] / 2) / 2;
+            { double sum = kx; int n = 1; for (const Id& o2 : kids) if (o2 != k && twinPairs.count({k, o2})) { sum += at[o2][0] + at[o2][2] / 2; ++n; } fromX = sum / n; }
             const std::string how = ps.empty() ? std::string() : howOf(ps[0], k);
             const double midY = bus + (ky - bus) * 0.45;
             if (how.empty()) {
@@ -419,10 +419,10 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         auto ra = at[sb.a], rb = at[sb.b];
         if (ra[0] > rb[0]) std::swap(ra, rb);
         const double ax = ra[0] + ra[2] / 2, bx = rb[0] + rb[2] / 2, topY = ra[1] - gapY * 0.3;
-        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "half";
+        const bool plain = sb.how.empty() || sb.how == "twin" || sb.how == "triplet" || sb.how == "half";
         if (plain) { cv.line(ax, ra[1], ax, topY, lineC, 1.5 * S); cv.line(ax, topY, bx, topY, lineC, 1.5 * S); cv.line(bx, topY, bx, rb[1], lineC, 1.5 * S); }
         else { dots(ax, ra[1], ax, topY); dots(ax, topY, bx, topY); dots(bx, topY, bx, rb[1]); }
-        const std::string tag = sb.how == "twin" ? "twins" : sb.how == "half" ? "half-siblings" : sb.how == "step" ? "step-siblings"
+        const std::string tag = sb.how == "twin" ? "twins" : sb.how == "triplet" ? "triplets" : sb.how == "half" ? "half-siblings" : sb.how == "step" ? "step-siblings"
                               : sb.how == "adoptive" ? "adoptive siblings" : sb.how == "foster" ? "foster siblings" : "siblings";
         tx.draw(italic, tag, tagSz, (ax + bx) / 2 - tx.width(italic, tag, tagSz) / 2, topY - 5 * S, muted);
     }
@@ -459,7 +459,8 @@ Picture render(const Library& lib, const Id& root, const std::string& fontsFolde
         double ny = r[1] + (lines.size() > 1 ? 24 : 30) * S;
         for (auto& l : lines) { tx.draw(bold, l, nsz, nx, ny, ink); ny += 17 * S; }
         std::string second;
-        if (p.inLaw) second = p.joined == "married" ? "married in" : p.joined == "partner" ? "partner" : "other parent";
+        if (p.inLaw) second = p.joined == "married" ? "married in" : p.joined == "engaged" ? "engaged" : p.joined == "partner" ? "partner"
+                            : p.joined == "former" ? "ex-partner" : "other parent";
         else {
             second = detail(*x, {"age"});
             if (!second.empty()) second = "Age " + second;

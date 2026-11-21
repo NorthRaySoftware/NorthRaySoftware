@@ -131,6 +131,9 @@ struct Import {
     std::vector<std::string> notFound;                 // pages to remove or merge that matched no entry
     int pictures = 0;                                  // main pictures and gallery pictures brought in
     std::vector<std::string> missingPictures;
+    // 0.57: characters on the pages (or made for names on them) who have family but no Gender line, so they read as
+    // "sibling", "child" or "partner" rather than sister, son or wife.
+    std::vector<Id> noGender;
     std::string words() const;                    // "12 new entries, 3 updated, 40 links"
 };
 

@@ -415,6 +415,34 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.57.0: family and relationships (21 Nov 2026)
+
+CJ's requests 8-13.
+
+- Relations: "Engaged to", "Former partner of" and "Triplet of" (each its own reverse) and "Used" / "Used by". `relationsFor`
+  offers Founded / Founded by, Used / Used by, Mentor of, Scene of and Origin of for more kinds (group, race, realm,
+  thing, lore, magic, event), and creatures get Sibling, Twin, Triplet, Half-sibling, Partner and Former partner.
+  `isFamilyRelation(label)` replaces the four copies of the family label set (app relationships list, chip menu, bible
+  export). `customRelations` leaves out a label that is now built in, so an old world-made "Used by" goes quietly.
+- `Family` gains `formerPartners` and `partnerHow` ("married", "engaged", ""). "Engaged to" is a partner link (a couple
+  in the layout); "Former partner of" isn't, so the other parent of a child hangs from the dashed parents-not-partners
+  line and its in-law `joined` is "former". A triplet's own "Triplet of" links are followed one step, so Zia linked to
+  Jimmy and Johney makes them triplets of each other (`how` "triplet", beating the "" a shared parent would give).
+  Layout keeps twins and triplets adjacent; both renderers bring a group of twins or triplets down from the mean of
+  their centres.
+- Import words: "ex-/former/one-time/estranged" + a partner word, "ex", "divorced from", "separated from" -> Former
+  partner of; fiancé(e), betrothed, engaged to, intended -> Engaged to (no longer Partner of); triplet words; "mate" ->
+  Partner of; "uses" -> Used. `Import::noGender`: characters among the made, updated and extra entries with a family
+  link to another character and no gender/sex detail line; the import note lists them.
+- App: the Family section (and its tree panel) on creature pages too, listing and making creatures; a Former partners
+  row; + Partner asks partner / married / engaged / former; partners read wife, husband, fiancé, fiancée; the tree's
+  in-law line says Engaged or Ex-partner; "triplets" over triplets with no parents drawn.
+- Tested: studiocore 1641 checks (the ex-husband case, an engaged pair, triplets through one linked triplet laid out
+  together, twin wyverns, the gender list, the wordings built in and the old custom one dropped, the import words).
+  In Wine: a file of those pages imported (the note named Emma Test), Lysa Test's page and tree (Ralos Test under Former
+  partners and as Ex-partner beside Lyra, the triplets from one point), Ra'min's Family part with K'alis as twin
+  sibling, Elliot Test with Emma Test engaged.
+
 ## 0.56.0: notes per book (21 Nov 2026)
 
 CJ's import requests 5-7.

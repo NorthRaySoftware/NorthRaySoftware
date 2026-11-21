@@ -553,6 +553,13 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         if (!imp.notFound.empty()) more += L"\n\nNo entry of that name to remove or merge: " + listOf(imp.notFound) + L".";
         if (!imp.missingPictures.empty())
             more += L"\n\nThese pictures couldn't be read (a path that isn't there, or a file that isn't a picture): " + listOf(imp.missingPictures) + L".";
+        if (!imp.noGender.empty()) {
+            std::vector<std::string> g;
+            for (auto& id : imp.noGender)
+                if (const Entry* e = lib_->entry(id)) g.push_back(e->name);
+            more += L"\n\nNo gender given, so their family reads as “sibling”, “child” or “partner” for them: " + listOf(g) +
+                    L". A “Gender:” line on their pages (or Gender or sex in the panel) makes it sister, son or wife.";
+        }
         if (more.empty())
             flash(said.empty() ? std::wstring(L"Every page was already in the bible as it is.")
                                : L"Imported: " + w(said) + L". Ctrl+Z takes it back.",

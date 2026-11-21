@@ -263,6 +263,9 @@ std::string guessReverseRelation(const std::string& label);
 struct RelationChoice { const char* label; const char* targets; };
 const std::vector<RelationChoice>& relationsFor(const std::string& kind);
 std::string reverseRelation(const std::string& label);
+// Whether a relationship is one of the family's: parents, children, partners (married, engaged, former), brothers and
+// sisters of every kind (0.57). These show under Family rather than among an entry's other relationships.
+bool isFamilyRelation(const std::string& label);
 
 // Where an entry's name (or another name it goes by) appears in the manuscripts.
 struct Mention {
@@ -481,7 +484,13 @@ public:
     // sister; "adoptive", "step" or "foster" for parents, children and siblings; "twin" and "half" for siblings. A
     // sibling linked with its kind ("Twin of", "Half-sibling of" ...) is that kind; one found through a parent is
     // "half" when their birth parents differ, and takes the parent's kind when that parent is adoptive, step or foster.
-    struct Family { std::vector<Id> parents, partners, siblings, children; std::map<Id, std::string> how; };
+    // 0.57: "Triplet of" makes "triplet" siblings (a triplet's triplets are the person's too). `partners` are the
+    // current ones ("Partner of", "Married to", "Engaged to"), with `partnerHow` "married", "engaged" or "";
+    // `formerPartners` ("Former partner of") are kept apart: never drawn as a couple.
+    struct Family {
+        std::vector<Id> parents, partners, siblings, children, formerPartners;
+        std::map<Id, std::string> how, partnerHow;
+    };
     Family familyOf(const Id& entryId) const;
     Family familyOf(const Id& entryId, bool sharedParents) const;   // false: only its own links
     // Everyone joined to `root` by family (parents, children, partners, siblings), laid out as a tree:
@@ -489,13 +498,14 @@ public:
     struct FamilyLayout {
         // inLaw: married into this family (beside their partner; their own parents and siblings belong to their own
         // family's tree, which isn't drawn here).
-        // joined (0.47, in-laws): "married" (married to one of the family), "partner", or "parent" (a child's other parent).
+        // joined (0.47, in-laws): "married" (married to one of the family), "partner", or "parent" (a child's other parent);
+        // 0.57: "engaged", and "former" (a child's other parent who was a partner once).
         struct Person { Id id; int generation = 0; float x = 0; bool inLaw = false; std::string joined; };
         std::vector<Person> people;
         std::vector<std::pair<Id, Id>> couples;        // partners, drawn side by side
         std::vector<std::pair<Id, Id>> parentChild;    // parent, child
         std::map<std::pair<Id, Id>, std::string> parentHow;   // (parent, child) -> "", "adoptive", "step" or "foster"
-        // Brothers and sisters of a kind ("twin", "half", "step", "adoptive", "foster", or "" for full ones joined only by
+        // Brothers and sisters of a kind ("twin", "triplet", "half", "step", "adoptive", "foster", or "" for full ones joined only by
         // their own link, with no parent drawn): drawn joined to each other (0.46).
         struct Siblings { Id a, b; std::string how; bool sharedParents = false; };
         std::vector<Siblings> siblings;
