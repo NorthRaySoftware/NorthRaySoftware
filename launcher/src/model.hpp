@@ -21,6 +21,7 @@ struct Settings {
     bool keepInTray = true;          // closing the window leaves the launcher in the notification area
     bool startWithWindows = false;   // starts in the notification area when you sign in
     bool showToday = true;           // the Today strip on the home page (writing, recent pictures)
+    bool showJumpBack = true;        // Jump back in on the home page and in the tray menu (0.99)
     std::vector<std::string> appOrder;   // the home page's apps in the order they were dragged into (0.97)
 };
 
@@ -30,6 +31,18 @@ struct Today {
     long long wordsToday = 0, dailyGoal = 0;
     int streak = 0;
     std::vector<std::wstring> pictures;   // newest first: screenshots and Capture's saved pictures
+    // Jump back in (0.99): books written in lately, from Writing Studio's summary.json, newest first.
+    struct Book {
+        std::string id, chapterId;
+        std::wstring title, series, chapter, cover;
+        long long words = 0;
+    };
+    std::vector<Book> books;
+    std::string library;             // the Studio library the ids belong to
+    // NorthRay Capture's scene collection (settings.json) and its scenes (scenes\<name>.json), in order.
+    bool capture = false;
+    std::string collection, currentScene;
+    std::vector<std::string> scenes;
 };
 Today readToday();
 // The size of everything in a folder (and the folders in it), in bytes.
@@ -78,7 +91,7 @@ public:
     std::wstring applyCatalogue(const std::string& jsonText, const std::string& baseUrl);
     bool catalogueConfigured() const { return !catalogueUrl.empty(); }
 
-    std::wstring launch(const std::string& appId);
+    std::wstring launch(const std::string& appId, const std::vector<std::wstring>& args = {});
     std::wstring uninstall(const std::string& appId);
 
     AppItem* app(const std::string& id);

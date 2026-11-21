@@ -70,6 +70,11 @@ private:
     void finishWelcome();
     float pageLibrary(const Rect& r);
     float drawToday(const Rect& r);   // the home page's Today strip (0 if there's nothing to show)
+    // Jump back in (0.99): recent Writing Studio books and NorthRay Capture's scenes (0 if there's nothing to show).
+    float drawJumpBack(const Rect& r);
+    void continueBook(const Today::Book& b);
+    void openCaptureOn(const std::string& scene);
+    void captureSceneMenu();
     float appCard(const AppItem& a, const Rect& r);
     float pageApp(const Rect& r);
     float pageUpdates(const Rect& r);

@@ -473,9 +473,32 @@ void Launcher::quit() {
 }
 
 void Launcher::trayMenu() {
-    enum : UINT { IdShow = 1, IdCheck, IdQuit, IdApp = 100 };
+    enum : UINT { IdShow = 1, IdCheck, IdQuit, IdApp = 100, IdBook = 200, IdScene = 300 };
+    today_ = readToday();   // what's been written and which scene Capture is on, as of now
     std::vector<MenuItem> items;
     items.push_back(MenuItem::item(L"Open NorthRay Launcher", IdShow));
+    // Jump back in (0.99): a recent book at its chapter, or Capture on a scene.
+    if (model_.settings.showJumpBack) {
+        const AppItem* studio = model_.app("writing-studio");
+        const AppItem* capture = model_.app("capture");
+        bool sep = false;
+        if (studio && studio->inst.found && !today_.books.empty()) {
+            std::vector<MenuItem> sub;
+            for (std::size_t i = 0; i < today_.books.size(); ++i)
+                sub.push_back(MenuItem::item(today_.books[i].title + (today_.books[i].chapter.empty() ? L"" : L"  ·  " + today_.books[i].chapter),
+                                             IdBook + (UINT)i));
+            items.push_back(MenuItem::sep());
+            sep = true;
+            items.push_back(MenuItem::sub(L"Continue writing", sub));
+        }
+        if (capture && capture->inst.found && today_.capture && !today_.scenes.empty()) {
+            std::vector<MenuItem> sub;
+            for (std::size_t i = 0; i < today_.scenes.size(); ++i)
+                sub.push_back(MenuItem::item(widen(today_.scenes[i]), IdScene + (UINT)i, {}, true, today_.scenes[i] == today_.currentScene));
+            if (!sep) items.push_back(MenuItem::sep());
+            items.push_back(MenuItem::sub(L"Open Capture on", sub));
+        }
+    }
     std::vector<std::string> ids;
     bool any = false;
     // NorthRay's apps.
@@ -497,7 +520,9 @@ void Launcher::trayMenu() {
     if (id == IdShow) showFromTray();
     else if (id == IdCheck) checkCatalogue(!IsWindowVisible(hwnd()) ? false : true);
     else if (id == IdQuit) quit();
-    else if (id >= IdApp && id - IdApp < ids.size()) open(ids[id - IdApp]);
+    else if (id >= IdBook && id < IdScene && id - IdBook < today_.books.size()) continueBook(today_.books[id - IdBook]);
+    else if (id >= IdScene && id - IdScene < today_.scenes.size()) openCaptureOn(today_.scenes[id - IdScene]);
+    else if (id >= IdApp && id < IdBook && id - IdApp < ids.size()) open(ids[id - IdApp]);
 }
 
 void Launcher::setStartWithWindows(bool on) {
@@ -987,6 +1012,110 @@ float Launcher::drawToday(const Rect& r) {
     return y + h - r.y;
 }
 
+// Jump back in (0.99): the books last written in, each opening Writing Studio at its chapter, and NorthRay Capture on
+// the scene it was on (or another of its scenes). Only for installed apps; read from their files on this PC.
+float Launcher::drawJumpBack(const Rect& r) {
+    const AppItem* studio = model_.app("writing-studio");
+    const AppItem* capture = model_.app("capture");
+    const bool books = studio && studio->inst.found && !today_.books.empty();
+    const bool cap = capture && capture->inst.found && today_.capture && !today_.scenes.empty();
+    if (!books && !cap) return 0;
+    float y = r.y;
+    y += sectionLabel(r.x, y, r.w, L"Jump back in");
+    const float gap = 16, h = 132;
+    const int nBooks = books ? (int)std::min<std::size_t>(today_.books.size(), cap ? 3 : 4) : 0;
+    const int n = nBooks + (cap ? 1 : 0);
+    const float cw = (r.w - gap * (n - 1)) / n;
+    float x = r.x;
+    auto card = [&](const Rect& c, const std::string& id) {
+        softShadow(c, 10, 0.3f + 0.2f * hoverAmount(id));
+        gfx_.fillRounded(c, 12, pal_.surface);
+        gfx_.strokeRounded(c, 12, pal_.rule.mix(pal_.ribbon, hoverAmount(id)));
+    };
+    for (int i = 0; i < nBooks; ++i) {
+        const Today::Book b = today_.books[(size_t)i];
+        const Rect c{x, y, cw, h};
+        const std::string id = "jump:book" + std::to_string(i);
+        addHit(id, c, [this, b] { continueBook(b); });
+        tooltip(id, L"Open Writing Studio at " + (b.chapter.empty() ? b.title : b.chapter));
+        card(c, id);
+        // The cover, or a plain book in the aurora green with the first letter.
+        const Rect cov{c.x + 16, c.y + 16, 66, 100};
+        bool drawn = false;
+        if (!b.cover.empty() && GetFileAttributesW(b.cover.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            gfx_.pushClip(cov);
+            drawn = gfx_.drawImage(b.cover, cov, true);
+            gfx_.popClip();
+        }
+        if (!drawn) {
+            gfx_.fillRounded(cov, 4, pal_.ribbon.withAlpha(0.16f));
+            gfx_.text(b.title.empty() ? L"?" : b.title.substr(0, 1), cov, Font::Title, pal_.ribbon, {Align::Center, false, false, true});
+        }
+        gfx_.strokeRounded(cov, 4, pal_.rule);
+        const float tx = cov.right() + 14, tw = c.right() - 16 - tx;
+        gfx_.text(L"WRITING STUDIO", {tx, c.y + 18, tw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+        gfx_.text(b.title, {tx, c.y + 36, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        float ly = c.y + 58;
+        if (!b.series.empty()) { gfx_.text(b.series, {tx, ly, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true}); ly += 18; }
+        if (!b.chapter.empty()) { gfx_.text(b.chapter, {tx, ly, tw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true}); ly += 18; }
+        std::wstring more = i == 0 ? L"Continue ›" : L"Open ›";
+        if (b.words > 0) {
+            std::wstring num = std::to_wstring(b.words);
+            for (int k = (int)num.size() - 3; k > 0; k -= 3) num.insert((size_t)k, L",");
+            more = num + L" words  \u00b7  " + more;
+        }
+        gfx_.text(more, {tx, c.bottom() - 30, tw, 18}, Font::Small, pal_.ribbon, {Align::Left, false, true});
+        if (focused(id)) focusRing(c);
+        x += cw + gap;
+    }
+    if (cap) {
+        const Rect c{x, y, cw, h};
+        const std::string id = "jump:capture";
+        const std::string scene = today_.currentScene;
+        addHit(id, c, [this, scene] { openCaptureOn(scene); });
+        tooltip(id, L"Open NorthRay Capture on " + widen(scene));
+        card(c, id);
+        gfx_.text(L"NORTHRAY CAPTURE", {c.x + 20, c.y + 18, c.w - 40, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+        gfx_.text(widen(scene), {c.x + 20, c.y + 36, c.w - 40, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        const std::wstring sub = std::to_wstring(today_.scenes.size()) + (today_.scenes.size() == 1 ? L" scene in " : L" scenes in ") + widen(today_.collection);
+        gfx_.text(sub, {c.x + 20, c.y + 58, c.w - 40, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        gfx_.text(L"Open on this scene ›", {c.x + 20, c.bottom() - 30, c.w - 150, 18}, Font::Small, pal_.ribbon, {Align::Left, false, true});
+        if (today_.scenes.size() > 1)
+            linkText("jump:scenes", c.right() - 20 - gfx_.measureWidth(L"Other scenes…", Font::Small), c.bottom() - 31, L"Other scenes…",
+                     [this] { captureSceneMenu(); });
+        if (focused(id)) focusRing(c);
+    }
+    return y + h - r.y;
+}
+
+void Launcher::continueBook(const Today::Book& b) {
+    std::vector<std::wstring> args{L"--open-book", widen(b.id)};
+    if (!b.chapterId.empty()) { args.push_back(L"--chapter"); args.push_back(widen(b.chapterId)); }
+    if (!today_.library.empty()) { args.push_back(L"--library"); args.push_back(widen(today_.library)); }
+    const std::wstring err = model_.launch("writing-studio", args);
+    if (!err.empty()) flash(err, 6);
+    else flash(L"Opening " + b.title + L" in Writing Studio...", 4);
+}
+
+void Launcher::openCaptureOn(const std::string& scene) {
+    std::vector<std::wstring> args;
+    if (!today_.collection.empty()) { args.push_back(L"--collection"); args.push_back(widen(today_.collection)); }
+    if (!scene.empty()) { args.push_back(L"--scene"); args.push_back(widen(scene)); }
+    const std::wstring err = model_.launch("capture", args);
+    if (!err.empty()) flash(err, 6);
+    else flash(L"Opening NorthRay Capture on " + widen(scene) + L"...", 4);
+}
+
+void Launcher::captureSceneMenu() {
+    std::vector<MenuItem> items{MenuItem::heading(L"Open NorthRay Capture on")};
+    for (std::size_t i = 0; i < today_.scenes.size(); ++i)
+        items.push_back(MenuItem::item(widen(today_.scenes[i]), (UINT)(1 + i), {}, true, today_.scenes[i] == today_.currentScene));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT id = showMenu(hwnd(), items, pt, pal_);
+    if (id >= 1 && id - 1 < today_.scenes.size()) openCaptureOn(today_.scenes[id - 1]);
+}
+
 float Launcher::pageLibrary(const Rect& r) {
     float y = r.y;
     // The banner: the night, with what needs doing.
@@ -1011,6 +1140,10 @@ float Launcher::pageLibrary(const Rect& r) {
     if (model_.settings.showToday) {
         const float th = drawToday({r.x, y, r.w, 0});
         if (th > 0) y += th + 28;
+    }
+    if (model_.settings.showJumpBack) {
+        const float jh = drawJumpBack({r.x, y, r.w, 0});
+        if (jh > 0) y += jh + 28;
     }
 
     // What's new: the latest release of each app, newest first.
@@ -1388,6 +1521,14 @@ float Launcher::pageSettings(const Rect& r) {
     y += 28;
     y += gfx_.text(L"Your words today from NorthRay Writing Studio, and your newest screenshots and pictures saved by NorthRay Capture. "
                    L"Read from this PC only.",
+                   {r.x + 30, y, w2 - 30, 60}, Font::Small, pal_.inkMuted) + 24;
+    checkbox("set:jump", {r.x, y, w2, 26}, L"Show Jump back in on the home page and in the tray menu", model_.settings.showJumpBack, [this] {
+        model_.settings.showJumpBack = !model_.settings.showJumpBack;
+        model_.saveSettings();
+    }, false);
+    y += 28;
+    y += gfx_.text(L"The books you last wrote in, to open Writing Studio at the chapter you were on, and NorthRay Capture's scenes, to open it on "
+                   L"one. Read from this PC only.",
                    {r.x + 30, y, w2 - 30, 60}, Font::Small, pal_.inkMuted) + 24;
 
     y += sectionLabel(r.x, y, w2, L"About");

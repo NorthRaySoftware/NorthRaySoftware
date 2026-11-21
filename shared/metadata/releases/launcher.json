@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.129.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Jump back in on the home page: the books you last wrote in (cover, series and the chapter you were on) open Writing Studio at that chapter, and NorthRay Capture's card opens it on the scene it was on, or another of its scenes from Other scenes.",
+        "The tray menu has Continue writing, with the same books, and Open Capture on, with Capture's scenes.",
+        "Settings has a switch for Jump back in. It reads Writing Studio's and Capture's own files on this PC and nothing else."
+      ]
+    },
+    {
       "version": "0.119.0",
       "date": "2026-11-20",
       "notes": [

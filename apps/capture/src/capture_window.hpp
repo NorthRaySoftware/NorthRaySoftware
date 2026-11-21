@@ -56,6 +56,11 @@ public:
     CaptureWindow(Settings& settings, std::wstring settingsPath, std::wstring stateFolder);
     ~CaptureWindow() override;
     bool create(HINSTANCE inst, int show);
+    // NorthRay Launcher's Jump back in (0.58): show this scene (and this collection first, if given). From
+    // `--scene` on the command line, or from a second launch passed on by WM_COPYDATA. While recording or
+    // streaming it stays on its scene and says so.
+    void openOn(const std::string& collection, const std::string& scene);
+    static constexpr ULONG_PTR kOpenOnMessage = 0x4E524353;   // "NRCS"
     bool preTranslate(MSG& msg);
 
 protected:

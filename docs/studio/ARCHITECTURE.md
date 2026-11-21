@@ -415,6 +415,19 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.58.0: Jump back in for NorthRay Launcher (21 Nov 2026)
+
+- `Settings::recentBooks` (book id, chapter id; newest first, eight at most, in settings.json; cleared with the library
+  folder). `noteRecentBook()` runs with every summary tick: while the Writing workspace has a book, that book and the
+  chapter in the editor go to the front, and books gone from the library drop off. summary.json gains `library` and
+  `recent` (up to six: book id, title, series line, cover path, chapter id and label, words).
+- `--open-book <id> [--chapter <id>] [--library <folder>]` on the command line (`handleCommandLine`), or, when the
+  Studio is already running, the second launch sends the same as JSON in WM_COPYDATA (`kOpenBookMessage`, "NRBK") before
+  bringing the window forward. `openFromOutside` refuses a book from another library with a note, opens Writing on the
+  book and selects the chapter if it's still the book's.
+- Tested in Wine: summary.json listing Dragonfall at The Storm Wall; the Launcher's card opening a closed Studio at The
+  Storm Wall (with the Studio's own last place cleared), and switching a running Studio from the Library to it.
+
 ## 0.57.0: family and relationships (21 Nov 2026)
 
 CJ's requests 8-13.

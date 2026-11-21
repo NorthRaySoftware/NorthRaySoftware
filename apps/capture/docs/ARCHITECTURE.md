@@ -1747,3 +1747,16 @@ bookish version.
 - Tested: capturecore 2779 checks (every template but the logo watermark has a bookish twin showing at least the same
   details at the same width, in Georgia; the facecam openings match). In Wine: all 37 templates rendered by
   `capture_design_render_check` and compared in pairs.
+
+## 65. Opening on a scene from NorthRay Launcher (0.19.0, 21 Nov 2026)
+
+- `--collection <name> --scene <name>` on the command line. A collection whose file is in `scenes\` is used for the
+  start (set before the window is made, so nothing loads twice); after `create`, `openOn({}, scene)`.
+- A second launch with those arguments sends them as JSON in WM_COPYDATA (`CaptureWindow::kOpenOnMessage`, "NRCS") to
+  the running window. `openOn` switches collection first if needed (`switchCollection`), then `switchToSceneNamed` with
+  "NorthRay Launcher" as the reason. While recording or streaming nothing changes (a collection or a different scene)
+  and a note says why: the Launcher never changes what's live.
+- The Launcher reads `settings.json` (`sceneCollection`) and `scenes\<name>.json` (scene names in order, and `current`)
+  itself; nothing new is written for it.
+- Tested in Wine: started from the Launcher on Gameplay; the running Capture switched to Reading and writing from the
+  Launcher's Other scenes menu, with the note.

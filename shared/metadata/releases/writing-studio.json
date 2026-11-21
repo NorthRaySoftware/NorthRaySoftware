@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.58.0",
+      "date": "2026-11-21",
+      "notes": [
+        "Writing Studio keeps a short list of the books you've written in lately, with the chapter you were on, for NorthRay Launcher's Jump back in.",
+        "NorthRay Launcher can open a book at its chapter, whether Writing Studio is closed or already open. If the book is in another library, Writing Studio says so instead."
+      ]
+    },
+    {
       "version": "0.57.0",
       "date": "2026-11-21",
       "notes": [

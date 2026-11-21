@@ -384,6 +384,29 @@ void CaptureWindow::celebrateWriting(const std::string& text) {
     log::info("Celebration: " + text);
 }
 
+void CaptureWindow::openOn(const std::string& collection, const std::string& scene) {
+    if (!collection.empty() && _stricmp(collection.c_str(), settings_.sceneCollection.c_str()) != 0) {
+        if (!std::filesystem::exists(std::filesystem::path(stateFolder_ + L"\\scenes\\" + widen(collection) + L".json"))) {
+            flash(L"NorthRay Launcher: there's no scene collection called " + widen(collection) + L" any more.", 6);
+            return;
+        }
+        if (recorder_.active() || streamer_.active()) {
+            flash(L"NorthRay Launcher: you're recording or streaming, so Capture stayed on its scenes.", 6);
+            return;
+        }
+        switchCollection(collection, false);
+    }
+    if (scene.empty()) return;
+    if (recorder_.active() || streamer_.active()) {
+        const Id current = settings_.studioMode ? programScene_ : scenes_.current();
+        const Scene* cur = scenes_.scene(current);
+        if (!cur || cur->name != scene)
+            flash(L"NorthRay Launcher: you're recording or streaming, so Capture stayed on its scene.", 6);
+        return;
+    }
+    switchToSceneNamed(scene, L"NorthRay Launcher");
+}
+
 // Switches the live scene to one named (in studio mode, the program), with a short note saying why.
 void CaptureWindow::switchToSceneNamed(const std::string& name, const std::wstring& why) {
     const Scene* target = nullptr;

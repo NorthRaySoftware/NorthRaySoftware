@@ -72,6 +72,7 @@ int StudioApp::writingStreak() const {
 
 void StudioApp::writeSummary() {
     if (!lib_) return;
+    noteRecentBook();
     const std::string today = Library::localDay(now());
     const auto days = lib_->wordsWritten({}, today);
     std::int64_t wordsToday = days.count(today) ? days.at(today) : 0;
@@ -151,6 +152,27 @@ void StudioApp::writeSummary() {
             default: break;
         }
         j["workspace"] = ws;
+    }
+    // Books written in lately, for NorthRay Launcher's Jump back in (0.58): it opens them with --open-book.
+    {
+        j["library"] = settings_.libraryFolder;
+        nlohmann::json recent = nlohmann::json::array();
+        for (auto& [bid, cid] : settings_.recentBooks) {
+            const Book* rb = lib_->book(bid);
+            if (!rb || rb->deleted) continue;
+            nlohmann::json r = {{"book", rb->id}, {"title", rb->title}, {"series", seriesLine(rb->id)},
+                                {"cover", rb->coverBlob.empty() ? std::string() : lib_->blobPath(rb->coverBlob)}};
+            if (const ManuscriptNode* cn = cid.empty() ? nullptr : lib_->node(cid); cn && !cn->deleted && cn->bookId == rb->id) {
+                r["chapterId"] = cn->id;
+                r["chapter"] = narrow(nodeLabel(*cn));
+            }
+            std::int64_t total = 0;
+            for (auto* top : lib_->childrenOf(rb->id, {})) total += nodeTotalWords(top->id);
+            r["words"] = total;
+            recent.push_back(r);
+            if (recent.size() >= 6) break;
+        }
+        j["recent"] = recent;
     }
     if (sprint_.running) j["sprint"] = {{"endsAt", sprint_.end}, {"minutes", sprint_.minutes}, {"words", sprint_.words}};
     if (sprint_.lastAt) j["lastSprint"] = {{"at", sprint_.lastAt}, {"words", sprint_.lastWords}, {"minutes", sprint_.lastMinutes}, {"finished", sprint_.lastFinished}};

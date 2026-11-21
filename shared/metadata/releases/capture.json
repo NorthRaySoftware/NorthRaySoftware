@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.19.0",
+      "date": "2026-11-21",
+      "notes": [
+        "NorthRay Launcher can open Capture on one of your scenes, or switch a Capture that's already open to it. While you're recording or streaming, Capture stays on its scene and says so."
+      ]
+    },
+    {
       "version": "0.18.0",
       "date": "2026-11-21",
       "notes": [

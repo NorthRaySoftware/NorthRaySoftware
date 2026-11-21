@@ -848,6 +848,16 @@ bool CaptureWindow::onWheel(float x, float y, float lines) {
 }
 
 LRESULT CaptureWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
+    if (msg == WM_COPYDATA) {
+        const auto* cd = reinterpret_cast<const COPYDATASTRUCT*>(lp);
+        if (cd && cd->dwData == kOpenOnMessage && cd->cbData > 0 && cd->cbData < 65536) {
+            const nlohmann::json j = nlohmann::json::parse(std::string(static_cast<const char*>(cd->lpData), cd->cbData), nullptr, false);
+            if (j.is_object()) openOn(j.value("collection", std::string()), j.value("scene", std::string()));
+            handled = true;
+            return TRUE;
+        }
+        return 0;
+    }
     if (msg == WM_HOTKEY) {
         handled = hotkeyMessage(wp);
         return 0;

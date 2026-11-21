@@ -117,6 +117,10 @@ void StudioApp::loadSettings() {
     settings_.lastBook = cj::valueOr(j, "lastBook", "");
     settings_.lastNode = cj::valueOr(j, "lastNode", "");
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
+    if (j.contains("recentBooks") && j["recentBooks"].is_array())
+        for (auto& r : j["recentBooks"])
+            if (r.is_object() && settings_.recentBooks.size() < 8)
+                settings_.recentBooks.push_back({cj::valueOr(r, "book", std::string()), cj::valueOr(r, "chapter", std::string())});
     if (j.contains("writingView") && j["writingView"].is_object()) settings_.writingView = j["writingView"].dump();
     settings_.backupFolder = cj::valueOr(j, "backupFolder", "");
 }
@@ -138,6 +142,11 @@ void StudioApp::saveSettings() {
     j["lastBook"] = settings_.lastBook;
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
+    {
+        json rb = json::array();
+        for (auto& [b, c] : settings_.recentBooks) rb.push_back({{"book", b}, {"chapter", c}});
+        j["recentBooks"] = rb;
+    }
     {
         json v = json::parse(settings_.writingView, nullptr, false);
         j["writingView"] = v.is_object() ? v : json::object();
@@ -183,13 +192,54 @@ void StudioApp::handleCommandLine() {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return;
     std::wstring file;
+    std::string book, chapter, library;
     for (int i = 1; i < argc; ++i) {
         const std::wstring a = argv[i];
         if (a == L"--import") continue;
+        // NorthRay Launcher's Jump back in (0.58): --open-book <id> [--chapter <id>] [--library <folder>].
+        if ((a == L"--open-book" || a == L"--chapter" || a == L"--library") && i + 1 < argc) {
+            const std::string v = narrow(argv[++i]);
+            (a == L"--open-book" ? book : a == L"--chapter" ? chapter : library) = v;
+            continue;
+        }
         if (!a.empty() && a[0] != L'-') file = a;
     }
     LocalFree(argv);
-    if (!file.empty() && lib_) importPath(file, {});
+    if (!book.empty()) openFromOutside(book, chapter, library);
+    else if (!file.empty() && lib_) importPath(file, {});
+}
+
+void StudioApp::openFromOutside(const std::string& book, const std::string& chapter, const std::string& library) {
+    if (!lib_) return;
+    if (!library.empty() && _stricmp(library.c_str(), settings_.libraryFolder.c_str()) != 0) {
+        flash(L"That book is in another library (" + w(library) + L"). Open that library from the Library tab first.", 8);
+        return;
+    }
+    const Book* b = lib_->book(book);
+    if (!b || b->deleted) { flash(L"That book isn't in this library any more.", 6); return; }
+    const ManuscriptNode* n = chapter.empty() ? nullptr : lib_->node(chapter);
+    if (n && !n->deleted && n->bookId == b->id) {
+        if (writingBook_ != b->id) currentNode_ = n->id;
+        openWriting(b->id);
+        if (currentNode_ != n->id) selectNode(n->id);
+    } else {
+        openWriting(b->id);
+    }
+    flash(L"Back to " + w(b->title) + L".", 3);
+    invalidate();
+}
+
+// The book and chapter in the editor go to the front of the recent books (kept to eight).
+void StudioApp::noteRecentBook() {
+    if (ws_ != Workspace::Writing || writingBook_.empty() || !lib_ || !lib_->book(writingBook_)) return;
+    auto& rb = settings_.recentBooks;
+    if (!rb.empty() && rb.front().first == writingBook_ && rb.front().second == currentNode_) return;
+    rb.erase(std::remove_if(rb.begin(), rb.end(), [&](auto& x) { return x.first == writingBook_; }), rb.end());
+    rb.insert(rb.begin(), {writingBook_, currentNode_});
+    // Books gone from the library drop off.
+    rb.erase(std::remove_if(rb.begin(), rb.end(), [&](auto& x) { const Book* bk = lib_->book(x.first); return !bk || bk->deleted; }), rb.end());
+    if (rb.size() > 8) rb.resize(8);
+    saveSettings();
 }
 
 void StudioApp::onDestroy() {
@@ -236,7 +286,7 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
     lib_ = std::move(lib);
     changesAtBackup_ = 0;
     mirrorBackups();   // the backup made as it opened, copied to the backup folder too
-    if (settings_.libraryFolder != folder) { settings_.lastBook.clear(); settings_.lastNode.clear(); settings_.lastInWriting = false; }
+    if (settings_.libraryFolder != folder) { settings_.lastBook.clear(); settings_.lastNode.clear(); settings_.lastInWriting = false; settings_.recentBooks.clear(); }
     settings_.libraryFolder = folder;
     saveSettings();
     libraryNote_.clear();
@@ -1303,6 +1353,19 @@ void StudioApp::onTimer(UINT_PTR id) {
 
 LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
     handled = true;
+    // A second launch from NorthRay Launcher passes its book on (0.58): {"book", "chapter", "library"} as JSON.
+    if (msg == WM_COPYDATA) {
+        const auto* cd = reinterpret_cast<const COPYDATASTRUCT*>(lp);
+        if (cd && cd->dwData == kOpenBookMessage && cd->cbData > 0 && cd->cbData < 65536) {
+            const json j = json::parse(std::string(static_cast<const char*>(cd->lpData), cd->cbData), nullptr, false);
+            if (j.is_object())
+                openFromOutside(cj::valueOr(j, "book", std::string()), cj::valueOr(j, "chapter", std::string()),
+                                cj::valueOr(j, "library", std::string()));
+            return TRUE;
+        }
+        handled = false;
+        return 0;
+    }
     switch (msg) {
         case WM_COMMAND: {
             const int code = HIWORD(wp);

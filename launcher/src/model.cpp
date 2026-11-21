@@ -212,10 +212,17 @@ AppItem* Model::app(const std::string& id) {
     return nullptr;
 }
 
-std::wstring Model::launch(const std::string& appId) {
+std::wstring Model::launch(const std::string& appId, const std::vector<std::wstring>& args) {
     AppItem* a = app(appId);
     if (!a || !a->inst.found) return L"That application isn't installed.";
     std::wstring cmd = L"\"" + a->inst.exe + L"\"";
+    // Each argument quoted (names with spaces); a quote inside one is dropped rather than escaped.
+    for (const std::wstring& x : args) {
+        std::wstring q;
+        for (wchar_t c : x) if (c != L'"') q += c;
+        while (!q.empty() && q.back() == L'\\') q.pop_back();   // a trailing backslash would escape the closing quote
+        cmd += L" \"" + q + L"\"";
+    }
     STARTUPINFOW si{sizeof si};
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(a->inst.exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, a->inst.dir.c_str(), &si, &pi))
@@ -261,6 +268,7 @@ void Model::loadSettings() {
     settings.keepInTray = cj::valueOr(j, "keepInTray", true);
     settings.startWithWindows = cj::valueOr(j, "startWithWindows", false);
     settings.showToday = cj::valueOr(j, "showToday", true);
+    settings.showJumpBack = cj::valueOr(j, "showJumpBack", true);
     settings.appOrder.clear();
     if (j.contains("appOrder") && j["appOrder"].is_array())
         for (auto& x : j["appOrder"]) if (x.is_string() && settings.appOrder.size() < 100) settings.appOrder.push_back(x.get<std::string>());
@@ -274,6 +282,7 @@ void Model::saveSettings() {
     j["keepInTray"] = settings.keepInTray;
     j["startWithWindows"] = settings.startWithWindows;
     j["showToday"] = settings.showToday;
+    j["showJumpBack"] = settings.showJumpBack;
     j["appOrder"] = settings.appOrder;
     j["settingsVersion"] = 2;
     writeFileAtomic(stateDir + L"\\settings.json", j.dump(2));
@@ -303,6 +312,22 @@ Today readToday() {
             t.wordsToday = isToday ? cj::valueOr(j, "wordsToday", 0LL) : 0;
             t.dailyGoal = cj::valueOr(j, "dailyGoal", 0LL);
             t.streak = cj::valueOr(j, "streak", 0);
+            // Jump back in: the books written in lately.
+            t.library = cj::valueOr(j, "library", std::string());
+            if (j.contains("recent") && j["recent"].is_array())
+                for (auto& r : j["recent"]) {
+                    if (!r.is_object() || t.books.size() >= 6) continue;
+                    Today::Book b;
+                    b.id = cj::valueOr(r, "book", std::string());
+                    if (b.id.empty()) continue;
+                    b.chapterId = cj::valueOr(r, "chapterId", std::string());
+                    b.title = widen(cj::valueOr(r, "title", std::string()));
+                    b.series = widen(cj::valueOr(r, "series", std::string()));
+                    b.chapter = widen(cj::valueOr(r, "chapter", std::string()));
+                    b.cover = widen(cj::valueOr(r, "cover", std::string()));
+                    b.words = cj::valueOr(r, "words", 0LL);
+                    t.books.push_back(std::move(b));
+                }
             if (!isToday) {
                 // Written on an earlier day: a streak only carries on if that day was yesterday.
                 SYSTEMTIME y = st;
@@ -315,6 +340,33 @@ Today readToday() {
                 char yd[16];
                 std::snprintf(yd, sizeof yd, "%04d-%02d-%02d", y.wYear, y.wMonth, y.wDay);
                 if (cj::valueOr(j, "day", std::string()) != yd) t.streak = 0;
+            }
+        }
+    }
+    // NorthRay Capture: its scene collection and that collection's scenes, with the one it was on.
+    if (!local.empty()) {
+        const std::wstring capDir = local + L"\\NorthRay\\Capture";
+        std::string st;
+        if (readFile(capDir + L"\\settings.json", st)) {
+            const json sj = json::parse(st, nullptr, false);
+            std::string col = sj.is_object() ? cj::valueOr(sj, "sceneCollection", std::string("Default")) : std::string("Default");
+            if (col.empty() || col.find_first_of("\\/:*?\"<>|") != std::string::npos) col = "Default";
+            std::string sc;
+            if (readFile(capDir + L"\\scenes\\" + widen(col) + L".json", sc)) {
+                const json cj2 = json::parse(sc, nullptr, false);
+                if (cj2.is_object() && cj2.contains("scenes") && cj2["scenes"].is_array()) {
+                    t.capture = true;
+                    t.collection = col;
+                    const std::string cur = cj::valueOr(cj2, "current", std::string());
+                    for (auto& s : cj2["scenes"]) {
+                        if (!s.is_object()) continue;
+                        const std::string name = cj::valueOr(s, "name", std::string());
+                        if (name.empty() || t.scenes.size() >= 40) continue;
+                        t.scenes.push_back(name);
+                        if (cj::valueOr(s, "id", std::string()) == cur) t.currentScene = name;
+                    }
+                    if (t.currentScene.empty() && !t.scenes.empty()) t.currentScene = t.scenes.front();
+                }
             }
         }
     }

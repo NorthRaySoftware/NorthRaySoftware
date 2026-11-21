@@ -7,6 +7,8 @@
 #include "studio_app.hpp"
 #include "version.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <shellapi.h>
 #include <shlobj.h>
 
@@ -116,6 +118,23 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         if (HWND existing = FindWindowW(L"NorthRayWritingStudio", nullptr)) {
             if (IsIconic(existing)) ShowWindow(existing, SW_RESTORE);
             SetForegroundWindow(existing);
+            // NorthRay Launcher's Jump back in: the book to open is passed to the running Studio (0.58).
+            int argc = 0;
+            LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+            nlohmann::json j = nlohmann::json::object();
+            for (int i = 1; argv && i + 1 < argc; ++i) {
+                const std::wstring a = argv[i];
+                if (a == L"--open-book") j["book"] = utf8(argv[++i]);
+                else if (a == L"--chapter") j["chapter"] = utf8(argv[++i]);
+                else if (a == L"--library") j["library"] = utf8(argv[++i]);
+            }
+            if (argv) LocalFree(argv);
+            if (j.contains("book")) {
+                const std::string text = j.dump();
+                COPYDATASTRUCT cd{nrs::kOpenBookMessage, (DWORD)text.size(), (PVOID)text.data()};
+                DWORD_PTR result = 0;
+                SendMessageTimeoutW(existing, WM_COPYDATA, 0, (LPARAM)&cd, SMTO_ABORTIFHUNG, 5000, &result);
+            }
         }
         return 0;
     }

@@ -87,6 +87,8 @@ struct Settings {
     // Where you were: reopened on the next start.
     std::string lastBook, lastNode;
     bool lastInWriting = false;
+    // Books written in lately, newest first, each with the chapter it was on (0.58): NorthRay Launcher's Jump back in.
+    std::vector<std::pair<std::string, std::string>> recentBooks;
     // The editor's writing view (font, size, width, focus, typewriter, spellcheck, hints, names), kept as the editor sends it.
     std::string writingView = "{}";   // JSON
     // Backups: also copied to this folder (another drive, a USB stick, a synced folder), if set.
@@ -96,11 +98,18 @@ struct Settings {
 // A group of keyboard shortcuts ("Library" -> {"Ctrl+N", "New book"}, ...).
 using ShortcutGroup = std::pair<std::wstring, std::vector<std::pair<std::wstring, std::wstring>>>;
 
+// WM_COPYDATA's dwData for "open this book" from a second launch (NorthRay Launcher's Jump back in, 0.58).
+inline constexpr ULONG_PTR kOpenBookMessage = 0x4E52424B;   // "NRBK"
+
 class StudioApp : public AppWindow {
 public:
     bool create(HINSTANCE inst, int show);
     // Command line: WritingStudio.exe [--import] <file> opens the import preview for that file.
     void handleCommandLine();
+    // Opens a book at a chapter for NorthRay Launcher (0.58): from the command line, or from a second launch passed on
+    // by WM_COPYDATA. `library` is the library folder the ids belong to ("" = this one).
+    void openFromOutside(const std::string& book, const std::string& chapter, const std::string& library);
+    void noteRecentBook();
     HACCEL accelerators() const { return accel_; }
     // Keyboard handling for the text fields (Tab order, Enter, Escape). True if handled.
     bool preTranslate(const MSG& msg);
