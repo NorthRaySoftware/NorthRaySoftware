@@ -3553,6 +3553,55 @@ static void testFamilyAndWordings() {
     CHECK(own.size() == 1 && own[0].label == "Admires");
 }
 
+// 0.59: who's present, chosen in Planning; creature families in the bible.
+static void testCastAndCreatureFamily() {
+    const std::string dir = tempLibrary("cast-059");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id book = lib->createBook("Dragonfall", world);
+    const Id tom = lib->createEntry(world, {}, "character", "Tom Smith");
+    const Id ann = lib->createEntry(world, {}, "character", "Ann Smith");
+    const Id ramin = lib->createEntry(world, {}, "creature", "Ra'min");
+    const Id kalis = lib->createEntry(world, {}, "creature", "K'alis");
+    lib->addLink(ramin, kalis, "Twin of");
+    const Id ch = lib->createNode(book, {}, NodeKind::Chapter, "The Forge");
+    const Id sc = lib->createNode(book, ch, NodeKind::Scene, "Night watch");
+    namespace plan = studio::plan;
+    CHECK(plan::castOf(*lib, book, ch).empty());
+    CHECK(plan::setNodeCast(*lib, book, ch, {tom, tom}));
+    CHECK(plan::setNodeCast(*lib, book, sc, {ramin, tom}));
+    const auto c = plan::castOf(*lib, book, ch);
+    CHECK(c.size() == 2 && c[0] == tom && c[1] == ramin);   // the chapter's, then its scenes', no repeats
+    CHECK(plan::castOf(*lib, book, sc).size() == 2);
+    // Through an outline: written out, and read back into a book (a first name only one has; unknown names reported).
+    const std::string text = plan::outlineText(*lib, book);
+    CHECK(text.find("Characters: Tom Smith\n") != std::string::npos && text.find("Characters: Ra'min, Tom Smith\n") != std::string::npos);
+    plan::OutlineImport oi;
+    CHECK(plan::importOutline(*lib, book, "Chapter: The Forge\nCharacters: Ann, K'alis, Nobody\n", oi));
+    const auto c2 = plan::nodeCast(*lib, book);
+    CHECK(c2.at(ch).size() == 2 && c2.at(ch)[0] == ann && c2.at(ch)[1] == kalis);
+    CHECK(oi.unknownCast.size() == 1 && oi.unknownCast[0] == "Nobody");
+    CHECK(plan::setNodeCast(*lib, book, sc, {}));
+    CHECK(plan::nodeCast(*lib, book).count(sc) == 0);
+    // A deleted entry drops out.
+    lib->trashEntry(kalis);
+    CHECK(plan::castOf(*lib, book, ch).size() == 1);
+    lib->restore(kalis);
+    // Creatures' families are among the families (the twin wyverns).
+    bool wyverns = false;
+    for (auto& g : lib->families(world))
+        if (g.root == ramin || g.root == kalis) wyverns = true;
+    CHECK(wyverns);
+    // The PDF lists a creature's family (0.59).
+    {
+        namespace bible = studio::bible;
+        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "CJ");
+        std::string page;
+        for (auto& sec : src.sections) if (sec.title == "Ra'min") page = sec.content;
+        CHECK(page.find("Family") != std::string::npos && page.find("K'alis") != std::string::npos);
+    }
+}
+
 int main() {
     testEntryPaste();
     testWorldFonts();
@@ -3564,6 +3613,7 @@ int main() {
     testImportControls();
     testBookNotes();
     testFamilyAndWordings();
+    testCastAndCreatureFamily();
     testPlanning();
     testCovers();
     testBibleTidy();

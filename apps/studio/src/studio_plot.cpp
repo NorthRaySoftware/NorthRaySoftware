@@ -1249,6 +1249,7 @@ void StudioApp::importPlanText() {
     };
     if (!o.unknownViewpoints.empty()) msg += L"\n\nNo character of that name, so no viewpoint was set: " + listOf(o.unknownViewpoints) + L".";
     if (!o.unknownBeats.empty()) msg += L"\n\nNot beats of the book's structure: " + listOf(o.unknownBeats) + L".";
+    if (!o.unknownCast.empty()) msg += L"\n\nNo character or creature of that name, so they weren't added to who's present: " + listOf(o.unknownCast) + L".";
     if (!r.threads.unknown.empty()) msg += L"\n\nThreads named chapters that aren't in the book: " + listOf(r.threads.unknown) + L".";
     pl_.appearances = lib_->appearancesIn(pl_.book);
     if (!o.made.empty()) pl_.node.clear();

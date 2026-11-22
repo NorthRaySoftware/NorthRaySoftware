@@ -377,7 +377,8 @@ Library::FamilyLayout Library::familyLayout(const Id& root, int limit, bool bloo
 std::vector<Library::FamilyGroup> Library::families(const Id& worldId, const Id& bookId) const {
     std::vector<FamilyGroup> out;
     std::vector<const Entry*> chars;
-    for (const Entry* e : entriesOf(worldId, bookId)) if (e->kind == "character") chars.push_back(e);
+    // Creatures have families too (0.59): their trees sit with the characters'. Links only join the same kind.
+    for (const Entry* e : entriesOf(worldId, bookId)) if (e->kind == "character" || e->kind == "creature") chars.push_back(e);
     // Every possible founder's tree first (0.47): someone with no parents who has children, or brothers and sisters.
     // Founders whose children's other parents have parents of their own married into that family instead.
     struct Candidate { Id root; std::set<Id> own; int people = 0; std::string surname; };

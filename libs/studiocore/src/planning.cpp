@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -584,6 +585,49 @@ bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place)
     return lib.setSetting("nodeplaces:" + book, j.dump());
 }
 
+std::map<Id, std::vector<Id>> nodeCast(const Library& lib, const Id& book) {
+    std::map<Id, std::vector<Id>> out;
+    const json j = parseObj(lib.setting("nodecast:" + book));
+    for (auto& [node, v] : j.items()) {
+        if (!v.is_array()) continue;
+        std::vector<Id> ids;
+        for (auto& x : v)
+            if (x.is_string() && !x.get<std::string>().empty() && std::find(ids.begin(), ids.end(), x.get<std::string>()) == ids.end())
+                ids.push_back(x.get<std::string>());
+        if (!ids.empty()) out[node] = std::move(ids);
+    }
+    return out;
+}
+
+bool setNodeCast(Library& lib, const Id& book, const Id& node, const std::vector<Id>& cast) {
+    json j = parseObj(lib.setting("nodecast:" + book));
+    json arr = json::array();
+    for (const Id& id : cast)
+        if (!id.empty() && std::find(arr.begin(), arr.end(), id) == arr.end() && arr.size() < 200) arr.push_back(id);
+    if (arr.empty()) j.erase(node);
+    else j[node] = arr;
+    return lib.setSetting("nodecast:" + book, j.dump());
+}
+
+std::vector<Id> castOf(const Library& lib, const Id& book, const Id& node) {
+    const auto all = nodeCast(lib, book);
+    std::vector<Id> out;
+    auto add = [&](const Id& n) {
+        if (auto it = all.find(n); it != all.end())
+            for (const Id& id : it->second) {
+                const Entry* e = lib.entry(id);
+                if (e && !e->deleted && std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
+            }
+    };
+    add(node);
+    // Its scenes, in order, and theirs.
+    std::function<void(const Id&)> down = [&](const Id& parent) {
+        for (const ManuscriptNode* c : lib.childrenOf(book, parent)) { add(c->id); down(c->id); }
+    };
+    down(node);
+    return out;
+}
+
 std::map<Id, double> timelineEvents(const Library& lib, const Id& book) {
     std::map<Id, double> out;
     const json j = parseObj(lib.setting("timeline:" + book));
@@ -715,7 +759,9 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             for (auto& x : splitList(v)) it.beats.push_back(x);
         } else if (field(l, {"when", "time"}, v)) it.when = v;
         else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
-        else {
+        else if (field(l, {"characters", "characters present", "present", "cast", "who", "who's there", "in it", "creatures"}, v)) {
+            for (auto& x : splitList(v)) it.cast.push_back(x);
+        } else {
             if (field(l, {"synopsis", "summary"}, v)) l = v;
             if (l.empty()) continue;
             if (!it.synopsis.empty()) it.synopsis += blank ? "\n\n" : "\n";
@@ -742,6 +788,7 @@ std::string outlineText(const Library& lib, const Id& book) {
             if (it != bs.beats.end()) for (auto& n : it->second) beatsOf[n].push_back(b.name);
         }
     const auto places = nodePlaces(lib, book);
+    const auto casts = nodeCast(lib, book);
     std::string out;
     if (st) out += "Book structure: " + st->name + "\n";
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
@@ -753,6 +800,12 @@ std::string outlineText(const Library& lib, const Id& book) {
         if (n->targetWords > 0) out += "Target: " + std::to_string(n->targetWords) + "\n";
         if (auto pl = places.find(n->id); pl != places.end())
             if (const Entry* e = lib.entry(pl->second); e && !e->deleted) out += "Place: " + e->name + "\n";
+        if (auto cs = casts.find(n->id); cs != casts.end()) {
+            std::string names;
+            for (const Id& id : cs->second)
+                if (const Entry* e = lib.entry(id); e && !e->deleted) names += (names.empty() ? "" : ", ") + e->name;
+            if (!names.empty()) out += "Characters: " + names + "\n";
+        }
         auto it = th.nodes.find(n->id);
         if (it != th.nodes.end()) {
             std::string names;
@@ -912,6 +965,20 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
             if (!pl.empty()) setNodePlace(lib, book, id, pl);
             else if (std::find(out.unknownPlaces.begin(), out.unknownPlaces.end(), it.place) == out.unknownPlaces.end())
                 out.unknownPlaces.push_back(it.place);
+        }
+        if (!it.cast.empty()) {
+            // Who's present: characters or creatures by name, other name or a first name only one has.
+            std::vector<Id> cast;
+            for (const std::string& name : it.cast) {
+                Id who = person(name);
+                if (const Entry* e = who.empty() ? nullptr : lib.entry(who); e && e->kind != "character" && e->kind != "creature") who.clear();
+                if (who.empty()) {
+                    if (std::find(out.unknownCast.begin(), out.unknownCast.end(), name) == out.unknownCast.end()) out.unknownCast.push_back(name);
+                    continue;
+                }
+                if (std::find(cast.begin(), cast.end(), who) == cast.end()) cast.push_back(who);
+            }
+            if (!cast.empty()) setNodeCast(lib, book, id, cast);
         }
         for (const std::string& name : it.threads) {
             const Thread* t = th.named(name);

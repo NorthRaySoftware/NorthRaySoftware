@@ -415,6 +415,33 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.59.0: who's there, big bibles, creature families (22 Nov 2026)
+
+- planning: `nodeCast` / `setNodeCast` (setting "nodecast:<book>": node -> entry ids, in order, no repeats) and
+  `castOf(book, node)` (the node's, then its scenes' depth first; deleted entries left out). Outlines: "Characters:"
+  (also "Characters present", "Present", "Cast", "Who") read into `OutlineItem::cast`, matched like viewpoints (name,
+  other name, a first name only one has) to characters or creatures; unmatched go to `OutlineImport::unknownCast`;
+  `outlineText` writes the line.
+- App: the planning panel's WHO'S THERE under Where it happens (`cardCast`, `addToCast`: a menu with the text's names
+  first, "All of these", then everyone else; Remove; a chapter also lists its scenes'). The corkboard card's line uses
+  `castOf` when set. summary.json's `cast` comes from `castOf` (and `castChosen`), else the old appearances.
+- Speed: `Library::entry` looks up an id index (`entryAt_`, rebuilt when entries_ grows or on a miss); `linksOf` uses
+  `linksAt_` (entry -> positions in links_, rebuilt after `linksChanged()`, called at every change to links_);
+  `entriesOf` sorts on lower-case names made once. Worldbuilding draws only the cards on screen (the rest only add to
+  the height), caches the kind suggestions and the families by `changesMade()`. Measured with `studio_bench_seed`
+  (tests/bench_seed.cpp: 600 entries, ~900 links) and `NORTHRAY_FRAME_LOG` (cjui: each frame's milliseconds
+  appended to a file): 3.6 s a frame to ~0.11 s in Wine; the remaining time is drawing (Wine's Direct2D runs on the
+  processor).
+- Crowding: `Settings::entryList` (Cards / List beside the find box; one 44 px row per entry); families shown are the
+  eight biggest of this kind (characters or creatures) with All N; a facet's values past six show the five with most
+  entries (and the one being looked at) and "N more" (`wb_.facetsOpen`).
+- Creatures: `families()` includes creatures; the bible's family lists (PDF and website) and `relationsOf` treat a
+  creature's family links like a character's (same-kind links in Family, not under Relationships).
+- Tested: studiocore 1656 checks (cast order, outline round trip and unknown names, deleted entries, creature families
+  and the PDF's creature Family). In Wine: the 600-entry library (timings above, Cards and List, eight families of 47
+  with All 47), Who's there on Dragonfall's Chapter 1 (Maren only; the card said "with Maren"; summary.json's cast was
+  [Maren], castChosen true).
+
 ## 0.58.0: Jump back in for NorthRay Launcher (21 Nov 2026)
 
 - `Settings::recentBooks` (book id, chapter id; newest first, eight at most, in settings.json; cleared with the library

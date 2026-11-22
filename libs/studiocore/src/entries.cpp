@@ -446,6 +446,9 @@ void readEntryPage(Entry& e, const std::string& text) {
 bool Library::loadEntries() {
     entries_.clear();
     links_.clear();
+    entryAt_.clear();
+    entryAtSize_ = (std::size_t)-1;
+    linksChanged();
     {
         Stmt q(db_, "SELECT id, world_id, book_id, kind, name, aliases, summary, details, notes, image_blob, sort_order, created, modified, deleted, page "
                     "FROM entries ORDER BY name COLLATE NOCASE");
@@ -464,6 +467,7 @@ bool Library::loadEntries() {
     Stmt q(db_, "SELECT from_id, to_id, label FROM entry_links");
     if (!q) { error_ = sqlite3_errmsg(db_); return false; }
     while (q.row()) links_.push_back({q.text(0), q.text(1), q.text(2)});
+    linksChanged();
     return true;
 }
 
@@ -482,25 +486,40 @@ bool Library::saveEntry(const Entry& e) {
     return true;
 }
 
+void Library::indexEntries() const {
+    if (entryAtSize_ == entries_.size()) return;
+    entryAt_.clear();
+    entryAt_.reserve(entries_.size() * 2);
+    for (std::size_t i = 0; i < entries_.size(); ++i) entryAt_.emplace(entries_[i].id, i);
+    entryAtSize_ = entries_.size();
+}
+
 Entry* Library::entryMut(const Id& id) {
-    for (auto& e : entries_) if (e.id == id) return &e;
-    return nullptr;
+    return const_cast<Entry*>(entry(id));
 }
 const Entry* Library::entry(const Id& id) const {
-    for (auto& e : entries_) if (e.id == id) return &e;
+    if (id.empty()) return nullptr;
+    indexEntries();
+    auto it = entryAt_.find(id);
+    if (it != entryAt_.end() && it->second < entries_.size() && entries_[it->second].id == id) return &entries_[it->second];
+    // Not indexed (or the index is out of step): look the slow way, and index again next time.
+    for (auto& e : entries_) if (e.id == id) { entryAtSize_ = (std::size_t)-1; return &e; }
     return nullptr;
 }
 
 std::vector<const Entry*> Library::entriesOf(const Id& worldId, const Id& bookId) const {
-    std::vector<const Entry*> out;
+    // Sorted by name ignoring case; the lower-case names are made once rather than at every comparison.
+    std::vector<std::pair<std::string, const Entry*>> keyed;
     for (auto& e : entries_)
-        if (!e.deleted && (worldId.empty() ? e.worldId.empty() && e.bookId == bookId : e.worldId == worldId)) out.push_back(&e);
-    std::stable_sort(out.begin(), out.end(), [](const Entry* a, const Entry* b) {
-        std::string x = a->name, y = b->name;
-        for (auto& c : x) c = (char)std::tolower((unsigned char)c);
-        for (auto& c : y) c = (char)std::tolower((unsigned char)c);
-        return x < y;
-    });
+        if (!e.deleted && (worldId.empty() ? e.worldId.empty() && e.bookId == bookId : e.worldId == worldId)) {
+            std::string k = e.name;
+            for (auto& c : k) c = (char)std::tolower((unsigned char)c);
+            keyed.emplace_back(std::move(k), &e);
+        }
+    std::stable_sort(keyed.begin(), keyed.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<const Entry*> out;
+    out.reserve(keyed.size());
+    for (auto& [k, e] : keyed) out.push_back(e);
     return out;
 }
 
@@ -773,8 +792,20 @@ bool Library::renameRelation(const Id& worldId, const Id& bookId, const std::str
 }
 
 std::vector<EntryLink> Library::linksOf(const Id& id) const {
+    if (!linksAtValid_) {
+        linksAt_.clear();
+        for (std::size_t i = 0; i < links_.size(); ++i) {
+            linksAt_[links_[i].from].push_back(i);
+            if (links_[i].to != links_[i].from) linksAt_[links_[i].to].push_back(i);
+        }
+        linksAtValid_ = true;
+    }
     std::vector<EntryLink> out;
-    for (auto& l : links_) {
+    auto it = linksAt_.find(id);
+    if (it == linksAt_.end()) return out;
+    for (std::size_t i : it->second) {
+        if (i >= links_.size()) continue;
+        const EntryLink& l = links_[i];
         if (l.from != id && l.to != id) continue;
         const Entry* other = entry(l.from == id ? l.to : l.from);
         if (other && !other->deleted) out.push_back(l);
@@ -789,6 +820,7 @@ bool Library::addLink(const Id& from, const Id& to, const std::string& label) {
     s.bind(1, from).bind(2, to).bind(3, label);
     if (!s.run()) { error_ = sqlite3_errmsg(db_); return false; }
     links_.push_back({from, to, label});
+    linksChanged();
     return true;
 }
 
@@ -798,6 +830,7 @@ bool Library::removeLink(const Id& from, const Id& to, const std::string& label)
     if (!s.run()) { error_ = sqlite3_errmsg(db_); return false; }
     links_.erase(std::remove_if(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == from && l.to == to && l.label == label; }),
                  links_.end());
+    linksChanged();
     return true;
 }
 
@@ -918,9 +951,10 @@ bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
     *entryMut(keepId) = k;
     *entryMut(otherId) = o;
     links_.erase(std::remove_if(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == otherId || l.to == otherId; }), links_.end());
+    linksChanged();
     for (const EntryLink& n : moved)
         if (std::none_of(links_.begin(), links_.end(), [&](const EntryLink& l) { return l.from == n.from && l.to == n.to && l.label == n.label; }))
-            links_.push_back(n);
+            { links_.push_back(n); linksChanged(); }
     for (auto& n : nodes_) if (n.povId == otherId) n.povId = keepId;
     return true;
 }

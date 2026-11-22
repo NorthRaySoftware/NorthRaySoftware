@@ -142,10 +142,11 @@ std::vector<std::string> paragraphs(const std::string& text) {
 std::vector<std::pair<std::string, const Entry*>> relationsOf(const Library& lib, const View& v, const Entry& e) {
     std::vector<std::pair<std::string, const Entry*>> out;
     for (const EntryLink& l : lib.linksOf(e.id)) {
-        if (isFamilyRelation(l.label)) continue;   // in the family list
         const bool mine = l.from == e.id;
         const Entry* o = lib.entry(mine ? l.to : l.from);
         if (!o || !v.shows(o->id)) continue;
+        // In the family list: characters' and creatures' family of their own kind (0.59: creatures too).
+        if (isFamilyRelation(l.label) && (e.kind == "character" || e.kind == "creature") && o->kind == e.kind) continue;
         out.push_back({mine ? l.label : lib.relationReverse(v.options().worldId, v.options().bookId, l.label), o});
     }
     return out;
@@ -773,7 +774,7 @@ struct Site {
         }
         if (!rows.empty()) aside += "<table>" + rows + "</table>";
         if (view.options().family) {
-            if (e.kind == "character") {
+            if (e.kind == "character" || e.kind == "creature") {
                 // Each relative under what they are, as in the PDF: Father, Wife, Twin sister, Stepson (0.48.2).
                 std::string fam;
                 for (auto& [label, who] : familyLines(lib, view, e)) {
@@ -1172,7 +1173,7 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                 bool first = true;
                 for (auto& p : paragraphs(text)) { para(p, first ? "first" : "body"); first = false; }
             }
-            if (e->kind == "character" && options.family) {
+            if ((e->kind == "character" || e->kind == "creature") && options.family) {
                 std::vector<std::pair<std::string, std::string>> fam;
                 for (auto& [label, who] : familyLines(lib, view, *e)) {
                     std::string names;

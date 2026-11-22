@@ -14,6 +14,7 @@
 #include <optional>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct sqlite3;
@@ -611,6 +612,15 @@ private:
     bool saveComment(const Comment& c);
     bool stripCommentMark(const Id& nodeId, const Id& commentId);
     std::vector<EntryLink> links_;
+    // Look-ups for big bibles (0.59): an entry's place in entries_ by id, and each entry's links by position in
+    // links_. Built when first needed; entries_ only grows between loads, and every change to links_ calls
+    // linksChanged(), so they're checked by size and rebuilt then.
+    mutable std::unordered_map<Id, std::size_t> entryAt_;
+    mutable std::size_t entryAtSize_ = (std::size_t)-1;
+    mutable std::unordered_map<Id, std::vector<std::size_t>> linksAt_;
+    mutable bool linksAtValid_ = false;
+    void indexEntries() const;
+    void linksChanged() { linksAtValid_ = false; }
     bool loadEntries();
     bool saveEntry(const Entry& e);
     Entry* entryMut(const Id& id);

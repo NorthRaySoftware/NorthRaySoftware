@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.59.0",
+      "date": "2026-11-22",
+      "notes": [
+        "Who's there: in Planning, each chapter and scene lists the characters and creatures present, chosen from the bible with the ones named in its text first. Someone only mentioned isn't counted, and a shared surname no longer brings in every Smith. The card shows them, outlines read and write a \"Characters:\" line, and Capture's cast list follows it (a chapter with no one chosen still goes by the names in its text).",
+        "Worldbuilding is quick with big bibles: only the cards on screen are drawn, and entries and their links are looked up directly. With 600 entries a frame took about 3.6 seconds and now takes about a tenth of a second (measured in Wine, which draws without the graphics card).",
+        "Cards or List: entries can be shown as one-line rows. With many families, Family trees shows the eight biggest and All for the rest; long sidebar lists of races or realms show the five with most entries and N more.",
+        "Creatures' families are in the bible: a creature's Family in the PDF and on the website, and their family trees with the characters'."
+      ]
+    },
+    {
       "version": "0.58.0",
       "date": "2026-11-21",
       "notes": [

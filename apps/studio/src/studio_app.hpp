@@ -87,6 +87,7 @@ struct Settings {
     // Where you were: reopened on the next start.
     std::string lastBook, lastNode;
     bool lastInWriting = false;
+    bool entryList = false;   // Worldbuilding shows entries as a list of rows rather than cards (0.59)
     // Books written in lately, newest first, each with the chapter it was on (0.58): NorthRay Launcher's Jump back in.
     std::vector<std::pair<std::string, std::string>> recentBooks;
     // The editor's writing view (font, size, width, focus, typewriter, spellcheck, hints, names), kept as the editor sends it.
@@ -334,6 +335,8 @@ private:
     bool nodeShown(const studio::ManuscriptNode* n) const;
     void chooseViewpoint(const Id& nodeId);              // a menu of the world's characters (0.51)
     void choosePlace(const Id& nodeId);                  // a menu of the bible's places and realms (0.52)
+    void addToCast(const Id& nodeId);                    // who's present: a menu of characters and creatures (0.59)
+    void cardCast(const Rect& c, float& y);              // the WHO'S THERE part of the planning panel
     void zoomTimeline(float factor, float atX);
     std::string planPref(const Id& book, const char* key, const std::string& fallback) const;   // in "plan:<book>"
     void setPlanPref(const Id& book, const char* key, const std::string& value);   // passes the status, viewpoint and thread filters
@@ -764,6 +767,8 @@ private:
         std::vector<Id> bookOrder;
         std::map<Id, size_t> firstBook;   // entry -> index into bookOrder
         std::string firstBookKey;
+        std::string kindSugKey;                          // kind suggestions, kept until the library changes (0.59)
+        std::vector<studio::Library::KindSuggestion> kindSug;
         // Image boards
         std::string board;         // the board open ("" = none)
         std::string item;          // the picture selected on it
@@ -778,6 +783,12 @@ private:
         bool relationsPage = false;           // the Relationships page (0.38.2)
         bool fontsPage = false;               // the Fonts page (0.40)
         bool kindsOpen = false;               // "Check these kinds" opened from its one-line note (0.43)
+        // Big bibles (0.59): the families, kept until the library changes; all of them shown or only the biggest;
+        // the sidebar's lists of values opened past their first few.
+        std::string famKey;
+        std::vector<studio::Library::FamilyGroup> fams;
+        bool allFamilies = false;
+        std::set<std::string> facetsOpen;
         bool share = false;                   // the Share the bible page (0.38)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;

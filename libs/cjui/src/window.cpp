@@ -5,6 +5,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -395,6 +396,20 @@ void AppWindow::paint() {
         drawFrame((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         drawTooltip((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         gfx_.end();
+        // NORTHRAY_FRAME_LOG=<file>: each frame's time (drawing and presenting) appended, for finding slow pages.
+        static const std::wstring frameLog = [] {
+            wchar_t buf[MAX_PATH] = {};
+            const DWORD n = GetEnvironmentVariableW(L"NORTHRAY_FRAME_LOG", buf, MAX_PATH);
+            return n > 0 && n < MAX_PATH ? std::wstring(buf) : std::wstring();
+        }();
+        if (!frameLog.empty()) {
+            LARGE_INTEGER e;
+            QueryPerformanceCounter(&e);
+            if (FILE* fl = _wfopen(frameLog.c_str(), L"a")) {
+                std::fprintf(fl, "%.2f\n", double(e.QuadPart - c.QuadPart) * 1000.0 / double(f.QuadPart));
+                std::fclose(fl);
+            }
+        }
         ambient_ = g_ambientWanted && animationsOn_ && ambientAllowed_;
         g_ambientWanted = false;
         lastHits_ = hits_;

@@ -117,6 +117,7 @@ void StudioApp::loadSettings() {
     settings_.lastBook = cj::valueOr(j, "lastBook", "");
     settings_.lastNode = cj::valueOr(j, "lastNode", "");
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
+    settings_.entryList = cj::valueOr(j, "entryList", false);
     if (j.contains("recentBooks") && j["recentBooks"].is_array())
         for (auto& r : j["recentBooks"])
             if (r.is_object() && settings_.recentBooks.size() < 8)
@@ -142,6 +143,7 @@ void StudioApp::saveSettings() {
     j["lastBook"] = settings_.lastBook;
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
+    j["entryList"] = settings_.entryList;
     {
         json rb = json::array();
         for (auto& [b, c] : settings_.recentBooks) rb.push_back({{"book", b}, {"chapter", c}});

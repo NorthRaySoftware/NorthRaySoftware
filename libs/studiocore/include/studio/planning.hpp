@@ -88,6 +88,12 @@ bool importThreads(Library& lib, const Id& book, const std::string& text, Thread
 // Where each chapter or scene happens: a place (or realm) of the bible.
 std::map<Id, Id> nodePlaces(const Library& lib, const Id& book);
 bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place);   // empty place: none
+// Who is present in each chapter or scene (0.59): characters (or creatures) of the bible, in the order chosen. A
+// character only named in the text isn't present unless chosen here. Capture's cast list reads it.
+std::map<Id, std::vector<Id>> nodeCast(const Library& lib, const Id& book);
+bool setNodeCast(Library& lib, const Id& book, const Id& node, const std::vector<Id>& cast);   // empty: none
+// A chapter's cast with its scenes' after it (no repeats, deleted entries left out).
+std::vector<Id> castOf(const Library& lib, const Id& book, const Id& node);
 // The bible's events placed on the book's timeline, by day (in the timeline's unit).
 std::map<Id, double> timelineEvents(const Library& lib, const Id& book);
 bool setTimelineEvent(Library& lib, const Id& book, const Id& entry, std::optional<double> day);   // nullopt: off it
@@ -113,6 +119,7 @@ struct OutlineItem {
     std::int64_t target = 0;
     std::vector<std::string> threads;
     std::vector<std::string> beats;   // "Beat: Midpoint": beats of the book's structure this chapter carries
+    std::vector<std::string> cast;    // "Characters: Tom, Sarrah": who's present (0.59)
 };
 // `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);
@@ -125,7 +132,7 @@ struct OutlineImport {
     int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;   // made
     int updatedParts = 0, updatedChapters = 0, updatedScenes = 0;      // already in the book, filled in (0.54)
     std::vector<Id> updated;
-    std::vector<std::string> unknownViewpoints, unknownBeats, unknownPlaces;
+    std::vector<std::string> unknownViewpoints, unknownBeats, unknownPlaces, unknownCast;
     std::string structure;   // the structure set by "Book structure:", by name ("" none)
     bool unknownStructure = false;
     std::vector<Id> made;

@@ -125,11 +125,19 @@ void StudioApp::writeSummary() {
                 }
             }
             {
-                // Who's in it: the characters found in its text (most mentioned first), up to six.
-                if (pl_.book != b->id || pl_.appearances.empty()) castCache_ = lib_->appearancesIn(b->id);
-                const auto& app = pl_.book == b->id && !pl_.appearances.empty() ? pl_.appearances : castCache_;
+                // Who's in it (0.59): who Planning says is there (the chapter's, then its scenes'), up to six; a chapter
+                // with no one chosen falls back to the characters found in its text (most mentioned first).
                 nlohmann::json cast = nlohmann::json::array();
-                if (auto it = app.find(n->id); it != app.end())
+                for (const Id& eid : plan::castOf(*lib_, b->id, n->id)) {
+                    const Entry* e = lib_->entry(eid);
+                    if (!e || e->deleted) continue;
+                    cast.push_back({{"name", e->name}, {"picture", picOf(e, false)}});
+                    if (cast.size() >= 6) break;
+                }
+                j["castChosen"] = !cast.empty();
+                if (cast.empty() && (pl_.book != b->id || pl_.appearances.empty())) castCache_ = lib_->appearancesIn(b->id);
+                const auto& app = pl_.book == b->id && !pl_.appearances.empty() ? pl_.appearances : castCache_;
+                if (auto it = app.find(n->id); cast.empty() && it != app.end())
                     for (const Id& eid : it->second) {
                         const Entry* e = lib_->entry(eid);
                         if (!e || e->deleted || e->kind != "character") continue;

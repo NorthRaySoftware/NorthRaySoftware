@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace nrs {
@@ -138,6 +139,105 @@ void StudioApp::choosePlace(const Id& nodeId) {
     commitFields();
     plan::setNodePlace(*lib_, pl_.book, nodeId, i == 0 ? Id{} : list[i - 1]->id);
     invalidate();
+}
+
+// Who's present in a chapter or scene (0.59): chosen here, not worked out from names in the text, so a character
+// only mentioned isn't counted and one surname doesn't bring every Smith. The menu puts the characters (and
+// creatures) the text names first, as suggestions.
+void StudioApp::addToCast(const Id& nodeId) {
+    const studio::Book* bk = lib_->book(pl_.book);
+    if (!lib_->node(nodeId) || !bk) return;
+    const auto casts = plan::nodeCast(*lib_, pl_.book);
+    std::vector<Id> cur;
+    if (auto it = casts.find(nodeId); it != casts.end()) cur = it->second;
+    std::vector<const Entry*> named, others;
+    std::set<Id> inText;
+    if (auto it = pl_.appearances.find(nodeId); it != pl_.appearances.end()) inText.insert(it->second.begin(), it->second.end());
+    for (const Entry* e : bk->worldId.empty() ? lib_->entriesOf({}, bk->id) : lib_->entriesOf(bk->worldId)) {
+        if ((e->kind != "character" && e->kind != "creature") || std::find(cur.begin(), cur.end(), e->id) != cur.end()) continue;
+        (inText.count(e->id) ? named : others).push_back(e);
+    }
+    // The text's names in the order they're most mentioned.
+    if (auto it = pl_.appearances.find(nodeId); it != pl_.appearances.end())
+        std::stable_sort(named.begin(), named.end(), [&](const Entry* a, const Entry* b) {
+            const auto& v = it->second;
+            return std::find(v.begin(), v.end(), a->id) < std::find(v.begin(), v.end(), b->id);
+        });
+    if (named.empty() && others.empty()) {
+        flash(cur.empty() ? L"Add characters in Worldbuilding first; then choose who's here." : L"Everyone in the bible is already here.", 6);
+        return;
+    }
+    std::vector<cjui::MenuItem> items;
+    if (!named.empty()) {
+        items.push_back(cjui::MenuItem::heading(L"Named in its text"));
+        for (size_t i = 0; i < named.size(); ++i) items.push_back(cjui::MenuItem::item(w(named[i]->name), (UINT)(1 + i)));
+        if (named.size() > 1) items.push_back(cjui::MenuItem::item(L"All of these", 5000));
+    }
+    if (!others.empty()) {
+        items.push_back(cjui::MenuItem::heading(named.empty() ? L"Characters and creatures" : L"Everyone else"));
+        for (size_t i = 0; i < others.size(); ++i)
+            items.push_back(cjui::MenuItem::item(w(others[i]->name) + (others[i]->kind == "creature" ? L"  (creature)" : L""), (UINT)(1000 + i)));
+    }
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT id = cjui::showMenu(hwnd(), items, pt, pal_);
+    if (id == 0) return;
+    commitFields();
+    if (id == 5000) for (const Entry* e : named) cur.push_back(e->id);
+    else if (id >= 1000 && id - 1000 < others.size()) cur.push_back(others[id - 1000]->id);
+    else if (id >= 1 && id - 1 < named.size()) cur.push_back(named[id - 1]->id);
+    else return;
+    plan::setNodeCast(*lib_, pl_.book, nodeId, cur);
+    invalidate();
+}
+
+void StudioApp::cardCast(const Rect& c, float& y) {
+    const ManuscriptNode* n = lib_->node(pl_.node);
+    if (!n || n->kind == NodeKind::Part) return;
+    panelHeading(c, y, L"WHO'S THERE", false);
+    const auto casts = plan::nodeCast(*lib_, pl_.book);
+    std::vector<Id> cur;
+    if (auto it = casts.find(n->id); it != casts.end()) cur = it->second;
+    const Id node = n->id;
+    int shown = 0;
+    for (const Id& eid : cur) {
+        const Entry* e = lib_->entry(eid);
+        if (!e || e->deleted) continue;
+        ++shown;
+        linkText("pl:cast:" + eid, c.x, y, w(e->name), [this, eid] {
+            const Entry* x = lib_->entry(eid);
+            if (!x) return;
+            openWorldbuilding(x->worldId, x->bookId);
+            openEntry(eid);
+        });
+        linkText("pl:castx:" + eid, c.right() - gfx_.measureWidth(L"Remove", Font::Small), y, L"Remove", [this, node, eid] {
+            auto all = plan::nodeCast(*lib_, pl_.book);
+            auto v = all[node];
+            v.erase(std::remove(v.begin(), v.end(), eid), v.end());
+            commitFields();
+            plan::setNodeCast(*lib_, pl_.book, node, v);
+            invalidate();
+        });
+        y += 24;
+    }
+    // A chapter also shows who its scenes have.
+    if (n->kind == NodeKind::Chapter) {
+        std::wstring fromScenes;
+        int more = 0;
+        for (const Id& eid : plan::castOf(*lib_, pl_.book, node)) {
+            if (std::find(cur.begin(), cur.end(), eid) != cur.end()) continue;
+            if (const Entry* e = lib_->entry(eid)) {
+                if (++more <= 6) fromScenes += (fromScenes.empty() ? L"" : L", ") + w(e->name);
+            }
+        }
+        if (more > 6) fromScenes += L" and " + std::to_wstring(more - 6) + L" more";
+        if (!fromScenes.empty()) y += gfx_.text(L"In its scenes: " + fromScenes, {c.x, y, c.w, 60}, Font::Small, pal_.inkMuted) + 8;
+    }
+    if (shown == 0 && n->kind == NodeKind::Chapter && plan::castOf(*lib_, pl_.book, node).empty())
+        y += gfx_.text(L"No one chosen yet. Until you choose, Capture's cast list goes by the names in the text.", {c.x, y, c.w, 60},
+                       Font::Small, pal_.inkFaint) + 8;
+    linkText("pl:castadd", c.x, y, L"+ Who's there", [this, node] { addToCast(node); });
+    y += 32;
 }
 
 // ------------------------------------------------------------- opening
@@ -551,12 +651,14 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         // Viewpoint and who appears; click to choose the viewpoint (0.51).
         std::wstring who;
         if (const Entry* pov = entryName(n->povId)) who = L"Viewpoint: " + w(pov->name);
-        if (auto it = pl_.appearances.find(n->id); it != pl_.appearances.end()) {
+        // Who's there as chosen (0.59), else who the text names.
+        const std::vector<Id> chosen = plan::castOf(*lib_, pl_.book, n->id);
+        if (auto it = pl_.appearances.find(n->id); !chosen.empty() || it != pl_.appearances.end()) {
             std::wstring others;
             int shown = 0, more = 0;
-            for (const Id& eid : it->second) {
+            for (const Id& eid : chosen.empty() ? it->second : chosen) {
                 const Entry* e = entryName(eid);
-                if (!e || e->kind != "character" || eid == n->povId) continue;
+                if (!e || (e->kind != "character" && !(chosen.size() && e->kind == "creature")) || eid == n->povId) continue;
                 if (shown < 3) { others += (shown ? L", " : L"") + w(e->name); ++shown; }
                 else ++more;
             }
@@ -785,6 +887,7 @@ void StudioApp::drawPlanPanel(const Rect& r) {
                 const Entry* pe = it != places.end() ? lib_->entry(it->second) : nullptr;
                 panelChoice("pl:place", c, y, L"Where it happens", pe && !pe->deleted ? w(pe->name) : L"Not chosen", [this] { choosePlace(pl_.node); });
             }
+            cardCast(c, y);
             y = panelField(c, y, L"Target words (blank: none)", FTarget);
         }
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
@@ -836,8 +939,8 @@ void StudioApp::drawPlanPanel(const Rect& r) {
                        L"outline, draft, revised or final. Click a card's title or synopsis to write it there, its status word to change "
                        L"it, and its viewpoint line to choose whose eyes it's seen through.\n\nDrag a card to move it: beside another card "
                        L"to go before or after it, onto the middle of a chapter to make a scene part of it, or (in columns) to the foot "
-                       L"of a part's column. Ctrl and the mouse wheel make the cards bigger or smaller.\n\nCharacters from the world's "
-                       L"bible are found in the text, so a card shows who appears in it without being told."
+                       L"of a part's column. Ctrl and the mouse wheel make the cards bigger or smaller.\n\nA card shows who's there: those you "
+                       L"choose under Who's there in its panel, or until you choose, the bible's characters its text names."
                        : pl_.view == 1 ? L"Choose a card to set when it happens, or drag it along. Cards without a time wait below; drag one "
                                          L"onto the timeline. Lanes can follow the viewpoint, the plot threads or where it happens (set in a "
                                          L"card's panel). The bible's events can be dragged on too, and stay for this book."

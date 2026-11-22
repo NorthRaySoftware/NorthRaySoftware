@@ -687,9 +687,34 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                     if (focused(id)) focusRing(rr);
                     y += 27;
                 };
-                for (auto& o : f->options) if (auto it = counts.find(narrow(o)); it != counts.end()) { sub(it->first, o, it->second); counts.erase(it); }
-                for (auto& [v, cnt] : counts) sub(v, w(v), cnt);
+                // The listed options in order, then the rest; past six, the five with most and "N more" (0.59).
+                std::vector<std::pair<std::string, std::pair<std::wstring, int>>> vals;
+                for (auto& o : f->options) if (auto it = counts.find(narrow(o)); it != counts.end()) { vals.push_back({it->first, {o, it->second}}); counts.erase(it); }
+                for (auto& [v, cnt] : counts) vals.push_back({v, {w(v), cnt}});
+                const std::string openKey = k + ":" + f->key;
+                const bool open = wb_.facetsOpen.count(openKey) > 0;
+                size_t showN = vals.size();
+                if (!open && vals.size() > 6) {
+                    std::vector<size_t> idx(vals.size());
+                    for (size_t i = 0; i < idx.size(); ++i) idx[i] = i;
+                    std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return vals[a].second.second > vals[b].second.second; });
+                    std::set<size_t> keep(idx.begin(), idx.begin() + 5);
+                    // The value being looked at always stays.
+                    for (size_t i = 0; i < vals.size(); ++i) if (wb_.facet == f->key + "=" + vals[i].first) keep.insert(i);
+                    decltype(vals) kept;
+                    for (size_t i = 0; i < vals.size(); ++i) if (keep.count(i)) kept.push_back(vals[i]);
+                    vals = kept;
+                }
+                for (auto& [v, lc] : vals) sub(v, lc.first, lc.second);
                 if (unset) sub("-", L"Not set", unset);
+                if (showN > 6) {
+                    const std::wstring t = open ? L"Fewer" : std::to_wstring(showN - vals.size()) + L" more…";
+                    linkText("side:wb:more:" + openKey, tx0 + 26, y + 2, t, [this, openKey] {
+                        if (!wb_.facetsOpen.erase(openKey)) wb_.facetsOpen.insert(openKey);
+                        invalidate();
+                    });
+                    y += 26;
+                }
                 y += 4;
             }
     }
@@ -964,7 +989,18 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, pal_.inkMuted, 1.4f);
                 gfx_.line(cx - 4, cy + 4, cx + 4, cy - 4, pal_.inkMuted, 1.4f);
             }
-            if (wb_.kind == "character" && !list.empty() && fr.right() + 380 <= m.right()) {
+            // Cards or a list (0.59), beside the find box.
+            const bool listable = !list.empty() && !(wb_.kind == "place" && wb_.placesOutline && findWords.empty() && wb_.facet.empty()) &&
+                                  !(wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0));
+            if (listable) {
+                const float vx = fr.right() + 12;
+                segmented("wb:view", {vx, fr.y + 2, 140, 28}, {L"Cards", L"List"}, settings_.entryList ? 1 : 0, [this](int i) {
+                    settings_.entryList = i == 1;
+                    saveSettings();
+                    invalidate();
+                });
+            }
+            if (wb_.kind == "character" && !list.empty() && fr.right() + 160 + 380 <= m.right()) {
                 const float gx = m.right() - 300;
                 gfx_.text(L"Group by", {gx - 70, fr.y, 66, fr.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
                 const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
@@ -984,11 +1020,25 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += 46;
         }
         if (findWords.empty()) y = drawKindSuggestions(m, y);
-        if (wb_.kind == "character" && wb_.facet.empty() && findWords.empty()) {
-            // The families in the bible, each opening its tree.
-            const auto fams = lib_->families(wb_.world, wb_.book);
+        if ((wb_.kind == "character" || wb_.kind == "creature") && wb_.facet.empty() && findWords.empty()) {
+            // The families in the bible (of this kind), each opening its tree; worked out again only when the library
+            // changes (0.59). With many, the biggest eight and a link to the rest.
+            const std::string fk = wb_.world + "|" + wb_.book + "|" + std::to_string(lib_->changesMade());
+            if (fk != wb_.famKey) { wb_.famKey = fk; wb_.fams = lib_->families(wb_.world, wb_.book); }
+            std::vector<studio::Library::FamilyGroup> fams;
+            for (const auto& fg : wb_.fams)
+                if (const Entry* re = lib_->entry(fg.root); re && re->kind == wb_.kind) fams.push_back(fg);
+            const size_t total = fams.size();
+            constexpr size_t kFew = 8;
+            if (!wb_.allFamilies && fams.size() > kFew + 2) {
+                std::stable_sort(fams.begin(), fams.end(), [](const auto& a, const auto& b) { return a.people > b.people; });
+                fams.resize(kFew);
+            }
             if (!fams.empty()) {
                 gfx_.text(L"FAMILY TREES", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+                if (total > kFew + 2)
+                    linkText("wb:fam:all", m.right() - gfx_.measureWidth(wb_.allFamilies ? L"Only the biggest" : L"All " + std::to_wstring(total), Font::Small), y - 3,
+                             wb_.allFamilies ? L"Only the biggest" : L"All " + std::to_wstring(total), [this] { wb_.allFamilies = !wb_.allFamilies; invalidate(); });
                 y += 26;
                 float lx = m.x;
                 for (const auto& fg : fams) {
@@ -1100,9 +1150,11 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
             for (const Entry* x : list) if (!placed.count(x->id)) addTree(x, 0, std::string::npos);   // a loop of "Located in"
 
-            const float gap = 14;
-            const int cols = std::max(1, (int)((cw + gap) / (290 + gap)));   // 0.46: a little wider, more room for the summary
-            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = 118;   // 0.43: picture, two lines, details
+            // Cards, or (0.59) a list of rows, one per entry, for big bibles.
+            const bool rows = settings_.entryList;
+            const float gap = rows ? 4 : 14;
+            const int cols = rows ? 1 : std::max(1, (int)((cw + gap) / (290 + gap)));   // 0.46: a little wider, more room for the summary
+            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = rows ? 44 : 118;   // 0.43: picture, two lines, details
             const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
             for (auto& [g, items] : groups) {
             if (headings) {
@@ -1184,6 +1236,40 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 const int depth = subItems[i].depth;
                 const int col = (int)i % cols;
                 const Rect cr{m.x + col * (cardW + gap), y, cardW, cardH};
+                // Only the cards on screen are drawn (0.59): a bible of hundreds of entries took seconds a frame.
+                if (cr.bottom() < r.y - 20 || cr.y > r.bottom() + 20) {
+                    if (col == cols - 1 || i + 1 == subItems.size()) y += cardH + gap;
+                    continue;
+                }
+                if (rows) {
+                    // One row: the kind's colour, a small picture or initials, the name, what it is, the summary's start.
+                    const std::string id = "wb:card:" + x->id;
+                    addHit(id, cr, [this, eid = x->id] { openEntry(eid); });
+                    const float hv = hoverAmount(id);
+                    const cjui::Color kc = kindColor(x->kind, pal_.dark);
+                    gfx_.fillRounded(cr, 4, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+                    gfx_.fill({cr.x + 1, cr.y + 6, 3, cr.h - 12}, kc);
+                    const float indent = std::min(depth, 4) * 18.0f;
+                    const Rect pic{cr.x + 14 + indent, cr.y + 6, 32, 32};
+                    if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
+                        gfx_.fillRounded(pic, 16, kc.withAlpha(pal_.dark ? 0.20f : 0.13f));
+                        gfx_.text(initials(x->name), pic, Font::Small, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                    }
+                    const float nx = pic.right() + 12;
+                    const float nameW = std::min(260.0f, (cr.right() - nx) * 0.34f);
+                    gfx_.text(w(x->name), {nx, cr.y, nameW, cr.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+                    std::wstring label = upper(w(entryKindLabel(x->kind)));
+                    for (const Facet* f : facetsFor(x->kind))
+                        if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  ·  " + upper(w(v));
+                    const float lx2 = nx + nameW + 14, lw2 = std::min(300.0f, (cr.right() - lx2) * 0.45f);
+                    gfx_.text(label, {lx2, cr.y, lw2, cr.h}, Font::Label, kc, {Align::Left, false, true, true});
+                    const float sx = lx2 + lw2 + 14;
+                    if (!x->summary.empty() && cr.right() - 14 - sx > 60)
+                        gfx_.text(w(x->summary), {sx, cr.y, cr.right() - 14 - sx, cr.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+                    if (focused(id)) focusRing(cr);
+                    y += cardH + gap;
+                    continue;
+                }
                 const std::string id = "wb:card:" + x->id;
                 addHit(id, cr, [this, eid = x->id] { openEntry(eid); });
                 const float hv = hoverAmount(id);
@@ -2528,7 +2614,10 @@ float StudioApp::drawKindSuggestions(const Rect& m, float y) {
     json ok = json::parse(lib_->setting(key), nullptr, false);
     if (!ok.is_array()) ok = json::array();
     std::vector<Library::KindSuggestion> list;
-    for (auto& s : lib_->kindSuggestions(wb_.world, wb_.book)) {
+    // Worked out again only when the library has changed (0.59: it reads every entry's text).
+    const std::string at = wb_.world + "|" + wb_.book + "|" + std::to_string(lib_->changesMade());
+    if (at != wb_.kindSugKey) { wb_.kindSugKey = at; wb_.kindSug = lib_->kindSuggestions(wb_.world, wb_.book); }
+    for (auto& s : wb_.kindSug) {
         bool dismissed = false;
         for (auto& o : ok) if (o.is_string() && o.get<std::string>() == s.entry + ":" + s.kind) dismissed = true;
         const Entry* e = lib_->entry(s.entry);
