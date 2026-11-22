@@ -125,14 +125,15 @@ void StudioApp::writeSummary() {
                 }
             }
             {
-                // Who's in it (0.59): who Planning says is there (the chapter's, then its scenes'), up to six; a chapter
-                // with no one chosen falls back to the characters found in its text (most mentioned first).
+                // Who's in it (0.59): who Planning says is there (the chapter's, then its scenes'): everyone (0.63, Capture's
+                // Writing card scrolls them; at most 60); a chapter with no one chosen falls back to the characters found in its
+                // text (most mentioned first, up to six).
                 nlohmann::json cast = nlohmann::json::array();
                 for (const Id& eid : plan::castOf(*lib_, b->id, n->id)) {
                     const Entry* e = lib_->entry(eid);
                     if (!e || e->deleted) continue;
                     cast.push_back({{"name", e->name}, {"picture", picOf(e, false)}});
-                    if (cast.size() >= 6) break;
+                    if (cast.size() >= 60) break;
                 }
                 j["castChosen"] = !cast.empty();
                 if (cast.empty() && (pl_.book != b->id || pl_.appearances.empty())) castCache_ = lib_->appearancesIn(b->id);

@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.20.0",
+      "date": "2026-11-22",
+      "notes": [
+        "One Writing card in place of the seven writing designs: Book, Chapter, Word progress, Viewpoint, Cast, Sprint timer, Celebration and Stream words, stacked in one card, each switched on or off in the designer. Parts with nothing to show are left out and the card shrinks; with nothing at all it hides. The sprint timer and celebration appear in the card while they last.",
+        "Designs made from the old writing templates become Writing cards with that part on, at the same size, so scenes keep working.",
+        "The Writing panel (Layout, Writing) switches parts off and on live for every Writing card, and each part can have a hotkey (Settings, Hotkeys, Show or hide a Writing card part).",
+        "The cast row shows everyone in Writing Studio's Who's there and, when there are more than fit, scrolls gently and loops, right to left or left to right as chosen in the designer.",
+        "In NorthRay aurora or Bookish, and the Reading and writing scene template uses it."
+      ]
+    },
+    {
       "version": "0.19.0",
       "date": "2026-11-21",
       "notes": [

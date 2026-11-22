@@ -409,6 +409,9 @@ private:
     // The Notes panel and teleprompter (capture_notes.cpp).
     void createNotes();
     void drawNotesPanel(const cjui::Rect& body);
+    // The Writing panel (0.20): the Writing card's parts switched off and on live, for every Writing card.
+    void drawWritingPanel(const cjui::Rect& body);
+    void toggleWritingPart(const std::string& key);
     void notesChanged();
     void saveNotes();
     bool notesTimer(UINT_PTR id);

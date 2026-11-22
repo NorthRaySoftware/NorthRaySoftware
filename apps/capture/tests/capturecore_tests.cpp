@@ -1316,8 +1316,8 @@ static void testDesign() {
     // Templates: all valid and round-trip; placeholders.
     CHECK(templates().size() >= 8);
     for (auto& tp : templates()) {
-        CHECK(!tp.doc.elements.empty());
-        CHECK(fromJson(toJson(tp.doc)).elements == tp.doc.elements);
+        CHECK(!tp.doc.elements.empty() || tp.doc.writing.on);   // a Writing card is built when drawn (0.20)
+        CHECK(fromJson(toJson(tp.doc)).elements == tp.doc.elements && fromJson(toJson(tp.doc)).writing == tp.doc.writing);
         if (!(fromJson(toJson(tp.doc)).elements == tp.doc.elements)) {
             const auto back = fromJson(toJson(tp.doc));
             for (size_t i = 0; i < tp.doc.elements.size() && i < back.elements.size(); ++i)
@@ -1845,34 +1845,12 @@ static void testSceneTemplates() {
             if (id == t.id) return &t.doc;
         return nullptr;
     };
-    CHECK(doc("book-card") && doc("show-title"));
-    {   // Writing progress: the chapter's words on the label's line; older ones gain it once, others are left alone.
-        CHECK(doc("writing-progress"));
-        design::Document fresh = *doc("writing-progress");
-        CHECK(!design::addChapterWords(fresh));   // has it already
-        design::Document old = fresh;
-        old.elements.erase(std::remove_if(old.elements.begin(), old.elements.end(), [](const design::Element& e) { return e.name == "Chapter words"; }),
-                           old.elements.end());
-        for (auto& e : old.elements)
-            if (e.name == "Label") e.size = 30, e.y = 44;   // they'd changed the label
-        CHECK(design::addChapterWords(old));
-        bool found = false;
-        for (auto& e : old.elements)
-            if (e.text == "{chapterline}") found = e.size == 30 && e.y == 44 && e.align == "right";
-        CHECK(found);
-        CHECK(!design::addChapterWords(old));   // only once
-        design::Document other = *doc("book-card");
-        CHECK(!design::addChapterWords(other));
-        design::Document renamed = fresh;
-        for (auto& e : renamed.elements)
-            if (e.name == "Label") e.text = "NOW WRITING";
-        renamed.elements.erase(std::remove_if(renamed.elements.begin(), renamed.elements.end(), [](const design::Element& e) { return e.name == "Chapter words"; }),
-                               renamed.elements.end());
-        CHECK(!design::addChapterWords(renamed));   // changed past recognising
-    }
-    {   // The book card's cover picture comes from {cover} (Writing Studio's book being written).
+    CHECK(doc("writing") && doc("writing-bookish") && doc("show-title") && !doc("book-card") && !doc("cast-list"));
+    {   // The Writing card's book part: its cover picture comes from {cover} (Writing Studio's book being written).
+        design::Clock none;
+        const design::Document built = design::buildWritingCard(*doc("writing"), {{"book", "Dragonfall"}}, none);
         bool coverPic = false;
-        for (auto& e : doc("book-card")->elements) coverPic |= e.kind == design::Kind::Image && e.file == "{cover}";
+        for (auto& e : built.elements) coverPic |= e.kind == design::Kind::Image && e.file == "{cover}";
         CHECK(coverPic);
         CHECK(design::fillPlaceholders("{cover}", {{"cover", "C:\\lib\\objects\\4b\\a7"}}) == "C:\\lib\\objects\\4b\\a7");
         CHECK(design::fillPlaceholders("{cover}", {{"cover", ""}}).empty());
@@ -1905,7 +1883,7 @@ static void testSceneTemplates() {
     // Shapes kept: a design's page shape, the camera 16:9, the screen the canvas.
     const st::Rect cam = st::place({st::PartKind::Camera, "", 0.1f, 0.1f, 0.5f}, cw, ch);
     CHECK(std::fabs(cam.w / cam.h - 16.0f / 9) < 1e-3f && std::fabs(cam.x - 192) < 1e-3f);
-    const st::Rect bc = st::place({st::PartKind::Design, "book-card", 0, 0, 0.5f}, cw, ch, 900, 320);
+    const st::Rect bc = st::place({st::PartKind::Design, "writing", 0, 0, 0.5f}, cw, ch, 900, 320);
     CHECK(std::fabs(bc.w / bc.h - 900.0f / 320) < 1e-3f);
     const st::Rect scr = st::place({st::PartKind::Display, "", 0, 0, 1}, 1280, 720);
     CHECK(scr.w == 1280 && scr.h == 720);
@@ -2697,7 +2675,10 @@ static void testBrandKit() {
 
     // Every template follows the kit, and the watermark uses the logo.
     // Every template follows the kit, but the bookish ones (0.17), which keep their parchment, ink and gold.
-    for (auto& tp : dz::templates()) CHECK(dz::usesBrand(tp.doc) == (std::string(tp.group).rfind("Bookish", 0) != 0));
+    for (auto& tp : dz::templates()) {
+        const dz::Document shownDoc = tp.doc.writing.on ? dz::buildWritingCard(tp.doc, {{"book", "B"}}, {}) : tp.doc;   // (0.20)
+        CHECK(dz::usesBrand(shownDoc) == (std::string(tp.group).rfind("Bookish", 0) != 0));
+    }
     bool logo = false;
     for (auto& tp : dz::templates())
         for (auto& e : tp.doc.elements) logo = logo || e.file == dz::kBrandLogo;
@@ -2808,7 +2789,7 @@ static void testDesignLive() {
             CHECK(fromJson(toJson(md)).elements[0].timerMode == m);
         }
         bool found = false;
-        for (auto& tp : templates()) if (std::string(tp.id) == "sprint-timer") found = tp.doc.onlyWhileSprint;
+        for (auto& tp : templates()) if (std::string(tp.id) == "writing") found = tp.doc.writing.on && usesTime(tp.doc);
         CHECK(found);
     }
     {
@@ -3058,8 +3039,16 @@ static void testTemplateLooks() {
         return out;
     };
     int twins = 0;
-    for (const char* id : {"chat-box", "now-playing", "book-card", "writing-progress", "chapter-card", "character-card", "cast-list", "sprint-timer",
-                           "celebration"}) {
+    // A Writing card is compared as it's shown with every part filled in (0.20).
+    const std::vector<std::pair<std::string, std::string>> sample = {
+        {"book", "Dragonfall"}, {"series", "The Alvora Chronicles"}, {"chapter", "The Forge"}, {"status", "Draft"}, {"today", "1,200 words"},
+        {"viewpoint", "Ada"}, {"viewpointpic", "a.png"}, {"cast1", "Ada"}, {"cast1pic", "a.png"}, {"cast2", "Tom"}, {"streamline", "300 words"},
+        {"celebration", "Done!"}};
+    design::Clock busy;
+    busy.sprintLeftMs = 60000;
+    busy.celebrateMs = 100;
+    auto shown = [&](const Document& d) { return d.writing.on ? buildWritingCard(d, sample, busy) : d; };
+    for (const char* id : {"chat-box", "now-playing", "writing"}) {
         const Template *a = nullptr, *b = nullptr;
         for (auto& t : templates()) {
             if (std::string(t.id) == id) a = &t;
@@ -3068,25 +3057,26 @@ static void testTemplateLooks() {
         CHECK(a && b);
         if (!a || !b) continue;
         ++twins;
-        CHECK(placeholders(a->doc) == placeholders(b->doc));
+        const Document ad = shown(a->doc), bd = shown(b->doc);
+        CHECK(placeholders(ad) == placeholders(bd));
         CHECK(a->doc.onlyWhileSprint == b->doc.onlyWhileSprint && a->doc.onlyCelebrating == b->doc.onlyCelebrating &&
               a->doc.onlyWhilePlaying == b->doc.onlyWhilePlaying);
         CHECK(usesChat(a->doc) == usesChat(b->doc));
         bool serif = false, aroundCircle = false, arched = false, inside = true;
-        for (auto& e : b->doc.elements) {
+        for (auto& e : bd.elements) {
             serif = serif || e.font == "Georgia";
             arched = arched || e.mask == "arch";
-            inside = inside && e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= b->doc.width + 0.5f && e.y + e.h <= b->doc.height + 0.5f;
+            inside = inside && (e.clipW > 0 || (e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= bd.width + 0.5f && e.y + e.h <= bd.height + 0.5f));
         }
-        for (auto& e : a->doc.elements) aroundCircle = aroundCircle || e.mask == "circle";
+        for (auto& e : ad.elements) aroundCircle = aroundCircle || e.mask == "circle";
         CHECK(serif && inside);
         // Portraits: round in aurora, arched in bookish.
-        const bool portraits = placeholders(a->doc).count("{viewpointpic}") || placeholders(a->doc).count("{cast1pic}");
+        const bool portraits = placeholders(ad).count("{viewpointpic}") || placeholders(ad).count("{cast1pic}");
         CHECK(!portraits || (aroundCircle && arched));
-        for (auto& e : a->doc.elements)   // nothing of aurora's light spills off its page
-            CHECK(e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= a->doc.width + 0.5f && e.y + e.h <= a->doc.height + 0.5f);
+        for (auto& e : ad.elements)   // nothing of aurora's light spills off its page
+            CHECK(e.clipW > 0 || (e.x >= -0.5f && e.y >= -0.5f && e.x + e.w <= ad.width + 0.5f && e.y + e.h <= ad.height + 0.5f));
     }
-    CHECK(twins == 9);
+    CHECK(twins == 3);
     // Since 0.18 everything but the logo watermark has a bookish twin (same details), and the facecam frames share
     // their opening, which scene templates fit the camera into.
     for (auto& t : templates()) {
@@ -3102,10 +3092,10 @@ static void testTemplateLooks() {
         }
         // Everything the aurora one shows (the bookish holding screens add your name), at the same width (the bookish cast
         // list is taller, for its arched portraits).
-        const auto pa = placeholders(t.doc), pb = placeholders(b->doc);
+        const auto pa = placeholders(shown(t.doc)), pb = placeholders(shown(b->doc));
         CHECK(std::includes(pb.begin(), pb.end(), pa.begin(), pa.end()) && t.doc.width == b->doc.width);
         bool serif = false;
-        for (auto& e : b->doc.elements) serif = serif || e.font == "Georgia";
+        for (auto& e : shown(b->doc).elements) serif = serif || e.font == "Georgia";
         CHECK(serif);
         if (id == "facecam-frame") {
             const Element &fa = t.doc.elements.front(), &fb = b->doc.elements.front();
@@ -3385,7 +3375,79 @@ static void testDsp() {
     }
 }
 
+static void testWritingCard() {
+    std::printf("writing card\n");
+    namespace dz = ncap::design;
+    dz::Document d = dz::writingCardDesign(false);
+    CHECK(d.writing.on && d.writing.parts.size() == 8 && dz::usesTime(d));
+    dz::Clock none;
+    // Nothing from Writing Studio: nothing shows.
+    CHECK(dz::buildWritingCard(d, {}, none).elements.empty());
+    // A book and chapter: two parts, stacked, in a card that fits them.
+    const std::vector<std::pair<std::string, std::string>> v = {{"book", "Dragonfall"}, {"chapter", "The Forge"}, {"status", "Draft"}};
+    const dz::Document two = dz::buildWritingCard(d, v, none);
+    auto named = [](const dz::Document& x, const std::string& n) -> const dz::Element* {
+        for (auto& e : x.elements) if (e.name == n) return &e;
+        return nullptr;
+    };
+    CHECK(named(two, "Book") && named(two, "Chapter") && !named(two, "Viewpoint") && !named(two, "Time left"));
+    CHECK(named(two, "Card") && named(two, "Card")->h < 500 && named(two, "Chapter")->y > named(two, "Book")->y);
+    // Switched off in the design, or live: gone, and the card shrinks.
+    dz::Document noBook = d;
+    noBook.writing.parts.erase(noBook.writing.parts.begin());
+    const dz::Document one = dz::buildWritingCard(noBook, v, none);
+    CHECK(!named(one, "Book") && named(one, "Chapter") && named(one, "Card")->h < named(two, "Card")->h);
+    const dz::Document liveOff = dz::buildWritingCard(d, v, none, {"chapter"});
+    CHECK(named(liveOff, "Book") && !named(liveOff, "Chapter"));
+    // A sprint and a celebration appear in it while they last.
+    dz::Clock sprint;
+    sprint.sprintLeftMs = 120000;
+    CHECK(named(dz::buildWritingCard(d, v, sprint), "Time left") && !named(dz::buildWritingCard(d, v, sprint), "Celebration words"));
+    dz::Clock party;
+    party.celebrateMs = 500;
+    CHECK(named(dz::buildWritingCard(d, v, party), "Celebration words"));
+    party.celebrateMs = dz::kCelebrationMs + 1;
+    CHECK(!named(dz::buildWritingCard(d, v, party), "Celebration words"));
+    // The cast: centred when it fits; scrolling, looping, clipped to the row when it doesn't.
+    std::vector<std::pair<std::string, std::string>> cast = v;
+    for (int i = 1; i <= 3; ++i) cast.push_back({"cast" + std::to_string(i), "C" + std::to_string(i)});
+    CHECK(!dz::writingMoving(d, cast));
+    for (int i = 4; i <= 12; ++i) cast.push_back({"cast" + std::to_string(i), "C" + std::to_string(i)});
+    CHECK(dz::writingMoving(d, cast) && !dz::writingMoving(d, cast, {"cast"}));
+    dz::Clock t0, t1;
+    t1.elapsedMs = 1000;
+    auto firstName = [&](const dz::Document& x) {
+        for (auto& e : x.elements) if (e.name == "Cast name 1") return e.x;
+        return -1e9f;
+    };
+    const dz::Document c0 = dz::buildWritingCard(d, cast, t0), c1 = dz::buildWritingCard(d, cast, t1);
+    bool clipped = true;
+    for (auto& e : c0.elements) if (e.name.rfind("Cast name", 0) == 0) clipped = clipped && e.clipW > 0;
+    CHECK(clipped && std::fabs((firstName(c0) - firstName(c1)) - dz::kCastSpeed) < 0.5f);   // right to left, 40 px a second
+    dz::Document ltr = d;
+    ltr.writing.castRightToLeft = false;
+    const float l0 = firstName(dz::buildWritingCard(ltr, cast, t0)), l1 = firstName(dz::buildWritingCard(ltr, cast, t1));
+    CHECK(l1 > l0);
+    // Saved and read back; and the old separate templates turned into it, keeping their page size.
+    dz::Document back = dz::fromJson(dz::toJson(ltr));
+    CHECK(back.writing == ltr.writing);
+    dz::Document old;
+    old.name = "Cast list (bookish)";
+    old.width = 1200, old.height = 340;
+    dz::Element e;
+    e.kind = dz::Kind::Text;
+    e.text = "{cast1}";
+    dz::add(old, e);
+    const dz::Document conv = dz::fromJson(dz::toJson(old));
+    CHECK(conv.writing.on && conv.writing.look == "bookish" && conv.writing.parts == std::vector<std::string>{"cast"} && conv.width == 1200 && conv.height == 340);
+    dz::Document mine = old;
+    mine.name = "Cast list";
+    mine.elements[0].text = "My own words";
+    CHECK(!dz::fromJson(dz::toJson(mine)).writing.on);   // a design of the same name showing something else stays as it is
+}
+
 int main() {
+    testWritingCard();
     testScenes();
     testItemEditing();
     testPlacement();

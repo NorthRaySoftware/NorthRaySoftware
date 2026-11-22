@@ -44,6 +44,10 @@ void setWritingSprint(std::int64_t endsAtEpochMs);
 void celebrate(const std::string& text);
 void setWorldColour(const std::string& hex);
 
+// Writing card parts switched off live (0.20), from the main window's Writing panel and hotkeys (any thread).
+void setWritingHidden(const std::vector<std::string>& parts);
+std::vector<std::string> writingHidden();
+
 // Saves a picture as a PNG.
 bool savePng(const std::wstring& path, const DesignPicture& p);
 

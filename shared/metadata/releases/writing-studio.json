@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.63.0",
+      "date": "2026-11-22",
+      "notes": [
+        "NorthRay Capture is told everyone in a chapter's Who's there (not only six), for its Writing card's scrolling cast row."
+      ]
+    },
+    {
       "version": "0.62.0",
       "date": "2026-11-22",
       "notes": [

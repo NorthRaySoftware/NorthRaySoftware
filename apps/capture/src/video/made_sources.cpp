@@ -679,6 +679,15 @@ private:
                             pulse = std::max(pulse, ts.pulse);
                         }
                     shown += design::shownNow(doc, clock) ? "+" : "-";   // shown only during sprints or celebrations
+                    if (doc.writing.on) {   // the Writing card (0.20): what it shows now, and every frame while its cast row scrolls
+                        const auto hidden = writingHidden();
+                        const design::Document built = design::buildWritingCard(doc, values, clock, hidden);
+                        shown += std::to_string(built.elements.size()) + "|";
+                        for (auto& e : built.elements)
+                            if (e.kind == design::Kind::Timer) shown += design::timerText(e, clock).text + "|";
+                        for (auto& h : hidden) shown += h + ",";
+                        if (design::writingMoving(doc, values, hidden)) ++changes_;
+                    }
                     if (shown != lastTimers_ || pulse > 1.0001f || lastPulse_) {
                         lastTimers_ = shown;
                         ++changes_;

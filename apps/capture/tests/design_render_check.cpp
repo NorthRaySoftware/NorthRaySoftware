@@ -41,14 +41,15 @@ int wmain(int argc, wchar_t** argv) {
                              {"place", "Highcliff"},
                              {"storyday", "Day 4, at dawn"},
                              {"sprintline", "312 words this sprint"},
+                             {"streamline", "640 words this stream"},
                              {"celebration", "Daily goal reached: 2,000 words!"},
                              {"song", "Night Sky"},
                              {"artist", "Aurora Band"},
                              {"cover", pic},
                              {"viewpointpic", pic},
                              {"placepic", pic}};
-    const char* cast[] = {"Ada Wren", "Tom", "Sarrah", "The Grey Wanderer", "Mira", "Old Kess"};
-    for (int i = 0; i < 6; ++i) {
+    const char* cast[] = {"Ada Wren", "Tom", "Sarrah", "The Grey Wanderer", "Mira", "Old Kess", "Bluebolt", "Maren", "Zornov", "Lillia"};
+    for (int i = 0; i < 10; ++i) {   // more than fit: the Writing card's cast row scrolls (0.20)
         v.push_back({"cast" + std::to_string(i + 1), cast[i]});
         v.push_back({"cast" + std::to_string(i + 1) + "pic", pic});
     }
@@ -63,6 +64,7 @@ int wmain(int argc, wchar_t** argv) {
     design::Clock clock = video::clockNow(0);
     clock.sprintLeftMs = 7 * 60 * 1000 + 31000;
     clock.celebrateMs = 2000;
+    clock.elapsedMs = 3000;   // three seconds into the cast row's scrolling
     int bad = 0;
     for (auto& t : design::templates()) {
         video::DesignPicture out;

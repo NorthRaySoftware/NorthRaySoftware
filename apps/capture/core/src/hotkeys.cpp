@@ -9,7 +9,7 @@ namespace ncap::hotkeys {
 using nlohmann::json;
 
 namespace {
-const char* const kKeys[kActions] = {"scene", "toggle-stream", "toggle-record", "toggle-mute", "play-sound", "stop-sounds", "marker", "transition", "toggle-source", "brb"};
+const char* const kKeys[kActions] = {"scene", "toggle-stream", "toggle-record", "toggle-mute", "play-sound", "stop-sounds", "marker", "transition", "toggle-source", "brb", "writing-part"};
 
 // Windows virtual-key codes used here (kept portable: no windows.h).
 enum : unsigned {
@@ -44,7 +44,7 @@ bool actionFromKey(const std::string& k, Action& out) {
     return false;
 }
 
-bool needsTarget(Action a) { return a == Action::Scene || a == Action::ToggleMute || a == Action::PlaySound || a == Action::ToggleSource; }
+bool needsTarget(Action a) { return a == Action::Scene || a == Action::ToggleMute || a == Action::PlaySound || a == Action::ToggleSource || a == Action::WritingPart; }
 
 std::string describe(Action a, const std::string& t) {
     switch (a) {
@@ -58,6 +58,13 @@ std::string describe(Action a, const std::string& t) {
         case Action::Transition: return "Studio mode: send the preview live";
         case Action::ToggleSource: return "Show or hide " + t;
         case Action::Brb: return "Be right back (and back again)";
+        case Action::WritingPart: {
+            static const char* names[][2] = {{"book", "Book"},       {"chapter", "Chapter"}, {"progress", "Word progress"}, {"viewpoint", "Viewpoint"},
+                                             {"cast", "Cast"},       {"sprint", "Sprint timer"}, {"celebration", "Celebration"},
+                                             {"streamwords", "Stream words"}};
+            for (auto& n : names) if (t == n[0]) return std::string("Show or hide the Writing card's ") + n[1];
+            return "Show or hide the Writing card's " + t;
+        }
     }
     return {};
 }

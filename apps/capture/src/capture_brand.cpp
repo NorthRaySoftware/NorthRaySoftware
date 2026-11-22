@@ -90,6 +90,7 @@ void CaptureWindow::loadBrand() {
     std::stringstream ss;
     ss << f.rdbuf();
     video::setDesignBrand(ss.str().empty() ? dz::defaultBrand() : dz::brandFromJson(ss.str()));
+    video::setWritingHidden(settings_.writing.hiddenParts);   // the Writing panel's parts switched off (0.20)
 }
 
 void CaptureWindow::saveBrand(const dz::Brand& b) {

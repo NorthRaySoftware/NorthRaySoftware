@@ -97,6 +97,9 @@ bool Settings::load(const std::wstring& path) {
         if (auto sf = w.find("sceneFor"); sf != w.end() && sf->is_object())
             for (auto& [k, v] : sf->items())
                 if (v.is_string() && (k == "writing" || k == "planning" || k == "worldbuilding" || k == "other")) writing.sceneFor[k] = v.get<std::string>().substr(0, 200);
+        if (auto hp = w.find("hiddenParts"); hp != w.end() && hp->is_array())
+            for (auto& v : *hp)
+                if (v.is_string() && v.get<std::string>().size() < 24 && writing.hiddenParts.size() < 16) writing.hiddenParts.push_back(v.get<std::string>());
     }
     hotkeys.clear();
     if (auto it = j.find("hotkeys"); it != j.end() && it->is_array()) hotkeys = hotkeys::fromJson(it->dump());
@@ -164,7 +167,7 @@ bool Settings::save(const std::wstring& path) const {
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
                               {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"timelapse", timelapse}, {"notesSpeed", notesSpeed}, {"dndReminder", dndReminder}, {"notesSize", notesSize}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems},
                               {"writingStudio", {{"spoilerSafe", writing.spoilerSafe}, {"worldColour", writing.worldColour}, {"celebrate", writing.celebrate},
-                                                 {"markers", writing.markers}, {"scenes", writing.scenes}, {"sceneFor", writing.sceneFor}}}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
+                                                 {"markers", writing.markers}, {"scenes", writing.scenes}, {"sceneFor", writing.sceneFor}, {"hiddenParts", writing.hiddenParts}}}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},
                               {"studioMode", studioMode}, {"transition", nlohmann::json::parse(transition::toJson(transition))}};
     const std::wstring tmp = path + L".new";

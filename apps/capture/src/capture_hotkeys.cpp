@@ -8,6 +8,7 @@
 
 #include "log.hpp"
 
+#include "ncap/design.hpp"
 #include "ncap/hotkeys.hpp"
 
 #include "cjui/menu.hpp"
@@ -126,6 +127,9 @@ void CaptureWindow::runHotkey(const hk::Binding& b) {
         case hk::Action::Brb:
             toggleBrb();
             return;
+        case hk::Action::WritingPart:
+            toggleWritingPart(b.target);
+            return;
         case hk::Action::ToggleSource: {
             // In the scene that's live (in studio mode the program, not the preview being set up).
             const Id scene = programScene();
@@ -229,6 +233,11 @@ void CaptureWindow::addHotkey() {
     if (!shows.empty()) items.push_back(MenuItem::sub(L"Show or hide a source", shows));
     if (!mutes.empty()) items.push_back(MenuItem::sub(L"Mute or unmute", mutes));
     if (!sounds.empty()) items.push_back(MenuItem::sub(L"Play a sound", sounds));
+    {   // The Writing card's parts (0.20).
+        std::vector<MenuItem> parts;
+        for (auto& wp : design::writingParts()) parts.push_back(MenuItem::item(widen(wp.name), add(hk::Action::WritingPart, wp.key)));
+        items.push_back(MenuItem::sub(L"Show or hide a Writing card part", parts));
+    }
     items.push_back(MenuItem::item(L"Stop all sounds", add(hk::Action::StopSounds)));
     items.push_back(MenuItem::sep());
     items.push_back(MenuItem::item(L"Studio mode: send the preview live", add(hk::Action::Transition)));

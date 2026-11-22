@@ -24,8 +24,9 @@ enum class Action {
     Transition,       // studio mode: send the preview scene to the program
     ToggleSource,     // show or hide a source (by name) in the scene that's live
     Brb,              // Be right back: on or off
+    WritingPart,      // show or hide a part of the Writing card (`target`: its key, such as "cast") (0.20)
 };
-constexpr int kActions = 10;
+constexpr int kActions = 11;
 const char* actionKey(Action a);          // "scene", "toggle-stream"...
 bool actionFromKey(const std::string& k, Action& out);
 bool needsTarget(Action a);               // Scene, ToggleMute, PlaySound

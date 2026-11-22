@@ -92,6 +92,7 @@ const char* Layout::panelName(int p) {
         case Chat: return "Chat";
         case Soundboard: return "Soundboard";
         case Notes: return "Notes";
+        case Writing: return "Writing";
         default: return "";
     }
 }
@@ -103,7 +104,7 @@ void Layout::normalise() {
     if (o.empty()) o = {Scenes, Sources, Mixer, Controls};
     order = o;
     // Layouts saved before a panel existed keep their widths; the new panel gets a usual width.
-    static const float kDefault[kPanels] = {0.2f, 0.25f, 0.35f, 0.2f, 0.22f, 0.22f, 0.25f};
+    static const float kDefault[kPanels] = {0.2f, 0.25f, 0.35f, 0.2f, 0.22f, 0.22f, 0.25f, 0.2f};
     if (widths.size() > (size_t)kPanels) widths.resize((size_t)kPanels);
     while (widths.size() < (size_t)kPanels) widths.push_back(kDefault[widths.size()]);
     for (auto& w : widths) w = std::clamp(std::isfinite(w) ? w : 0.25f, 0.08f, 1.0f);

@@ -6,6 +6,7 @@
 #include <limits>
 #include <map>
 #include <cmath>
+#include <tuple>
 #include <cctype>
 #include <cstdio>
 #include <sstream>
@@ -522,7 +523,10 @@ std::string toJson(const Document& d) {
     return json{{"format", "northray-capture-design"}, {"version", 1}, {"name", d.name}, {"width", d.width}, {"height", d.height},
                 {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying},
                 {"onlyWhileSprint", d.onlyWhileSprint}, {"onlyCelebrating", d.onlyCelebrating},
-                {"grid", d.grid}, {"guidesX", d.guidesX}, {"guidesY", d.guidesY}}
+                {"grid", d.grid}, {"guidesX", d.guidesX}, {"guidesY", d.guidesY},
+                {"writing", d.writing.on ? json{{"on", true}, {"parts", d.writing.parts}, {"look", d.writing.look},
+                                                {"castRightToLeft", d.writing.castRightToLeft}}
+                                         : json(nullptr)}}
         .dump();
 }
 
@@ -545,6 +549,19 @@ Document fromJson(const std::string& text) {
     d.onlyWhileSprint = j.contains("onlyWhileSprint") && j["onlyWhileSprint"].is_boolean() && j["onlyWhileSprint"].get<bool>();
     d.onlyCelebrating = j.contains("onlyCelebrating") && j["onlyCelebrating"].is_boolean() && j["onlyCelebrating"].get<bool>();
     d.grid = (int)num(j, "grid", 0, 0, 500);
+    if (j.contains("writing") && j["writing"].is_object()) {   // a Writing card (0.20)
+        const json& w = j["writing"];
+        d.writing.on = flag(w, "on", false);
+        if (w.contains("parts") && w["parts"].is_array())
+            for (auto& p : w["parts"])
+                if (p.is_string())
+                    for (auto& wp : writingParts())
+                        if (p.get<std::string>() == wp.key && std::find(d.writing.parts.begin(), d.writing.parts.end(), wp.key) == d.writing.parts.end())
+                            d.writing.parts.push_back(wp.key);
+        d.writing.look = str(w, "look", "aurora", 24);
+        if (d.writing.look != "bookish") d.writing.look = "aurora";
+        d.writing.castRightToLeft = flag(w, "castRightToLeft", true);
+    }
     for (auto [k, v] : {std::pair{"guidesX", &d.guidesX}, std::pair{"guidesY", &d.guidesY}})
         if (j.contains(k) && j[k].is_array())
             for (auto& g : j[k])
@@ -650,6 +667,7 @@ Document fromJson(const std::string& text) {
             d.elements.push_back(e);
         }
     d.nextId = std::max((int)num(j, "nextId", 1, 1, 1000000), maxId + 1);
+    fromOldWritingTemplate(d);   // the separate writing templates became parts of the Writing card (0.20)
     return d;
 }
 
@@ -1066,7 +1084,7 @@ bool shownNow(const Document& d, const Clock& c) {
 }
 
 bool usesTime(const Document& d) {
-    if (d.onlyWhileSprint || d.onlyCelebrating) return true;
+    if (d.onlyWhileSprint || d.onlyCelebrating || d.writing.on) return true;
     for (auto& e : d.elements)
         if (e.visible && (e.kind == Kind::Timer || (e.kind == Kind::Chat && e.chatFade > 0))) return true;
     return false;
@@ -1347,172 +1365,6 @@ Element lookIcon(bool bk, const char* name, const char* icon, float x, float y, 
     return ic;
 }
 
-Document bookCard(bool bk) {
-    Document d;
-    d.name = bk ? "Book card (bookish)" : "Book card";
-    d.width = 900, d.height = 320;
-    const Anim a = Anim::SlideLeft;
-    lookCard(d, bk, 10, 10, 880, 300, a);
-    Element cover = rectEl("Cover (until there is a picture)", 40, 40, 160, 240,
-                           bk ? Fill::linear({{0, hex("#6B2E1E")}, {1, hex("#3E1A12")}}, 135) : Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 8);
-    cover.shadow = {true, 0, 6, 18, hex("#00000080"), ""};
-    cover.anim = a;
-    add(d, cover);
-    Element ic = lookIcon(bk, "Book", "book", 85, 125, 70, 70, a);
-    if (!bk) ic.fill = Fill::solid(hex("#F4F7FB")), ic.glow = {};
-    add(d, ic);
-    Element pic = picEl("Cover picture", "{cover}", 40, 40, 160, 240, 8);
-    if (bk) pic.stroke = hex("#A8853A"), pic.strokeWidth = 2;
-    pic.anim = a;
-    add(d, pic);
-    add(d, lookLabel(bk, "Label", bk ? "Now writing" : "NOW WRITING", 240, 48, 620, 34, a));
-    add(d, lookTitle(bk, "Title", "{book}", 240, 86, 620, 120, bk ? 50.0f : 52.0f, a));
-    lookRule(d, bk, 240, 214, 220, a);
-    Element s = lookMuted(bk, "Series", "{series}", 240, 228, 620, 44, 28, a);
-    s.animMs = 700;
-    add(d, s);
-    return d;
-}
-Document writingProgress(bool bk) {
-    Document d;
-    d.name = bk ? "Writing progress (bookish)" : "Writing progress";
-    d.width = 1100, d.height = 300;
-    const Anim a = Anim::SlideUp;
-    lookCard(d, bk, 10, 10, 1080, 280, a);
-    add(d, lookLabel(bk, "Label", bk ? "Chapter" : "CHAPTER", 50, 36, 700, 34, a));
-    Element cw = lookLabel(bk, "Chapter words", "{chapterline}", 50, 36, 1000, 34, a, "right");
-    add(d, cw);
-    add(d, lookTitle(bk, "Chapter", "{chapter}", 50, 72, 1000, 70, 50, a));
-    lookRule(d, bk, 50, 150, 260, a);
-    Element t = lookBody(bk, "Today", "{today}", 50, 164, 1000, 46, 34, a);
-    t.animMs = 650;
-    add(d, t);
-    Element b = lookMuted(bk, "Book and streak", "{bookline}  ·  {streakline}", 50, 218, 1000, 40, 26, a);
-    b.animMs = 750;
-    add(d, b);
-    return d;
-}
-Document chapterCard(bool bk) {
-    Document d;
-    d.name = bk ? "Chapter card (bookish)" : "Chapter card";
-    d.width = 1100, d.height = 320;
-    const Anim a = Anim::SlideUp;
-    lookCard(d, bk, 10, 10, 1080, 300, a);
-    Element pic = picEl("Place picture", "{placepic}", bk ? 830 : 800, bk ? 36 : 40, bk ? 200 : 250, bk ? 248 : 240, 18);
-    if (bk) {
-        pic.mask = "arch";
-        pic.stroke = hex("#A8853A"), pic.strokeWidth = 4;
-        pic.shadow = {true, 0, 4, 12, hex("#1E140A66"), ""};
-    } else {
-        pic.glow = {true, 16, 1.0f, hex("#7A5CFF66"), ""};
-    }
-    pic.anim = a;
-    add(d, pic);
-    add(d, lookLabel(bk, "Status", "{status}", 50, 36, 720, 34, a));
-    add(d, lookTitle(bk, "Chapter", "{chapter}", 50, 72, 740, 70, 50, a));
-    lookRule(d, bk, 50, 148, 240, a);
-    Element where = lookBody(bk, "Where and when", "{place}  ·  {storyday}", 50, 160, 740, 42, 30, a);
-    where.animMs = 650;
-    add(d, where);
-    Element pov = lookMuted(bk, "Viewpoint", "{viewpoint}", 50, 206, 740, 40, 26, a);
-    pov.animMs = 700;
-    add(d, pov);
-    Element t = lookMuted(bk, "Target", "{targetline}", 50, 250, 740, 40, 26, a);
-    t.animMs = 750;
-    add(d, t);
-    return d;
-}
-Document characterCard(bool bk) {
-    Document d;
-    d.name = bk ? "Character card (bookish)" : "Character card";
-    d.width = 760, d.height = 260;
-    const Anim a = Anim::SlideLeft;
-    lookCard(d, bk, 10, 10, 740, 240, a);
-    if (bk) lookPortrait(d, bk, "Portrait", "{viewpointpic}", 50, 30, 150, 200, a, 500);
-    else lookPortrait(d, bk, "Portrait", "{viewpointpic}", 42, 42, 176, 176, a, 500);
-    add(d, lookLabel(bk, "Label", bk ? "Through the eyes of" : "THROUGH THE EYES OF", 250, 70, 480, 34, a));
-    Element n = lookTitle(bk, "Name", "{viewpoint}", 250, 106, 480, 80, 50, a);
-    n.animMs = 650;
-    add(d, n);
-    lookRule(d, bk, 250, 188, 200, a);
-    return d;
-}
-Document castList(bool bk) {
-    Document d;
-    d.name = bk ? "Cast list (bookish)" : "Cast list";
-    d.width = 1200, d.height = bk ? 340.0f : 300;
-    const Anim a = Anim::SlideUp;
-    lookCard(d, bk, 10, 10, 1180, d.height - 20, a);
-    add(d, lookLabel(bk, "Label", bk ? "In this chapter" : "IN THIS CHAPTER", 40, 26, 1120, 34, a));
-    for (int i = 0; i < 6; ++i) {
-        const float x = 40 + i * 188.0f;
-        const std::string n = std::to_string(i + 1);
-        const std::string name = "Portrait " + n, pic = "{cast" + n + "pic}", who = "{cast" + n + "}", nameEl = "Name " + n;
-        if (bk) lookPortrait(d, bk, name.c_str(), pic.c_str(), x + 33, 72, 106, 150, a, 500 + i * 80);
-        else lookPortrait(d, bk, name.c_str(), pic.c_str(), x + 24, 76, 124, 124, a, 500 + i * 80);
-        Element t = bk ? lookBody(bk, nameEl.c_str(), who.c_str(), x, 236, 172, 70, 22, a, "centre")
-                       : textEl(nameEl.c_str(), who.c_str(), x, 210, 172, 60, 22, "#F4F7FB", true, "centre");
-        t.anim = a;
-        t.animMs = 500 + i * 80;
-        add(d, t);
-    }
-    return d;
-}
-Document sprintTimer(bool bk) {
-    Document d;
-    d.name = bk ? "Sprint timer (bookish)" : "Sprint timer";
-    d.width = 700, d.height = 220;
-    d.onlyWhileSprint = true;
-    const Anim a = Anim::Pop;
-    lookCard(d, bk, 10, 10, 680, 200, a);
-    add(d, lookLabel(bk, "Label", bk ? "A writing sprint" : "WRITING SPRINT", 40, 30, 620, 34, a));
-    Element t;
-    t.kind = Kind::Timer;
-    t.name = "Time left";
-    t.timerMode = "sprint";
-    t.timerEnd = bk ? "Pens down!" : "Time!";
-    t.x = 40, t.y = 64, t.w = 620, t.h = 86;
-    t.size = 72;
-    t.bold = true;
-    t.align = "left";
-    if (bk) {
-        t.font = kSerif;
-        t.fill = Fill::solid(hex("#2A1C0E"));
-    } else {
-        t.fill = Fill::linear({{0, hex("#F4F7FB")}, {1, hex("#BFF3DC")}}, 90);
-        t.glow = {true, 22, 1.2f, hex("#3FCF8E66"), ""};
-    }
-    t.anim = a;
-    add(d, t);
-    add(d, lookMuted(bk, "Words", "{sprintline}", 40, 154, 620, 40, 28, a));
-    return d;
-}
-Document celebration(bool bk) {
-    Document d;
-    d.name = bk ? "Celebration (bookish)" : "Celebration";
-    d.width = 1000, d.height = 260;
-    d.onlyCelebrating = true;
-    Element glow = rectEl("Glow", 20, 20, 960, 220, Fill::radial({{0, hex(bk ? "#E8C46A99" : "#3FCF8E99")}, {1, hex(bk ? "#E8C46A00" : "#3FCF8E00")}}), 110);
-    glow.anim = Anim::Fade;
-    add(d, glow);
-    if (bk) {
-        lookCard(d, bk, 80, 60, 840, 140, Anim::Pop, "Banner");
-    } else {
-        Element card = rectEl("Banner", 80, 60, 840, 140, Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 0), 70);
-        card.shadow = {true, 0, 10, 26, hex("#00000099"), ""};
-        card.anim = Anim::Pop;
-        add(d, card);
-    }
-    Element ic = lookIcon(bk, "Sparkle", bk ? "star" : "sparkle", 112, 90, 80, 80, Anim::Pop);
-    if (!bk) ic.fill = Fill::solid(hex("#FFFFFF")), ic.glow = {true, 14, 1.0f, hex("#FFFFFF88"), ""};
-    add(d, ic);
-    Element t = textEl("Words", "{celebration}", 204, 90, 690, 80, 40, bk ? "#2A1C0E" : "#FFFFFF", true, "left");
-    if (bk) t.font = kSerif, t.italic = true;
-    t.anim = Anim::Pop;
-    t.animMs = 650;
-    add(d, t);
-    return d;
-}
 Document chatBox(bool bk) {
     Document d;
     d.name = bk ? "Chat box (bookish)" : "Chat box";
@@ -1774,13 +1626,6 @@ const std::vector<Template>& templates() {
         static const Pair pairs[] = {
             {"chat-box", "Chat box (your Twitch chat, live)", "Chat box (parchment cards)", chatBox, "On stream"},
             {"now-playing", "Now playing (your music's title and artist)", "Now playing", nowPlaying, "On stream"},
-            {"book-card", "Book card (your book's title and series)", "Book card", bookCard, "Writing"},
-            {"writing-progress", "Writing progress (chapter and today's words)", "Writing progress", writingProgress, "Writing"},
-            {"chapter-card", "Chapter card (status, place, story day, target)", "Chapter card", chapterCard, "Writing"},
-            {"character-card", "Character card (the chapter's viewpoint character)", "Character card", characterCard, "Writing"},
-            {"cast-list", "Cast list (who's in this chapter)", "Cast list", castList, "Writing"},
-            {"sprint-timer", "Sprint timer (shows during a writing sprint)", "Sprint timer", sprintTimer, "Writing"},
-            {"celebration", "Celebration (daily goal reached, sprint done)", "Celebration", celebration, "Writing"},
         };
         static std::vector<std::string> bookIds;   // kept alive: Template holds const char*
         bookIds.clear();
@@ -1791,6 +1636,9 @@ const std::vector<Template>& templates() {
         }
         // And the rest of a stream in the bookish look (0.18).
         const char* bk = "Bookish (parchment, serif, ink and gold)";
+        // The Writing card (0.20), in place of the seven separate writing templates.
+        v.push_back({"writing", "Writing (book, chapter, words, characters, sprints; each part on or off)", "Writing", writingCardDesign(false)});
+        v.push_back({"writing-bookish", "Writing", bk, writingCardDesign(true)});
         v.push_back({"starting-soon-bookish", "Starting Soon", bk, holdingBookish("Starting Soon", "Starting soon", "Settle in with a cup of tea")});
         v.push_back({"be-right-back-bookish", "Be Right Back", bk, holdingBookish("Be Right Back", "Be right back", "Keep your place, I'll return shortly")});
         v.push_back({"ending-bookish", "Ending", bk, holdingBookish("Ending", "Thank you for reading along", "Until the next chapter")});
@@ -1989,6 +1837,243 @@ Document unlinkBrand(const Document& d, const Brand& b) {
     Document out = applyBrand(d, b);
     eachColour(out, [](Rgba&, std::string& link) { link.clear(); });
     return out;
+}
+
+// ---------------------------------------------------------------------------------------------- the Writing card (0.20)
+
+const std::vector<WritingPart>& writingParts() {
+    static const std::vector<WritingPart> p = {{"book", "Book"},          {"chapter", "Chapter"},   {"progress", "Word progress"},
+                                               {"viewpoint", "Viewpoint"}, {"cast", "Cast"},         {"sprint", "Sprint timer"},
+                                               {"celebration", "Celebration"}, {"streamwords", "Stream words"}};
+    return p;
+}
+
+namespace {
+using Values = std::vector<std::pair<std::string, std::string>>;
+std::string valueOf(const Values& v, const std::string& key) {
+    for (auto it = v.rbegin(); it != v.rend(); ++it)
+        if (it->first == key) return it->second;
+    return {};
+}
+int castCount(const Values& v) {
+    int n = 0;
+    while (n < 60 && !valueOf(v, "cast" + std::to_string(n + 1)).empty()) ++n;
+    return n;
+}
+bool partOn(const Document& d, const std::string& key, const std::vector<std::string>& hidden) {
+    return std::find(d.writing.parts.begin(), d.writing.parts.end(), key) != d.writing.parts.end() &&
+           std::find(hidden.begin(), hidden.end(), key) == hidden.end();
+}
+// Whether a part has something to show now.
+bool partHas(const std::string& key, const Values& v, const Clock& c) {
+    if (key == "book") return !valueOf(v, "book").empty();
+    if (key == "chapter") return !valueOf(v, "chapter").empty();
+    if (key == "progress") return !valueOf(v, "today").empty() || !valueOf(v, "chapterline").empty();
+    if (key == "viewpoint") return !valueOf(v, "viewpoint").empty();
+    if (key == "cast") return castCount(v) > 0;
+    if (key == "sprint") return c.sprintLeftMs >= 0;
+    if (key == "celebration") return c.celebrateMs >= 0 && c.celebrateMs < kCelebrationMs;
+    if (key == "streamwords") return !valueOf(v, "streamline").empty();
+    return false;
+}
+float partHeight(const std::string& key, bool bk) {
+    if (key == "book") return 230;
+    if (key == "chapter") return 196;
+    if (key == "progress") return 150;
+    if (key == "viewpoint") return bk ? 190.0f : 170.0f;
+    if (key == "cast") return bk ? 270.0f : 236.0f;
+    if (key == "sprint") return 160;
+    if (key == "celebration") return 110;
+    return 96;   // streamwords
+}
+}  // namespace
+
+bool writingMoving(const Document& d, const Values& values, const std::vector<std::string>& hidden) {
+    if (!d.writing.on || !partOn(d, "cast", hidden)) return false;
+    const float inner = d.width - 20 - 80;
+    return castCount(values) * kCastSlot > inner;
+}
+
+Document buildWritingCard(const Document& d, const Values& values, const Clock& c, const std::vector<std::string>& hidden) {
+    if (!d.writing.on) return d;
+    const bool bk = d.writing.look == "bookish";
+    Document out;
+    out.name = d.name;
+    out.width = d.width, out.height = d.height;
+    out.writing = d.writing;
+    out.background = Fill::none();
+    std::vector<std::string> shown;
+    for (auto& p : writingParts())
+        if (partOn(d, p.key, hidden) && partHas(p.key, values, c)) shown.push_back(p.key);
+    if (shown.empty()) {   // nothing to show: the card hides (and what was added to it with it)
+        return out;
+    }
+    const float W = (float)d.width - 20, x0 = 10 + 40, cw = W - 80;
+    float total = 24;
+    for (auto& k : shown) total += partHeight(k, bk);
+    total += 10;
+    total = std::min(total, (float)d.height - 20);
+    const Anim a = Anim::SlideLeft;
+    lookCard(out, bk, 10, 10, W, total, a);
+    float y = 10 + 24;
+    bool first = true;
+    for (const std::string& k : shown) {
+        const float h = partHeight(k, bk);
+        if (y + h > (float)d.height - 10) break;   // no room left on the page
+        if (!first) {   // a fine line between parts
+            Element line = rectEl("Between parts", x0, y - 6, cw, bk ? 1.5f : 1.0f, Fill::solid(hex(bk ? "#A8853A66" : "#FFFFFF1A")));
+            line.anim = a;
+            add(out, line);
+        }
+        first = false;
+        if (k == "book") {
+            Element cover = rectEl("Cover (until there is a picture)", x0, y + 14, 130, 192,
+                                   bk ? Fill::linear({{0, hex("#6B2E1E")}, {1, hex("#3E1A12")}}, 135) : Fill::linear({{0, hex("#3FCF8E")}, {1, hex("#7A5CFF")}}, 135), 8);
+            cover.shadow = {true, 0, 6, 18, hex("#00000080"), ""};
+            cover.anim = a;
+            add(out, cover);
+            Element pic = picEl("Cover", "{cover}", x0, y + 14, 130, 192, 8);
+            if (bk) pic.stroke = hex("#A8853A"), pic.strokeWidth = 2;
+            pic.anim = a;
+            add(out, pic);
+            const float tx = x0 + 160, tw = cw - 160;
+            add(out, lookLabel(bk, "Book label", bk ? "Now writing" : "NOW WRITING", tx, y + 18, tw, 32, a));
+            add(out, lookTitle(bk, "Book", "{book}", tx, y + 54, tw, 104, 44, a));
+            add(out, lookMuted(bk, "Series", "{series}", tx, y + 162, tw, 40, 26, a));
+        } else if (k == "chapter") {
+            const bool pic = !valueOf(values, "placepic").empty();
+            const float tw = pic ? cw - 180 : cw;
+            add(out, lookLabel(bk, "Status", "{status}", x0, y + 4, tw, 32, a));
+            add(out, lookTitle(bk, "Chapter", "{chapter}", x0, y + 38, tw, 64, 44, a));
+            add(out, lookBody(bk, "Where and when", "{place}  \xC2\xB7  {storyday}", x0, y + 108, tw, 40, 28, a));
+            add(out, lookMuted(bk, "Target", "{targetline}", x0, y + 148, tw, 36, 24, a));
+            if (pic) {
+                Element p = picEl("Place", "{placepic}", x0 + cw - 160, y + 6, 160, 170, 16);
+                if (bk) p.mask = "arch", p.stroke = hex("#A8853A"), p.strokeWidth = 4;
+                else p.glow = {true, 16, 1.0f, hex("#7A5CFF66"), ""};
+                p.anim = a;
+                add(out, p);
+            }
+        } else if (k == "progress") {
+            add(out, lookLabel(bk, "Today label", bk ? "Today" : "TODAY", x0, y + 4, cw, 32, a));
+            add(out, lookLabel(bk, "Chapter words", "{chapterline}", x0, y + 4, cw, 32, a, "right"));
+            add(out, lookBody(bk, "Today", "{today}", x0, y + 40, cw, 46, 34, a));
+            add(out, lookMuted(bk, "Streak", "{bookline}  \xC2\xB7  {streakline}", x0, y + 92, cw, 40, 24, a));
+        } else if (k == "viewpoint") {
+            if (bk) lookPortrait(out, bk, "Viewpoint picture", "{viewpointpic}", x0, y + 4, 120, 170, a, 500);
+            else lookPortrait(out, bk, "Viewpoint picture", "{viewpointpic}", x0, y + 8, 140, 140, a, 500);
+            const float tx = x0 + 170, tw = cw - 170;
+            add(out, lookLabel(bk, "Viewpoint label", bk ? "Through the eyes of" : "THROUGH THE EYES OF", tx, y + 44, tw, 32, a));
+            add(out, lookTitle(bk, "Viewpoint", "{viewpoint}", tx, y + 80, tw, 64, 42, a));
+        } else if (k == "cast") {
+            add(out, lookLabel(bk, "Cast label", bk ? "In this chapter" : "IN THIS CHAPTER", x0, y + 4, cw, 32, a));
+            const int n = castCount(values);
+            const float rowY = y + 44, rowH = h - 50;
+            const float full = n * kCastSlot;
+            std::vector<float> starts;
+            if (full <= cw) starts.push_back(x0 + (cw - full) / 2);
+            else {   // scrolling, looping: two copies a slot apart
+                const float period = full + kCastSlot;
+                const float off = std::fmod((float)std::max<std::int64_t>(0, c.elapsedMs) / 1000.0f * kCastSpeed, period);
+                const float base = d.writing.castRightToLeft ? x0 - off : x0 + off - period;
+                starts = {base, base + period};
+                if (!d.writing.castRightToLeft) starts.push_back(base - period);
+            }
+            const std::size_t before = out.elements.size();
+            for (float sx : starts)
+                for (int i = 0; i < n; ++i) {
+                    const float x = sx + i * kCastSlot;
+                    if (x + kCastSlot < x0 - 4 || x > x0 + cw + 4) continue;   // off the row
+                    const std::string num = std::to_string(i + 1);
+                    const std::string pic = "{cast" + num + "pic}", who = "{cast" + num + "}";
+                    if (bk) lookPortrait(out, bk, ("Cast " + num).c_str(), pic.c_str(), x + 27, rowY, 96, 136, Anim::None, 0);
+                    else lookPortrait(out, bk, ("Cast " + num).c_str(), pic.c_str(), x + 20, rowY + 4, 110, 110, Anim::None, 0);
+                    Element t = bk ? lookBody(bk, ("Cast name " + num).c_str(), who.c_str(), x + 4, rowY + 144, kCastSlot - 8, 64, 20, Anim::None, "centre")
+                                   : textEl(("Cast name " + num).c_str(), who.c_str(), x + 4, rowY + 122, kCastSlot - 8, 56, 20, "#F4F7FB", true, "centre");
+                    add(out, t);
+                }
+            for (std::size_t i = before; i < out.elements.size(); ++i) {
+                Element& e = out.elements[i];
+                e.clipX = x0, e.clipY = rowY - 10, e.clipW = cw, e.clipH = rowH + 10;
+                e.anim = Anim::None;
+            }
+        } else if (k == "sprint") {
+            add(out, lookLabel(bk, "Sprint label", bk ? "A writing sprint" : "WRITING SPRINT", x0, y + 4, cw, 32, a));
+            Element t;
+            t.kind = Kind::Timer;
+            t.name = "Time left";
+            t.timerMode = "sprint";
+            t.timerEnd = bk ? "Pens down!" : "Time!";
+            t.x = x0, t.y = y + 38, t.w = cw, t.h = 74;
+            t.size = 62;
+            t.bold = true;
+            t.align = "left";
+            if (bk) t.font = kSerif, t.fill = Fill::solid(hex("#2A1C0E"));
+            else t.fill = Fill::linear({{0, hex("#F4F7FB")}, {1, hex("#BFF3DC")}}, 90), t.glow = {true, 22, 1.2f, hex("#3FCF8E66"), ""};
+            t.anim = Anim::Pop;
+            add(out, t);
+            add(out, lookMuted(bk, "Sprint words", "{sprintline}", x0, y + 114, cw, 38, 26, a));
+        } else if (k == "celebration") {
+            Element band = rectEl("Celebration", x0 - 10, y + 2, cw + 20, h - 14,
+                                  bk ? Fill::linear({{0, hex("#E8C46A66")}, {1, hex("#E8C46A22")}}, 0) : Fill::linear({{0, hex("#3FCF8EAA")}, {1, hex("#7A5CFFAA")}}, 0), 18);
+            band.anim = Anim::Pop;
+            add(out, band);
+            Element ic = lookIcon(bk, "Sparkle", bk ? "star" : "sparkle", x0 + 8, y + 22, 56, 56, Anim::Pop);
+            if (!bk) ic.fill = Fill::solid(hex("#FFFFFF")), ic.glow = {true, 14, 1.0f, hex("#FFFFFF88"), ""};
+            add(out, ic);
+            Element t = textEl("Celebration words", "{celebration}", x0 + 80, y + 14, cw - 90, 72, 32, bk ? "#2A1C0E" : "#FFFFFF", true, "left");
+            if (bk) t.font = kSerif, t.italic = true;
+            t.anim = Anim::Pop;
+            add(out, t);
+        } else if (k == "streamwords") {
+            add(out, lookLabel(bk, "Stream label", bk ? "This stream" : "THIS STREAM", x0, y + 4, cw, 32, a));
+            add(out, lookBody(bk, "Stream words", "{streamline}", x0, y + 38, cw, 44, 32, a));
+        }
+        y += h;
+    }
+    if (!bk) linkToBrand(out, defaultBrand());   // aurora follows the brand kit, as its templates do
+    for (const Element& e : d.elements) out.elements.push_back(e);   // anything added in the designer, on top
+    return out;
+}
+
+Document writingCardDesign(bool bookish, int width) {
+    Document d;
+    d.name = bookish ? "Writing (bookish)" : "Writing";
+    d.width = std::clamp(width, 400, 3000);
+    d.height = 1500;
+    d.writing.on = true;
+    for (auto& p : writingParts()) d.writing.parts.push_back(p.key);
+    d.writing.look = bookish ? "bookish" : "aurora";
+    return d;
+}
+
+bool fromOldWritingTemplate(Document& d) {
+    if (d.writing.on) return false;
+    static const std::vector<std::tuple<const char*, const char*, std::vector<const char*>>> old = {
+        {"Book card", "{book}", {"book"}},
+        {"Writing progress", "{today}", {"progress"}},
+        {"Chapter card", "{chapter}", {"chapter"}},
+        {"Character card", "{viewpointpic}", {"viewpoint"}},
+        {"Cast list", "{cast1}", {"cast"}},
+        {"Sprint timer", "{sprintline}", {"sprint"}},
+        {"Celebration", "{celebration}", {"celebration"}}};
+    std::string base = d.name;
+    bool bk = false;
+    if (base.size() > 10 && base.compare(base.size() - 10, 10, " (bookish)") == 0) { bk = true; base.resize(base.size() - 10); }
+    for (auto& [name, mark, parts] : old) {
+        if (base != name) continue;
+        bool shows = false;
+        for (auto& e : d.elements) shows = shows || e.text.find(mark) != std::string::npos;
+        if (!shows) return false;
+        Document w = writingCardDesign(bk, d.width);
+        w.name = d.name;
+        w.width = d.width;
+        w.height = d.height;
+        w.writing.parts.assign(parts.begin(), parts.end());
+        d = w;
+        return true;
+    }
+    return false;
 }
 
 }  // namespace ncap::design

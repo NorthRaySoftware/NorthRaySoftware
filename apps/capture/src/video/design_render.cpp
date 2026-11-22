@@ -890,8 +890,29 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         values.push_back({"song", t.title});
         values.push_back({"artist", t.artist});
     }
+    // A Writing card (0.20) is laid out now from what there is to show. The designer shows every part, with stand-ins.
+    Clock clk = clock;
+    if (d.writing.on) {
+        std::vector<std::string> hidden;
+        if (showMissing) {
+            auto have = [&](const char* k) {
+                for (auto& v : values) if (v.first == k && !v.second.empty()) return true;
+                return false;
+            };
+            const std::pair<const char*, const char*> samples[] = {
+                {"book", "{book}"}, {"series", "{series}"}, {"chapter", "{chapter}"}, {"status", "{status}"}, {"place", "{place}"},
+                {"storyday", "{storyday}"}, {"today", "{today}"}, {"viewpoint", "{viewpoint}"}, {"cast1", "{cast1}"}, {"cast2", "{cast2}"},
+                {"cast3", "{cast3}"}, {"streamline", "{streamline}"}, {"celebration", "{celebration}"}, {"sprintline", "{sprintline}"}};
+            for (auto& [k, v] : samples) if (!have(k)) values.push_back({k, v});
+            if (clk.sprintLeftMs < 0) clk.sprintLeftMs = 25 * 60 * 1000;
+            if (clk.celebrateMs < 0) clk.celebrateMs = 1000;
+        } else {
+            hidden = writingHidden();
+        }
+        d = applyBrand(buildWritingCard(d, values, clk, hidden), brand);
+    }
     // "Only while music plays": an empty, see-through page when nothing is (the designer still shows it).
-    if (!showMissing && ((d.onlyWhilePlaying && nowPlaying().title.empty()) || !shownNow(d, clock))) {
+    if (!showMissing && ((d.onlyWhilePlaying && nowPlaying().title.empty()) || !shownNow(d, clk))) {
         d.elements.clear();
         d.background = Fill::none();
     }
@@ -913,7 +934,7 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
     // An element's placement: its entrance, then its rotation about its centre, then the page scale.
     auto placement = [&](const Element& e, const Pose& p) {
         const D2D1_POINT_2F centre = D2D1::Point2F(e.x + e.w / 2, e.y + e.h / 2);
-        const float pulse = e.kind == Kind::Timer ? timerText(e, clock).pulse : 1.0f;   // the last ten seconds
+        const float pulse = e.kind == Kind::Timer ? timerText(e, clk).pulse : 1.0f;   // the last ten seconds
         return D2D1::Matrix3x2F::Scale(p.scale * pulse, p.scale * pulse, centre) * D2D1::Matrix3x2F::Rotation(e.rotation, centre) *
                D2D1::Matrix3x2F::Translation(p.dx, p.dy) * base;
     };
@@ -952,7 +973,7 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         srt->BeginDraw();
         srt->Clear(D2D1::ColorF(0, 0, 0, 0));
         srt->SetTransform(base * D2D1::Matrix3x2F::Translation((float)-bx, (float)-by));   // unposed: it moves with its element below
-        drawShape(c, srt.Get(), letters, values, 1, true, showMissing, clock);
+        drawShape(c, srt.Get(), letters, values, 1, true, showMissing, clk);
         if (FAILED(srt->EndDraw())) continue;
         std::vector<std::uint8_t> px((size_t)bw * bh * 4);
         if (FAILED(sb->CopyPixels(nullptr, (UINT)bw * 4, (UINT)px.size(), px.data()))) continue;
@@ -1017,7 +1038,7 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         auto under = [&](const ShadowPic& sp, float ox, float oy) {
             if (!sp.bmp) return;
             const D2D1_POINT_2F centre = D2D1::Point2F((e.x + e.w / 2) * scale, (e.y + e.h / 2) * scale);
-            const float pulse = e.kind == Kind::Timer ? timerText(e, clock).pulse : 1.0f;   // as the element itself
+            const float pulse = e.kind == Kind::Timer ? timerText(e, clk).pulse : 1.0f;   // as the element itself
             rt->SetTransform(D2D1::Matrix3x2F::Translation(-centre.x, -centre.y) * D2D1::Matrix3x2F::Scale(p.scale * pulse, p.scale * pulse) *
                              D2D1::Matrix3x2F::Rotation(e.rotation) *
                              D2D1::Matrix3x2F::Translation(centre.x + (p.dx + ox) * scale, centre.y + (p.dy + oy) * scale));
@@ -1025,14 +1046,21 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
             rt->DrawBitmap(sp.bmp.Get(), D2D1::RectF(sp.x, sp.y, sp.x + sp.w, sp.y + sp.h), alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             if (wiping) rt->PopAxisAlignedClip();
         };
+        // Drawn only inside its clip box (0.20: the Writing card's scrolling cast row).
+        const bool clipped = e.clipW > 0 && e.clipH > 0;
+        if (clipped) {
+            rt->SetTransform(base);
+            rt->PushAxisAlignedClip(D2D1::RectF(e.clipX, e.clipY, e.clipX + e.clipW, e.clipY + e.clipH), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        }
         under(shadows[i], e.shadow.dx, e.shadow.dy);
         under(glows[i], 0, 0);
         under(outlines[i], 0, 0);
         rt->SetTransform(placement(e, p));
         if (wiping) rt->PushAxisAlignedClip(D2D1::RectF(e.x, e.y - 1e4f, e.x + e.w * p.reveal, e.y + e.h + 1e4f), D2D1_ANTIALIAS_MODE_ALIASED);
-        drawShape(c, rt.Get(), bare[i], values, alpha, false, showMissing, clock);
+        drawShape(c, rt.Get(), bare[i], values, alpha, false, showMissing, clk);
         if (wiping) rt->PopAxisAlignedClip();
         under(overs[i], 0, 0);   // (over it, despite the name: a shaped picture's outline)
+        if (clipped) rt->PopAxisAlignedClip();
     }
     if (FAILED(rt->EndDraw())) {
         error = L"The design couldn't be drawn";
@@ -1048,6 +1076,19 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         for (int k = 0; k < 3; ++k) out.bgra[i + (size_t)k] = (std::uint8_t)std::min(255, out.bgra[i + (size_t)k] * 255 / a);
     }
     return true;
+}
+
+namespace {
+std::mutex gHiddenM;
+std::vector<std::string> gHidden;
+}  // namespace
+void setWritingHidden(const std::vector<std::string>& parts) {
+    std::lock_guard<std::mutex> l(gHiddenM);
+    gHidden = parts;
+}
+std::vector<std::string> writingHidden() {
+    std::lock_guard<std::mutex> l(gHiddenM);
+    return gHidden;
 }
 
 bool savePng(const std::wstring& path, const DesignPicture& p) {

@@ -174,14 +174,34 @@ struct Element {
     std::string chatSide;
     // Elements grouped together (0.14) share a group id: they're picked, moved and hidden as one. "" = none.
     std::string group;
+    // Drawn only inside this box of the page (0.20; w 0: anywhere): the Writing card's scrolling cast row.
+    float clipX = 0, clipY = 0, clipW = 0, clipH = 0;
     // Entrance (when its scene is shown).
     Anim anim = Anim::None;
     int animMs = 500;
     bool operator==(const Element&) const = default;
 };
 
+// The Writing card (0.20): one overlay of parts from Writing Studio, each switched on or off, stacked in one card that
+// shrinks to the parts with something to show. It's built afresh each time it's drawn (buildWritingCard); the design
+// keeps only these choices.
+struct WritingCard {
+    bool on = false;
+    std::vector<std::string> parts;          // the parts switched on (writingParts' keys)
+    std::string look = "aurora";             // aurora or bookish
+    bool castRightToLeft = true;             // the cast row's scrolling direction when it doesn't fit
+    bool operator==(const WritingCard&) const = default;
+};
+struct WritingPart {
+    const char* key;
+    const char* name;
+};
+// book, chapter, progress, viewpoint, cast, sprint, celebration, streamwords; in the card's order.
+const std::vector<WritingPart>& writingParts();
+
 struct Document {
     std::string name = "Design";
+    WritingCard writing;
     int width = 1920, height = 1080;
     Fill background = Fill::none();
     bool onlyWhilePlaying = false;   // drawn only while music plays ({song} has something)
@@ -311,6 +331,22 @@ bool usesTime(const Document& d);   // timers, fading chat, or shown only during
 // Whether a design shows anything now: one shown only during sprints or celebrations is hidden otherwise.
 bool shownNow(const Document& d, const Clock& c);
 bool usesChat(const Document& d);   // has a visible chat element            // anything that changes every second (timers)
+
+// The Writing card as it is now (0.20): the parts that are on, not switched off live (`hidden`), and have something to
+// show from `values` (Writing Studio's details) or the clock (a sprint running, a celebration), stacked in one card in
+// its look; the cast row scrolls, looping, when it's wider than the card. A page with nothing on it when nothing shows.
+// Not a Writing card: the design as it is.
+Document buildWritingCard(const Document& d, const std::vector<std::pair<std::string, std::string>>& values, const Clock& c,
+                          const std::vector<std::string>& hidden = {});
+// Whether the card's cast row is scrolling now (so it's drawn every frame).
+bool writingMoving(const Document& d, const std::vector<std::pair<std::string, std::string>>& values, const std::vector<std::string>& hidden = {});
+// A Writing card design: every part on, in a look, `width` wide.
+Document writingCardDesign(bool bookish, int width = 900);
+// A design made from one of the separate writing templates before 0.20 (by its name and what it shows): turned into a
+// Writing card with that template's part on, keeping its page's size. False if it isn't one.
+bool fromOldWritingTemplate(Document& d);
+constexpr float kCastSlot = 150;           // each character's room in the cast row
+constexpr float kCastSpeed = 40;           // pixels a second
 
 // QR codes (via Project Nayuki's library): the modules, row by row, true = dark; empty if too long.
 std::vector<std::vector<bool>> qrModules(const std::string& text);

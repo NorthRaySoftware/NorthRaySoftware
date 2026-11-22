@@ -52,6 +52,7 @@ struct Settings {
         bool markers = true;        // a recording marker named after each chapter moved to
         bool scenes = false;        // switch scenes by Writing Studio's workspace
         std::map<std::string, std::string> sceneFor;   // workspace ("writing", "planning", "worldbuilding", "other") -> scene name
+        std::vector<std::string> hiddenParts;          // Writing card parts switched off live (the Writing panel, hotkeys) (0.20)
     } writing;
     std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
     std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)

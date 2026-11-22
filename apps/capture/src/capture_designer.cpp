@@ -297,7 +297,9 @@ void CaptureWindow::writingTick() {
             vals.push_back({"place", named("place", "name")});
             vals.push_back({"placepic", named("place", "picture")});
             vals.push_back({"storyday", safe ? std::string() : str("storyDay")});
-            for (int i = 0; i < 6; ++i) {
+            // The whole cast (0.20: the Writing card's row scrolls), at least six so older designs' {cast6} is always there.
+            const int castN = std::max(6, std::min(60, j.contains("cast") && j["cast"].is_array() ? (int)j["cast"].size() : 0));
+            for (int i = 0; i < castN; ++i) {
                 std::string n, pic;
                 if (!safe && j.contains("cast") && j["cast"].is_array() && i < (int)j["cast"].size() && j["cast"][(size_t)i].is_object()) {
                     const auto& c = j["cast"][(size_t)i];
@@ -1504,6 +1506,54 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
         return;
     }
     dz::Element* e = designDoc_.find(designSel_);
+    if (!e && designDoc_.writing.on) {
+        // The Writing card (0.20): its parts on or off, its look and the cast row's direction. It's laid out when it's
+        // drawn, so the page shows every part with stand-ins here.
+        gfx_.text(L"WRITING CARD", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 24;
+        y += gfx_.text(L"One card of what you're writing in Writing Studio. Parts with nothing to show are left out and the card "
+                       L"shrinks; with nothing at all, it hides. On stream, the Writing panel (main window) and hotkeys switch parts off "
+                       L"and on as you go.",
+                       {r.x, y, r.w, 100}, Font::Small, pal_.inkMuted) + 14;
+        for (const auto& part : dz::writingParts()) {
+            const std::string k = part.key;
+            const bool on = std::find(designDoc_.writing.parts.begin(), designDoc_.writing.parts.end(), k) != designDoc_.writing.parts.end();
+            gfx_.text(widen(part.name), {r.x, y, r.w - 60, 26}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+            toggle("dz:wc:" + k, r.right() - 44, y + 2, on, [this, k, on] {
+                auto& ps = designDoc_.writing.parts;
+                if (on) ps.erase(std::remove(ps.begin(), ps.end(), k), ps.end());
+                else {
+                    ps.push_back(k);
+                    std::vector<std::string> ordered;   // kept in the card's order
+                    for (auto& wp : dz::writingParts())
+                        if (std::find(ps.begin(), ps.end(), std::string(wp.key)) != ps.end()) ordered.push_back(wp.key);
+                    ps = ordered;
+                }
+                designChanged();
+            });
+            y += 32;
+        }
+        y += 8;
+        gfx_.text(L"Look", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 22;
+        segmented("dz:wc:look", {r.x, y, r.w, 30}, {L"NorthRay aurora", L"Bookish"}, designDoc_.writing.look == "bookish" ? 1 : 0, [this](int i) {
+            designDoc_.writing.look = i == 1 ? "bookish" : "aurora";
+            designChanged();
+        });
+        y += 44;
+        gfx_.text(L"The cast row, when it's too long to fit, scrolls", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+        y += 22;
+        segmented("dz:wc:dir", {r.x, y, r.w, 30}, {L"Right to left", L"Left to right"}, designDoc_.writing.castRightToLeft ? 0 : 1, [this](int i) {
+            designDoc_.writing.castRightToLeft = i == 0;
+            designChanged();
+        });
+        y += 44;
+        y += gfx_.text(std::to_wstring(designDoc_.width) + L" × " + std::to_wstring(designDoc_.height) +
+                           L" pixels: the card is as wide as the page and grows down from the top. Change it under Page…",
+                       {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 12;
+        dPropEnd_ = y;
+        return;
+    }
     if (!e) {
         gfx_.text(L"PAGE", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
         y += 24;
@@ -1515,8 +1565,9 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
                        L"video or sound source: {song} and {artist}. Colours and fonts marked Brand "
                        L"follow your Brand kit…: change it once and every design using it changes.\n\n"
                        L"From Writing Studio: {book}, {series}, {chapter}, {chapterline}, {today}, {bookline}, {streakline}, {status}, "
-                       L"{targetline}, {viewpoint}, {place}, {storyday}, {cast1} to {cast6}, {sprintline}, {streamline} and {celebration}; "
-                       L"pictures can be {cover}, {viewpointpic}, {placepic} or {cast1pic} to {cast6pic}.",
+                       L"{targetline}, {viewpoint}, {place}, {storyday}, {cast1}, {cast2} and so on, {sprintline}, {streamline} and {celebration}; "
+                       L"pictures can be {cover}, {viewpointpic}, {placepic} or {cast1pic} and so on. The Writing design under "
+                       L"Overlay design… puts them all in one card.",
                        {r.x, y, r.w, 260}, Font::Small, pal_.inkMuted) + 12;
         dPropEnd_ = y;
         return;
@@ -2248,6 +2299,36 @@ void CaptureWindow::chatTick() {
     for (auto& [k, v] : profile_)
         if (k == "twitch") twitch = v;
     chat_.watch(needed ? chat::channelFrom(twitch) : std::string());
+}
+
+// The Writing panel (0.20): each part of the Writing card, on or off for every Writing card at once, as you stream.
+void CaptureWindow::toggleWritingPart(const std::string& key) {
+    auto& hp = settings_.writing.hiddenParts;
+    const bool hidden = std::find(hp.begin(), hp.end(), key) != hp.end();
+    if (hidden) hp.erase(std::remove(hp.begin(), hp.end(), key), hp.end());
+    else hp.push_back(key);
+    video::setWritingHidden(hp);
+    settings_.save(settingsPath_);
+    std::wstring name = widen(key);
+    for (auto& wp : dz::writingParts()) if (key == wp.key) name = widen(wp.name);
+    flash(L"Writing card: " + name + (hidden ? L" shown." : L" hidden."), 2);
+    invalidate();
+}
+
+void CaptureWindow::drawWritingPanel(const Rect& b) {
+    const float pad = 12;
+    float y = b.y + 8;
+    const auto& hp = settings_.writing.hiddenParts;
+    for (const auto& wp : dz::writingParts()) {
+        const std::string k = wp.key;
+        const bool on = std::find(hp.begin(), hp.end(), k) == hp.end();
+        gfx_.text(widen(wp.name), {b.x + pad, y, b.w - 2 * pad - 50, 26}, Font::Body, on ? pal_.ink : pal_.inkMuted, {Align::Left, false, true, true});
+        toggle("wp:" + k, b.right() - pad - 40, y + 2, on, [this, k] { toggleWritingPart(k); });
+        y += 30;
+    }
+    y += 4;
+    gfx_.text(L"For every Writing card, live. Parts switched off in a card's own design stay off; hotkeys can do this too (Settings, Hotkeys).",
+              {b.x + pad, y, b.w - 2 * pad, b.bottom() - y}, Font::Small, pal_.inkFaint);
 }
 
 // The Chat panel: the newest messages at the bottom (as many as fit), each with its name in the
