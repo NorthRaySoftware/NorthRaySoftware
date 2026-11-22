@@ -1,7 +1,7 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-22T22:19:26Z",
+  "generatedUtc": "2026-11-22T22:53:34Z",
   "apps": [
     {
       "id": "launcher",
@@ -9,8 +9,8 @@
       "version": "0.131.0",
       "file": "NorthRayLauncher-Setup-0.131.0.exe",
       "url": "downloads/NorthRayLauncher-Setup-0.131.0.exe",
-      "size": 1852982,
-      "sha256": "fcdb294a50fc0c0726d5a8760925739b63a73145f4aa27d8db279fddd8fa4c9e"
+      "size": 1857260,
+      "sha256": "5248498dd9779aab0fa944a73ec1d9563adb36060d09e382029d88bf0729e8e6"
     },
     {
       "id": "writing-studio",
@@ -18,8 +18,8 @@
       "version": "0.131.0",
       "file": "WritingStudio-Setup-0.131.0.exe",
       "url": "downloads/WritingStudio-Setup-0.131.0.exe",
-      "size": 14261089,
-      "sha256": "b49093597ffe073e1047a2adb95e22d6d292e4ac9fd6f6b1bf9399633bca0e5f"
+      "size": 14354428,
+      "sha256": "37a59b754e62b113d1b71f1234dc8dbbac9a1bfaed7266ea2792930117a766f7"
     },
     {
       "id": "browser",
@@ -27,8 +27,8 @@
       "version": "0.9.0",
       "file": "NorthRayBrowser-Setup-0.9.0.exe",
       "url": "downloads/NorthRayBrowser-Setup-0.9.0.exe",
-      "size": 2303620,
-      "sha256": "6c15ab82f388f265a1950e398b2e6f820ddc44279284d9540c58403cfef24020"
+      "size": 2303026,
+      "sha256": "f162f501ea08a13eb05ded58374e139fb9321d85a8a6d0564b274faa46c85181"
     },
     {
       "id": "files",
@@ -36,8 +36,8 @@
       "version": "0.9.0",
       "file": "NorthRayFiles-Setup-0.9.0.exe",
       "url": "downloads/NorthRayFiles-Setup-0.9.0.exe",
-      "size": 1559377,
-      "sha256": "7efad40615840c1d22c575792b97da2ddf426c9eb8160c9c3e30f2784d022488"
+      "size": 1560287,
+      "sha256": "975c457992b239b90e2394cb37b7944e5e8c2c22375b2406555fb1340a64808a"
     },
     {
       "id": "capture",
@@ -45,8 +45,8 @@
       "version": "0.19.0",
       "file": "NorthRayCapture-Setup-0.19.0.exe",
       "url": "downloads/NorthRayCapture-Setup-0.19.0.exe",
-      "size": 2988237,
-      "sha256": "b451f7aa80297328358e0919ff5f3b0257a325f4994ef886bf475508196b52a2"
+      "size": 2988364,
+      "sha256": "2310a1961cf6f639bc2471bb9e8e86c976c8b370e816626f1ba7c02bbe3cf9ab"
     }
   ]
 }
