@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.60.0",
+      "date": "2026-11-22",
+      "notes": [
+        "Sexuality: characters have a Sexuality choice beside Gender or sex (Gay, Lesbian, Bisexual, Heterosexual, Pansexual, Asexual, Aromantic, Queer, Questioning, Unknown, Not said, or your own words). Imported pages fill it from a \"Sexuality:\" or \"Orientation:\" line, and the sidebar groups characters by it.",
+        "From: a character's hometown or home realm is its own relationship, separate from where they live now. A page can say \"From: Highcliff\" and \"Lives in: Valona\"; the place lists them as Hometown of.",
+        "One Pictures area per entry: the gallery and the entry's boards are together. Drag a picture onto the main picture (at the top of the page or the tile marked Main) to swap them, or onto a board to add it there.",
+        "Each series counts its own books. In Notes per book, \"Alvora Chronicles Book 2\" or \"Book 1 of the Envoy series\" picks that series' book. \"Book 2\" alone works when only one series has a Book 2.",
+        "The exported bible holds more: notes for books still to come, Appears in (the chapters and scenes where the entry is in Who's there), each entry's boards, the main picture's caption, and a list of what's pinned on a map in the PDF."
+      ]
+    },
+    {
       "version": "0.59.0",
       "date": "2026-11-22",
       "notes": [

@@ -415,6 +415,14 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.60.0: sexuality, From, one Pictures area, series numbering, a fuller bible (22 Nov 2026)
+
+- **Sexuality** is a facet like gender (`studio_world.cpp` facets): a "Sexuality:" detail line with the listed options or your own. `facetsFor(character)` = gender, sexuality, race, realm. Cards and list rows don't show it (as gender isn't spelt out on cards). Imports keep the line as it is; `blankPage` writes it after Gender.
+- **From / Hometown of** is a built-in pair (`entries.cpp`), offered to characters (to places and realms) and to places and realms. `relationFor` now takes the first table row whose relationship the kind offers, so "from" is From for a character and Comes from for a race.
+- **One Pictures area**: the entry page's gallery and its boards are one section. `DragState::Picture` is armed from `wb:gal:<i>` hits. Drops: `Drop::MainPicture` (the picture at the top and the tile marked Main) calls `makeMainPicture`, which sets `imageBlob` and swaps the two tiles; `Drop::PictureToBoard` (each board tile) calls `addPictureToBoard` (`studio_boards.cpp`), which appends the picture below the board's items with its caption.
+- **Series numbering**: a membership's `number` was already per series. `paste::bookForLabel(books, label, lib)` reads a series named in the label (its name, or its core without "series/chronicles/saga/cycle/trilogy" and "the") and picks that series' Book N; with no series named, it's the book only when exactly one series has that number; else the old reading-order fallback for unnamed "Book N".
+- **The bible holds everything** (`bible_export.cpp`): `boardsOf` reads the world's (or book's) boards setting for an entry's boards; `appearsIn` walks each book's manuscript for nodes whose Who's there includes the entry; later-book notes (`title:` keys) come from `paste::laterBookNotes`. Website and PDF both add them, plus the main picture's caption; the PDF lists a map's pins under it. Notes, later-book notes and Appears in stay out of a reader's guide.
+
 ## 0.59.0: who's there, big bibles, creature families (22 Nov 2026)
 
 - planning: `nodeCast` / `setNodeCast` (setting "nodecast:<book>": node -> entry ids, in order, no repeats) and
