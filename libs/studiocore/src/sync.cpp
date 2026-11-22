@@ -25,7 +25,8 @@ namespace fs = std::filesystem;
 namespace {
 
 // One row as {column: value}, keys sorted, so the same row always gives the same bytes.
-json rowJson(sqlite3_stmt* s) {
+void canonRefs(sqlite3* db, const char* table, json& j);
+json rowJson(sqlite3_stmt* s, sqlite3* db = nullptr, const char* table = nullptr) {
     json j = json::object();
     const int n = sqlite3_column_count(s);
     for (int i = 0; i < n; ++i) {
@@ -40,7 +41,21 @@ json rowJson(sqlite3_stmt* s) {
             }
         }
     }
+    if (db && table) canonRefs(db, table, j);
     return j;
+}
+
+// A reference column's "none" is written "" whether it's held as NULL or "" (older rows have either).
+void canonRefs(sqlite3* db, const char* table, json& j) {
+    static thread_local std::map<std::string, std::set<std::string>> refs;
+    auto it = refs.find(table);
+    if (it == refs.end()) {
+        std::set<std::string> r;
+        Stmt f(db, (std::string("PRAGMA foreign_key_list(") + table + ")").c_str());
+        while (f.row()) r.insert(f.text(3));
+        it = refs.emplace(table, r).first;
+    }
+    for (auto& c : it->second) if (j.contains(c) && j[c].is_null()) j[c] = "";
 }
 
 std::string bytesOf(const json& j) { return j.dump(1, ' ', false, json::error_handler_t::replace) + "\n"; }
@@ -78,6 +93,7 @@ std::string readAll(const std::string& path) {
 
 struct Columns {
     std::vector<std::string> names, pk;
+    std::set<std::string> refs;   // columns pointing at another row: "" there means none (NULL)
 };
 Columns columnsOf(sqlite3* db, const char* table) {
     Columns c;
@@ -86,6 +102,8 @@ Columns columnsOf(sqlite3* db, const char* table) {
         c.names.push_back(q.text(1));
         if (q.i64(5) > 0) c.pk.push_back(q.text(1));
     }
+    Stmt f(db, (std::string("PRAGMA foreign_key_list(") + table + ")").c_str());
+    while (f.row()) c.refs.insert(f.text(3));
     return c;
 }
 
@@ -122,7 +140,8 @@ bool upsert(sqlite3* db, const char* table, const json& row, std::string& error)
     Stmt s(db, sql.c_str());
     if (!s) { error = sqlite3_errmsg(db); return false; }
     for (size_t i = 0; i < cols.size(); ++i)
-        if (!bindJson(s.s, (int)i + 1, row[cols[i]])) { error = std::string("A ") + table + " row has an odd value in " + cols[i] + "."; return false; }
+        if (c.refs.count(cols[i]) && row[cols[i]].is_string() && row[cols[i]].get_ref<const std::string&>().empty()) sqlite3_bind_null(s.s, (int)i + 1);
+        else if (!bindJson(s.s, (int)i + 1, row[cols[i]])) { error = std::string("A ") + table + " row has an odd value in " + cols[i] + "."; return false; }
     if (!s.run()) { error = sqlite3_errmsg(db); return false; }
     return true;
 }
@@ -161,44 +180,44 @@ std::map<std::string, Library::WorldFile> Library::worldFiles(const Id& w) const
         Stmt q(db_, "SELECT * FROM worlds WHERE id = ?1");
         q.bind(1, w);
         if (!q.row()) return out;
-        put("world.json", rowJson(q.s));
+        put("world.json", rowJson(q.s, db_, "worlds"));
     }
     {
         Stmt q(db_, "SELECT * FROM series WHERE world_id = ?1");
         q.bind(1, w);
-        while (q.row()) { json j = rowJson(q.s); series.push_back(str(j, "id")); put("series/" + series.back() + ".json", j); }
+        while (q.row()) { json j = rowJson(q.s, db_, "series"); series.push_back(str(j, "id")); put("series/" + series.back() + ".json", j); }
     }
     {
         Stmt q(db_, "SELECT * FROM books WHERE world_id = ?1");
         q.bind(1, w);
-        while (q.row()) { json j = rowJson(q.s); books.push_back(str(j, "id")); put("books/" + books.back() + "/book.json", j); }
+        while (q.row()) { json j = rowJson(q.s, db_, "books"); books.push_back(str(j, "id")); put("books/" + books.back() + "/book.json", j); }
     }
     {
         Stmt q(db_, "SELECT m.* FROM memberships m WHERE m.series_id IN (SELECT id FROM series WHERE world_id = ?1) "
                     "AND m.book_id IN (SELECT id FROM books WHERE world_id = ?1)");
         q.bind(1, w);
-        while (q.row()) { json j = rowJson(q.s); put("memberships/" + str(j, "series_id") + "+" + str(j, "book_id") + ".json", j); }
+        while (q.row()) { json j = rowJson(q.s, db_, "memberships"); put("memberships/" + str(j, "series_id") + "+" + str(j, "book_id") + ".json", j); }
     }
     for (const Id& b : books) {
         {
             Stmt q(db_, "SELECT * FROM nodes WHERE book_id = ?1");
             q.bind(1, b);
-            while (q.row()) { json j = rowJson(q.s); nodes.push_back(str(j, "id")); put("books/" + b + "/nodes/" + nodes.back() + ".json", j); }
+            while (q.row()) { json j = rowJson(q.s, db_, "nodes"); nodes.push_back(str(j, "id")); put("books/" + b + "/nodes/" + nodes.back() + ".json", j); }
         }
         {
             Stmt q(db_, "SELECT * FROM editions WHERE book_id = ?1");
             q.bind(1, b);
-            while (q.row()) { json j = rowJson(q.s); put("books/" + b + "/editions/" + str(j, "id") + ".json", j); }
+            while (q.row()) { json j = rowJson(q.s, db_, "editions"); put("books/" + b + "/editions/" + str(j, "id") + ".json", j); }
         }
         {
             Stmt q(db_, "SELECT * FROM snapshots WHERE book_id = ?1");
             q.bind(1, b);
             while (q.row()) {
-                json j = rowJson(q.s);
+                json j = rowJson(q.s, db_, "snapshots");
                 json ns = json::array();
                 Stmt n(db_, "SELECT * FROM snapshot_nodes WHERE snapshot_id = ?1 ORDER BY position, node_id");
                 n.bind(1, str(j, "id"));
-                while (n.row()) ns.push_back(rowJson(n.s));
+                while (n.row()) ns.push_back(rowJson(n.s, db_, "snapshot_nodes"));
                 j["nodes"] = ns;
                 put("books/" + b + "/snapshots/" + str(j, "id") + ".json", j);
             }
@@ -206,20 +225,20 @@ std::map<std::string, Library::WorldFile> Library::worldFiles(const Id& w) const
         {
             Stmt q(db_, "SELECT c.* FROM comments c JOIN nodes n ON n.id = c.node_id WHERE n.book_id = ?1");
             q.bind(1, b);
-            while (q.row()) { json j = rowJson(q.s); put("books/" + b + "/comments/" + str(j, "id") + ".json", j); }
+            while (q.row()) { json j = rowJson(q.s, db_, "comments"); put("books/" + b + "/comments/" + str(j, "id") + ".json", j); }
         }
         {
             Stmt q(db_, "SELECT * FROM writing_log WHERE book_id = ?1 ORDER BY day");
             q.bind(1, b);
             json days = json::array();
-            while (q.row()) days.push_back(rowJson(q.s));
+            while (q.row()) days.push_back(rowJson(q.s, db_, "writing_log"));
             if (!days.empty()) put("books/" + b + "/log.json", days);
         }
     }
     {
         Stmt q(db_, "SELECT * FROM entries WHERE world_id = ?1");
         q.bind(1, w);
-        while (q.row()) { json j = rowJson(q.s); entries.push_back(str(j, "id")); put("entries/" + entries.back() + ".json", j); }
+        while (q.row()) { json j = rowJson(q.s, db_, "entries"); entries.push_back(str(j, "id")); put("entries/" + entries.back() + ".json", j); }
     }
     for (const Id& e : entries) {
         Stmt q(db_, "SELECT to_id, label FROM entry_links WHERE from_id = ?1 ORDER BY to_id, label");
@@ -247,7 +266,7 @@ std::map<std::string, Library::WorldFile> Library::worldFiles(const Id& w) const
     {
         Stmt q(db_, "SELECT * FROM artworks");
         while (q.row()) {
-            json j = rowJson(q.s);
+            json j = rowJson(q.s, db_, "artworks");
             if (hashes.count(str(j, "blob"))) put("artworks/" + str(j, "id") + ".json", j);
         }
     }
@@ -302,6 +321,11 @@ bool Library::applyWorldFiles(const Id& w, const std::map<std::string, std::opti
 
     if (!begin()) { error = error_; return false; }
     exec("PRAGMA defer_foreign_keys = ON");
+    std::set<std::string> danglingBefore;
+    {
+        Stmt q(db_, "PRAGMA foreign_key_check");
+        while (q.row()) danglingBefore.insert(q.text(0) + "/" + std::to_string(q.i64(1)) + "/" + q.text(2));
+    }
     auto fail = [&](const std::string& why) { rollback(); error = why; return false; };
     auto bookInWorld = [&](const Id& b) {
         Stmt q(db_, "SELECT world_id FROM books WHERE id = ?1");
@@ -354,12 +378,6 @@ bool Library::applyWorldFiles(const Id& w, const std::map<std::string, std::opti
                                     if (!upsert(db_, "snapshot_nodes", n, error)) return fail(error);
                                 }
                         } else if (!upsert(db_, p[2] == "nodes" ? "nodes" : "editions", j, error)) return fail(error);
-                    } else if (p[2] == "comments") {
-                        if (str(j, "id") != stem(p[3])) return fail("A comment file is misnamed.");
-                        Stmt q(db_, "SELECT book_id FROM nodes WHERE id = ?1");
-                        q.bind(1, str(j, "node_id"));
-                        if (!q.row() || q.text(0) != b) continue;   // its chapter isn't here (yet): left for the next sync
-                        if (!upsert(db_, "comments", j, error)) return fail(error);
                     }
                 } else if (top == "books" && p.size() == 3 && p[2] == "log.json" && bookInWorld(p[1]) && j.is_array()) {
                     Stmt d(db_, "DELETE FROM writing_log WHERE book_id = ?1");
@@ -379,7 +397,13 @@ bool Library::applyWorldFiles(const Id& w, const std::map<std::string, std::opti
                     if (!upsert(db_, "artworks", j, error)) return fail(error);
                 }
             } else {
-                if (top == "links" && p.size() == 2 && j.is_array()) {
+                if (top == "books" && p.size() == 4 && p[2] == "comments" && bookInWorld(p[1])) {   // after the chapters they're on
+                    if (str(j, "id") != stem(p[3])) return fail("A comment file is misnamed.");
+                    Stmt q(db_, "SELECT book_id FROM nodes WHERE id = ?1");
+                    q.bind(1, str(j, "node_id"));
+                    if (!q.row() || q.text(0) != p[1]) continue;   // its chapter isn't here: left out
+                    if (!upsert(db_, "comments", j, error)) return fail(error);
+                } else if (top == "links" && p.size() == 2 && j.is_array()) {
                     const Id from = stem(p[1]);
                     if (!entryInWorld(from)) continue;
                     Stmt d(db_, "DELETE FROM entry_links WHERE from_id = ?1");
@@ -462,6 +486,23 @@ bool Library::applyWorldFiles(const Id& w, const std::map<std::string, std::opti
         Stmt q(db_, "SELECT n.id FROM nodes n JOIN books b ON b.id = n.book_id WHERE n.id = ?1 AND b.world_id = ?2");
         q.bind(1, node).bind(2, w);
         if (q.row() && !addVersionTx(node, content, doc::wordCount(content), "From another computer")) return fail(error_);
+    }
+    {
+        // Anything this left pointing at what isn't here is named, rather than the sync failing without a reason. (Rows
+        // that already pointed nowhere before it are the library's own business.)
+        Stmt q(db_, "PRAGMA foreign_key_check");
+        while (q.row()) {
+            const std::string table = q.text(0), parent = q.text(2);
+            if (danglingBefore.count(table + "/" + std::to_string(q.i64(1)) + "/" + parent)) continue;
+            Stmt r(db_, ("SELECT * FROM \"" + table + "\" WHERE rowid = " + std::to_string(q.i64(1))).c_str());
+            std::string what = "a row of " + table;
+            if (r.row()) {
+                const json row = rowJson(r.s);
+                const std::string name = str(row, "name").empty() ? str(row, "title") : str(row, "name");
+                what = (name.empty() ? "a row of " + table : "\u201C" + name + "\u201D (" + table + ")") + ", id " + str(row, "id");
+            }
+            return fail("In the repository, " + what + " points at one of the world's " + parent + " that isn't there.");
+        }
     }
     if (!commit()) { error = error_.empty() ? std::string(sqlite3_errmsg(db_)) : error_; rollback(); return false; }
     if (!reload()) { error = error_; return false; }
@@ -846,7 +887,14 @@ Resolved resolve(const std::string& path, const std::string& here, const std::st
 
 }  // namespace
 
-bool syncWorld(Library& lib, const Id& worldIn, Remote& remote, State& state, Report& report, std::string& error) {
+bool syncWorld(Library& lib, const Id& world, Remote& remote, State& state, Report& report, std::string& error) {
+    LibraryLocal local(lib);
+    return syncWorld(local, world, remote, state, report, error);
+}
+
+bool syncWorld(Local& lib, const Id& worldIn, Remote& remote, State& state, Report& report, std::string& error,
+               const std::atomic<bool>* cancel) {
+    auto cancelled = [&] { return cancel && cancel->load(); };
     report = {};
     Id world = worldIn;
     for (int attempt = 0; attempt < 4; ++attempt) {
@@ -859,12 +907,12 @@ bool syncWorld(Library& lib, const Id& worldIn, Remote& remote, State& state, Re
             if (!remote.getBlob(it->second, bytes, error)) return false;
             world = str(json::parse(bytes, nullptr, false), "id");
             if (world.empty()) { error = "The repository's world can't be read."; return false; }
-            if (lib.world(world)) { error = "That world is already in this library."; return false; }
+            if (lib.hasWorld(world)) { error = "That world is already in this library."; return false; }
             state.files.clear();
             state.commit.clear();
         }
         report.world = world;
-        const auto local = lib.worldFiles(world);
+        const auto local = lib.files(world);
         std::map<std::string, std::string> here;   // path -> sha
         auto bytesHere = [&](const std::string& p) -> std::string {
             const auto& f = local.at(p);
@@ -892,6 +940,7 @@ bool syncWorld(Library& lib, const Id& worldIn, Remote& remote, State& state, Re
         std::vector<std::pair<Id, std::string>> versions;
         std::vector<std::string> notes;
         for (const std::string& p : paths) {
+            if (cancelled()) { error = "Stopped."; return false; }
             auto get = [](const std::map<std::string, std::string>& m, const std::string& k) {
                 auto it = m.find(k);
                 return it == m.end() ? std::string() : it->second;
@@ -933,13 +982,14 @@ bool syncWorld(Library& lib, const Id& worldIn, Remote& remote, State& state, Re
         }
         // Here first (a failure leaves the repository as it was), then there.
         if (!toHere.empty() || !versions.empty()) {
-            if (!lib.applyWorldFiles(world, toHere, versions, error)) return false;
+            if (cancelled()) { error = "Stopped."; return false; }
+            if (!lib.apply(world, toHere, versions, error)) return false;
         }
         std::string newCommit = rs.commit;
         if (!toThere.empty()) {
             bool moved = false;
-            const World* wd = lib.world(world);
-            if (!remote.commit(rs, toThere, "Writing Studio: " + (wd ? wd->name : std::string("a world")), newCommit, moved, error)) {
+            const std::string name = lib.worldName(world);
+            if (!remote.commit(rs, toThere, "Writing Studio: " + (name.empty() ? std::string("a world") : name), newCommit, moved, error)) {
                 if (moved) {   // another computer synced in between: go again from what's there now
                     for (auto& [p, s] : merged) if (toHere.count(p)) state.files[p] = s;   // what was taken stays taken
                     for (auto& [p, v] : toHere) if (!v) state.files.erase(p);
@@ -957,7 +1007,7 @@ bool syncWorld(Library& lib, const Id& worldIn, Remote& remote, State& state, Re
         state.files = merged;
         state.commit = newCommit;
         state.lastSync = (std::int64_t)std::time(nullptr);
-        saveState(lib, world, state);
+        lib.save(world, state);
         return true;
     }
     error = "Another computer kept syncing at the same moment. Try again.";

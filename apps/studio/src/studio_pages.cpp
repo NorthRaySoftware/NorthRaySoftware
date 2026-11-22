@@ -243,6 +243,7 @@ void StudioApp::drawFrame(float W, float H) {
         case View::Trash: h = pageTrash(page); break;
         case View::Settings: h = pageSettings(page); break;
         case View::Artwork: h = pageArtwork(page); break;
+        case View::FromGitHub: h = pageFromGitHub(page); break;
         case View::Book: h = lib_->book(viewId_) ? pageBook(page) : pageAllBooks(page); break;
     }
     endScroll(h + 60);
@@ -921,6 +922,8 @@ float StudioApp::pageAllBooks(const Rect& r) {
         float lw = 0;
         linkText("all:newworld", r.x, y, L"Or start with a world, for a series set in one universe", [this] { newWorld(); });
         (void)lw;
+        y += 40;
+        linkText("all:github", r.x, y, L"Or open a world you keep on GitHub from another computer", [this] { goTo(View::FromGitHub); });
         y += 44;
         gfx_.text(L"HOW THE LIBRARY WORKS", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
         y += 26;
@@ -997,6 +1000,8 @@ float StudioApp::pageWorlds(const Rect& r) {
         smallButton("worlds:import", bx, y, L"Import a book...", [this] { startImport({}); }, &bw);
         bx += bw + 8;
         smallButton("worlds:all", bx, y, L"All books", [this] { goTo(View::AllBooks); }, &bw);
+        bx += bw + 8;
+        smallButton("worlds:github", bx, y, L"Open a world from GitHub...", [this] { goTo(View::FromGitHub); }, &bw);
         y += 48;
     }
     const float gap = 20;

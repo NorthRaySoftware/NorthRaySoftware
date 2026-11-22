@@ -21,9 +21,13 @@
 #include "studio/typeset.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
+#include "studio/sync.hpp"
 #include "web_pane.hpp"
 
+#include <atomic>
+#include <deque>
 #include <map>
+#include <thread>
 #include <set>
 #include <nlohmann/json.hpp>
 #include <memory>
@@ -35,14 +39,16 @@ namespace nrs {
 using namespace cjui;
 using studio::Id;
 
-enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Settings, Artwork };
+enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Settings, Artwork, FromGitHub };
 // The workspace tabs along the top. Import is the preview shown before an import.
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
 inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28;
 inline constexpr UINT WM_APP_IMPORT = WM_APP + 20;  // an import file has been read (lParam: Plan*)
 inline constexpr UINT WM_APP_TYPESET = WM_APP + 21; // a book has been typeset (wParam: generation, lParam: typeset::Book*)
-inline constexpr UINT WM_APP_EDITION = WM_APP + 22; // an edition has been typeset for Publishing (same parameters)
+inline constexpr UINT WM_APP_EDITION = WM_APP + 22;
+inline constexpr UINT WM_APP_SYNC_CALL = WM_APP + 23; // the sync thread asks for something done on the window's thread (lParam: std::function<void()>*)
+inline constexpr UINT WM_APP_SYNC_DONE = WM_APP + 24; // a sync has finished (lParam: SyncResult*) // an edition has been typeset for Publishing (same parameters)
 
 // Writing commands (menus, the outline's right-click menu).
 enum WCmd {
@@ -53,7 +59,7 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure, Sync } kind = None;
     // Thread, Beat (0.50): a plot thread or a structure beat (id), of a book (contextSeries). Structure: one of the
     // author's own (id), of the book whose plan is open (contextSeries).
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
@@ -67,7 +73,7 @@ struct Focus {
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
     FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen,
-    FSection, FBookNote, FTemplate, FFind, FieldCount
+    FSection, FBookNote, FTemplate, FFind, FRepo, FToken, FieldCount
 };
 // The fields that take several lines.
 inline bool isMultiField(int f) { return f == FDescription || f == FNotes || f == FSynopsis || f == FSection || f == FBookNote || f == FTemplate; }
@@ -502,6 +508,51 @@ private:
     void loadShareFields();
     void commitShareFields();
     void makeSharedBible();
+
+    // Keeping a world in a GitHub repository (0.61, studio_sync.cpp). The network part runs on syncThread_, one sync
+    // at a time from syncQueue_; whatever touches the library is handed back to the window's thread
+    // (WM_APP_SYNC_CALL). The token lives in Windows Credential Manager, never in the library or settings.
+    struct SyncJob {
+        enum Kind { Check, Sync } kind = Sync;
+        Id world;                  // empty: opening a world from the repository
+        std::string repo;          // "owner/name"
+        std::string folder;        // the library it's for
+        bool quiet = false;        // automatic: no message unless something needs saying
+    };
+    struct SyncResult {
+        SyncJob job;
+        bool ok = false;
+        std::string error;
+        studio::sync::Report report;
+        studio::sync::State state;
+        studio::sync::RepoInfo info;
+    };
+    friend class SyncLocal;
+    void openSyncPage();
+    void drawSync(const Rect& r);
+    void drawSyncPanel(const Rect& r);
+    float pageFromGitHub(const Rect& r);
+    float pageField(const Rect& r, float y, const std::wstring& label, Field f);
+    void startSyncSetup(const Id& world);
+    void queueSync(const SyncJob& job);
+    void runNextSync();
+    void syncFinished(SyncResult* res);
+    void syncTick();
+    void syncAllSoon();
+    void stopSyncing(const Id& world);
+    void replaceSyncToken(const Id& world);
+    void finishClosing();
+    std::thread syncThread_;
+    std::atomic<bool> syncBusy_{false}, syncCancel_{false};
+    std::deque<SyncJob> syncQueue_;
+    Id syncRunning_;                                   // the world being synced ("-" while opening one)
+    std::map<Id, std::wstring> syncNote_;              // the last sync's outcome, per world
+    std::map<Id, std::vector<std::string>> syncConflicts_, syncSkipped_;
+    std::map<Id, bool> syncFailed_;
+    std::map<Id, long long> syncChangesAt_;            // changesMade() after the last sync
+    std::map<Id, ULONGLONG> syncTriedAt_;              // GetTickCount64() of the last try
+    std::wstring openNote_;                            // the Open from GitHub page's message
+    bool closing_ = false;
     // The world's own kinds of relationship (studio_relations.cpp).
     void openRelations(const std::string& select);
     void newRelation();
@@ -793,6 +844,7 @@ private:
         bool allFamilies = false;
         std::set<std::string> facetsOpen;
         bool share = false;                   // the Share the bible page (0.38)
+        bool syncPage = false;                // the Sync with GitHub page (0.61)
         std::string shareKey;                 // whose choices are loaded
         ShareState shareState;
     } wb_;

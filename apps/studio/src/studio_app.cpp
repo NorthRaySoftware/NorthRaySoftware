@@ -36,6 +36,7 @@ static const UINT_PTR kCloseTimer = 3;   // waiting for the editor's last save
 static const UINT_PTR kTypesetTimer = 4; // a pause after a design change: set the pages again
 static const UINT_PTR kBackupTimer = 5;  // every 30 minutes: a backup if anything changed
 static const UINT_PTR kNameTimer = 6;    // "Add to the bible" chosen in the text's right-click menu
+static const UINT_PTR kSyncTimer = 7;    // every minute: worlds kept in GitHub that are due a sync (0.61)
 
 
 enum Cmd {
@@ -186,6 +187,7 @@ bool StudioApp::create(HINSTANCE inst, int show) {
     SetTimer(hwnd(), kTickTimer, 2000, nullptr);   // the summary for Launcher and Capture (written only when it changes)
     writeSummary();
     SetTimer(hwnd(), kBackupTimer, 30 * 60 * 1000, nullptr);
+    SetTimer(hwnd(), kSyncTimer, 60 * 1000, nullptr);
     return true;
 }
 
@@ -245,6 +247,8 @@ void StudioApp::noteRecentBook() {
 }
 
 void StudioApp::onDestroy() {
+    syncCancel_ = true;
+    if (syncThread_.joinable()) syncThread_.join();   // finishClosing waited for it; a crash-close mustn't leave it running
     commitFields();
     editor_.destroy();
     preview_.destroy();
@@ -315,6 +319,14 @@ bool StudioApp::openLibrary(const std::string& folder, bool interactive) {
     resetScroll();
     flash(r.created ? L"Created a new, empty library." : L"Library opened. A backup copy was made.", 5);
     tidyBibles();
+    syncQueue_.clear();
+    syncNote_.clear();
+    syncConflicts_.clear();
+    syncSkipped_.clear();
+    syncFailed_.clear();
+    syncChangesAt_.clear();
+    syncTriedAt_.clear();
+    syncAllSoon();   // worlds kept in GitHub: the other computers' changes
     invalidate();
     return true;
 }
@@ -1329,7 +1341,7 @@ void StudioApp::onTimer(UINT_PTR id) {
     if (id == kCloseTimer) {
         KillTimer(hwnd(), kCloseTimer);
         closePending_ = false;
-        DestroyWindow(hwnd());
+        finishClosing();
         return;
     }
     if (id == kTypesetTimer) { startTypeset(); return; }
@@ -1341,6 +1353,7 @@ void StudioApp::onTimer(UINT_PTR id) {
         return;
     }
     if (id == kBackupTimer) { backupTick(); return; }
+    if (id == kSyncTimer) { syncTick(); return; }
     if (id == kTickTimer) {   // the summary for NorthRay Launcher and Capture (every 2 s, written only when it changed)
         writeSummary();
         static int ticks = 0;
@@ -1416,7 +1429,7 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                 SetTimer(hwnd(), kCloseTimer, 1500, nullptr);
                 return 0;
             }
-            handled = false;
+            if (!closePending_) finishClosing();   // worlds kept in GitHub send their last changes first
             return 0;
         default:
             if (msg == WM_APP_EDITION) {
@@ -1425,6 +1438,14 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             if (msg == WM_APP_TYPESET) {
                 typesetFinished((int)wp, reinterpret_cast<studio::typeset::Book*>(lp));
+                return 0;
+            }
+            if (msg == WM_APP_SYNC_CALL) {
+                (*reinterpret_cast<const std::function<void()>*>(lp))();
+                return 0;
+            }
+            if (msg == WM_APP_SYNC_DONE) {
+                syncFinished(reinterpret_cast<SyncResult*>(lp));
                 return 0;
             }
             if (msg == WM_APP_IMPORT) {
@@ -1807,7 +1828,7 @@ bool StudioApp::preTranslate(const MSG& msg) {
 void StudioApp::createFields() {
     for (int f = 0; f < FieldCount; ++f) {
         const bool multi = isMultiField(f);
-        DWORD style = WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL | (f == FTarget ? ES_NUMBER : 0);
+        DWORD style = WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL | (f == FTarget ? ES_NUMBER : 0) | (f == FToken ? ES_PASSWORD : 0);
         if (multi) style = WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN;
         fields_[f] = CreateWindowExW(0, L"EDIT", L"", style, 0, 0, 10, 10, hwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         // No scroll bar on the longer fields; the wheel still scrolls them.
@@ -1820,6 +1841,8 @@ void StudioApp::createFields() {
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"fantasy, dragons"));
     SendMessageW(fields_[FAccent], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"#2D4A6E"));
     SendMessageW(fields_[FNumber], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Unnumbered"));
+    SendMessageW(fields_[FRepo], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"https://github.com/you/your-world"));
+    SendMessageW(fields_[FToken], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"github_pat_…"));
     layoutFont();
 }
 

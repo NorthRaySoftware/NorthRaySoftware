@@ -233,7 +233,7 @@ void StudioApp::editorMessage(const std::string& text) {
         const std::string id = m.value("id", "");
         if (const ManuscriptNode* c = lib_ ? lib_->node(id) : nullptr; c && c->bookId == writingBook_ && !c->deleted) selectNode(c->id, true);
     } else if (type == "flushed") {
-        if (closePending_) { KillTimer(hwnd(), kCloseTimer); closePending_ = false; DestroyWindow(hwnd()); return; }
+        if (closePending_) { KillTimer(hwnd(), kCloseTimer); closePending_ = false; finishClosing(); return; }
     } else if (type == "stats") {
         if (m.value("id", "") == currentNode_) {
             liveWords_ = m.value("words", (std::int64_t)0);

@@ -112,6 +112,56 @@ HttpResult httpGet(const std::string& url, int timeoutMs, size_t maxBytes) {
     return r;
 }
 
+HttpResult httpRequest(const std::string& method, const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+                       const std::string& body, int timeoutMs, size_t maxBytes) {
+    HttpResult r;
+    const std::wstring wurl = widenUtf8(url);
+    URL_COMPONENTS uc{sizeof uc};
+    wchar_t host[256], path[4096];
+    uc.lpszHostName = host;
+    uc.dwHostNameLength = 256;
+    uc.lpszUrlPath = path;
+    uc.dwUrlPathLength = 4096;
+    uc.dwSchemeLength = (DWORD)-1;
+    uc.dwExtraInfoLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) { r.error = L"The address isn't valid."; return r; }
+    std::wstring fullPath(uc.lpszUrlPath, uc.dwUrlPathLength);
+    if (uc.lpszExtraInfo && uc.dwExtraInfoLength) fullPath.append(uc.lpszExtraInfo, uc.dwExtraInfoLength);
+    if (fullPath.empty()) fullPath = L"/";
+    Handle session(WinHttpOpen(L"NorthRay/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    if (!session) session.h = WinHttpOpen(L"NorthRay/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) { r.error = describe(GetLastError()); return r; }
+    WinHttpSetTimeouts(session, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+    Handle connect(WinHttpConnect(session, std::wstring(uc.lpszHostName, uc.dwHostNameLength).c_str(), uc.nPort, 0));
+    if (!connect) { r.error = describe(GetLastError()); return r; }
+    const DWORD flags = uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
+    Handle request(WinHttpOpenRequest(connect, widenUtf8(method).c_str(), fullPath.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                      WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+    if (!request) { r.error = describe(GetLastError()); return r; }
+    std::wstring head;
+    for (auto& [k, v] : headers) head += widenUtf8(k) + L": " + widenUtf8(v) + L"\r\n";
+    BOOL sent = WinHttpSendRequest(request, head.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : head.c_str(), head.empty() ? 0 : (DWORD)-1L,
+                                   body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()), (DWORD)body.size(),
+                                   (DWORD)body.size(), 0);
+    SecureZeroMemory(head.data(), head.size() * sizeof(wchar_t));   // it held the token
+    if (!sent || !WinHttpReceiveResponse(request, nullptr)) { r.error = describe(GetLastError()); return r; }
+    DWORD code = 0, size = sizeof code;
+    WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &size,
+                        WINHTTP_NO_HEADER_INDEX);
+    r.status = (int)code;
+    for (;;) {
+        DWORD avail = 0;
+        if (!WinHttpQueryDataAvailable(request, &avail)) { r.status = 0; r.error = describe(GetLastError()); break; }
+        if (avail == 0) break;
+        if (r.body.size() + avail > maxBytes) { r.status = 0; r.error = L"The server's reply was too large."; break; }
+        std::vector<char> buf(avail);
+        DWORD read = 0;
+        if (!WinHttpReadData(request, buf.data(), avail, &read)) { r.status = 0; r.error = describe(GetLastError()); break; }
+        r.body.append(buf.data(), read);
+    }
+    return r;
+}
+
 int httpStream(const std::string& url, const std::function<bool(const uint8_t*, size_t)>& onData,
                const std::atomic<bool>& cancel, std::wstring& error, std::string* contentType) {
     Handle session, connect, request;

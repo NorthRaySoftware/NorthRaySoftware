@@ -11,6 +11,7 @@
 
 #include "studio/library.hpp"
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <optional>
@@ -118,8 +119,39 @@ struct Report {
     bool changedHere() const { return received + removedHere > 0; }
 };
 
+// This computer's side, so the app can run the network part away from its window's thread while the library is
+// only touched on it. `LibraryLocal` does each step straight on a library.
+class Local {
+public:
+    virtual ~Local() = default;
+    virtual std::map<std::string, Library::WorldFile> files(const Id& world) = 0;
+    virtual bool hasWorld(const Id& world) = 0;
+    virtual std::string worldName(const Id& world) = 0;
+    virtual bool apply(const Id& world, const std::map<std::string, std::optional<std::string>>& changes,
+                       const std::vector<std::pair<Id, std::string>>& keepVersions, std::string& error) = 0;
+    virtual void save(const Id& world, const State& state) = 0;
+};
+class LibraryLocal : public Local {
+public:
+    explicit LibraryLocal(Library& lib) : lib_(lib) {}
+    std::map<std::string, Library::WorldFile> files(const Id& world) override { return lib_.worldFiles(world); }
+    bool hasWorld(const Id& world) override { return lib_.world(world) != nullptr; }
+    std::string worldName(const Id& world) override { const World* w = lib_.world(world); return w ? w->name : std::string(); }
+    bool apply(const Id& world, const std::map<std::string, std::optional<std::string>>& changes,
+               const std::vector<std::pair<Id, std::string>>& keepVersions, std::string& error) override {
+        return lib_.applyWorldFiles(world, changes, keepVersions, error);
+    }
+    void save(const Id& world, const State& state) override { saveState(lib_, world, state); }
+
+private:
+    Library& lib_;
+};
+
 // One sync of `world` with `remote`. With an empty `world`, the world is opened from the repository (it must not be
-// in this library already). Reloads the library when anything here changed.
+// in this library already). The library is read again when anything here changed. `cancel`, when set, stops it
+// between files (nothing half-done: the repository and the library each change in one step).
+bool syncWorld(Local& local, const Id& world, Remote& remote, State& state, Report& report, std::string& error,
+               const std::atomic<bool>* cancel = nullptr);
 bool syncWorld(Library& lib, const Id& world, Remote& remote, State& state, Report& report, std::string& error);
 
 constexpr std::size_t kMaxFileBytes = 95u * 1024 * 1024;   // GitHub refuses files over 100 MB

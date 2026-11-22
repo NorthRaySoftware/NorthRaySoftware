@@ -383,6 +383,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.glossary = false;
     wb_.languages = false;
     wb_.share = false;
+    wb_.syncPage = false;
     wb_.relationsPage = false;
     wb_.fontsPage = false;
     if (wb_.entry != id) {
@@ -617,7 +618,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.syncPage && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -792,6 +793,24 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         if (focused(id)) focusRing(rr);
         y += 32;
     }
+    if (!wb_.world.empty()) {   // a world (not an independent book) can be kept in GitHub (0.61)
+        const std::string id = "side:wb:sync";
+        const Rect rr{x, y, wd, 30};
+        addHit(id, rr, [this] { openSyncPage(); });
+        const bool sel = wb_.syncPage;
+        const float hv = hoverAmount(id);
+        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        gfx_.text(L"Sync with GitHub", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
+        const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
+        if (!ss.repo.empty()) {
+            const bool bad = syncFailed_.count(wb_.world) && syncFailed_[wb_.world];
+            const bool now = syncBusy_ && syncRunning_ == wb_.world;
+            gfx_.circle(tx0 + cw - 6, rr.y + rr.h / 2, 4, now ? pal_.ribbon.withAlpha(0.5f) : bad ? cjui::hexColor("#C0392B") : pal_.ribbon, true);
+        }
+        if (focused(id)) focusRing(rr);
+        y += 32;
+    }
     {
         const std::string id = "side:wb:checks";
         const Rect rr{x, y, wd, 30};
@@ -878,6 +897,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     if (!wb_.familyRoot.empty()) { drawFamilyTree(r); return; }
     if (!wb_.mapView.empty()) { drawMapView(r); return; }
     if (wb_.share) { drawShare(r); return; }
+    if (wb_.syncPage) { drawSync(r); return; }
     if (wb_.relationsPage) { drawRelations(r); return; }
     if (wb_.fontsPage) { drawFonts(r); return; }
     if (wb_.checks) { drawChecks(r); return; }
@@ -1907,6 +1927,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (wb_.languages) { drawLanguagePanel(r); return; }
     if (wb_.share) { drawSharePanel(r); return; }
+    if (wb_.syncPage) { drawSyncPanel(r); return; }
     if (wb_.relationsPage) { drawRelationsPanel(r); return; }
     if (wb_.fontsPage) { drawFontsPanel(r); return; }
     if (!wb_.familyRoot.empty() && wb_.entry.empty()) { drawFamilyPanel(r); return; }
