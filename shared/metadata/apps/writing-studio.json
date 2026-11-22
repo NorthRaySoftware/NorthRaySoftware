@@ -3,7 +3,7 @@
   "id": "writing-studio",
   "name": "NorthRay Writing Studio",
   "tagline": "A writing and publishing studio for authors: worlds, series and books, through to finished editions.",
-  "description": "NorthRay Writing Studio is a desktop app for writing and publishing books. It organises your work as worlds, series and books, and each book as parts, chapters and scenes, written in a calm, page-like editor that saves as you type, keeps earlier versions, and takes comments on the text. Pictures live in an artwork library, with crops and print-resolution checks that never touch the originals. Existing books can be imported from EPUB, Word, OpenDocument, HTML, Markdown and plain text, with PDF import as an experiment. Each book has a planning board, and each world keeps a bible of its characters, places and lore, showing where each appears in the books. Books are typeset into finished pages and previewed as an ebook on different devices, then exported as a print-ready PDF (PDF/X-1a) and an EPUB, after a pre-flight check that also gives the spine width for the cover. Everything stays on your PC; no account or subscription is needed.",
+  "description": "NorthRay Writing Studio is a desktop app for writing and publishing books. It organises your work as worlds, series and books, and each book as parts, chapters and scenes, written in a calm, page-like editor that saves as you type, keeps earlier versions, and takes comments on the text. Pictures live in an artwork library, with crops and print-resolution checks that never touch the originals. Existing books can be imported from EPUB, Word, OpenDocument, HTML, Markdown and plain text, with PDF import as an experiment. Each book has a planning board, and each world keeps a bible of its characters, places and lore, showing where each appears in the books. Books are typeset into finished pages and previewed as an ebook on different devices, then exported as a print-ready PDF (PDF/X-1a) and an EPUB, after a pre-flight check that also gives the spine width for the cover. Everything stays on your PC unless you choose to keep a world in a GitHub repository of your own, to write on more than one computer; no NorthRay account or subscription is needed.",
   "features": [
     "Author Library: worlds, series and books, with standalone and independent books",
     "Manuscript editor: parts, chapters and scenes, semantic paragraph styles, scene breaks, pictures and spell-check",
@@ -17,7 +17,8 @@
     "Review: compare any chapter with earlier versions or whole-book snapshots, check names against the world's bible, and track daily writing goals",
     "Comments: notes pinned to words in the text, resolved when they're dealt with, and listed for the whole book in Review",
     "Ebook preview on a phone, an e-reader and a tablet, with the reader's own text size, font and page colour",
-    "Publishing: paperback, hardback, large-print and ebook editions with their own ISBNs; print-ready PDF/X-1a and EPUB 3 export, a pre-flight checklist, and spine and cover measurements"
+    "Publishing: paperback, hardback, large-print and ebook editions with their own ISBNs; print-ready PDF/X-1a and EPUB 3 export, a pre-flight checklist, and spine and cover measurements",
+    "Sync with GitHub: keep a world, pictures included, in your own private repository and write on more than one computer"
   ],
   "category": "Writing and publishing",
   "status": "preview",
