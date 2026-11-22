@@ -3630,8 +3630,91 @@ static void testThemes() {
     }
 }
 
+static void testSkyStyles() {
+    std::printf("sky styles\n");
+    namespace as = ncap::aurora_sky;
+    CHECK(as::styles().size() == 6);
+    as::Settings s;
+    s.style = "scifi";
+    s.colour3 = {255, 61, 203, 255};
+    const as::Settings b = as::fromJson(as::toJson(s));
+    CHECK(b.style == "scifi" && b.colour3 == s.colour3);
+    CHECK(as::fromJson(R"({"style":"vapour"})").style == "aurora");
+    float quiet[32], loudB[32];
+    for (int i = 0; i < 32; ++i) quiet[i] = 0.02f, loudB[i] = 0.95f;
+    const as::Pulse Q{quiet, 32, 0.05f}, L{loudB, 32, 0.9f};
+    auto total = [&](const as::Settings& x, const as::Pulse* p, float secs) {
+        float sum = 0;
+        for (int yi = 0; yi < 24; ++yi)
+            for (int xi = 0; xi < 32; ++xi) {
+                const auto c = as::sample(x, (xi + 0.5f) / 32, (yi + 0.5f) / 24, secs, 1920, 1080, p);
+                CHECK(c.r >= 0 && c.r <= 1 && c.g >= 0 && c.g <= 1 && c.b >= 0 && c.b <= 1);
+                sum += c.r + c.g + c.b;
+            }
+        return sum;
+    };
+    as::Settings aur;
+    const float aurora = total(aur, nullptr, 5);
+    for (const std::string st : {"bookish", "fantasy", "scifi", "cosy", "minimal"}) {
+        as::Settings x;
+        x.style = st;
+        x.night = {20, 16, 24, 255};
+        const float sky = total(x, nullptr, 5);
+        CHECK(std::fabs(sky - aurora) > 1);   // not the aurora's picture
+        as::Settings wv = x;
+        wv.wave = true;
+        const float pq = total(x, &Q, 5), pl = total(x, &L, 5), wq = total(wv, &Q, 5), wl = total(wv, &L, 5);
+        CHECK(pl > pq * 1.05f);   // loud music: more light
+        CHECK(wl > wq * 1.02f || (st == "minimal" && std::fabs(wl - wq) > 1));
+        CHECK(std::fabs(pl - wl) > 1 && std::fabs(sky - pl) > 1);   // sky, pulse and wave: three pictures
+        if (!(pl > pq * 1.05f)) std::printf("  %s: pulse %g/%g wave %g/%g\n", st.c_str(), pq, pl, wq, wl);
+        // Moving: a few seconds later it isn't the same.
+        CHECK(std::fabs(total(x, nullptr, 5) - total(x, nullptr, 9)) > 0.001f || st == "minimal");
+        // Every shader: nothing reserved, every value filled in, written out whole.
+        for (bool p2 : {false, true})
+            for (bool w2 : {false, true})
+                for (bool stars : {false, true}) {
+                    as::Settings z = x;
+                    z.wave = w2, z.stars = stars;
+                    const std::string src = as::shader(z, p2);
+                    CHECK(hlslReservedWordIn(src).empty() && src.find('$') == std::string::npos && src.substr(src.size() - 2) == "}\n");
+                    if (!hlslReservedWordIn(src).empty()) std::printf("  reserved: %s\n", hlslReservedWordIn(src).c_str());
+                }
+    }
+    // Sci-fi's grid: lines below the horizon, a dark sky above it in between.
+    {
+        as::Settings x;
+        x.style = "scifi";
+        x.stars = false;
+        float lo = 9, hi = 0;
+        for (int i = 0; i < 400; ++i) {
+            const auto c = as::sample(x, i / 400.0f, 0.85f, 1, 1920, 1080);
+            lo = std::min(lo, c.g), hi = std::max(hi, c.g);
+        }
+        CHECK(hi > lo + 0.15f);
+    }
+    // Minimal's bars: the main colour at the middle of a loud bar, the background between bars.
+    {
+        as::Settings x;
+        x.style = "minimal";
+        x.colour1 = {255, 0, 0, 255};
+        x.night = {0, 0, 0, 255};
+        const auto on = as::sample(x, 12.5f / 40, 0.5f, 0, 1920, 1080, &L), off = as::sample(x, 12.98f / 40, 0.5f, 0, 1920, 1080, &L);
+        CHECK(on.r > 0.9f && off.r < 0.2f);
+    }
+    // Bookish: gold dust only with sparkles on.
+    {
+        as::Settings x;
+        x.style = "bookish";
+        as::Settings y = x;
+        y.stars = false;
+        CHECK(total(x, nullptr, 3) > total(y, nullptr, 3));
+    }
+}
+
 int main() {
     testThemes();
+    testSkyStyles();
     testWritingCard();
     testScenes();
     testItemEditing();

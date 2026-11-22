@@ -8,6 +8,7 @@
 #include "ncap/colour.hpp"
 
 #include <string>
+#include <vector>
 
 namespace ncap::aurora_sky {
 
@@ -17,16 +18,23 @@ struct Settings {
     Rgba colour1{63, 207, 142, 255};    // the main curtain colour (the brand's primary)
     Rgba colour2{122, 92, 255, 255};    // the second (the brand's secondary)
     Rgba night{7, 12, 24, 255};         // the sky (the brand's night)
+    Rgba colour3{34, 195, 230, 255};    // a third (embers, sparks, the far end of the bars) (0.21)
+    // Its design (0.21), one per theme style: aurora (curtains of light), bookish (ink and gold dust; book spines;
+    // calligraphy), fantasy (embers and mist; flames; flame ribbons), scifi (a grid horizon and a scan beam; an
+    // equaliser; an oscilloscope), cosy (lamplight, bokeh and fireflies; a warm glow; soft ribbons), minimal (soft bands;
+    // a row of bars; a single line). Sky, pulse and wave each have their own picture in every style.
+    std::string style = "aurora";
     float speed = 1.0f;                 // 0.25 (slow) .. 3 (lively)
     float brightness = 1.0f;            // 0.3 .. 1.5
-    bool stars = true;
-    bool followBrand = true;            // the colours follow the brand kit
+    bool stars = true;                  // stars, or the style's sparkles: dust, embers, fireflies
+    bool followBrand = true;            // the colours (and since 0.21 the style) follow the stream's theme (NorthRay: the brand kit)
     // The aurora pulse's style: false the curtains rise with the music; true (the aurora wave) three ribbons of
     // light flow across the screen like a sound wave, swelling where their frequency band is loud.
     bool wave = false;
     int width = 1920, height = 1080;    // the picture's size
     bool operator==(const Settings&) const = default;
 };
+const std::vector<std::string>& styles();   // aurora, bookish, fantasy, scifi, cosy, minimal
 std::string toJson(const Settings& s);
 Settings fromJson(const std::string& json);   // missing or bad values take the defaults, others clamped
 
