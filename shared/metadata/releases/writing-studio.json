@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.62.0",
+      "date": "2026-11-22",
+      "notes": [
+        "Importing a plan replaces the book's plan instead of adding to it. Chapters are matched ignoring numbers and symbols (\"Steel and Snow\" finds \"1. 🗡 Steel and Snow\", \"Chapter 13\" finds \"13. Chapter 13\"), take the plan's synopsis, viewpoint, place, who's there, time, threads and beats, and are put in its order; their titles and writing stay.",
+        "Empty parts, chapters and scenes the plan doesn't have go to the Trash; anything with writing is always kept, and named afterwards. Where an earlier import added every chapter twice, importing the plan again keeps the written copies and clears the empty ones.",
+        "Thread descriptions are replaced rather than repeated, and a thread's chapter numbers are only used when the outline doesn't give each chapter its threads.",
+        "Sexuality works like gender: characters can be grouped by it, list rows show it, and cards have a small banded mark beside the gender sign (point at it for the word)."
+      ]
+    },
+    {
       "version": "0.61.0",
       "date": "2026-11-22",
       "notes": [

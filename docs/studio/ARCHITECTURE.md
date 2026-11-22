@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.62.0: a plan replaces the book's plan; sexuality like gender (22 Nov 2026)
+
+CJ imported a plan with plain titles into Shards of Light, whose chapters are "1. 🗡 Steel and Snow" and the like: nothing matched, so every chapter (and the part) was added again, and thread descriptions doubled.
+
+- planning: `matchKey(title)` = `titleCore` with leading and trailing punctuation and symbols (U+2000-2BFF, U+1F000-1FAFF, private use, variation selectors, CJK punctuation) taken off, repeated so "13. Chapter 13" is "#13" like "Chapter 13". `importOutline` matches by exact title or key, preferring the candidate with most words (subtree), then the number fallback. It now replaces: the book's thread tags and beats are cleared first; each planned node's synopsis, target, viewpoint, place, cast and timeline entry are set from the plan (blank clears), status only when given, title kept. Afterwards `moveNode` puts planned nodes in the plan's order under their parents; unplanned nodes with no words in them (and holding nothing planned) are trashed (`OutlineImport::trashed`), written ones kept (`keptWithWriting`). `importThreads(..., chapterLists)`: `importPlanning` skips a thread's Chapters list when the outline had Threads lines; a thread's description is replaced on its first line in the text, and a line repeating it isn't added.
+- App: Import planning asks first when the book has nodes and the text has an outline; the note says what was replaced, trashed and kept.
+- Sexuality (`studio_world.cpp`): Group by has Sexuality (`wb_.groupBy == "sexuality"`, sub-headings with the mark); list rows include it; cards draw `drawSexualityMark` (three bands from `sexualityBands`, grey for other words) left of the gender sign, with a tooltip.
+- Suite 0.132.0 republished 0.61 under a new suite version: installers take the suite's version, which NorthRay Launcher compares, so every app release raises VERSION (0.60 and 0.61 had gone out as 0.131.0). This release is suite 0.133.0.
+- Tested: studiocore 1799 checks (keys, CJ's case: written chapters matched past empty copies, the copies and second part trashed, a written chapter outside the plan kept and named, threads from the outline not the old numbers, descriptions once, a second import changing nothing; the 0.54 tests updated to replacing). In Wine: Dragonfall with "✧ The Storm Wall" in the plan (the question, then the note: 2 replaced, 3 empty trashed, Night watch kept, the plan's order); Characters grouped by sexuality as cards and list, marks and the sidebar filter.
+
 ## 0.61.0: Sync with GitHub (22 Nov 2026)
 
 CJ asked to save each world to a GitHub repository he provides and work on it from another device, pictures included. Choices: a pasted token, automatic syncing, everything in the world.
