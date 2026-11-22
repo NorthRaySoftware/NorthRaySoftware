@@ -566,6 +566,20 @@ public:
 
     // A whole-library JSON file (without images) for moving or archiving.
     bool exportJson(const std::string& path, std::string& error) const;
+
+    // A world as files, for keeping it in a repository (0.61, sync.cpp): path -> bytes, or a file on disk (pictures
+    // and fonts, read when needed). Every row of the world's tables is one JSON file holding its columns.
+    struct WorldFile {
+        std::string bytes;
+        std::string diskPath;
+    };
+    std::map<std::string, WorldFile> worldFiles(const Id& world) const;
+    // Files changed elsewhere written back (bytes, or nullopt for gone), in one transaction, then everything is read
+    // again. `keepVersions` adds a saved version to chapters (their text from the other computer). Rows that don't
+    // belong to `world` are refused.
+    bool applyWorldFiles(const Id& world, const std::map<std::string, std::optional<std::string>>& changes,
+                         const std::vector<std::pair<Id, std::string>>& keepVersions, std::string& error);
+    bool reload();
     // Makes a backup copy of the database now. Keeps the newest `keep`.
     bool backup(std::string& error, int keep = 10, std::string* madePath = nullptr);
     // Rows changed through this library since it was opened (for "back up if anything changed").

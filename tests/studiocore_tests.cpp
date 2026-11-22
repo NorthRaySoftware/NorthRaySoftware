@@ -12,6 +12,7 @@
 #include "studio/import.hpp"
 #include "studio/library.hpp"
 #include "studio/planning.hpp"
+#include "studio/sync.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
 #include "miniz.h"
@@ -25,6 +26,7 @@
 #include <sstream>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -3673,7 +3675,282 @@ static void testSexualityFromSeries() {
     }
 }
 
+// A fake GitHub (0.61): the git data endpoints Writing Studio uses, over a MemoryRemote-like store.
+struct FakeGitHub {
+    std::map<std::string, std::string> blobs;                 // sha -> bytes
+    std::map<std::string, std::map<std::string, std::string>> trees;   // tree sha -> path -> blob sha
+    std::map<std::string, std::string> commitTree;            // commit -> tree
+    std::string ref;                                          // the branch's commit ("" = empty repository)
+    std::string token = "ghp_secret_token_123";
+    bool isPrivate = true;
+    int n = 0, requests = 0;
+    bool sawToken = true;
+    std::string fresh() { return studio::sync::sha1Hex("x" + std::to_string(++n)); }
+    studio::sync::HttpResponse operator()(const std::string& method, const std::string& url,
+                                          const std::vector<std::pair<std::string, std::string>>& headers, const std::string& body) {
+        using nlohmann::json;
+        ++requests;
+        bool auth = false;
+        for (auto& [k, v] : headers) if (k == "Authorization" && v == "Bearer " + token) auth = true;
+        if (!auth) { sawToken = false; return {401, R"({"message":"Bad credentials"})", ""}; }
+        const std::string base = "https://api.github.com/repos/me/alvora";
+        if (url.rfind(base, 0) != 0) return {404, "{}", ""};
+        std::string path = url.substr(base.size());
+        const json in = json::parse(body.empty() ? "{}" : body, nullptr, false);
+        if (method == "GET" && path.empty()) return {200, json{{"private", isPrivate}, {"default_branch", "main"}}.dump(), ""};
+        if (method == "GET" && path == "/git/ref/heads/main") {
+            if (ref.empty()) return {409, R"({"message":"Git Repository is empty."})", ""};
+            return {200, json{{"object", {{"sha", ref}}}}.dump(), ""};
+        }
+        if (method == "GET" && path.rfind("/git/commits/", 0) == 0) return {200, json{{"tree", {{"sha", commitTree[path.substr(13)]}}}}.dump(), ""};
+        if (method == "GET" && path.rfind("/git/trees/", 0) == 0) {
+            const std::string t = path.substr(11, path.find('?') - 11);
+            json arr = json::array();
+            for (auto& [p, sha] : trees[t]) arr.push_back({{"path", p}, {"type", "blob"}, {"sha", sha}, {"mode", "100644"}});
+            return {200, json{{"tree", arr}, {"truncated", false}}.dump(), ""};
+        }
+        if (method == "GET" && path.rfind("/git/blobs/", 0) == 0) {
+            auto it = blobs.find(path.substr(11));
+            if (it == blobs.end()) return {404, "{}", ""};
+            std::string b64 = studio::sync::base64Encode(it->second);
+            for (size_t i = 60; i < b64.size(); i += 61) b64.insert(i, "\n");   // GitHub wraps its base64
+            return {200, json{{"content", b64}, {"encoding", "base64"}}.dump(), ""};
+        }
+        if (method == "PUT" && path == "/contents/README.md" && ref.empty()) {
+            const std::string bytes = studio::sync::base64Decode(in.value("content", ""));
+            const std::string sha = studio::sync::gitBlobSha(bytes);
+            blobs[sha] = bytes;
+            const std::string t = fresh();
+            trees[t] = {{"README.md", sha}};
+            ref = fresh();
+            commitTree[ref] = t;
+            return {201, "{}", ""};
+        }
+        if (method == "POST" && path == "/git/blobs") {
+            const std::string bytes = studio::sync::base64Decode(in.value("content", ""));
+            const std::string sha = studio::sync::gitBlobSha(bytes);
+            blobs[sha] = bytes;
+            return {201, json{{"sha", sha}}.dump(), ""};
+        }
+        if (method == "POST" && path == "/git/trees") {
+            auto files = trees[in.value("base_tree", "")];
+            for (auto& e : in["tree"]) {
+                if (e["sha"].is_null()) files.erase(e.value("path", ""));
+                else files[e.value("path", "")] = e.value("sha", "");
+            }
+            const std::string t = fresh();
+            trees[t] = files;
+            return {201, json{{"sha", t}}.dump(), ""};
+        }
+        if (method == "POST" && path == "/git/commits") {
+            const std::string c = fresh();
+            commitTree[c] = in.value("tree", "");
+            return {201, json{{"sha", c}}.dump(), ""};
+        }
+        if (method == "PATCH" && path == "/git/refs/heads/main") {
+            ref = in.value("sha", "");
+            return {200, "{}", ""};
+        }
+        return {404, "{}", ""};
+    }
+};
+
+static void testWorldSync() {
+    namespace sy = studio::sync;
+    // Hashes and links.
+    CHECK(sy::sha1Hex("abc") == "a9993e364706816aba3e25717850c26c9cd0d89d");
+    CHECK(sy::gitBlobSha("") == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+    CHECK(sy::gitBlobSha("hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a");
+    for (const std::string s : {std::string(""), std::string("a"), std::string("ab"), std::string("abc"), std::string("\x00\xff\x10", 3)})
+        CHECK(sy::base64Decode(sy::base64Encode(s)) == s);
+    CHECK(sy::base64Encode("hello") == "aGVsbG8=");
+    std::string o, r;
+    CHECK(sy::parseRepoLink("https://github.com/CJ/alvora-bible", o, r) && o == "CJ" && r == "alvora-bible");
+    CHECK(sy::parseRepoLink("github.com/CJ/alvora.git", o, r) && r == "alvora");
+    CHECK(sy::parseRepoLink("git@github.com:CJ/alvora.git", o, r) && o == "CJ");
+    CHECK(sy::parseRepoLink(" CJ/alvora ", o, r) && sy::parseRepoLink("https://github.com/CJ/alvora/tree/main", o, r) && r == "alvora");
+    CHECK(!sy::parseRepoLink("https://gitlab.com/CJ/alvora", o, r) && !sy::parseRepoLink("alvora", o, r));
+    CHECK(sy::validPath("books/b1/nodes/n1.json") && sy::validPath("objects/ab/" + std::string(62, 'c')));
+    CHECK(!sy::validPath("../world.json") && !sy::validPath("books/../x.json") && !sy::validPath("objects/ab/xyz") && !sy::validPath("README.md"));
+
+    // A world written on the first computer.
+    auto a = openOk(tempLibrary("sync-a"));
+    const Id world = a->createWorld("Alvora");
+    const Id series = a->createSeries("The Alvora Chronicles", world);
+    const Id book = a->createBook("Dragonfall", world);
+    CHECK(a->addBookToSeries(book, series));
+    const Id ch1 = a->createNode(book, {}, NodeKind::Chapter, "The Forge");
+    const std::string text1 = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Tom lit the forge."}]}]})";
+    CHECK(a->saveNodeContent(ch1, text1));
+    const Id tom = a->createEntry(world, {}, "character", "Tom");
+    const Id cliff = a->createEntry(world, {}, "place", "Highcliff");
+    CHECK(a->addLink(tom, cliff, "Lives in"));
+    const Id art = a->addArtwork(pngOf(3, 2), "Tom", "Bible");
+    {
+        Entry u = *a->entry(tom);
+        u.imageBlob = a->artwork(art)->blob;
+        u.summary = "A smith.";
+        CHECK(a->updateEntry(u));
+    }
+    CHECK(a->setSetting("boards:world:" + world, R"({"boards":[]})"));
+    CHECK(a->setSetting("unrelated", "stays here"));
+    const auto files = a->worldFiles(world);
+    CHECK(files.count("world.json") && files.count("series/" + series + ".json") && files.count("books/" + book + "/book.json"));
+    CHECK(files.count("books/" + book + "/nodes/" + ch1 + ".json") && files.count("entries/" + tom + ".json") && files.count("links/" + tom + ".json"));
+    CHECK(files.count("memberships/" + series + "+" + book + ".json") && files.count("artworks/" + art + ".json"));
+    const std::string blob = a->artwork(art)->blob;
+    CHECK(files.count("objects/" + blob.substr(0, 2) + "/" + blob.substr(2)));
+    bool boardsFile = false, unrelatedFile = false;
+    for (auto& [p, f] : files) {
+        CHECK(sy::validPath(p));
+        if (p.rfind("settings/", 0) == 0 && f.bytes.find("boards:world:") != std::string::npos) boardsFile = true;
+        if (f.bytes.find("unrelated") != std::string::npos) unrelatedFile = true;
+    }
+    CHECK(boardsFile && !unrelatedFile);
+    CHECK(a->worldFiles(world).at("entries/" + tom + ".json").bytes == files.at("entries/" + tom + ".json").bytes);   // the same bytes each time
+
+    // To the repository, then onto a second computer.
+    sy::MemoryRemote repo;
+    sy::State sa, sb;
+    sy::Report rep;
+    std::string err;
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err));
+    CHECK(rep.sent == (int)files.size() && rep.received == 0 && repo.commits == 1);
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err) && rep.sent == 0 && rep.received == 0 && repo.commits == 1);   // nothing new
+    auto b = openOk(tempLibrary("sync-b"));
+    CHECK(sy::syncWorld(*b, {}, repo, sb, rep, err));
+    CHECK(rep.world == world && rep.received == (int)files.size());
+    CHECK(b->world(world) && b->world(world)->name == "Alvora" && b->book(book) && b->book(book)->title == "Dragonfall");
+    CHECK(b->nodeContent(ch1).find("Tom lit the forge.") != std::string::npos);
+    CHECK(b->entry(tom) && b->entry(tom)->summary == "A smith." && b->linksOf(tom).size() == 1);
+    CHECK(b->membership(series, book) && b->membership(series, book)->number == "1");
+    CHECK(b->setting("boards:world:" + world) == R"({"boards":[]})" && b->setting("unrelated").empty());
+    CHECK(b->artworkForBlob(blob) && std::filesystem::exists(b->blobPath(blob)));
+    CHECK(sy::loadState(*b, world).files.size() == files.size());
+    // Opening it again in the same library is refused.
+    sy::State again;
+    CHECK(!sy::syncWorld(*b, {}, repo, again, rep, err) && err.find("already") != std::string::npos);
+
+    // Changed on one computer, then the other: each gets the other's.
+    const std::string text2 = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Tom banked the forge."}]}]})";
+    CHECK(b->saveNodeContent(ch1, text2));
+    const Id ch2 = b->createNode(book, {}, NodeKind::Chapter, "The Storm Wall");
+    {
+        Entry u = *a->entry(cliff);
+        u.summary = "A harbour town.";
+        CHECK(a->updateEntry(u));
+    }
+    CHECK(sy::syncWorld(*b, world, repo, sb, rep, err) && rep.sent >= 2 && rep.received == 0);
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err));
+    CHECK(a->nodeContent(ch1).find("banked") != std::string::npos && a->node(ch2) && a->node(ch2)->title == "The Storm Wall");
+    CHECK(rep.conflicts.empty());
+    CHECK(sy::syncWorld(*b, world, repo, sb, rep, err) && b->entry(cliff)->summary == "A harbour town.");
+
+    // Changed on both: the newer is kept, the other kept as a saved version, and both end up the same.
+    const std::string textA = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Written on A."}]}]})";
+    const std::string textB = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Written on B."}]}]})";
+    CHECK(a->saveNodeContent(ch1, textA) && b->saveNodeContent(ch1, textB));
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err));
+    CHECK(sy::syncWorld(*b, world, repo, sb, rep, err) && rep.conflicts.size() == 1);
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err));
+    CHECK(a->nodeContent(ch1) == b->nodeContent(ch1));
+    const bool aWon = b->nodeContent(ch1).find("Written on A.") != std::string::npos;
+    bool keptOther = false;
+    for (auto& v : b->nodeVersions(ch1))
+        if (b->nodeVersionContent(v.id).find(aWon ? "Written on B." : "Written on A.") != std::string::npos && v.reason == "From another computer") keptOther = true;
+    CHECK(keptOther);
+
+    // Links added on both sides are all kept; an entry gone for good on one goes on the other.
+    const Id smithy = a->createEntry(world, {}, "place", "The Smithy");
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err) && sy::syncWorld(*b, world, repo, sb, rep, err));
+    CHECK(a->addLink(tom, smithy, "Owns") && b->addLink(tom, smithy, "Works at"));
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err) && sy::syncWorld(*b, world, repo, sb, rep, err) && sy::syncWorld(*a, world, repo, sa, rep, err));
+    CHECK(a->linksOf(tom).size() == 3 && b->linksOf(tom).size() == 3);
+    CHECK(a->trashEntry(smithy) && a->emptyTrash());
+    CHECK(sy::syncWorld(*a, world, repo, sa, rep, err) && sy::syncWorld(*b, world, repo, sb, rep, err));
+    CHECK(!b->entry(smithy) && b->linksOf(tom).size() == 1);
+
+    // Another computer syncing in between: the sync goes again and loses nothing.
+    struct Racy : sy::MemoryRemote {
+        std::function<void()> before;
+        bool commit(const sy::RemoteState& parent, const std::map<std::string, std::optional<std::string>>& changes, const std::string& m,
+                    std::string& c, bool& moved, std::string& e) override {
+            if (before) { auto f = before; before = nullptr; f(); }
+            return sy::MemoryRemote::commit(parent, changes, m, c, moved, e);
+        }
+    } racy;
+    racy.files = repo.files;
+    racy.commitId = repo.commitId;
+    {
+        Entry u = *a->entry(tom);
+        u.summary = "A smith of Highcliff.";
+        CHECK(a->updateEntry(u));
+    }
+    racy.before = [&] {
+        sy::State sc = sb;
+        sy::Report rc;
+        std::string ec;
+        CHECK(b->setSetting("plan:" + book, R"({"targetWords":90000})"));
+        CHECK(sy::syncWorld(*b, world, racy, sc, rc, ec) && rc.sent == 1);
+        sb = sc;
+    };
+    CHECK(sy::syncWorld(*a, world, racy, sa, rep, err));
+    CHECK(a->setting("plan:" + book) == R"({"targetWords":90000})" && racy.files.at("entries/" + tom + ".json").find("A smith of Highcliff.") != std::string::npos);
+
+    // A repository holding something else is refused; bad files in it are ignored.
+    {
+        sy::MemoryRemote odd;
+        odd.files["notes.txt"] = "hello";
+        auto c = openOk(tempLibrary("sync-c"));
+        sy::State sc;
+        CHECK(!sy::syncWorld(*c, {}, odd, sc, rep, err) && err.find("doesn't hold") != std::string::npos);
+        sy::MemoryRemote evil = repo;
+        evil.files["../../escape.json"] = "{}";
+        evil.files["entries/zzz.json"] = R"({"id":"zzz","world_id":"another","kind":"character","name":"Spy"})";
+        CHECK(!sy::syncWorld(*c, {}, evil, sc, rep, err) && err.find("another world") != std::string::npos);
+        CHECK(!c->world(world));   // nothing half-written
+    }
+
+    // Through the fake GitHub: an empty repository started, a world sent and read back, the token only in its header.
+    {
+        FakeGitHub gh;
+        auto http = [&gh](const std::string& m, const std::string& u, const std::vector<std::pair<std::string, std::string>>& h, const std::string& body) {
+            return gh(m, u, h, body);
+        };
+        sy::GitHubRemote remote("me", "alvora", gh.token, http);
+        sy::RepoInfo info;
+        CHECK(remote.info(info, err) && info.isPrivate && remote.branch() == "main");
+        auto d = openOk(tempLibrary("sync-d"));
+        const Id w2 = d->createWorld("Telvana");
+        const Id b2 = d->createBook("The Envoy of Telvana", w2);
+        const Id n2 = d->createNode(b2, {}, NodeKind::Chapter, "Arrival");
+        CHECK(d->saveNodeContent(n2, text1));
+        const Id pic = d->addArtwork(pngOf(5, 5), "Map", "Bible");
+        const Id ent = d->createEntry(w2, {}, "place", "Telvana");
+        {
+            Entry u = *d->entry(ent);
+            u.imageBlob = d->artwork(pic)->blob;
+            CHECK(d->updateEntry(u));
+        }
+        sy::State sd;
+        CHECK(sy::syncWorld(*d, w2, remote, sd, rep, err));
+        CHECK(!gh.ref.empty() && gh.trees[gh.commitTree[gh.ref]].count("README.md") && gh.trees[gh.commitTree[gh.ref]].count("world.json"));
+        auto e2 = openOk(tempLibrary("sync-e"));
+        sy::GitHubRemote remote2("me", "alvora", gh.token, http);
+        sy::State se;
+        CHECK(sy::syncWorld(*e2, {}, remote2, se, rep, err) && rep.world == w2);
+        CHECK(e2->nodeContent(n2) == d->nodeContent(n2) && e2->entry(ent) && std::filesystem::exists(e2->blobPath(d->artwork(pic)->blob)));
+        CHECK(gh.sawToken);
+        // A wrong token: refused, said plainly, and the token isn't in the message.
+        sy::GitHubRemote bad("me", "alvora", "wrong_token_456", http);
+        sy::State sf;
+        auto f2 = openOk(tempLibrary("sync-f"));
+        CHECK(!sy::syncWorld(*f2, {}, bad, sf, rep, err) && err.find("token") != std::string::npos && err.find("wrong_token_456") == std::string::npos);
+    }
+}
+
 int main() {
+    testWorldSync();
     testSexualityFromSeries();
     testEntryPaste();
     testWorldFonts();
