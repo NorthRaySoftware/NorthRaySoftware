@@ -75,6 +75,7 @@ const std::vector<Relation>& relations() {
         {"Mentor of", "Student of"},   {"Student of", "Mentor of"},     {"Serves", "Served by"},       {"Served by", "Serves"},
         {"Member of", "Has member"},   {"Has member", "Member of"},     {"Leader of", "Led by"},       {"Led by", "Leader of"},
         {"Rules", "Ruled by"},         {"Ruled by", "Rules"},           {"Lives in", "Home of"},       {"Home of", "Lives in"},
+        {"From", "Hometown of"},       {"Hometown of", "From"},
         {"Born in", "Birthplace of"},  {"Birthplace of", "Born in"},    {"Founded", "Founded by"},     {"Founded by", "Founded"},
         // Creatures
         {"Rides", "Ridden by"},        {"Ridden by", "Rides"},          {"Tames", "Tamed by"},         {"Tamed by", "Tames"},
@@ -110,13 +111,13 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Loves", "character"}, {"Friend of", "character"},
         {"Ally of", "character group"}, {"Rival of", "character group"}, {"Enemy of", "character group"},
         {"Mentor of", "character"}, {"Student of", "character"}, {"Serves", "character group"},
-        {"Member of", "group race"}, {"Leader of", "group race"}, {"Rules", "place group realm"}, {"Lives in", "place realm"}, {"Born in", "place realm"},
+        {"Member of", "group race"}, {"Leader of", "group race"}, {"Rules", "place group realm"}, {"From", "place realm"}, {"Lives in", "place realm"}, {"Born in", "place realm"},
         {"Founded", "place group"}, {"Owns", "thing place"}, {"Used", "thing magic"}, {"Made", "thing"}, {"Believes in", "lore"}, {"Practises", "lore magic"},
         {"Rides", "creature"}, {"Tames", "creature"}, {"Hunts", "creature character"},
         {"Took part in", "event"}, {"Caused", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> realm{
         {"Contains", "place realm"}, {"Part of", "realm"}, {"Includes", "realm"}, {"Borders", "realm"}, {"Ruled by", "character group race"},
-        {"Home of", "character race creature group"}, {"Native home of", "creature race"}, {"Origin of", "lore thing character race"},
+        {"Home of", "character race creature group"}, {"Hometown of", "character"}, {"Native home of", "creature race"}, {"Origin of", "lore thing character race"},
         {"Road to", "realm place"}, {"At war with", "realm group race"}, {"Ally of", "realm group race"}, {"Scene of", "event"},
         {"Founded by", "character group race"},
         {"Explained by", "lore"}, {"Related to", ""}};
@@ -135,7 +136,7 @@ const std::vector<RelationChoice>& relationsFor(const std::string& kind) {
         {"Ally of", "creature character group"}, {"Comes from", "place lore"}, {"Took part in", "event"}, {"Related to", ""}};
     static const std::vector<RelationChoice> place{
         {"Located in", "place realm"}, {"Contains", "place thing"}, {"Borders", "place"}, {"Capital of", "place"},
-        {"Road to", "place"}, {"Part of", "place"}, {"Home of", "character group"}, {"Birthplace of", "character"},
+        {"Road to", "place"}, {"Part of", "place"}, {"Home of", "character group"}, {"Hometown of", "character"}, {"Birthplace of", "character"},
         {"Ruled by", "character group"}, {"Owned by", "character group"}, {"Founded by", "character group"},
         {"Base of", "group"}, {"Guarded by", "character group thing"}, {"Trades with", "place group"},
         {"At war with", "place group"}, {"Ally of", "place group"}, {"Named after", ""}, {"Scene of", "event"},

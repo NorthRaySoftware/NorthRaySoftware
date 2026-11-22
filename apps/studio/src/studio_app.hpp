@@ -387,6 +387,8 @@ private:
     float drawKindSuggestions(const Rect& m, float y);
     void addGalleryPictures();
     void galleryMenu(size_t index);
+    void makeMainPicture(size_t index);                    // 0.60: dropped on the main picture
+    void addPictureToBoard(size_t index, const Id& board); // 0.60: dropped on one of its boards
     void newEntryBoard();
     void moveBoardToEntry(const std::string& boardId);
     Id noteBookFor(const studio::Entry& e) const;
@@ -544,7 +546,8 @@ private:
 
     // Drag and drop
     struct Drop {
-        enum Kind { ToWorld, ToIndependent, ToSeries, ReorderSeriesBooks, ReorderStandalone, ReorderSeriesList, ReorderWorlds, NodeRow, KindOf } kind;
+        enum Kind { ToWorld, ToIndependent, ToSeries, ReorderSeriesBooks, ReorderStandalone, ReorderSeriesList, ReorderWorlds, NodeRow, KindOf,
+                    MainPicture, PictureToBoard } kind;
         Rect rect;
         Id id;              // world, series, or the item at this position
         Id listOwner;       // series id / world id the list belongs to
@@ -585,7 +588,7 @@ private:
 
     struct DragState {
         bool armed = false, active = false;
-        enum Kind { Book, Series, World, Node, Entry } kind = Book;
+        enum Kind { Book, Series, World, Node, Entry, Picture } kind = Book;   // Picture: an entry's picture (id = its index)
         Id id;
         float sx = 0, sy = 0;
         std::wstring label;

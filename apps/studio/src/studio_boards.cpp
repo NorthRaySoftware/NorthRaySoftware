@@ -428,4 +428,27 @@ bool StudioApp::boardMouseUp(float, float) {
     return was;
 }
 
+// 0.60: a picture dragged onto one of the entry's boards goes onto that board, below what's there.
+void StudioApp::addPictureToBoard(size_t index, const Id& boardId) {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e || index >= e->gallery.size()) return;
+    const std::string blob = e->gallery[index].blob;
+    json j = boardsData();
+    for (auto& bd : j["boards"]) {
+        if (bd.value("id", "") != boardId) continue;
+        float bottom = 0;
+        for (auto& it : bd["items"]) {
+            const Artwork* a = lib_->artworkForBlob(it.value("blob", ""));
+            const float iw = it.value("w", 220.0f);
+            const float ih = a && a->width > 0 ? iw * a->height / (float)a->width : iw;
+            bottom = std::max(bottom, it.value("y", 0.0f) + ih + 40);
+        }
+        bd["items"].push_back({{"id", newBoardId()}, {"blob", blob}, {"x", 0}, {"y", bottom}, {"w", 220}, {"caption", e->gallery[index].caption}, {"entry", ""}});
+        saveBoards(j);
+        flash(L"Added to \u201C" + w(bd.value("name", "Board")) + L"\u201D.", 4);
+        invalidate();
+        return;
+    }
+}
+
 }  // namespace nrs

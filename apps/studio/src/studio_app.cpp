@@ -1481,7 +1481,8 @@ bool StudioApp::onMouseDown(float x, float y) {
         return true;
     };
     take("node:", DragState::Node) || take("pl:card:", DragState::Node) || take("book:", DragState::Book) || take("side:book:", DragState::Book) || take("series:", DragState::Series) ||
-        take("side:series:", DragState::Series) || take("side:world:", DragState::World) || take("wb:tree:", DragState::Entry);
+        take("side:series:", DragState::Series) || take("side:world:", DragState::World) || take("wb:tree:", DragState::Entry) ||
+        take("wb:gal:", DragState::Picture);
     if (drag_.armed && lib_) {
         if (drag_.kind == DragState::Node) {
             const ManuscriptNode* n = lib_->node(drag_.id);
@@ -1490,6 +1491,12 @@ bool StudioApp::onMouseDown(float x, float y) {
         } else if (drag_.kind == DragState::Book) { if (auto* b = lib_->book(drag_.id)) drag_.label = w(b->title); }
         else if (drag_.kind == DragState::Series) { if (auto* s = lib_->seriesById(drag_.id)) drag_.label = w(s->name); }
         else if (drag_.kind == DragState::Entry) { if (auto* en = lib_->entry(drag_.id)) drag_.label = w(en->name); else drag_ = {}; }
+        else if (drag_.kind == DragState::Picture) {
+            const Entry* en = lib_->entry(wb_.entry);
+            const size_t i = (size_t)std::atoi(drag_.id.c_str());
+            if (en && i < en->gallery.size()) drag_.label = en->gallery[i].caption.empty() ? L"Picture" : w(en->gallery[i].caption);
+            else drag_ = {};
+        }
         else if (auto* wd = lib_->world(drag_.id)) drag_.label = w(wd->name);
     }
     return false;  // the normal click handling still runs
@@ -1545,7 +1552,8 @@ const StudioApp::Drop* StudioApp::dropAt(float x, float y) const {
                           (drag_.kind == DragState::Series && (d.kind == Drop::ReorderSeriesList || d.kind == Drop::ToWorld)) ||
                           (drag_.kind == DragState::World && d.kind == Drop::ReorderWorlds) ||
                           (drag_.kind == DragState::Node && d.kind == Drop::NodeRow && d.id != drag_.id) ||
-                          (drag_.kind == DragState::Entry && d.kind == Drop::KindOf && d.id != drag_.id);
+                          (drag_.kind == DragState::Entry && d.kind == Drop::KindOf && d.id != drag_.id) ||
+                          (drag_.kind == DragState::Picture && (d.kind == Drop::MainPicture || d.kind == Drop::PictureToBoard));
         if (fits) found = &d;
     }
     return found;
@@ -1621,6 +1629,8 @@ void StudioApp::applyDrop(const Drop& d, float x, float y) {
         }
         case Drop::ReorderWorlds: lib_->reorderWorlds(reordered(d.list)); break;
         case Drop::KindOf: setKindOf(moving, d.id); break;
+        case Drop::MainPicture: makeMainPicture((size_t)std::atoi(moving.c_str())); break;
+        case Drop::PictureToBoard: addPictureToBoard((size_t)std::atoi(moving.c_str()), d.id); break;
         case Drop::NodeRow: {
             // Middle of a part or chapter: move inside it. Top or bottom half: before or after it.
             const ManuscriptNode* target = lib_->node(d.id);

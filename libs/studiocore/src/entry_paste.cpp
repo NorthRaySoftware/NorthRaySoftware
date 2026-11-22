@@ -3,6 +3,7 @@
 #include "studio/artwork.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <set>
 #include <cctype>
 #include <cstdlib>
@@ -432,7 +433,7 @@ Page parse(const std::string& raw) {
 
 std::string blankPage(const std::string& kind, const std::vector<std::string>& sections, const std::vector<std::string>& bookTitles) {
     std::vector<const char*> details;
-    if (kind == "character") details = {"Gender", "Race", "Realm", "Age", "Birthday", "Height", "Hair", "Eyes", "Marks", "Clothing", "Weapon", "Home", "Occupation", "Title"};
+    if (kind == "character") details = {"Gender", "Sexuality", "Race", "Realm", "Age", "Birthday", "Height", "Hair", "Eyes", "Marks", "Clothing", "Weapon", "Home", "Occupation", "Title"};
     else if (kind == "creature") details = {"Realm", "Habitat", "Size", "Diet", "Lifespan", "Danger"};
     else if (kind == "race") details = {"Realm", "Homeland", "Lifespan", "Language", "Population"};
     else if (kind == "place") details = {"Type", "Realm", "Location", "Climate", "Population", "Ruled by", "Founded"};
@@ -451,12 +452,14 @@ std::string blankPage(const std::string& kind, const std::vector<std::string>& s
     for (auto& b : bookTitles) t += b + ": \n";
     // Each kind of family has its own line (0.46); leave any blank.
     if (kind == "character")
-        t += "\nFamily\nParents: \nAdoptive parents: \nStep-parents: \nFoster parents: \nPartner: \nSpouse: \nSiblings: \nTwin: \n"
-             "Half-siblings: \nStep-siblings: \nAdoptive siblings: \nFoster siblings: \nChildren: \nAdopted children: \nStepchildren: \n"
-             "Foster children: \n";
+        t += "\nFamily\nParents: \nAdoptive parents: \nStep-parents: \nFoster parents: \nPartner: \nSpouse: \nFianc\xC3\xA9: \nFormer partners: \n"
+             "Siblings: \nTwin: \nTriplets: \nHalf-siblings: \nStep-siblings: \nAdoptive siblings: \nFoster siblings: \nChildren: \n"
+             "Adopted children: \nStepchildren: \nFoster children: \n";
+    else if (kind == "creature")
+        t += "\nFamily\nParents: \nPartner: \nSiblings: \nTwin: \nChildren: \n";
     t += "\nRelationships\n";
     std::vector<std::string> rel;
-    if (kind == "character") rel = {"Friends", "Enemies", "Taught by", "Member of", "Lives in", "Rides", "Owns"};
+    if (kind == "character") rel = {"Friends", "Enemies", "Taught by", "Member of", "From", "Lives in", "Rides", "Owns"};
     else
         for (auto& c : relationsFor(kind)) if (rel.size() < 7) rel.push_back(c.label);
     for (auto& r : rel) t += r + ": \n";
@@ -539,20 +542,21 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         {{"mount", "mounts", "steed", "dragon"}, "Rides"},
         {{"uses", "use", "used"}, "Used"},
         {{"used by", "users", "known users", "wielded by", "practitioners", "practised by", "practiced by"}, "Practised by"},
-        {{"source", "sources", "origin", "comes from"}, "Comes from"},
+        {{"from", "is from", "hails from", "hometown", "home town", "home realm", "comes from", "origin", "place of origin"}, "From"},
+        {{"source", "sources", "origin", "comes from", "from"}, "Comes from"},
         {{"opposed by", "opposes", "opposite", "counter", "countered by"}, "Enemy of"},
         {{"wields", "weapon", "weapons", "carries"}, "Owns"},
         {{"associated with", "connected to", "linked to", "tied to", "see also"}, "Related to"}};
-    std::string want;
-    for (auto& [names, rel] : table)
-        if (std::find(names.begin(), names.end(), k) != names.end()) { want = rel; break; }
     const auto& choices = relationsFor(kind);
     auto offered = [&](const std::string& l) -> std::string {
         for (auto& c : choices) if (key(c.label) == key(l)) return c.label;
         return {};
     };
-    if (!want.empty())
-        if (std::string r = offered(want); !r.empty()) return r;
+    // The first row naming the word whose relationship this kind has (0.60: "from" is From for a character and Comes
+    // from for a race).
+    for (auto& [names, rel] : table)
+        if (std::find(names.begin(), names.end(), k) != names.end())
+            if (std::string r = offered(rel); !r.empty()) return r;
     if (std::string r = offered(k); !r.empty()) return r;
     if (std::string r = offered(k + " of"); !r.empty()) return r;
     if (k.size() > 3 && k.back() == 's')
@@ -648,7 +652,7 @@ bool looksLikeBookTitle(const std::string& label) {
 
 }  // namespace
 
-const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label) {
+const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label, const Library* lib) {
     std::string title = label;
     static const std::regex num(R"(book\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten))", std::regex::icase);
     std::smatch m;
@@ -664,6 +668,39 @@ const Book* bookForLabel(const std::vector<const Book*>& books, const std::strin
     for (const Book* b : books)
         if (!tk.empty() && key(b->title).size() >= 4 && (tk.find(key(b->title)) != std::string::npos || key(b->title).find(tk) != std::string::npos))
             return b;
+    // Series (0.60): each counts its own books. The series named in the label ("Alvora Chronicles Book 2", "Book 2 of
+    // the Envoy series"), else the one series with a book of that number.
+    if (lib && n >= 1) {
+        struct In { const Series* s; std::vector<std::pair<const Book*, std::string>> books; };
+        std::vector<In> series;
+        for (const Book* b : books)
+            for (const Series* s : lib->seriesOfBook(b->id)) {
+                auto it = std::find_if(series.begin(), series.end(), [&](const In& x) { return x.s->id == s->id; });
+                if (it == series.end()) { series.push_back({s, {}}); it = series.end() - 1; }
+                const Membership* m = lib->membership(s->id, b->id);
+                it->books.push_back({b, m ? trim(m->number) : std::string()});
+            }
+        auto numbered = [&](const In& in) -> const Book* {
+            for (auto& [b, num] : in.books) if (!num.empty() && (num == std::to_string(n) || numberWord(key(num)) == n)) return b;
+            return nullptr;
+        };
+        auto bare = [](std::string s) { s = key(s); if (s.rfind("the ", 0) == 0) s = s.substr(4); return s; };
+        const std::string lk = key(label);
+        for (const In& in : series) {
+            const std::string sn = bare(in.s->name);
+            std::string core = sn;
+            for (const char* tail : {" series", " chronicles", " saga", " cycle", " trilogy"})
+                if (core.size() > std::strlen(tail) + 3 && core.compare(core.size() - std::strlen(tail), std::strlen(tail), tail) == 0) core.erase(core.size() - std::strlen(tail));
+            if (!sn.empty() && (lk.find(sn) != std::string::npos || (core.size() >= 4 && lk.find(core) != std::string::npos))) return numbered(in);
+        }
+        if (series.size() > 1) {
+            const Book* one = nullptr;
+            int count = 0;
+            for (const In& in : series) if (const Book* b = numbered(in)) { one = b; ++count; }
+            return count == 1 ? one : nullptr;
+        }
+        if (series.size() == 1) if (const Book* b = numbered(series[0])) return b;
+    }
     // "Book 2" alone: the second in reading order. A title that's no book's isn't guessed by its number.
     const bool titled = !tk.empty() && tk.rfind("book", 0) != 0;
     if (!titled && n >= 1 && n <= (int)books.size()) return books[(size_t)n - 1];
@@ -687,7 +724,7 @@ int claimLaterBookNotes(Library& lib, const Id& world, const Id& book, const std
         bool any = false;
         Entry x = *e;
         for (auto& [label, text] : laterBookNotes(*e))
-            if (const Book* b = bookForLabel(books, label)) {
+            if (const Book* b = bookForLabel(books, label, &lib)) {
                 x.setBookNote(b->id, mergeText(x.bookNote(b->id), text));
                 x.setBookNote(std::string(kLaterBook) + label, "");
                 ++moved;
@@ -808,7 +845,7 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
                 break;
             }
         }
-        if (!hit) hit = bookForLabel(books, label);
+        if (!hit) hit = bookForLabel(books, label, &lib);
         if (hit) {
             if (e.bookNote(hit->id) != text) { e.setBookNote(hit->id, text); ++r.bookNotes; }
             lastKey = hit->id;

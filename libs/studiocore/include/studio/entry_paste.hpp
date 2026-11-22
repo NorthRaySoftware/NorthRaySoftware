@@ -79,7 +79,10 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
 // in reading order. A note for a book that isn't in Writing Studio yet is kept on the entry under the label it was
 // given ("title:<label>" among its book notes) until a book of that title (or number) is there, then moved onto it.
 constexpr const char* kLaterBook = "title:";
-const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label);
+// With `lib`, numbers count within a series (0.60): "Alvora Chronicles Book 2" is the book numbered 2 in that series;
+// "Book 2" alone is the book numbered 2 if only one series has one (or the books are in no series or one), and
+// otherwise no book (the note is kept under its label).
+const Book* bookForLabel(const std::vector<const Book*>& books, const std::string& label, const Library* lib = nullptr);
 // The notes kept for books not here yet: label and text.
 std::vector<std::pair<std::string, std::string>> laterBookNotes(const Entry& e);
 // Moves every kept note whose book is now in `booksInOrder` onto that book (added after any note it has); how many.

@@ -3602,7 +3602,51 @@ static void testCastAndCreatureFamily() {
     }
 }
 
+// Sexuality, "From", and books counted within their own series (0.60).
+static void testSexualityFromSeries() {
+    const std::string dir = tempLibrary("studio-060");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id chron = lib->createSeries("The Alvora Chronicles", world);
+    const Id envoy = lib->createSeries("Envoy", world);
+    const Id a1 = lib->createBook("Shards of Light", world);
+    const Id a2 = lib->createBook("Dragonfall", world);
+    const Id e1 = lib->createBook("The Envoy of Telvana", world);
+    CHECK(lib->addBookToSeries(a1, chron) && lib->addBookToSeries(a2, chron) && lib->addBookToSeries(e1, envoy));
+    CHECK(lib->membership(chron, a2)->number == "2" && lib->membership(envoy, e1)->number == "1");
+    namespace pa = studio::paste;
+    std::vector<const Book*> books = {lib->book(a1), lib->book(a2), lib->book(e1)};
+    // The series named picks its own Book N; with none named, the one series that has that number.
+    CHECK(pa::bookForLabel(books, "Alvora Chronicles Book 2", lib.get()) == lib->book(a2));
+    CHECK(pa::bookForLabel(books, "Book 1 of the Envoy series", lib.get()) == lib->book(e1));
+    CHECK(pa::bookForLabel(books, "Book 2", lib.get()) == lib->book(a2));
+    CHECK(pa::bookForLabel(books, "Book 1", lib.get()) == nullptr);   // both series have a Book 1: not guessed
+    CHECK(pa::bookForLabel(books, "Envoy Book 2", lib.get()) == nullptr);
+    // Through a pasted page: notes land on the series' own book.
+    const Id tom = lib->createEntry(world, {}, "character", "Tom");
+    pa::Report r;
+    CHECK(pa::apply(*lib, tom, pa::parse("Name: Tom\nGender: Male\nSexuality: Bisexual\nRelationships\nFrom: Highcliff\nLives in: Valona\n"
+                                           "Notes per book\nAlvora Chronicles Book 2: Tom flies.\nEnvoy Book 1: Tom is a song.\n"),
+                    {a1, a2, e1}, r));
+    const Entry& t = *lib->entry(tom);
+    CHECK(t.bookNote(a2) == "Tom flies." && t.bookNote(e1) == "Tom is a song." && t.bookNote(a1).empty());
+    CHECK(t.details.find("Sexuality: Bisexual") != std::string::npos);
+    // "From" is its own relationship, beside "Lives in", each with its own place.
+    bool from = false, lives = false;
+    for (const EntryLink& l : lib->linksOf(tom)) {
+        const Entry* o = lib->entry(l.to == tom ? l.from : l.to);
+        if (l.label == "From" && o && o->name == "Highcliff") from = true;
+        if (l.label == "Lives in" && o && o->name == "Valona") lives = true;
+    }
+    CHECK(from && lives);
+    CHECK(studio::reverseRelation("From") == "Hometown of" && studio::reverseRelation("Hometown of") == "From");
+    // The blank page offers both, and the sexuality line.
+    const std::string blank = pa::blankPage("character", {}, {});
+    CHECK(blank.find("Sexuality:") != std::string::npos && blank.find("From:") != std::string::npos && blank.find("Lives in:") != std::string::npos);
+}
+
 int main() {
+    testSexualityFromSeries();
     testEntryPaste();
     testWorldFonts();
     testConlang();

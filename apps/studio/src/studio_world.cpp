@@ -109,6 +109,10 @@ static const std::vector<Facet>& allFacets() {
     static const std::vector<Facet> f = {
         {"gender", L"Gender or sex", "Gender", {"gender", "sex", "gender/sex", "gender or sex"},
          {L"Female", L"Male", L"Non-binary", L"Genderfluid", L"Agender", L"Intersex", L"Not applicable", L"Unknown", L"Other"}, false},
+        // Sexuality (0.60): the usual words, and any the world has written.
+        {"sexuality", L"Sexuality", "Sexuality", {"sexuality", "sexual orientation", "orientation"},
+         {L"Gay", L"Lesbian", L"Bisexual", L"Heterosexual", L"Pansexual", L"Asexual", L"Aromantic", L"Queer", L"Questioning",
+          L"Unknown", L"Not said"}, true},
         // Races: only the author's own (the bible's Races, and races written on characters), never a built-in list.
         {"race", L"Race", "Race", {"race", "species", "people", "kin"}, {}, true},
         // Realms and types of place: likewise only what the author has made or written (0.38).
@@ -127,7 +131,7 @@ static const Facet* findFacet(const std::string& key) {
 // The facets an entry of this kind has, in the order they're shown.
 static std::vector<const Facet*> facetsFor(const std::string& kind) {
     std::vector<std::string> keys;
-    if (kind == "character") keys = {"gender", "race", "realm"};
+    if (kind == "character") keys = {"gender", "sexuality", "race", "realm"};
     else if (kind == "creature") keys = {"realm"};   // what kind of creature it is: "Kind of" another creature
     else if (kind == "place") keys = {"type", "realm"};
     std::vector<const Facet*> out;
@@ -1260,7 +1264,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     gfx_.text(w(x->name), {nx, cr.y, nameW, cr.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
                     std::wstring label = upper(w(entryKindLabel(x->kind)));
                     for (const Facet* f : facetsFor(x->kind))
-                        if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  ·  " + upper(w(v));
+                        if (f->key != "sexuality")
+                            if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  ·  " + upper(w(v));
                     const float lx2 = nx + nameW + 14, lw2 = std::min(300.0f, (cr.right() - lx2) * 0.45f);
                     gfx_.text(label, {lx2, cr.y, lw2, cr.h}, Font::Label, kc, {Align::Left, false, true, true});
                     const float sx = lx2 + lw2 + 14;
@@ -1293,7 +1298,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 {
                     std::wstring label = upper(w(entryKindLabel(x->kind)));
                     for (const Facet* f : facetsFor(x->kind))
-                        if (f->key != "gender")
+                        if (f->key != "gender" && f->key != "sexuality")
                             if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
                     gfx_.text(label, {tx, cr.y + 13, tw - 20, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
@@ -1404,6 +1409,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             const float ph = iw > 0 ? std::min(picW * ih / (float)iw, picW * 1.5f) : picW;
             gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), {m.x, y, picW, ph}, true);
             gfx_.stroke({m.x, y, picW, ph}, pal_.rule);
+            addDrop({Drop::MainPicture, {m.x, y, picW, ph}, e->id});   // drag a picture here to make it the main one
             ty = y;
             y += ph;
         }
@@ -1578,18 +1584,29 @@ void StudioApp::drawWorldPage(const Rect& r) {
         if (e->kind == "place" || e->kind == "realm") y = drawPlaceSection(m, y, *e);
         if (e->kind == "place" || e->kind == "realm") y = drawMapSection(m, y, *e);
 
-        // Gallery: pictures of it, kept with the entry.
+        // Pictures (0.60): the gallery and the entry's boards in one place. Drag a picture onto the main picture to make it
+        // the main one, or onto a board to put it there.
         {
-            anchor(L"Gallery", y);
-            gfx_.text(L"GALLERY" + (e->gallery.empty() ? std::wstring() : L"  ·  " + std::to_wstring(e->gallery.size())), {m.x, y, cw, 18},
+            anchor(L"Pictures", y);
+            const json bj = boardsData();
+            std::vector<const json*> mine;
+            for (auto& bd : bj["boards"]) if (bd.value("entry", "") == e->id) mine.push_back(&bd);
+            gfx_.text(L"PICTURES" + (e->gallery.empty() ? std::wstring() : L"  \u00B7  " + std::to_wstring(e->gallery.size())), {m.x, y, cw, 18},
                       Font::Label, pal_.inkFaint, {Align::Left, false});
-            linkText("wb:galadd", m.right() - gfx_.measureWidth(L"+ Add pictures…", Font::Small), y - 2, L"+ Add pictures…",
-                     [this] { addGalleryPictures(); });
+            {
+                const float bwid = gfx_.measureWidth(L"+ New board", Font::Small);
+                const float awid = gfx_.measureWidth(L"+ Add pictures\u2026", Font::Small);
+                linkText("wb:eboardnew", m.right() - bwid, y - 2, L"+ New board", [this] { newEntryBoard(); });
+                linkText("wb:galadd", m.right() - bwid - 24 - awid, y - 2, L"+ Add pictures\u2026", [this] { addGalleryPictures(); });
+            }
             y += 30;
             if (e->gallery.empty()) {
-                y += gfx_.text(L"Art, sketches, references and looks for it. The main picture is set in the panel; any of these can be it.",
+                y += gfx_.text(L"Art, sketches, references and looks for it. The first one you add is the main picture.",
                                {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 18;
             } else {
+                y += gfx_.text(L"Drag a picture onto the main picture at the top to swap it in, or onto a board below to add it there. "
+                               L"Click one to caption it.",
+                               {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 12;
                 const float th = 150, gap = 12;
                 float lx = m.x, rowH = th;
                 for (size_t i = 0; i < e->gallery.size(); ++i) {
@@ -1609,14 +1626,18 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         focusFieldSoon_ = FCaption;
                         invalidate();
                     });
+                    const bool isMain = pic.blob == e->imageBlob;
+                    if (isMain) addDrop({Drop::MainPicture, pr, e->id});
                     const float hv = hoverAmount(id);
                     const bool sel = wb_.picture == (int)i;
+                    const bool lifted = drag_.active && drag_.kind == DragState::Picture && drag_.id == std::to_string(i);
                     softShadow(pr, 4, std::max(0.3f + 0.7f * hv, sel ? 1.0f : 0.0f));
                     if (!gfx_.drawImage(path, pr, true)) {
                         gfx_.fillRounded(pr, 4, pal_.sunken);
                         gfx_.text(L"Missing", pr, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
                     }
-                    if (pic.blob == e->imageBlob) {
+                    if (lifted) gfx_.fillRounded(pr, 4, pal_.paper.withAlpha(0.6f));
+                    if (isMain) {
                         const Rect tag{pr.x + 6, pr.y + 6, gfx_.measureWidth(L"Main", Font::Label) + 14, 20};
                         gfx_.fillRounded(tag, 10, pal_.paper.withAlpha(0.9f));
                         gfx_.text(L"MAIN", tag, Font::Label, pal_.ink, {Align::Center, false, false, true});
@@ -1627,21 +1648,15 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     if (focused(id)) focusRing(pr);
                     lx += tw + gap;
                 }
-                y += rowH + 30;
+                y += rowH + 24;
             }
-        }
 
-        // Image boards kept on this page.
-        {
-            const json bj = boardsData();
-            std::vector<const json*> mine;
-            for (auto& bd : bj["boards"]) if (bd.value("entry", "") == e->id) mine.push_back(&bd);
-            gfx_.text(L"IMAGE BOARDS" + (mine.empty() ? std::wstring() : L"  ·  " + std::to_wstring(mine.size())), {m.x, y, cw, 18},
+            // Its boards, under the pictures.
+            gfx_.text(L"BOARDS" + (mine.empty() ? std::wstring() : L"  \u00B7  " + std::to_wstring(mine.size())), {m.x, y, cw, 18},
                       Font::Label, pal_.inkFaint, {Align::Left, false});
-            linkText("wb:eboardnew", m.right() - gfx_.measureWidth(L"+ New board", Font::Small), y - 2, L"+ New board", [this] { newEntryBoard(); });
-            y += 30;
+            y += 26;
             if (mine.empty()) {
-                y += gfx_.text(L"Boards to arrange pictures freely: outfits, moods, a place's look. A board from the sidebar can be moved here "
+                y += gfx_.text(L"Boards arrange pictures freely: outfits, moods, a place's look. A board from the sidebar can be moved here "
                                L"from its panel.",
                                {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 18;
             } else {
@@ -1665,6 +1680,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         setFocus({Focus::Board, bid, {}});
                         invalidate();
                     });
+                    addDrop({Drop::PictureToBoard, br, bid});
                     const float hv = hoverAmount(id);
                     gfx_.fillRounded(br, 6, pal_.surface);
                     gfx_.strokeRounded(br, 6, pal_.rule.mix(pal_.ribbon, hv));
@@ -2401,6 +2417,21 @@ void StudioApp::addGalleryPictures() {
     lib_->updateEntry(u);
     flash(std::to_wstring(added) + (added == 1 ? L" picture added to the gallery." : L" pictures added to the gallery.") +
               (failed ? L" " + std::to_wstring(failed) + L" couldn't be read." : L""), 5);
+    invalidate();
+}
+
+// 0.60: a picture dragged onto the main picture becomes the main one. The old main stays among the pictures.
+void StudioApp::makeMainPicture(size_t index) {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e || index >= e->gallery.size() || e->gallery[index].blob == e->imageBlob) return;
+    Entry u = *e;
+    u.imageBlob = e->gallery[index].blob;
+    // The two swap places too, so the main picture stays where the old one was.
+    for (size_t k = 0; k < u.gallery.size(); ++k)
+        if (u.gallery[k].blob == e->imageBlob) { std::swap(u.gallery[k], u.gallery[index]); break; }
+    lib_->updateEntry(u);
+    if (wb_.picture >= 0) { wb_.picture = -1; loadedFocus_ = {Focus::None, "-", ""}; }
+    flash(L"It's now the entry's main picture.", 4);
     invalidate();
 }
 
