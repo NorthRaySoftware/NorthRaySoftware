@@ -16,6 +16,7 @@
 namespace ncap::design {
 
 using sourceutil::Rgba;
+struct Theme;   // below (0.21)
 
 struct Stop {
     float at = 0;   // 0..1 along the gradient
@@ -188,7 +189,7 @@ struct Element {
 struct WritingCard {
     bool on = false;
     std::vector<std::string> parts;          // the parts switched on (writingParts' keys)
-    std::string look = "aurora";             // aurora or bookish
+    std::string look = "northray";           // the theme it's drawn in (0.21; "aurora" before, read as "northray")
     bool castRightToLeft = true;             // the cast row's scrolling direction when it doesn't fit
     bool operator==(const WritingCard&) const = default;
 };
@@ -201,6 +202,10 @@ const std::vector<WritingPart>& writingParts();
 
 struct Document {
     std::string name = "Design";
+    // Made from a ready-made design (0.21): its id (themedTemplateList) and the theme it's in now. A design that follows
+    // the stream's theme is made again in the new theme when the theme changes, keeping its words and what was added.
+    std::string templateId, theme;
+    bool followTheme = false;
     WritingCard writing;
     int width = 1920, height = 1080;
     Fill background = Fill::none();
@@ -336,17 +341,76 @@ bool usesChat(const Document& d);   // has a visible chat element            // 
 // show from `values` (Writing Studio's details) or the clock (a sprint running, a celebration), stacked in one card in
 // its look; the cast row scrolls, looping, when it's wider than the card. A page with nothing on it when nothing shows.
 // Not a Writing card: the design as it is.
+// `theme`: the theme to draw it in (else the built-in theme named by its look).
 Document buildWritingCard(const Document& d, const std::vector<std::pair<std::string, std::string>>& values, const Clock& c,
-                          const std::vector<std::string>& hidden = {});
+                          const std::vector<std::string>& hidden = {}, const Theme* theme = nullptr);
 // Whether the card's cast row is scrolling now (so it's drawn every frame).
 bool writingMoving(const Document& d, const std::vector<std::pair<std::string, std::string>>& values, const std::vector<std::string>& hidden = {});
-// A Writing card design: every part on, in a look, `width` wide.
-Document writingCardDesign(bool bookish, int width = 900);
+// A Writing card design: every part on, in a theme (by id), `width` wide.
+Document writingCardDesign(const std::string& theme, int width = 900);
 // A design made from one of the separate writing templates before 0.20 (by its name and what it shows): turned into a
 // Writing card with that template's part on, keeping its page's size. False if it isn't one.
 bool fromOldWritingTemplate(Document& d);
 constexpr float kCastSlot = 150;           // each character's room in the cast row
 constexpr float kCastSpeed = 40;           // pixels a second
+
+// ---- Themes (0.21): one switch for the whole stream. A theme is a design style (its own cards, frames, rules,
+// portraits, page decorations and layouts, and its own skies) with colours and fonts. Six styles are built in; your own
+// themes start as a copy of one and change its colours, fonts and corners.
+struct Theme {
+    std::string id, name;
+    std::string style = "aurora";            // aurora, bookish, fantasy, scifi, cosy, minimal
+    Rgba page, page2;                        // a full page's background, top and bottom
+    Rgba panel, panel2;                      // cards, top and bottom
+    Rgba edge;                               // cards' edges and frames
+    Rgba accent, accent2, accent3;           // the main colour and two more
+    Rgba title, body, muted, onAccent;       // words: titles, body, quieter, and on the main colour
+    Rgba sky;                                // the backgrounds' (aurora sky, pulse, wave) night
+    std::string headingFont = "Segoe UI", bodyFont = "Segoe UI", labelFont = "Segoe UI";
+    float corners = 1;                       // how round: 0 square .. 2 (times the style's own)
+    bool builtIn = false;
+    bool operator==(const Theme&) const = default;
+};
+struct ThemeStyle {
+    const char* key;
+    const char* name;
+    const char* about;
+};
+const std::vector<ThemeStyle>& themeStyles();
+const std::vector<Theme>& builtInThemes();   // northray, bookish, fantasy, scifi, cosy, minimal, minimal-light
+// A theme by id: your own first, then the built-in ones; unknown ids (and "aurora") give NorthRay.
+Theme themeById(const std::vector<Theme>& own, const std::string& id);
+bool validThemeId(const std::string& id);    // 1-40 of a-z, 0-9 and -
+// A copy to make your own: a new id ("own-1"...), "<name> (mine)", not built in.
+Theme copyTheme(const Theme& from, const std::vector<Theme>& own);
+std::string themesToJson(const std::vector<Theme>& own);
+std::vector<Theme> themesFromJson(const std::string& json);   // up to 40; bad entries skipped, built-in ids refused
+// The theme with the book's world colour (from Writing Studio) as its main colour, made light enough to read on dark
+// panels or dark enough on light ones.
+Theme withWorldAccent(const Theme& t, Rgba world);
+// Every colour in the design matching the theme's main colour (red, green and blue) made the world colour, keeping
+// how see-through it is (the theme's own designs, while writing).
+void recolourAccent(Document& d, const Theme& t, Rgba world);
+
+// The ready-made designs, each made in any theme. Ids are stable.
+struct ThemedTemplate {
+    const char* id;
+    const char* name;
+    const char* group;   // Holding screens, On stream, Writing, Panels
+};
+const std::vector<ThemedTemplate>& themedTemplateList();
+// The design in a theme, with templateId, theme and followTheme set; an empty name if the id is unknown.
+Document themedTemplate(const std::string& id, const Theme& t);
+// Made again in another theme: the template in the new theme, with the words changed by hand carried over (by
+// element name), elements added by hand kept and restyled, the page's own size kept (scaled), and the design's name.
+// A Writing card keeps its parts and takes the theme. A design not made from a template has its elements restyled.
+Document retheme(const Document& d, const Theme& from, const Theme& to);
+// A new or hand-added element in the theme's look: text in its fonts and colours, shapes as its panels, pictures
+// with its portrait shape and edge, icons in its main colour.
+void styleElement(Element& e, const Theme& t);
+// Designs made before themes (0.21) from a template, recognised by name and what they show: given its templateId and
+// theme (northray or bookish) so they follow the theme from now on. False if it isn't one.
+bool recogniseTemplate(Document& d);
 
 // QR codes (via Project Nayuki's library): the modules, row by row, true = dark; empty if too long.
 std::vector<std::vector<bool>> qrModules(const std::string& text);

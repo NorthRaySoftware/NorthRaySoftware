@@ -66,17 +66,22 @@ int wmain(int argc, wchar_t** argv) {
     clock.celebrateMs = 2000;
     clock.elapsedMs = 3000;   // three seconds into the cast row's scrolling
     int bad = 0;
-    for (auto& t : design::templates()) {
-        video::DesignPicture out;
-        std::wstring err;
-        if (!video::renderDesign(t.doc, 10000, 1, v, out, err, false, clock)) {
-            std::fwprintf(stderr, L"%hs: %ls\n", t.id, err.c_str());
-            ++bad;
-            continue;
+    int n = 0;
+    for (auto& th : design::builtInThemes())   // every template in every theme (0.21)
+        for (auto& tt : design::themedTemplateList()) {
+            const design::Document doc = design::themedTemplate(tt.id, th);
+            video::DesignPicture out;
+            std::wstring err;
+            ++n;
+            if (!video::renderDesign(doc, 10000, 1, v, out, err, false, clock)) {
+                std::fwprintf(stderr, L"%hs %hs: %ls\n", th.id.c_str(), tt.id, err.c_str());
+                ++bad;
+                continue;
+            }
+            const std::string name = th.id + "-" + tt.id;
+            const std::wstring path = folder + L"\\" + std::wstring(name.begin(), name.end()) + L".png";
+            if (!video::savePng(path, out)) ++bad;
         }
-        const std::wstring path = folder + L"\\" + std::wstring(t.id, t.id + std::strlen(t.id)) + L".png";
-        if (!video::savePng(path, out)) ++bad;
-    }
-    std::printf("%d templates, %d failed\n", (int)design::templates().size(), bad);
+    std::printf("%d designs, %d failed\n", n, bad);
     return bad ? 1 : 0;
 }

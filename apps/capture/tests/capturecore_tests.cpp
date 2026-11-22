@@ -1,3 +1,5 @@
+#include <tuple>
+#include <set>
 // Unit tests for NorthRay Capture's portable core. Dependency-free like the other suites.
 #include "ncap/audio.hpp"
 #include "ncap/diag.hpp"
@@ -3378,7 +3380,7 @@ static void testDsp() {
 static void testWritingCard() {
     std::printf("writing card\n");
     namespace dz = ncap::design;
-    dz::Document d = dz::writingCardDesign(false);
+    dz::Document d = dz::writingCardDesign("northray");
     CHECK(d.writing.on && d.writing.parts.size() == 8 && dz::usesTime(d));
     dz::Clock none;
     // Nothing from Writing Studio: nothing shows.
@@ -3446,7 +3448,190 @@ static void testWritingCard() {
     CHECK(!dz::fromJson(dz::toJson(mine)).writing.on);   // a design of the same name showing something else stays as it is
 }
 
+
+static void testThemes() {
+    std::printf("themes\n");
+    using namespace ncap::design;
+    // Built in: six styles, seven themes, every style used.
+    CHECK(themeStyles().size() == 6 && builtInThemes().size() == 7);
+    for (auto& st : themeStyles()) {
+        bool used = false;
+        for (auto& t : builtInThemes()) used = used || t.style == st.key;
+        CHECK(used);
+    }
+    CHECK(themeById({}, "aurora").id == "northray" && themeById({}, "nonsense").id == "northray" && themeById({}, "cosy").style == "cosy");
+    CHECK(validThemeId("own-3") && !validThemeId("") && !validThemeId("Own") && !validThemeId("a/b") && !validThemeId(std::string(41, 'a')));
+    // Your own: a copy with a new id, kept as JSON; built-in ids, unknown styles and repeats refused.
+    std::vector<Theme> own;
+    Theme a = copyTheme(themeById({}, "fantasy"), own);
+    CHECK(a.id == "own-1" && !a.builtIn && a.style == "fantasy" && a.name == "Dark fantasy (mine)");
+    a.accent = {10, 200, 30, 255};
+    a.headingFont = "Cambria";
+    a.corners = 1.6f;
+    own.push_back(a);
+    Theme b = copyTheme(themeById({}, "minimal"), own);
+    CHECK(b.id == "own-2");
+    own.push_back(b);
+    const std::vector<Theme> back = themesFromJson(themesToJson(own));
+    CHECK(back.size() == 2 && back[0] == own[0] && back[1] == own[1]);
+    CHECK(themeById(own, "own-1").accent == (Rgba{10, 200, 30, 255}));
+    CHECK(themesFromJson(R"({"themes":[{"id":"northray","style":"aurora"},{"id":"x1","style":"vapour"},{"id":"ok-1","style":"cosy"},{"id":"ok-1","style":"cosy"},{"id":"Bad","style":"cosy"}]})").size() == 1);
+    CHECK(themesFromJson("nonsense").empty());
+    {
+        const Theme t = themesFromJson(R"({"themes":[{"id":"z","style":"scifi","accent":"#FF0000","corners":9}]})").front();
+        CHECK(t.accent == (Rgba{255, 0, 0, 255}) && t.corners == 2.0f && t.panel == themeById({}, "scifi").panel && t.name == "z");
+    }
+    // The world colour: made readable on dark panels and on light ones.
+    {
+        const Theme dark = withWorldAccent(themeById({}, "fantasy"), {20, 10, 60, 255});
+        const Theme light = withWorldAccent(themeById({}, "bookish"), {250, 240, 200, 255});
+        auto lum = [](Rgba c) { return (0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b) / 255.0f; };
+        CHECK(lum(dark.accent) >= 0.42f && lum(light.accent) <= 0.45f);
+        Document d = themedTemplate("now-playing", themeById({}, "scifi"));
+        recolourAccent(d, themeById({}, "scifi"), {255, 0, 0, 255});
+        bool red = false, cyan = false;
+        for (auto& e : d.elements) {
+            const Rgba wa = withWorldAccent(themeById({}, "scifi"), {255, 0, 0, 255}).accent;
+            red = red || (e.fill.type == Fill::Solid && e.fill.colour.r == wa.r && e.fill.colour.g == wa.g && e.fill.colour.b == wa.b);
+            cyan = cyan || (e.fill.type == Fill::Solid && e.fill.colour.r == 0x22 && e.fill.colour.g == 0xE5);
+        }
+        CHECK(red && !cyan);
+    }
+    // Every template in every theme: made, on its page, showing at least what NorthRay's shows, in the theme's fonts.
+    auto shown = [](const Document& d) {
+        Clock c;
+        c.sprintLeftMs = 60000, c.celebrateMs = 100;
+        std::vector<std::pair<std::string, std::string>> v = {{"book", "B"}, {"chapter", "C"}, {"today", "1"}, {"viewpoint", "V"}, {"cast1", "A"}, {"streamline", "s"}, {"placepic", "p.png"}};
+        return buildWritingCard(d, v, c);
+    };
+    auto placeholders = [](const Document& d) {
+        std::set<std::string> s;
+        for (auto& e : d.elements)
+            for (const std::string* t : {&e.text, &e.file})
+                for (std::size_t i = t->find('{'); i != std::string::npos; i = t->find('{', i + 1)) {
+                    const std::size_t j = t->find('}', i);
+                    if (j != std::string::npos) s.insert(t->substr(i, j - i + 1));
+                }
+        return s;
+    };
+    for (auto& tt : themedTemplateList()) {
+        const Document ref = shown(themedTemplate(tt.id, themeById({}, "northray")));
+        CHECK(!ref.name.empty());
+        for (auto& th : builtInThemes()) {
+            const Document raw = themedTemplate(tt.id, th);
+            CHECK(raw.templateId == tt.id && raw.theme == th.id && raw.followTheme);
+            const Document d = shown(raw);
+            const auto pa = placeholders(ref), pb = placeholders(d);
+            CHECK(std::includes(pb.begin(), pb.end(), pa.begin(), pa.end()) && raw.width == themedTemplate(tt.id, builtInThemes()[0]).width);
+            if (!std::includes(pb.begin(), pb.end(), pa.begin(), pa.end())) std::printf("  %s in %s misses details\n", tt.id, th.id.c_str());
+            bool font = std::string(tt.id) == "logo-watermark" || th.id == "northray";
+            for (auto& e : d.elements) {
+                font = font || e.font == th.headingFont || e.font == th.bodyFont || e.font == th.labelFont;
+                // Everything at least partly on the page (tape and corners may hang over its edge).
+                const bool on = e.clipW > 0 || (e.x + e.w > 0 && e.y + e.h > 0 && e.x < d.width && e.y < d.height);
+                CHECK(on);
+                if (!on) std::printf("  off: %s %s %s %g %g %g %g\n", tt.id, th.id.c_str(), e.name.c_str(), e.x, e.y, e.w, e.h);
+            }
+            CHECK(font);
+            if (!font) std::printf("  font: %s %s\n", tt.id, th.id.c_str());
+            if (std::string(tt.id) == "facecam-frame") {
+                const Element& f = raw.elements.front();
+                CHECK(f.name == "Frame" && f.x == 20 && f.y == 20 && f.w == 640 && f.h == 360);
+            }
+        }
+    }
+    // Different designs, not just colours: the themes' Starting Soon screens have different elements.
+    {
+        std::set<std::set<std::string>> shapes;
+        for (auto& st : themeStyles()) {
+            std::set<std::string> names;
+            for (auto& e : themedTemplate("starting-soon", themeById({}, st.key == std::string("aurora") ? "northray" : st.key)).elements) names.insert(e.name);
+            shapes.insert(names);
+        }
+        CHECK(shapes.size() == 6);
+        bool portraitShapes[4] = {false, false, false, false};
+        for (auto [id, mask, i] : {std::tuple{"northray", "circle", 0}, std::tuple{"bookish", "arch", 1}, std::tuple{"fantasy", "hexagon", 2}, std::tuple{"scifi", "hexagon", 3}})
+            for (auto& e : shown(themedTemplate("writing", themeById({}, id))).elements) portraitShapes[i] = portraitShapes[i] || e.mask == mask;
+        CHECK(portraitShapes[0] && portraitShapes[1] && portraitShapes[2] && portraitShapes[3]);
+    }
+    // Changing theme: made again in the new one, keeping words changed, what was hidden and what was added.
+    {
+        Document d = themedTemplate("starting-soon", themeById({}, "northray"));
+        d.name = "My start";
+        for (auto& e : d.elements) {
+            if (e.name == "Title") e.text = "Almost time";
+            if (e.name == "Subtitle") e.visible = false;
+        }
+        Element mine;
+        mine.kind = Kind::Text, mine.name = "Mine", mine.text = "hello", mine.x = 10, mine.y = 10, mine.w = 200, mine.h = 50, mine.size = 20;
+        add(d, mine);
+        const Document f = retheme(d, themeById({}, "northray"), themeById({}, "fantasy"));
+        CHECK(f.name == "My start" && f.theme == "fantasy" && f.templateId == "starting-soon" && f.followTheme);
+        bool title = false, hidden = false, kept = false, ember = false;
+        for (auto& e : f.elements) {
+            title = title || (e.name == "Title" && e.text == "Almost time" && e.font == "Palatino Linotype");
+            hidden = hidden || (e.name == "Subtitle" && !e.visible);
+            kept = kept || (e.name == "Mine" && e.text == "hello" && e.font == "Palatino Linotype");
+            ember = ember || e.name == "Ember";
+        }
+        CHECK(title && hidden && kept && ember);
+        // And back: the same words, NorthRay's look again (its own design: no embers), and the added text kept once.
+        const Document n = retheme(f, themeById({}, "fantasy"), themeById({}, "northray"));
+        int mines = 0;
+        bool t2 = false, emb = false;
+        for (auto& e : n.elements) {
+            mines += e.name == "Mine";
+            t2 = t2 || (e.name == "Title" && e.text == "Almost time");
+            emb = emb || e.name == "Ember";
+        }
+        CHECK(mines == 1 && t2 && !emb && n.theme == "northray");
+        // A page made larger: the new design scaled to it.
+        Document big = themedTemplate("lower-third", themeById({}, "northray"));
+        big.width = 2000, big.height = 360;
+        const Document bg = retheme(big, themeById({}, "northray"), themeById({}, "cosy"));
+        CHECK(bg.width == 2000 && bg.height == 360);
+        float right = 0;
+        for (auto& e : bg.elements) right = std::max(right, e.x + e.w);
+        CHECK(right > 1500);
+        // A Writing card takes the theme; a hand-made design has its elements restyled.
+        Document w = themedTemplate("writing", themeById({}, "bookish"));
+        CHECK(retheme(w, themeById({}, "bookish"), themeById({}, "scifi")).writing.look == "scifi");
+        Document plain;
+        add(plain, mine);
+        const Document pr = retheme(plain, themeById({}, "northray"), themeById({}, "cosy"));
+        CHECK(pr.elements.front().font == "Candara" && pr.theme == "cosy");
+    }
+    // New elements in a theme's look.
+    {
+        Element p;
+        p.kind = Kind::Image, p.file = "x.png";
+        styleElement(p, themeById({}, "bookish"));
+        CHECK(p.mask == "arch" && p.strokeWidth > 0);
+        Element r;
+        r.kind = Kind::Rect, r.w = 300, r.h = 100;
+        styleElement(r, themeById({}, "minimal-light"));
+        CHECK(r.fill.type == Fill::Solid && r.fill.colour.r == 255 && r.strokeWidth == 1);
+    }
+    // Designs from before themes: recognised by name and content, so they follow the theme from now on.
+    {
+        Document old = themedTemplate("lower-third", themeById({}, "bookish"));
+        old.name = "Lower third (bookish)";
+        old.templateId.clear(), old.theme.clear(), old.followTheme = false;
+        const Document r = fromJson(toJson(old));
+        CHECK(r.templateId == "lower-third" && r.theme == "bookish" && r.followTheme);
+        Document other;
+        other.name = "Lower third";
+        add(other, Element{});
+        const Document o = fromJson(toJson(other));
+        CHECK(o.templateId.empty() && !o.followTheme);
+        // Saved and read with its theme.
+        const Document s = fromJson(toJson(themedTemplate("chat-box", themeById({}, "scifi"))));
+        CHECK(s.templateId == "chat-box" && s.theme == "scifi" && s.followTheme);
+    }
+}
+
 int main() {
+    testThemes();
     testWritingCard();
     testScenes();
     testItemEditing();

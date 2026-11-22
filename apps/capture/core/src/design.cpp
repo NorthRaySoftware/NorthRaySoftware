@@ -526,6 +526,7 @@ std::string toJson(const Document& d) {
         els.push_back(j);
     }
     return json{{"format", "northray-capture-design"}, {"version", 1}, {"name", d.name}, {"width", d.width}, {"height", d.height},
+                {"template", d.templateId}, {"theme", d.theme}, {"followTheme", d.followTheme},
                 {"background", fillJson(d.background)}, {"elements", els}, {"nextId", d.nextId}, {"onlyWhilePlaying", d.onlyWhilePlaying},
                 {"onlyWhileSprint", d.onlyWhileSprint}, {"onlyCelebrating", d.onlyCelebrating},
                 {"grid", d.grid}, {"guidesX", d.guidesX}, {"guidesY", d.guidesY},
@@ -554,6 +555,11 @@ Document fromJson(const std::string& text) {
     d.onlyWhileSprint = j.contains("onlyWhileSprint") && j["onlyWhileSprint"].is_boolean() && j["onlyWhileSprint"].get<bool>();
     d.onlyCelebrating = j.contains("onlyCelebrating") && j["onlyCelebrating"].is_boolean() && j["onlyCelebrating"].get<bool>();
     d.grid = (int)num(j, "grid", 0, 0, 500);
+    d.templateId = str(j, "template", "", 40);
+    d.theme = str(j, "theme", "", 40);
+    if (!d.templateId.empty() && !validThemeId(d.templateId)) d.templateId.clear();
+    if (!d.theme.empty() && !validThemeId(d.theme)) d.theme.clear();
+    d.followTheme = flag(j, "followTheme", false);
     if (j.contains("writing") && j["writing"].is_object()) {   // a Writing card (0.20)
         const json& w = j["writing"];
         d.writing.on = flag(w, "on", false);
@@ -563,8 +569,8 @@ Document fromJson(const std::string& text) {
                     for (auto& wp : writingParts())
                         if (p.get<std::string>() == wp.key && std::find(d.writing.parts.begin(), d.writing.parts.end(), wp.key) == d.writing.parts.end())
                             d.writing.parts.push_back(wp.key);
-        d.writing.look = str(w, "look", "aurora", 24);
-        if (d.writing.look != "bookish") d.writing.look = "aurora";
+        d.writing.look = str(w, "look", "northray", 40);
+        if (d.writing.look == "aurora" || !validThemeId(d.writing.look)) d.writing.look = "northray";
         d.writing.castRightToLeft = flag(w, "castRightToLeft", true);
     }
     for (auto [k, v] : {std::pair{"guidesX", &d.guidesX}, std::pair{"guidesY", &d.guidesY}})
@@ -673,6 +679,7 @@ Document fromJson(const std::string& text) {
         }
     d.nextId = std::max((int)num(j, "nextId", 1, 1, 1000000), maxId + 1);
     fromOldWritingTemplate(d);   // the separate writing templates became parts of the Writing card (0.20)
+    if (d.templateId.empty() && d.theme.empty()) recogniseTemplate(d);   // made from a template before themes (0.21)
     return d;
 }
 
