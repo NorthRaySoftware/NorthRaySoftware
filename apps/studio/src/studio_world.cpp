@@ -233,6 +233,34 @@ std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const I
     return out;
 }
 
+// Sexuality (0.62): a small mark of three bands in the colours its community uses, beside the gender sign on cards and
+// group headings; a plain grey mark for any other word (Questioning, Unknown, Not said, your own).
+static std::vector<cjui::Color> sexualityBands(const std::wstring& v) {
+    auto c = [](const char* h) { return cjui::hexColor(h); };
+    std::wstring l;
+    for (wchar_t ch : v) l += (wchar_t)towlower(ch);
+    if (l == L"gay") return {c("#078D70"), c("#98E8C1"), c("#7BADE2")};
+    if (l == L"lesbian") return {c("#D52D00"), c("#FF9A56"), c("#D362A4")};
+    if (l == L"bisexual" || l == L"bi") return {c("#D60270"), c("#9B4F96"), c("#0038A8")};
+    if (l == L"heterosexual" || l == L"straight") return {c("#3A3A3A"), c("#8A8A8A"), c("#C8C8C8")};
+    if (l == L"pansexual" || l == L"pan") return {c("#FF218C"), c("#FFD800"), c("#21B1FF")};
+    if (l == L"asexual" || l == L"ace") return {c("#222222"), c("#A3A3A3"), c("#800080")};
+    if (l == L"aromantic" || l == L"aro") return {c("#3DA542"), c("#A7D379"), c("#A9A9A9")};
+    if (l == L"queer") return {c("#B57EDC"), c("#F2F2F2"), c("#4A8123")};
+    return {};
+}
+static void drawSexualityMark(cjui::Gfx& gfx, const cjui::Rect& r, const std::wstring& v, const cjui::Palette& pal) {
+    const auto bands = sexualityBands(v);
+    gfx.pushClip(r);
+    if (bands.empty()) gfx.fillRounded(r, 2.5f, pal.inkFaint.withAlpha(0.45f));
+    else {
+        const float h = r.h / (float)bands.size();
+        for (size_t i = 0; i < bands.size(); ++i) gfx.fill({r.x, r.y + h * (float)i, r.w, h + 0.5f}, bands[i]);
+    }
+    gfx.popClip();
+    gfx.strokeRounded(r, 2.5f, pal.rule, 1);
+}
+
 // Gender groups: a sign and a colour each (the cards keep the same layout).
 static std::wstring genderSign(const std::wstring& g) {
     if (g == L"Female") return L"\u2640";
@@ -1024,20 +1052,20 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     invalidate();
                 });
             }
-            if (wb_.kind == "character" && !list.empty() && fr.right() + 160 + 380 <= m.right()) {
-                const float gx = m.right() - 300;
+            if (wb_.kind == "character" && !list.empty() && fr.right() + 160 + 460 <= m.right()) {
+                const float gx = m.right() - 380;
                 gfx_.text(L"Group by", {gx - 70, fr.y, 66, fr.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
-                const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
-                segmented("wb:groupby", {gx, fr.y + 2, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
-                    wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
+                const int at = wb_.groupBy == "sexuality" ? 1 : wb_.groupBy == "race" ? 2 : wb_.groupBy == "none" ? 3 : 0;
+                segmented("wb:groupby", {gx, fr.y + 2, 380, 28}, {L"Gender or sex", L"Sexuality", L"Race", L"Nothing"}, at, [this](int i) {
+                    wb_.groupBy = i == 1 ? "sexuality" : i == 2 ? "race" : i == 3 ? "none" : "gender";
                     invalidate();
                 });
             } else if (wb_.kind == "character" && !list.empty()) {
                 y += 42;
                 gfx_.text(L"Group by", {m.x, y - 4, 70, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
-                const int at = wb_.groupBy == "race" ? 1 : wb_.groupBy == "none" ? 2 : 0;
-                segmented("wb:groupby", {m.x + 72, y - 4, 300, 28}, {L"Gender or sex", L"Race", L"Nothing"}, at, [this](int i) {
-                    wb_.groupBy = i == 1 ? "race" : i == 2 ? "none" : "gender";
+                const int at = wb_.groupBy == "sexuality" ? 1 : wb_.groupBy == "race" ? 2 : wb_.groupBy == "none" ? 3 : 0;
+                segmented("wb:groupby", {m.x + 72, y - 4, 380, 28}, {L"Gender or sex", L"Sexuality", L"Race", L"Nothing"}, at, [this](int i) {
+                    wb_.groupBy = i == 1 ? "sexuality" : i == 2 ? "race" : i == 3 ? "none" : "gender";
                     invalidate();
                 });
             }
@@ -1228,6 +1256,17 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 for (auto& [k, v] : by) subs.push_back({k, v});
                 if (!unset.empty()) subs.push_back({L"Not set", unset});
                 if (subs.size() == 1 && subs[0].first == L"Not set") subs[0].first.clear();
+            } else if (wb_.kind == "character" && wb_.groupBy == "sexuality" && wb_.facet.rfind("sexuality=", 0) != 0) {
+                subKind = "sexuality";
+                const Facet* sf = findFacet("sexuality");
+                std::map<std::wstring, std::vector<Item>> by;
+                for (auto& it : items) by[w(facetOf(*it.e, *sf))].push_back(it);
+                for (auto& o : sf->options) if (auto f = by.find(o); f != by.end()) { subs.push_back({o, f->second}); by.erase(f); }
+                std::vector<Item> unset;
+                if (auto f = by.find(L""); f != by.end()) { unset = f->second; by.erase(f); }
+                for (auto& [k, v] : by) subs.push_back({k, v});
+                if (!unset.empty()) subs.push_back({L"Not set", unset});
+                if (subs.size() == 1 && subs[0].first == L"Not set") subs[0].first.clear();
             } else if (wb_.kind == "character" && wb_.groupBy == "gender" && wb_.facet.rfind("gender=", 0) != 0) {
                 subKind = "gender";
                 const Facet* gf = findFacet("gender");
@@ -1249,6 +1288,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 float lx = m.x;
                 if (!sign.empty()) {   // the sign, then the group's name
                     drawGenderSign(gfx_, m.x + 9, y + 10, 10, subLabel, sc);
+                    lx += 26;
+                } else if (subKind == "sexuality" && subLabel != L"Not set") {
+                    drawSexualityMark(gfx_, {m.x + 1, y + 4, 16, 12}, subLabel, pal_);
                     lx += 26;
                 }
                 gfx_.text(subLabel + L"  \u00B7  " + std::to_wstring(subItems.size()), {lx, y, cw - (lx - m.x), 20}, Font::SmallStrong, sc,
@@ -1284,8 +1326,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     gfx_.text(w(x->name), {nx, cr.y, nameW, cr.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
                     std::wstring label = upper(w(entryKindLabel(x->kind)));
                     for (const Facet* f : facetsFor(x->kind))
-                        if (f->key != "sexuality")
-                            if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  ·  " + upper(w(v));
+                        if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  ·  " + upper(w(v));
                     const float lx2 = nx + nameW + 14, lw2 = std::min(300.0f, (cr.right() - lx2) * 0.45f);
                     gfx_.text(label, {lx2, cr.y, lw2, cr.h}, Font::Label, kc, {Align::Left, false, true, true});
                     const float sx = lx2 + lw2 + 14;
@@ -1322,10 +1363,18 @@ void StudioApp::drawWorldPage(const Rect& r) {
                             if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
                     gfx_.text(label, {tx, cr.y + 13, tw - 20, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
-                // A character's gender or sex: its sign in the card's corner, in the group's colour.
-                if (x->kind == "character")
-                    if (const std::wstring g = w(facetOf(*x, *findFacet("gender"))); !g.empty())
-                        drawGenderSign(gfx_, cr.right() - 18, cr.y + 20, 9, g, genderColor(g, pal_));
+                // A character's gender or sex: its sign in the card's corner, in the group's colour; its sexuality beside it
+                // as a small banded mark (0.62).
+                if (x->kind == "character") {
+                    const std::wstring g = w(facetOf(*x, *findFacet("gender")));
+                    if (!g.empty()) drawGenderSign(gfx_, cr.right() - 18, cr.y + 20, 9, g, genderColor(g, pal_));
+                    if (const std::wstring sx = w(facetOf(*x, *findFacet("sexuality"))); !sx.empty()) {
+                        const Rect mk{cr.right() - (g.empty() ? 30.0f : 46.0f), cr.y + 14, 16, 12};
+                        drawSexualityMark(gfx_, mk, sx, pal_);
+                        addHit("wb:sx:" + x->id, mk, [this, eid = x->id] { openEntry(eid); }, false);
+                        tooltip("wb:sx:" + x->id, sx);
+                    }
+                }
                 gfx_.text(w(x->name), {tx, cr.y + 29, tw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
                 float ty = cr.y + 52;
                 // A place inside another: "in Akunda", and a mark per level.

@@ -3359,17 +3359,17 @@ static void testPlanning() {
         CHECK(plan::importPlanning(*lib, b3, scope, text, pi));
         CHECK(pi.structuresReplaced == 1 && pi.structuresAdded == 0 && pi.outline.chapters == 2 && pi.outline.structure == "Heist");
         CHECK(pi.outline.beats == 2 && pi.outline.unknownBeats == std::vector<std::string>{"Nothing"});
-        CHECK(pi.threads.updated == 0 && pi.threads.tagged == 1);
+        CHECK(pi.threads.updated == 0 && pi.threads.tagged == 0);   // the outline's own Threads lines win over a "Chapters:" list (0.62)
         const auto own2 = plan::ownStructures(*lib, scope);
         CHECK(own2.size() == 2 && own2[0].about == "Replaced.");
         const auto bs3 = plan::bookStructure(*lib, b3);
         const auto ch = lib->manuscriptOf(b3);
         CHECK(bs3.templateId == "own-heist" && ch.size() == 2 && bs3.beats.at("the-plan") == std::vector<Id>{ch[1]->id});
         const auto th3 = plan::threadsOf(*lib, b3);
-        CHECK(th3.threads.size() == 1 && th3.threads[0].colour == "#00AA00" && th3.has(ch[0]->id, "t1") && th3.has(ch[1]->id, "t1"));
+        CHECK(th3.threads.size() == 1 && th3.threads[0].colour == "#00AA00" && th3.has(ch[0]->id, "t1") && !th3.has(ch[1]->id, "t1"));
         const std::string all = plan::planningText(*lib, b3, scope);
         CHECK(all.rfind("Book structure: Heist\n\nChapter: The job\nStatus: Outline\nThreads: Money\nBeat: The crew\n", 0) == 0);
-        CHECK(all.find("Thread: Money\nColour: #00AA00\nChapters: 1, 2\n") != std::string::npos && all.find("Structure: Heist\nAbout: Replaced.\n") != std::string::npos);
+        CHECK(all.find("Thread: Money\nColour: #00AA00\nChapters: 1\n") != std::string::npos && all.find("Structure: Heist\nAbout: Replaced.\n") != std::string::npos);
         // Into another world: the structure comes along.
         const Id w2 = lib->createWorld("Elsewhere");
         const Id b4 = lib->createBook("Copy", w2);
@@ -3440,8 +3440,8 @@ static void testPlanning() {
         for (const Entry* e : lib->entriesOf(world, {})) if (e->name == "Elandroth Forge") forge = e->id;
         CHECK(!forge.empty() && plan::nodePlaces(*lib, b6).at(c1) == forge);
         CHECK(nlohmann::json::parse(lib->setting("timeline:" + b6))["nodes"][c1]["day"] == 2);
-        // What the plan doesn't say is left alone; threads are added.
-        CHECK(lib->node(c2)->synopsis == "Kept." && lib->node(c2)->status == NodeStatus::Revised && lib->node(c2)->targetWords == 5000);
+        // The plan replaces what was there (0.62): no synopsis or target in it, none kept; the status stays when it gives none.
+        CHECK(lib->node(c2)->synopsis.empty() && lib->node(c2)->status == NodeStatus::Revised && lib->node(c2)->targetWords == 0);
         const auto th6 = plan::threadsOf(*lib, b6);
         CHECK(th6.has(c1, th6.named("The shards")->id) && th6.has(c2, th6.named("Love")->id));
         // A scene by title within its chapter; a new scene goes under it.
@@ -3459,7 +3459,8 @@ static void testPlanning() {
         // The same plan again changes nothing in number: everything is matched.
         plan::OutlineImport o7;
         CHECK(plan::importOutline(*lib, b6, plan::outlineText(*lib, b6), o7));
-        CHECK(o7.made.empty() && o7.updatedChapters == 5 && lib->manuscriptOf(b6).size() == all6.size());
+        // (The plan replaces the book's: the empty prologue it didn't have went to the Trash, 0.62.)
+        CHECK(o6.trashed == 1 && o7.made.empty() && o7.updatedChapters == 4 && o7.trashed == 0 && lib->manuscriptOf(b6).size() == all6.size());
         // A number that names another chapter's title goes to that chapter, not the number.
         plan::OutlineImport o8;
         CHECK(plan::importOutline(*lib, b6, "Chapter 1: The Storm Wall\nRenumbered.\n", o8));
@@ -3949,7 +3950,61 @@ static void testWorldSync() {
     }
 }
 
+// A plan replaces the book's plan (0.62): CJ's book had "1. 🗡 Steel and Snow" and a plan said "Steel and Snow", so
+// every chapter was added again. The same plan now finds them, and tidies up the copies.
+static void testPlanReplaces() {
+    const std::string dir = tempLibrary("plan-062");
+    auto lib = openOk(dir);
+    const Id world = lib->createWorld("Alvora");
+    const Id book = lib->createBook("Shards of Light", world);
+    namespace plan = studio::plan;
+    CHECK(plan::matchKey("1. \xF0\x9F\x97\xA1 Steel and Snow") == "steel and snow" && plan::matchKey("Steel and Snow") == "steel and snow");
+    CHECK(plan::matchKey("2. \xE2\x9C\xA7 The Canyon") == "the canyon" && plan::matchKey("13. Chapter 13") == "#13" && plan::matchKey("Chapter 13") == "#13");
+    CHECK(plan::matchKey("19. \xF0\x9F\x97\xA1") == "#19" && plan::matchKey("Sah'ra's Café") == "sah'ra's caf\xC3\xA9");
+    const std::string words = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Snow fell on the forge."}]}]})";
+    const Id soul = lib->createNode(book, {}, NodeKind::Part, "I. Soul");
+    const Id c1 = lib->createNode(book, soul, NodeKind::Chapter, "1. \xF0\x9F\x97\xA1 Steel and Snow");
+    const Id c2 = lib->createNode(book, soul, NodeKind::Chapter, "2. \xE2\x9C\xA7 The Canyon");
+    const Id c13 = lib->createNode(book, soul, NodeKind::Chapter, "13. Chapter 13");
+    const Id extra = lib->createNode(book, soul, NodeKind::Chapter, "An old draft");
+    for (const Id& c : {c1, c2, c13, extra}) CHECK(lib->saveNodeContent(c, words));
+    // The mess: a second part with empty copies, as the old import made.
+    const Id soul2 = lib->createNode(book, {}, NodeKind::Part, "I. Soul");
+    const Id d1 = lib->createNode(book, soul2, NodeKind::Chapter, "Steel and Snow");
+    const Id d2 = lib->createNode(book, soul2, NodeKind::Chapter, "The Canyon");
+    const Id d13 = lib->createNode(book, soul2, NodeKind::Chapter, "Chapter 13");
+    const std::string text =
+        "Part: I. Soul\n\n"
+        "Chapter: The Canyon\nStatus: Draft\nThreads: Tom and Sarrah\nSarrah hunts sherds.\n\n"
+        "Chapter: Steel and Snow\nThreads: Someone watching\nTom flies to Gir-Garhm.\n\n"
+        "Chapter: Chapter 13\nSarrah meets Ruby.\n\n"
+        "Thread: Someone watching\nColour: #7F8C8D\nAbout: A figure on the ridge.\nA figure on the ridge.\nChapters: 1, 3, 7, 11\n\n"
+        "Thread: Tom and Sarrah\nAbout: From a rescue to a kiss.\n";
+    plan::PlanningImport pi;
+    CHECK(plan::importPlanning(*lib, book, plan::structureScope(*lib, book), text, pi));
+    const auto& o = pi.outline;
+    CHECK(o.made.empty() && o.updatedParts == 1 && o.updatedChapters == 3);
+    // The written chapters took the plan, kept their titles, and stand in the plan's order in the part with writing.
+    CHECK(lib->node(c2)->synopsis == "Sarrah hunts sherds." && lib->node(c1)->synopsis == "Tom flies to Gir-Garhm." && lib->node(c13)->synopsis == "Sarrah meets Ruby.");
+    CHECK(lib->node(c1)->title == "1. \xF0\x9F\x97\xA1 Steel and Snow");
+    const auto kids = lib->childrenOf(book, soul);
+    CHECK(kids.size() == 4 && kids[0]->id == c2 && kids[1]->id == c1 && kids[2]->id == c13 && kids[3]->id == extra);
+    // The empty copies and their part are in the Trash; the written chapter the plan doesn't have stays, and is named.
+    CHECK(lib->node(d1)->deleted && lib->node(d2)->deleted && lib->node(d13)->deleted && lib->node(soul2)->deleted);
+    CHECK(o.trashed >= 1 && o.keptWithWriting == std::vector<std::string>{"An old draft"});
+    // Threads: each chapter's from the plan (the "Chapters:" numbers, from the old copy, aren't used), descriptions once.
+    const auto th = plan::threadsOf(*lib, book);
+    const plan::Thread* watching = th.named("Someone watching");
+    CHECK(watching && watching->about == "A figure on the ridge." && th.has(c1, watching->id) && !th.has(c2, watching->id) && !th.has(c13, watching->id));
+    CHECK(th.named("Tom and Sarrah") && th.has(c2, th.named("Tom and Sarrah")->id));
+    // Again: nothing more is made or thrown away.
+    plan::PlanningImport again;
+    CHECK(plan::importPlanning(*lib, book, plan::structureScope(*lib, book), text, again));
+    CHECK(again.outline.made.empty() && again.outline.trashed == 0 && plan::threadsOf(*lib, book).named("Someone watching")->about == "A figure on the ridge.");
+}
+
 int main() {
+    testPlanReplaces();
     testWorldSync();
     testSexualityFromSeries();
     testEntryPaste();

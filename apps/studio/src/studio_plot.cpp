@@ -1203,6 +1203,15 @@ void StudioApp::importPlanText() {
         text = narrow(ws);
     }
     commitFields();
+    // A plan with chapters replaces the book's plan (0.62): said first, when the book has some already.
+    if (!lib_->manuscriptOf(pl_.book).empty() && !plan::parseOutline(text).empty()) {
+        const int a = cjui::messageBox(hwnd(),
+                                       L"This plan replaces the book's plan.\n\nChapters already in the book are matched to it and take its synopsis, "
+                                       L"viewpoint, place, who's there, time, threads and beats, in its order; their titles and writing stay. "
+                                       L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept.",
+                                       L"Import planning", MB_OKCANCEL | MB_ICONINFORMATION);
+        if (a != IDOK) return;
+    }
     plan::PlanningImport r;
     plan::importPlanning(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book), text, r);
     if (!r.any()) {
@@ -1235,10 +1244,11 @@ void StudioApp::importPlanText() {
     if (!filled.empty()) {
         std::wstring f;
         for (size_t i = 0; i < filled.size(); ++i) f += (i ? (i + 1 == filled.size() ? L" and " : L", ") : L"") + filled[i];
-        msg += (msg.empty() ? L"" : L"\n\n") + std::wstring(L"Filled in ") + f + L" already in the book, matched by title or chapter number.";
+        msg += (msg.empty() ? L"" : L"\n\n") + std::wstring(L"The plan replaced the old one for ") + f +
+               L" already in the book (matched by title, ignoring numbers and symbols, or by chapter number), and they're now in the plan's order. Their titles and writing are as they were.";
     }
     if (r.structuresReplaced) msg += L"\n\nUpdated " + plural(r.structuresReplaced, L"structure", L"structures") + L" of yours with the same name.";
-    if (r.threads.updated) msg += L"\n\nAdded to " + plural(r.threads.updated, L"thread", L"threads") + L" you already had.";
+    if (r.threads.updated) msg += L"\n\nUpdated " + plural(r.threads.updated, L"thread", L"threads") + L" you already had.";
     if (!o.structure.empty()) msg += L"\n\nThe book follows " + w(o.structure) + (o.beats ? L", with " + plural(o.beats, L"beat", L"beats") + L" matched." : L".");
     if (o.unknownStructure) msg += L"\n\nThe structure named on the “Book structure” line isn't one you have, so none was set.";
     auto listOf = [](const std::vector<std::string>& v) {
@@ -1251,6 +1261,10 @@ void StudioApp::importPlanText() {
     if (!o.unknownBeats.empty()) msg += L"\n\nNot beats of the book's structure: " + listOf(o.unknownBeats) + L".";
     if (!o.unknownCast.empty()) msg += L"\n\nNo character or creature of that name, so they weren't added to who's present: " + listOf(o.unknownCast) + L".";
     if (!r.threads.unknown.empty()) msg += L"\n\nThreads named chapters that aren't in the book: " + listOf(r.threads.unknown) + L".";
+    if (o.trashed) msg += L"\n\nMoved " + plural(o.trashed, L"empty part, chapter or scene", L"empty parts, chapters and scenes") +
+                          L" the plan doesn't have to the Trash (Library, Trash brings them back).";
+    if (!o.keptWithWriting.empty())
+        msg += L"\n\nKept, because they have writing in them, though the plan doesn't have them: " + listOf(o.keptWithWriting) + L".";
     pl_.appearances = lib_->appearancesIn(pl_.book);
     if (!o.made.empty()) pl_.node.clear();
     selectCard({});

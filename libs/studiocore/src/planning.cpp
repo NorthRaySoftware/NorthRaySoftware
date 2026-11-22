@@ -528,9 +528,10 @@ void tag(Threads& t, const Id& node, const std::string& thread) {
 }
 }  // namespace
 
-bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out) {
+bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out, bool chapterLists) {
     Threads t = threadsOf(lib, book);
     std::string current;   // id of the thread being read
+    std::set<std::string> described;   // threads whose description this text has started (it replaces the old one)
     for (const std::string& raw : lines(text)) {
         std::string l = trim(raw);
         while (!l.empty() && (l[0] == '#' || l[0] == '-' || l[0] == '*')) l = trim(l.substr(1));
@@ -555,14 +556,20 @@ bool importThreads(Library& lib, const Id& book, const std::string& text, Thread
             if (!v.empty() && v[0] != '#') v = "#" + v;
             if (v.size() == 7) th->colour = v;
         } else if (field(l, {"about", "description", "notes"}, v)) {
-            th->about = th->about.empty() ? v : th->about + "\n" + v;
+            if (described.insert(current).second) th->about.clear();
+            if (lower(trim(v)) != lower(trim(th->about))) th->about = th->about.empty() ? v : th->about + "\n" + v;
         } else if (field(l, {"chapters", "scenes", "in"}, v)) {
+            if (!chapterLists) continue;
             for (const Id& n : resolveChapters(lib, book, v, out.unknown)) {
                 if (!t.has(n, current)) ++out.tagged;
                 tag(t, n, current);
             }
         } else {
-            th->about = th->about.empty() ? l : th->about + "\n" + l;
+            if (described.insert(current).second) th->about.clear();
+            // A line repeating the description (as older copies of a plan have) isn't added twice.
+            bool repeat = false;
+            for (const std::string& had : lines(th->about)) repeat = repeat || lower(trim(had)) == lower(trim(l));
+            if (!repeat) th->about = th->about.empty() ? l : th->about + "\n" + l;
         }
     }
     return setThreads(lib, book, t);
@@ -679,6 +686,48 @@ std::string titleCore(const std::string& title) {
             else ++i;
         }
         t = t.substr(std::min(i, t.size()));
+    }
+    return lower(trim(t));
+}
+
+// What a title is matched by (0.62): its core with any marks or symbols around it taken off ("1. 🗡 Steel and Snow" and
+// "Steel and Snow" are both "steel and snow"), or "#13" when it's only a number ("13. Chapter 13", "Chapter 13").
+std::string matchKey(const std::string& title) {
+    std::string t = trim(title);
+    for (int round = 0; round < 3; ++round) {
+        const int num = titleNumber(t);
+        std::string core = titleCore(t);
+        // Leading and trailing marks: punctuation, and symbols such as emoji, dingbats, arrows and the like.
+        auto symbolAt = [&](size_t i, size_t& len) {
+            const unsigned char c = (unsigned char)core[i];
+            if (c < 0x80) { len = 1; return !std::isalnum(c); }
+            unsigned cp = 0;
+            if ((c & 0xE0) == 0xC0 && i + 1 < core.size()) { len = 2; cp = ((c & 0x1Fu) << 6) | (core[i + 1] & 0x3F); }
+            else if ((c & 0xF0) == 0xE0 && i + 2 < core.size()) { len = 3; cp = ((c & 0x0Fu) << 12) | ((core[i + 1] & 0x3Fu) << 6) | (core[i + 2] & 0x3F); }
+            else if ((c & 0xF8) == 0xF0 && i + 3 < core.size()) {
+                len = 4;
+                cp = ((c & 0x07u) << 18) | ((core[i + 1] & 0x3Fu) << 12) | ((core[i + 2] & 0x3Fu) << 6) | (core[i + 3] & 0x3F);
+            } else { len = 1; return true; }
+            return (cp >= 0x2000 && cp <= 0x2BFF) || (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0xE000 && cp <= 0xF8FF) ||
+                   (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0x00B7 || cp == 0x00A0 || (cp >= 0x3000 && cp <= 0x303F);
+        };
+        size_t a = 0, len = 0;
+        while (a < core.size() && symbolAt(a, len)) a += len;
+        core = core.substr(a);
+        // Trailing: walk forward, remembering where the last letter or digit ended.
+        size_t end = 0;
+        for (size_t i = 0; i < core.size();) {
+            const bool sym = symbolAt(i, len);
+            i += len;
+            if (!sym) end = i;
+        }
+        core = core.substr(0, end);
+        std::string squeezed;
+        for (char c : core) if (!(c == ' ' && (squeezed.empty() || squeezed.back() == ' '))) squeezed += c;
+        while (!squeezed.empty() && squeezed.back() == ' ') squeezed.pop_back();
+        if (squeezed.empty()) return num > 0 ? "#" + std::to_string(num) : std::string();
+        if (squeezed == lower(trim(t))) return squeezed;
+        t = squeezed;   // again, for "13. Chapter 13"
     }
     return lower(trim(t));
 }
@@ -899,24 +948,46 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         }
     }
     std::set<Id> used;
+    // Words in a part, chapter or scene with everything inside it: among copies of one chapter, the one with writing wins.
+    std::map<Id, std::int64_t> words;
+    {
+        const auto all = lib.manuscriptOf(book);
+        for (auto it = all.rbegin(); it != all.rend(); ++it) {
+            words[(*it)->id] += (*it)->wordCount;
+            if (!(*it)->parentId.empty()) words[(*it)->parentId] += words[(*it)->id];
+        }
+    }
+    // Matched by title, or by its key ("1. 🗡 Steel and Snow" is "Steel and Snow"; "13. Chapter 13" is "Chapter 13"), the one
+    // with most written first; else a chapter by its number among the story's chapters (0.54, 0.62).
     auto matchIn = [&](const std::vector<const ManuscriptNode*>& pool, const std::string& title, bool byNumber) -> Id {
         const std::vector<const ManuscriptNode*>& numbered = &pool == &chaptersHad ? storyChapters : pool;
-        const std::string want = lower(trim(title)), core = titleCore(title);
-        for (const ManuscriptNode* n : pool)
-            if (!used.count(n->id) && lower(trim(n->title)) == want) return n->id;
-        if (!core.empty())
-            for (const ManuscriptNode* n : pool)
-                if (!used.count(n->id) && titleCore(n->title) == core) return n->id;
+        const std::string want = lower(trim(title)), key = matchKey(title);
+        const ManuscriptNode* best = nullptr;
+        bool bestExact = false;
+        for (const ManuscriptNode* n : pool) {
+            if (used.count(n->id)) continue;
+            const bool exact = lower(trim(n->title)) == want;
+            if (!exact && (key.empty() || matchKey(n->title) != key)) continue;
+            if (!best || words[n->id] > words[best->id] || (words[n->id] == words[best->id] && exact && !bestExact)) { best = n; bestExact = exact; }
+        }
+        if (best) return best->id;
         if (byNumber)
             if (const int num = titleNumber(title); num > 0 && num <= (int)numbered.size() && !used.count(numbered[(size_t)num - 1]->id)) {
                 // By number only when the title names no other chapter of the book.
                 bool namesAnother = false;
+                const std::string core = key.empty() || key[0] == '#' ? std::string() : key;
                 if (!core.empty())
-                    for (const ManuscriptNode* n : pool) namesAnother = namesAnother || titleCore(n->title) == core;
+                    for (const ManuscriptNode* n : pool) namesAnother = namesAnother || matchKey(n->title) == core;
                 if (!namesAnother) return numbered[(size_t)num - 1]->id;
             }
         return {};
     };
+    // The plan replaces the book's plan (0.62): its threads, beats, places, who's there and times are set afresh from it.
+    const auto before = lib.manuscriptOf(book);
+    for (const ManuscriptNode* n : before) th.nodes.erase(n->id);
+    bs.beats.clear();
+    bsChanged = true;
+    std::vector<std::pair<Id, Id>> placed;   // each planned node and its parent, in the plan's order
     Id part, chapter;
     for (const OutlineItem& it : items) {
         Id parent;
@@ -944,22 +1015,28 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         }
         if (it.kind == NodeKind::Part) { part = id; chapter.clear(); }
         else if (it.kind == NodeKind::Chapter) chapter = id;
+        placed.push_back({id, parent});
         ManuscriptNode n = *lib.node(id);
-        // A chapter already there keeps what the plan doesn't say; a new one starts as an outline.
-        if (isNew || !it.synopsis.empty()) n.synopsis = it.synopsis;
+        // The plan's say replaces what was there (0.62); only the status (how far the writing has got) and the title
+        // (the manuscript's) stay when the plan doesn't give them. A new one starts as an outline.
+        n.synopsis = it.synopsis;
         if (!it.status.empty())
             if (auto s = nodeStatusFrom(lower(trim(it.status)))) n.status = *s;
         if (isNew) {
             if (it.kind == NodeKind::Part) n.status = NodeStatus::Draft;
             else if (it.status.empty()) n.status = NodeStatus::Outline;
         }
-        if (isNew || it.target > 0) n.targetWords = it.target;
+        n.targetWords = it.target;
+        n.povId.clear();
         if (!it.viewpoint.empty()) {
             n.povId = person(it.viewpoint);
             if (n.povId.empty() && std::find(out.unknownViewpoints.begin(), out.unknownViewpoints.end(), it.viewpoint) == out.unknownViewpoints.end())
                 out.unknownViewpoints.push_back(it.viewpoint);
         }
         lib.updateNode(n);
+        setNodePlace(lib, book, id, {});
+        setNodeCast(lib, book, id, {});
+        tl["nodes"].erase(id);
         if (!it.place.empty()) {
             const Id pl = placeNamed(it.place);
             if (!pl.empty()) setNodePlace(lib, book, id, pl);
@@ -1023,6 +1100,32 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
             if (!v.empty()) tl["nodes"][id] = v;
         }
     }
+    // In the plan's order (0.62): each under its part or chapter, one after another.
+    std::map<Id, int> next;
+    for (auto& [id, parent] : placed) {
+        const ManuscriptNode* n = lib.node(id);
+        if (!n) continue;
+        int& at = next[parent];
+        lib.moveNode(id, parent, at);
+        ++at;
+    }
+    // What the plan doesn't have: empty ones go to the Trash (restorable); anything with writing stays, and is named.
+    std::set<Id> planned;
+    for (auto& [id, parent] : placed) planned.insert(id);
+    for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
+        if (planned.count(n->id)) continue;
+        bool holdsPlanned = false, inTrashedAlready = false;
+        for (const ManuscriptNode* m : lib.manuscriptOf(book))
+            for (const ManuscriptNode* p = lib.node(m->parentId); p && !holdsPlanned; p = lib.node(p->parentId))
+                if (p->id == n->id && planned.count(m->id)) holdsPlanned = true;
+        for (const ManuscriptNode* p = lib.node(n->parentId); p; p = lib.node(p->parentId)) if (p->deleted) inTrashedAlready = true;
+        if (inTrashedAlready || n->deleted) continue;
+        if (words[n->id] == 0 && !holdsPlanned) {
+            if (lib.trashNode(n->id)) { ++out.trashed; tl["nodes"].erase(n->id); }
+        } else if (n->kind != NodeKind::Part && words[n->id] > 0) {
+            out.keptWithWriting.push_back(n->title.empty() ? std::string("(untitled)") : n->title);
+        }
+    }
     setThreads(lib, book, th);
     lib.setSetting("timeline:" + book, tl.dump());
     if (bsChanged) setBookStructure(lib, book, bs);
@@ -1075,9 +1178,15 @@ bool importPlanning(Library& lib, const Id& book, const std::string& scope, cons
     }
     std::set<std::string> had;   // threads the book had before (the outline's new ones aren't "updated")
     for (auto& t : threadsOf(lib, book).threads) had.insert(lower(trim(t.name)));
-    if (!trim(outline).empty()) importOutline(lib, book, outline, out.outline, scope);
+    bool outlineTags = false;
+    if (!trim(outline).empty()) {
+        for (auto& it : parseOutline(outline)) outlineTags = outlineTags || !it.threads.empty();
+        importOutline(lib, book, outline, out.outline, scope);
+    }
     if (!trim(threads).empty()) {
-        importThreads(lib, book, threads, out.threads);
+        // A thread's "Chapters:" list only when the outline didn't say which threads each chapter has: its numbers are
+        // the book's chapters as they were when it was written out.
+        importThreads(lib, book, threads, out.threads, !outlineTags);
         out.threads.updated = 0;
         for (const std::string& l : lines(threads)) {
             std::string v, t = trim(l);

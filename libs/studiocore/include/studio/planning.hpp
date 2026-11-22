@@ -81,7 +81,7 @@ std::string threadColour(size_t n);
 std::string threadsText(const Library& lib, const Id& book, const Threads& t);
 struct ThreadImport { int added = 0, updated = 0, tagged = 0; std::vector<std::string> unknown; };
 // Threads of the same name are updated (their chapters are added to); others are added.
-bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out);
+bool importThreads(Library& lib, const Id& book, const std::string& text, ThreadImport& out, bool chapterLists = true);
 
 // ------------------------------------------------------------------ places and story events (0.52)
 
@@ -127,6 +127,9 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
 // lower case ("ashes"; "" if it's only a number) (0.54).
 int titleNumber(const std::string& title);
 std::string titleCore(const std::string& title);
+// What titles are matched by when a plan comes in (0.62): the core without numbers, marks or symbols ("1. 🗡 Steel and
+// Snow" and "Steel and Snow" are "steel and snow"), or "#13" for a title that's only a number ("13. Chapter 13").
+std::string matchKey(const std::string& title);
 std::string outlineText(const Library& lib, const Id& book);
 struct OutlineImport {
     int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;   // made
@@ -136,15 +139,18 @@ struct OutlineImport {
     std::string structure;   // the structure set by "Book structure:", by name ("" none)
     bool unknownStructure = false;
     std::vector<Id> made;
+    int trashed = 0;                              // empty parts, chapters and scenes the plan doesn't have (0.62)
+    std::vector<std::string> keptWithWriting;    // chapters and scenes with writing the plan doesn't have, kept
 };
-// Parts, chapters and scenes already in the book are matched and filled in instead of added again (0.54): a part by
-// its title, a chapter by its title (ignoring a "Chapter 3:" in front on either side) or else by its number among the
-// story's chapters ("Chapter 3", "3. The Forge"; not when the title names another chapter), a scene by its title within
-// its chapter. What the plan gives replaces what's there (synopsis, status, target, viewpoint, place, when) or is added
-// (threads, beats); what it doesn't give is left alone. The rest is added, under the part or chapter it follows.
-// Adds the outline at the end of the book: new parts, chapters and scenes with their synopsis, status, target and
-// viewpoint (a character of the book's world, by name or other name), tagged with their threads (made when new) and
-// placed on the timeline ("Day 3" sets the day; other words the description).
+// The plan replaces the book's plan (0.62). Parts, chapters and scenes already in the book are matched rather than added
+// again: a part by its title, a chapter by its title or its key (matchKey: numbers, "Chapter 3:" and symbols aside),
+// the copy with most writing first, or else by its number among the story's chapters (not when the title names
+// another chapter), a scene by its title within its chapter. Each takes the plan's synopsis, target, viewpoint,
+// place, who's there, time, threads and beats (blank when the plan has none); its status when the plan gives one; its
+// title stays. The rest are added. Then everything is put in the plan's order, and what the plan doesn't have goes
+// to the Trash when nothing in it is written (`trashed`) and stays when it is (`keptWithWriting`).
+// New parts, chapters and scenes take their viewpoint from a character of the book's world (by name or other name),
+// their threads (made when new) and their place on the timeline ("Day 3" sets the day; other words the description).
 // `scope` is where the author's own structures are kept ("world:<id>" or "book:<id>"), for "Book structure:".
 bool importOutline(Library& lib, const Id& book, const std::string& text, OutlineImport& out, const std::string& scope = {});
 
