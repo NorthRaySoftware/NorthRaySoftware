@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.61.0",
+      "date": "2026-11-22",
+      "notes": [
+        "Sync with GitHub (Worldbuilding): keep a world in a private GitHub repository of your own and write on more than one computer. Everything in the world goes: series, books with their chapters, plans and comments, the bible, boards, languages, fonts and pictures. The token is kept in Windows Credential Manager; there's no NorthRay account.",
+        "Open a world from GitHub (Library, Worlds) brings a synced world onto another computer, where it stays synced.",
+        "Syncing happens on its own: when the library opens, every few minutes while you're changing things, every ten minutes for the other computer's changes, and when Writing Studio closes. Sync now does it at once.",
+        "Changed on two computers before they synced: a chapter keeps the newer text and the other becomes a saved version in Review, Changes; bible entries keep the newer; links from both computers are kept. The Sync page lists what was changed on both.",
+        "Pictures are stored once under a name made from their contents, so each is uploaded once and another computer downloads only what it lacks. Writing Studio warns before using a public repository."
+      ]
+    },
+    {
       "version": "0.60.0",
       "date": "2026-11-22",
       "notes": [

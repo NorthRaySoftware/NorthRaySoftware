@@ -56,3 +56,25 @@ Versions: when a chapter or scene is saved and its last kept version is more tha
 ## Coming in later versions
 
 Per-book settings are kept in `meta` under `setting:` keys: `setting:typeset:<book id>` (the print design, JSON) and `setting:plan:<book id>` (the book's word target, JSON), `setting:goal:daily` (words a day), `setting:names-ok:<book id>` (names marked as fine, JSON array), `setting:publish-edition:<book id>` (the edition last open in Publishing), `setting:publish:<book id>` (paper, bleed, colour pictures, JSON; from 0.13.0 these move to the book's paperback edition the first time Publishing opens it). Worldbuilding records will be added as new tables through migrations; nothing above changes meaning.
+
+## A world in a repository (0.61)
+
+Sync with GitHub writes a world as files (`Library::worldFiles`, `libs/studiocore/src/sync.cpp`). Each is one row of the library as JSON with its column names as keys (sorted, one-space indent, so the same row always gives the same bytes; a reference column's "none" is written `""`):
+
+| Path | Holds |
+| --- | --- |
+| `world.json` | the `worlds` row |
+| `series/<id>.json` | a `series` row of the world |
+| `memberships/<series>+<book>.json` | a `memberships` row |
+| `books/<id>/book.json` | a `books` row of the world |
+| `books/<book>/nodes/<id>.json` | a part, chapter or scene with its text (`content`) |
+| `books/<book>/editions/<id>.json`, `snapshots/<id>.json` (with its `nodes`), `comments/<id>.json` | those rows |
+| `books/<book>/log.json` | the book's `writing_log` days |
+| `entries/<id>.json` | a bible entry (its page JSON in `page`) |
+| `links/<entry>.json` | the entry's links (`to`, `label`), sorted |
+| `artworks/<id>.json` | the `artworks` row of a picture the world uses |
+| `settings/<key>.json` | a `setting:` row (`key`, `value`) naming the world, one of its books or series; never `sync:` |
+| `objects/<2>/<62>` | a picture, named by its SHA-256 as in the library's own `objects` folder |
+| `fonts/<family>/<file>` | the world's own fonts |
+
+Saved versions (`node_versions`) stay on each computer. Paths are checked against this table on the way in, every row must belong to the world it's synced into, and a picture must match its name. The library keeps what it knew at the last sync as the setting `sync:world:<id>` (`repo`, `branch`, `commit`, `files`: path to git blob SHA-1, `lastSync`); the token is in Windows Credential Manager (`NorthRayWritingStudio/github/<owner>/<repo>`), never in the library.
