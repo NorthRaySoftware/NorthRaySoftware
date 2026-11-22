@@ -589,8 +589,8 @@ static void testOAuth() {
     CHECK(o::classifyPoll(o::parseTokens(0, "")) == o::Poll::Pending);   // a dropped connection: keep polling
     auto g = o::parseTokens(400, R"({"error":"invalid_grant","error_description":"Token has been expired or revoked."})");
     CHECK(!g.ok() && g.error == "invalid_grant");
-    auto u = o::parseValidate(200, R"({"client_id":"abc","login":"cjphilip","scopes":["channel:read:stream_key"],"user_id":"141981764","expires_in":5520838})");
-    CHECK(u.valid && u.login == "cjphilip" && u.userId == "141981764");
+    auto u = o::parseValidate(200, R"({"client_id":"abc","login":"nightowl","scopes":["channel:read:stream_key"],"user_id":"141981764","expires_in":5520838})");
+    CHECK(u.valid && u.login == "nightowl" && u.userId == "141981764");
     CHECK(!o::parseValidate(401, R"({"status":401,"message":"invalid access token"})").valid);
     std::string msg;
     CHECK(o::parseTwitchKey(200, R"({"data":[{"stream_key":"live_44322889_a34ub37c8ajv98a0"}]})", msg) == "live_44322889_a34ub37c8ajv98a0");
@@ -609,7 +609,7 @@ static void testOAuth() {
     CHECK(o::parseYouTubeStreams(403, R"({"error":{"code":403,"message":"The user is not enabled for live streaming."}})", msg).empty() &&
           msg.find("not enabled for live streaming") != std::string::npos);
 
-    CHECK(o::parseYouTubeChannel(200, R"({"items":[{"id":"UC1","snippet":{"title":"CJ Philip"}}]})") == "CJ Philip");
+    CHECK(o::parseYouTubeChannel(200, R"({"items":[{"id":"UC1","snippet":{"title":"Night Owl"}}]})") == "Night Owl");
     CHECK(o::parseYouTubeChannel(200, R"({"items":[]})").empty());
     // Google's sign-in and the loopback redirect.
     o::Endpoints e;
@@ -1326,11 +1326,11 @@ static void testDesign() {
     }
     CHECK(fillPlaceholders("{twitch} and {twitch} / {x}", {{"twitch", "twitch.tv/cj"}}) == "twitch.tv/cj and twitch.tv/cj / {x}");
     // Parts between dots whose details aren't set are dropped with their dots; the designer shows the tags.
-    const std::vector<std::pair<std::string, std::string>> vals = {{"twitch", "cjphilip"}, {"youtube", ""}, {"instagram", "@cj"}};
-    CHECK(fillPlaceholders("{twitch}   \u00b7   {youtube}   \u00b7   {instagram}", vals) == "cjphilip   \u00b7   @cj");
+    const std::vector<std::pair<std::string, std::string>> vals = {{"twitch", "nightowl"}, {"youtube", ""}, {"instagram", "@owl"}};
+    CHECK(fillPlaceholders("{twitch}   \u00b7   {youtube}   \u00b7   {instagram}", vals) == "nightowl   \u00b7   @owl");
     CHECK(fillPlaceholders("{youtube} \u00b7 {youtube}", vals).empty());
-    CHECK(fillPlaceholders("{twitch} \u00b7 {youtube}", vals, true) == "cjphilip   \u00b7   {youtube}");
-    CHECK(fillPlaceholders("Line one\nTwitch: {twitch}", vals) == "Line one\nTwitch: cjphilip");
+    CHECK(fillPlaceholders("{twitch} \u00b7 {youtube}", vals, true) == "nightowl   \u00b7   {youtube}");
+    CHECK(fillPlaceholders("Line one\nTwitch: {twitch}", vals) == "Line one\nTwitch: nightowl");
     // Radial fills.
     const Fill rad = Fill::radial({{0, {255, 255, 255, 200}}, {1, {255, 255, 255, 0}}});
     CHECK(colourAt(rad, 0).a == 200 && colourAt(rad, 1).a == 0 && fromJson(toJson([&] { Document x; x.background = rad; return x; }())).background == rad);
@@ -2545,11 +2545,11 @@ static void testChat() {
     namespace ch = ncap::chat;
     ch::IrcLine l;
     // A real-shaped PRIVMSG with tags (escaped values), badges, colour and a /me action.
-    CHECK(ch::parseLine("@badge-info=;badges=moderator/1,subscriber/12;color=#1E90FF;display-name=Cj\\sTest;id=abc-1;user-id=42 "
-                        ":cjtest!cjtest@cjtest.tmi.twitch.tv PRIVMSG #cjphilip :\x01" "ACTION waves hello\x01\r\n", l));
-    CHECK(l.command == "PRIVMSG" && l.params.size() == 2 && l.params[0] == "#cjphilip" && l.tags["display-name"] == "Cj Test");
+    CHECK(ch::parseLine("@badge-info=;badges=moderator/1,subscriber/12;color=#1E90FF;display-name=Owl\\sTest;id=abc-1;user-id=42 "
+                        ":owltest!owltest@owltest.tmi.twitch.tv PRIVMSG #nightowl :\x01" "ACTION waves hello\x01\r\n", l));
+    CHECK(l.command == "PRIVMSG" && l.params.size() == 2 && l.params[0] == "#nightowl" && l.tags["display-name"] == "Owl Test");
     ch::Event e = ch::interpret(l, 1000);
-    CHECK(e.type == ch::Event::Chat && e.message.login == "cjtest" && e.message.name == "Cj Test" && e.message.id == "abc-1");
+    CHECK(e.type == ch::Event::Chat && e.message.login == "owltest" && e.message.name == "Owl Test" && e.message.id == "abc-1");
     CHECK(e.message.userId == "42" && e.message.action && e.message.text == "waves hello");
     CHECK(e.message.colour == ncap::sourceutil::Rgba(0x1E, 0x90, 0xFF, 255));
     CHECK(e.message.badges.size() == 2 && e.message.badges[0] == "moderator" && e.message.badges[1] == "subscriber");
@@ -2598,11 +2598,11 @@ static void testChat() {
     CHECK(ch::recent(all, 4, 5, 60000).empty());
 
     // Channel names from what people type.
-    CHECK(ch::channelFrom("CJPhilip") == "cjphilip" && ch::channelFrom("@cjphilip") == "cjphilip");
-    CHECK(ch::channelFrom(" https://www.twitch.tv/CJPhilip/ ") == "cjphilip" && ch::channelFrom("twitch.tv/cj_philip?x=1") == "cj_philip");
-    CHECK(ch::channelFrom("").empty() && ch::channelFrom("not a name").empty() && ch::channelFrom("youtube.com/@cj").empty());
-    const auto lines = ch::loginLines("cjphilip", 123);
-    CHECK(lines.size() == 4 && lines[1] == "PASS SCHMOOPIIE" && lines[2] == "NICK justinfan10123" && lines[3] == "JOIN #cjphilip");
+    CHECK(ch::channelFrom("NightOwl") == "nightowl" && ch::channelFrom("@nightowl") == "nightowl");
+    CHECK(ch::channelFrom(" https://www.twitch.tv/NightOwl/ ") == "nightowl" && ch::channelFrom("twitch.tv/night_owl?x=1") == "night_owl");
+    CHECK(ch::channelFrom("").empty() && ch::channelFrom("not a name").empty() && ch::channelFrom("youtube.com/@owl").empty());
+    const auto lines = ch::loginLines("nightowl", 123);
+    CHECK(lines.size() == 4 && lines[1] == "PASS SCHMOOPIIE" && lines[2] == "NICK justinfan10123" && lines[3] == "JOIN #nightowl");
     CHECK(ch::defaultColour("abc") == ch::defaultColour("abc") && ch::defaultColour("abc").a == 255);
     for (auto& m : ch::samples(0)) CHECK(m.name.rfind("Sample", 0) == 0);
 

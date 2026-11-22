@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Builds the NorthRay installers with NSIS:
-#   NorthRayLauncher-Setup, WritingStudio-Setup, NorthRayBrowser-Setup, NorthRayFiles-Setup, NorthRayCapture-Setup,
-#   CJRadio-Setup, CJPhilipCommunity-Setup
+#   NorthRayLauncher-Setup, WritingStudio-Setup, NorthRayBrowser-Setup, NorthRayFiles-Setup, NorthRayCapture-Setup
 # then writes catalogue.json (version, size and SHA-256 of each; what NorthRay
 # Launcher reads to install and update) and copies everything into the website.
 #   tools/build-windows.sh && tools/make-installers.sh
@@ -36,8 +35,6 @@ app writing-studio "NorthRay Writing Studio" WritingStudio.exe apps/studio/resou
 APP_VER=$BROWSER_VERSION app browser "NorthRay Browser" NorthRayBrowser.exe apps/browser/resources/northray-browser.ico NorthRayBrowser
 APP_VER=$FILES_VERSION app files "NorthRay Files" NorthRayFiles.exe apps/files/resources/northray-files.ico NorthRayFiles
 APP_VER=$CAPTURE_VERSION app capture "NorthRay Capture" NorthRayCapture.exe apps/capture/resources/northray-capture.ico NorthRayCapture
-app cj-radio "CJ Radio" CJRadio.exe apps/cj-radio/resources/cj-radio.ico CJRadio -DNO_SHORTCUT
-app cj-philip-community "CJ Philip Community" CJPhilipCommunity.exe apps/community/resources/cj-community.ico CJPhilipCommunity
 rm -rf "$OUT/stage"
 
 node - "$OUT" "$VERSION" "$BROWSER_VERSION" "$FILES_VERSION" "$CAPTURE_VERSION" <<'JS'
@@ -49,8 +46,6 @@ const items = [
   ['browser', 'NorthRay Browser', 'NorthRayBrowser', browserVersion],
   ['files', 'NorthRay Files', 'NorthRayFiles', filesVersion],
   ['capture', 'NorthRay Capture', 'NorthRayCapture', captureVersion],
-  ['cj-radio', 'CJ Radio', 'CJRadio', suiteVersion],
-  ['cj-philip-community', 'CJ Philip Community', 'CJPhilipCommunity', suiteVersion],
 ].map(([id, name, stem, version]) => {
   const file = `${stem}-Setup-${version}.exe`;
   const buf = fs.readFileSync(path.join(dir, file));

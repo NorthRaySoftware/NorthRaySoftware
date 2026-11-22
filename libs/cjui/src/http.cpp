@@ -57,11 +57,11 @@ bool openRequest(const std::string& url, int timeoutMs, Handle& session, Handle&
     if (uc.lpszExtraInfo && uc.dwExtraInfoLength) fullPath.append(uc.lpszExtraInfo, uc.dwExtraInfoLength);
     if (fullPath.empty()) fullPath = L"/";
 
-    session.h = WinHttpOpen(L"CJCommunity/0.2", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+    session.h = WinHttpOpen(L"NorthRay/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                             WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) {
         // Older Windows versions don't know the automatic-proxy flag.
-        session.h = WinHttpOpen(L"CJCommunity/0.2", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+        session.h = WinHttpOpen(L"NorthRay/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                 WINHTTP_NO_PROXY_BYPASS, 0);
     }
     if (!session) { error = describe(GetLastError()); return false; }

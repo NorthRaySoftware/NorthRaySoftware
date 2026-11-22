@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
         if (!bible::exportWebsite(*lib, o, out + "/site-" + t.id, err, &pages, look, fonts)) std::fprintf(stderr, "%s: %s\n", t.id, err.c_str());
         else std::printf("site %s: %d pages\n", t.id, pages);
     }
-    const auto src = bible::printableSource(*lib, o, "The Alvora Bible", "CJ Philip");
+    const auto src = bible::printableSource(*lib, o, "The Alvora Bible", "A. Writer");
     typeset::Design design = typeset::presets()[0].design;
     design.chaptersOnRecto = false;
     design.chapterSinkLines = std::min(design.chapterSinkLines, 3);

@@ -1,14 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
-import { loadApps, cjPhilipApps, release, formatSize } from '../lib/metadata.js';
+import { loadApps, release, formatSize } from '../lib/metadata.js';
 const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
 const rel = release();
 const apps = Object.fromEntries(loadApps().map((a) => [a.id, a]));
 const launcher = rel?.installers.find((i) => i.id === 'launcher');
-// CJ Philip's apps are installed by CJ Philip Community, a separate launcher offered in its own section.
-const cjIds = new Set(cjPhilipApps().map((a) => a.id));
-const others = rel?.installers.filter((i) => i.id !== 'launcher' && !cjIds.has(i.id)) ?? [];
-const community = rel?.installers.find((i) => i.id === 'cj-philip-community');
+const others = rel?.installers.filter((i) => i.id !== 'launcher') ?? [];
 const built = rel ? new Date(rel.builtUtc).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }) : '';
 ---
 <Base title="Downloads | NorthRay Software" description="Download NorthRay Launcher and NorthRay Writing Studio for Windows." current="download/">
@@ -46,29 +43,6 @@ const built = rel ? new Date(rel.builtUtc).toLocaleDateString('en-GB', { day: 'n
         ))}
       </ul>
 
-      {community && (
-        <section id="cj-philip-community" aria-labelledby="dl-cjp">
-          <h2 id="dl-cjp">CJ Philip Community</h2>
-          <p style="max-width:720px">A separate launcher for the apps associated with author and broadcaster CJ Philip, such as CJ Radio,
-            the home of The CJ Philip Show. It installs, updates and opens them, and updates itself. NorthRay Launcher doesn't include it,
-            and nothing else needs it. <a href={`${base}about/#cj-philip`}>More about CJ Philip</a>.</p>
-          <ul class="downloads">
-            <li class="download">
-              <img src={`${base}icons/${community.id}.png`} alt="" />
-              <div>
-                <h3>{community.name}</h3>
-                <p>{apps[community.id]?.tagline}</p>
-                <p class="meta">{community.file} · {formatSize(community.size)}</p>
-              </div>
-              <a class="button" href={`${base}downloads/${community.file}`} download>Download</a>
-              <details>
-                <summary>SHA-256 checksum</summary>
-                <code>{community.sha256}</code>
-              </details>
-            </li>
-          </ul>
-        </section>
-      )}
 
       <h2>Before you install</h2>
       <ul class="notes">
@@ -77,7 +51,7 @@ const built = rel ? new Date(rel.builtUtc).toLocaleDateString('en-GB', { day: 'n
         <li><strong>Free to use.</strong> No subscriptions, paywalls or deliberately restricted features, and no account to create.</li>
         <li><strong>Windows may warn you.</strong> The installers aren't code-signed yet, so SmartScreen may say "Windows protected your PC".
           Choose <em>More info</em>, then <em>Run anyway</em>, only if you downloaded the file from this page. You can check it against the SHA-256 checksum.</li>
-        <li><strong>Uninstalling:</strong> use NorthRay Launcher (or CJ Philip Community for CJ apps), or Windows Settings, Apps, Installed apps.
+        <li><strong>Uninstalling:</strong> use NorthRay Launcher, or Windows Settings, Apps, Installed apps.
           Your settings and libraries are kept.</li>
       </ul>
     </>

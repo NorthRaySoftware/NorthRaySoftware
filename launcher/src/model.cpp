@@ -91,7 +91,6 @@ void Model::load() {
         std::string err;
         auto entry = cj::parseAppEntry(text, err);
         if (!entry) { warnings.push_back(narrow(path) + ": " + err); continue; }
-        if (hideCjPhilipApps && entry->associatedCreator == "CJ Philip") continue;   // CJ Philip Community too
         AppItem a;
         a.entry = *entry;
         json j = json::parse(text, nullptr, false);

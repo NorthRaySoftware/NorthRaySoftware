@@ -38,7 +38,7 @@ Palette makePalette(bool dark) {
         p.rule = hexColor("#34333A"); p.ribbon = hexColor("#C98A97"); p.focus = hexColor("#7FB0EE");
         p.live = hexColor("#F0533E"); p.demo = hexColor("#D9B65A");
     }
-    // The radio console stays dark in both themes; in dark mode it's lifted and
+    // The console look stays dark in both themes; in dark mode it's lifted and
     // outlined so it doesn't sink into the page.
     p.console = dark ? hexColor("#26221F") : hexColor("#1B1917");
     p.consoleInk = hexColor("#F1ECE2");

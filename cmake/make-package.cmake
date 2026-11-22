@@ -1,6 +1,6 @@
 # Builds an installable package folder: copies the app's files, then writes
 # package.json listing every file with its size and SHA-256.
-#   cmake -DID=cj-radio [-DEXTRA_FILES=a::b] [-DEXTRA_DIRS=c::d] -DVERSION=0.2.0 -DEXE=<path to exe> -DDATA=<metadata dir> -DOUT=<package dir> -P make-package.cmake
+#   cmake -DID=writing-studio [-DEXTRA_FILES=a::b] [-DEXTRA_DIRS=c::d] -DVERSION=0.2.0 -DEXE=<path to exe> -DDATA=<metadata dir> -DOUT=<package dir> -P make-package.cmake
 file(REMOVE_RECURSE "${OUT}")
 file(MAKE_DIRECTORY "${OUT}")
 get_filename_component(EXE_NAME "${EXE}" NAME)

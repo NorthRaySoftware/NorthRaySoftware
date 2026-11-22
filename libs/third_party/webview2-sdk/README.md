@@ -1,8 +1,8 @@
 # Microsoft Edge WebView2 SDK 1.0.4314.35 (subset)
 
 From the official NuGet package [Microsoft.Web.WebView2 1.0.4314.35](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35)
-(BSD-3-Clause, see `LICENSE.txt` and `NOTICE.txt`). Used by NorthRay Browser. The Writing Studio and CJ Radio still use
-the older subset in `../webview2` (1.0.961.33); they can move to this one when they next need a newer WebView2 feature.
+(BSD-3-Clause, see `LICENSE.txt` and `NOTICE.txt`). Used by NorthRay Browser. The Writing Studio still uses
+the older subset in `../webview2` (1.0.961.33); it can move to this one when it next need a newer WebView2 feature.
 
 | File | From the package | Notes |
 |---|---|---|

@@ -46,8 +46,8 @@ struct Event {
 };
 Event interpret(const IrcLine& l, std::int64_t nowMs);
 
-// The channel from what someone typed for Twitch: "cjphilip", "@CJPhilip", "twitch.tv/cjphilip",
-// "https://www.twitch.tv/cjphilip/" all give "cjphilip". "" if it isn't a possible Twitch name
+// The channel from what someone typed for Twitch: "nightowl", "@NightOwl", "twitch.tv/nightowl",
+// "https://www.twitch.tv/nightowl/" all give "nightowl". "" if it isn't a possible Twitch name
 // (4 to 25 letters, digits or underscores; Twitch's own older names can be shorter, so 1 to 25).
 std::string channelFrom(const std::string& typed);
 

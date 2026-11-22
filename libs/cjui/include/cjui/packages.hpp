@@ -1,4 +1,4 @@
-// Installing CJ Community applications from verified packages.
+// Installing NorthRay applications from verified packages.
 //
 // A package is a folder with a package.json listing every file with its size
 // and SHA-256. Installing verifies every file before anything is copied, then
@@ -44,11 +44,11 @@ std::wstring defaultAppsDir();
 
 // Finds an installed app, wherever it was installed:
 //  1. its NorthRay setup entry (HKCU\...\Uninstall\NorthRay.<id>): folder and version;
-//  2. an older CJ Community setup entry (CJCommunity.<id>), marked legacy;
-//  3. the default folders (NorthRay\Apps\<id>, then the old CJ Community\Apps\<id>).
+//  2. an entry from the setup used before the NorthRay name (its legacy key), marked legacy;
+//  3. the default folders (NorthRay\Apps\<id>, then the pre-NorthRay folder).
 struct InstalledInfo {
     bool found = false;
-    bool legacy = false;            // installed by a CJ Community-era installer
+    bool legacy = false;            // installed by a pre-NorthRay installer
     std::wstring dir;               // install folder
     std::wstring exe;               // full path to its executable
     std::string version;            // from the setup entry, else package.json

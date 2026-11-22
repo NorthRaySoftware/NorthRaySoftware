@@ -1,6 +1,6 @@
 # Writing & Publishing Studio: architecture
 
-Status: **Milestones 1-4 and 6 built, Milestone 5 (typesetting) first version** (Author Library, manuscript editor, import from EPUB, Word, OpenDocument, HTML, Markdown and text with PDF experimental, the artwork library, and typesetting with PDF export). Next: Milestone 7, publishing (PDF/X and EPUB). Last updated 13 November 2026. Developed by the NorthRay Software project, as part of CJ Philip Community. The Studio is a product for any author; it isn't presented as CJ Philip's personal writing app.
+Status: **Milestones 1-4 and 6 built, Milestone 5 (typesetting) first version** (Author Library, manuscript editor, import from EPUB, Word, OpenDocument, HTML, Markdown and text with PDF experimental, the artwork library, and typesetting with PDF export). Next: Milestone 7, publishing (PDF/X and EPUB). Last updated 13 November 2026. Developed by the NorthRay Software project. The Studio is a product for any author.
 
 This records the research findings that shaped the design (full report: the research brief of 13 Nov 2026), the decisions taken, and what each later milestone builds on.
 
@@ -195,7 +195,7 @@ Based on the research report "Better Style Hints and Custom Rules" (14 Nov 2026)
 
 ## No status bar (0.21.0)
 
-The status bar is gone from every app. `AppWindow::drawToast(area)` shows `flash` messages as a rounded note that rises in near the bottom of the given area. Writing Studio: today's words at the foot of the outline while writing, "Saving..." / "Not saved" as a small note at the page's corner (only while it applies); the library path is in Settings. NorthRay Launcher: when updates were last checked is on the Updates page. NorthRay Files: counts and selection at the foot of the sidebar (a note at the list's corner when the sidebar is tucked away). CJ Philip Community: Open NorthRay Launcher in the header, version under the list. NorthRay Browser: messages in a small layered window over the page (`updateNote`, since nothing can be drawn on the page's own window), and WebView2's own link bubble (`IsStatusBarEnabled`). CJ Radio keeps its player bar.
+The status bar is gone from every app. `AppWindow::drawToast(area)` shows `flash` messages as a rounded note that rises in near the bottom of the given area. Writing Studio: today's words at the foot of the outline while writing, "Saving..." / "Not saved" as a small note at the page's corner (only while it applies); the library path is in Settings. NorthRay Launcher: when updates were last checked is on the Updates page. NorthRay Files: counts and selection at the foot of the sidebar (a note at the list's corner when the sidebar is tucked away). NorthRay Browser: messages in a small layered window over the page (`updateNote`, since nothing can be drawn on the page's own window), and WebView2's own link bubble (`IsStatusBarEnabled`).
 
 ## Themed menus and name cards (0.21.1)
 

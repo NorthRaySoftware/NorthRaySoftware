@@ -1,10 +1,7 @@
 add_library(cjcore STATIC
   src/time.cpp
-  src/radio.cpp
   src/registry.cpp
-  src/station.cpp
   src/skillswap.cpp
-  src/ical.cpp
   src/medialib.cpp
 )
 target_include_directories(cjcore

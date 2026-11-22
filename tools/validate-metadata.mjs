@@ -25,21 +25,6 @@ for (const f of fs.readdirSync(path.join(root, 'apps')).filter((f) => f.endsWith
   if (a.accent && !/^#[0-9A-Fa-f]{6}$/.test(a.accent)) problems.push(`apps/${f}: accent must be #RRGGBB`);
 }
 
-const checkProgrammes = (rel, demoExpected) => {
-  const s = read(rel);
-  if (!s) return;
-  if (!!s.demo !== demoExpected) problems.push(`${rel}: "demo" flag should be ${demoExpected}`);
-  for (const p of s.programmes ?? []) {
-    if (!['draft', 'confirmed', 'cancelled', 'postponed'].includes(p.status)) problems.push(`${rel}: ${p.id} has unknown status`);
-    if (!p.startUk && !p.relative) problems.push(`${rel}: ${p.id} has no start time`);
-    if (p.startUk && p.kind === 'regular-saturday') {
-      const [d] = p.startUk.split('T');
-      if (new Date(d + 'T12:00:00Z').getUTCDay() !== 6) problems.push(`${rel}: ${p.id} is a Saturday programme not on a Saturday`);
-    }
-  }
-};
-checkProgrammes('radio/schedule.json', false);
-checkProgrammes('demo/radio-schedule.demo.json', true);
 for (const f of fs.readdirSync(path.join(root, 'demo'))) {
   if (f.endsWith('.json') && !f.startsWith('profile')) {
     const d = read(`demo/${f}`);

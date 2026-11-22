@@ -1,4 +1,4 @@
-; Installer for one CJ Community application (CJ Radio, SkillSwap, ...).
+; Installer for one NorthRay application (Writing Studio, Browser, Files, Capture).
 ; Built by tools/make-installers.sh, which passes:
 ;   APP_ID, APP_NAME, APP_EXE, APP_VERSION, SRC_DIR (the verified package folder), ICON, ART, OUT_FILE
 ;
@@ -38,13 +38,7 @@ VIAddVersionKey "CompanyName" "${DEVELOPER}"
 !define MUI_ABORTWARNING
 
 !define MUI_WELCOMEPAGE_TITLE "Install ${APP_NAME}"
-!if "${APP_ID}" == "cj-philip-community"
-  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} is a launcher of its own for the CJ Philip apps, such as CJ Radio, and it keeps itself up to date.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
-!else if "${APP_ID}" == "cj-radio"
-  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. CJ Philip Community finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
-!else
-  !define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. NorthRay Launcher finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
-!endif
+!define MUI_WELCOMEPAGE_TEXT "This installs ${APP_NAME} ${APP_VERSION} for your Windows account. No administrator permission is needed.$\r$\n$\r$\n${APP_NAME} runs on its own. NorthRay Launcher finds it and keeps it up to date, if you use it.$\r$\n$\r$\nThis is a preview release from ${DEVELOPER}."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TITLE "${APP_NAME} is installed"
@@ -78,8 +72,7 @@ FunctionEnd
 
 Section "Install"
   ; A clean copy each time, so nothing from an older version is left behind.
-  ; Settings live elsewhere (%LOCALAPPDATA%\CJ Community) and are kept.
-  ; A copy installed by the older CJ Community setup is removed first (its settings are kept).
+  ; A copy installed by the setup used before the NorthRay name is removed first (its settings are kept).
   ReadRegStr $1 HKCU "${LEGACY_KEY}" "InstallLocation"
   StrCmp $1 "" legacyFolder
   IfFileExists "$1\Uninstall.exe" 0 +2
@@ -98,7 +91,7 @@ Section "Install"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
 !ifdef NO_SHORTCUT
-  ; Opened from another app (CJ Radio opens from CJ Philip Community): no Start menu entry of its own.
+  ; Opened from another app: no Start menu entry of its own.
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
 !else
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"

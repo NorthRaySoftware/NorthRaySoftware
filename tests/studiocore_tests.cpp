@@ -1597,7 +1597,7 @@ static void testFamilyKinds() {
     // The bible's PDF names each relative by what they are (0.48.1).
     {
         namespace bible = studio::bible;
-        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "CJ");
+        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "A. Writer");
         std::string tomPage, ralphPage, lilliaPage;
         for (auto& sec : src.sections) {
             if (sec.title == "Tom Smith") tomPage = sec.content;
@@ -1754,7 +1754,7 @@ static void testFamilyTreePicture() {
     bible::Options o{world, {}, false, {}};
     o.treeFonts = fonts;
     o.treeFolder = dir + "/trees";
-    const auto src = bible::printableSource(*lib, o, "The Alvora Bible", "CJ");
+    const auto src = bible::printableSource(*lib, o, "The Alvora Bible", "A. Writer");
     int part = -1, trees = 0;
     for (size_t i = 0; i < src.sections.size(); ++i) {
         if (src.sections[i].kind == NodeKind::Part && src.sections[i].title == "Family trees") part = (int)i;
@@ -1784,7 +1784,7 @@ static void testFamilyTreePicture() {
     // Not in a reader's guide.
     bible::Options g = o;
     g.readersGuide = true;
-    const auto gs = bible::printableSource(*lib, g, "Guide", "CJ");
+    const auto gs = bible::printableSource(*lib, g, "Guide", "A. Writer");
     CHECK(std::none_of(gs.sections.begin(), gs.sections.end(), [](auto& x) { return x.title == "Family trees"; }));
 }
 
@@ -1982,7 +1982,7 @@ static void testBibleExport() {
     }
     // Printable: a part per kind, a chapter per entry, the glossary at the back; and it typesets.
     {
-        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "CJ Philip");
+        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "A. Writer");
         int parts = 0, chapters = 0;
         for (auto& sec : src.sections) (sec.kind == NodeKind::Part ? parts : chapters)++;
         CHECK(parts == 2 && chapters == 5 && src.sections.back().title == "Glossary" && src.sections.back().matter == 2);
@@ -1995,7 +1995,7 @@ static void testBibleExport() {
         std::string err;
         const std::string pdf = ts::pdfBytes(book, err);
         CHECK(pdf.rfind("%PDF", 0) == 0);
-        auto guide = bible::printableSource(*lib, {world, {}, true, b1}, "Guide", "CJ Philip");
+        auto guide = bible::printableSource(*lib, {world, {}, true, b1}, "Guide", "A. Writer");
         bool leak = false;
         for (auto& sec : guide.sections) if (sec.content.find("Tom's heir") != std::string::npos || sec.title == "The Ghost") leak = true;
         CHECK(!leak && guide.subtitle == "A reader's guide to Book One");
@@ -2043,7 +2043,7 @@ static void testBibleExport() {
         CHECK(read(out2 + "/e-" + ada + ".html").find("Lives in") == std::string::npos && !std::filesystem::exists(out2 + "/search.js"));
         CHECK(read(out2 + "/e-" + cliff + ".html").find("class=\"pin\"") == std::string::npos);
         // In the PDF: a Languages part with a chapter per language.
-        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "CJ Philip");
+        auto src = bible::printableSource(*lib, {world, {}, false, {}}, "The Alvora Bible", "A. Writer");
         bool part = false, chapter = false;
         for (auto& sec : src.sections) {
             part |= sec.kind == NodeKind::Part && sec.title == "Languages";
@@ -2640,7 +2640,7 @@ static void testWorldFonts() {
     {
         cover::Spec sp;
         sp.title = "Shards of Light \xE2\x9C\xA7";
-        sp.author = "CJ Philip";
+        sp.author = "A. Writer";
         sp.fontId = id;
         const auto c = cover::render(sp, list, 400, 640);
         CHECK(c.ok && !c.png.empty());
@@ -2692,7 +2692,7 @@ static void testWorldFonts() {
         CHECK(clean.find("\"family\":\"" + runes + "\"") != std::string::npos && clean.find("evil") == std::string::npos);
         typeset::Source src;
         src.title = "Runes";
-        src.author = "CJ";
+        src.author = "A. Writer";
         typeset::Source::Section sec;
         sec.title = "One";
         sec.content = clean;
@@ -3595,7 +3595,7 @@ static void testCastAndCreatureFamily() {
     // The PDF lists a creature's family (0.59).
     {
         namespace bible = studio::bible;
-        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "CJ");
+        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "A. Writer");
         std::string page;
         for (auto& sec : src.sections) if (sec.title == "Ra'min") page = sec.content;
         CHECK(page.find("Family") != std::string::npos && page.find("K'alis") != std::string::npos);

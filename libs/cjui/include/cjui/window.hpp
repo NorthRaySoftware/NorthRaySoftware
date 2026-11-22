@@ -1,4 +1,4 @@
-// Shared window base for every CJ Community app.
+// Shared window base for every NorthRay app.
 //
 // An immediate-mode UI: each frame the app draws itself and registers "hits"
 // (interactive regions) as it goes. Mouse and keyboard input are resolved
@@ -25,7 +25,7 @@ void wantAmbientFrame();
 
 struct Palette {
     Color paper, surface, sunken, ink, inkMuted, inkFaint, rule, ribbon, focus, live, demo;
-    Color console, consoleInk, consoleMuted, consoleRule;  // CJ Radio's dark console, same in both themes
+    Color console, consoleInk, consoleMuted, consoleRule;  // a dark console look, the same in both themes
     bool dark = false;
 };
 
@@ -43,8 +43,8 @@ struct Hit {
 
 struct WindowSpec {
     HINSTANCE instance = nullptr;
-    const wchar_t* className = L"CJCommunityWindow";
-    const wchar_t* title = L"CJ Community";
+    const wchar_t* className = L"NorthRayWindow";
+    const wchar_t* title = L"NorthRay";
     int iconId = 0;
     int width = 1180, height = 760;        // DIPs
     int minWidth = 860, minHeight = 560;   // DIPs

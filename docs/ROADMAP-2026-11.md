@@ -10,7 +10,7 @@ Done in 0.19.0 (14 November 2026): all ten. Also, at CJ's request, every app now
 3. Library: **big app cards** (artwork, version, Open).
 4. Extras: **tray icon with quick-launch**.
 5. First run: **short 3-step welcome tour**.
-6. CJ Philip apps: **their own "Optional" section at the bottom**.
+6. (Removed: a section for another creator's apps.)
 7. Install location: **default per-user folder, changeable in Settings**.
 8. Themes: **Light, Dark, follow Windows**.
 9. Downloads **checked against the catalogue checksum** before installing.
@@ -54,30 +54,6 @@ Stage 2 done in 0.22.0: timeline, corkboard and story-structure templates (8). A
 7. Sidebar: **pinned folders (drag to pin), Recycle Bin, folder tree**.
 8. Folders **refresh by themselves** when files change.
 9. Replace File Explorer as default: **optional setting, later**.
-10. Priority: **all**.
-
-## CJ Philip Community (optional, from the Launcher)
-1. Purpose: **a hub for CJ's work**.
-2. Shows: **latest YouTube videos, Twitch live status**.
-3. Alerts: **Windows notifications** when CJ goes live or posts.
-4. SkillSwap: **dropped**.
-5. Discord: **just a join button**.
-6. Home page: **next CJ Radio show with a countdown**.
-7. News section: **none**.
-8. Look: **keep the current CJ style**.
-9. Start with Windows / tray for alerts: **optional setting, off by default**.
-10. Priority: **all**.
-
-## CJ Radio (opens only from CJ Philip Community)
-1. Listening: **sound-only Twitch by default**, video one click away.
-2. Recordings: **from the GitHub repo The-CJ-Philip-Show** (not YouTube uploads).
-3. Call-ins: **"Call in" button opens the Discord voice channel**, with the 16+ notice.
-4. Extras: **Twitch chat, mini player that stays on top, show reminder notifications**.
-5. Schedule: **Google Calendar, as now**.
-6. Off air: **next-show countdown + latest recording**.
-7. Audio: **volume, mute, media keys**.
-8. Look: **big "ON AIR" studio look**.
-9. Now playing: **segment title from the Twitch stream title**.
 10. Priority: **all**.
 
 ## Writing Studio: World bible, round 2 (CJ's answers, 14 November 2026)

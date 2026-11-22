@@ -70,7 +70,6 @@ void Launcher::nightButton(const std::string& id, const Rect& r, const std::wstr
 // ---------------------------------------------------------------- lifecycle
 
 bool Launcher::create(HINSTANCE inst, int show, const std::string& openApp, bool startInTray) {
-    model_.hideCjPhilipApps = true;   // CJ Radio and the like are installed and opened from CJ Philip Community
     model_.load();
     today_ = readToday();
     markPng_ = model_.dataDir + L"\\brand\\northray-mark.png";
@@ -355,7 +354,6 @@ void Launcher::updateTrayState() {
     int progress = -1;
     std::vector<std::wstring> ready;
     for (auto& a : model_.apps) {
-        if (a.entry.associatedCreator == "CJ Philip" && model_.hideCjPhilipApps) continue;
         const JobState s = jobs_.state(a.entry.id);
         if (jobs_.busy(a.entry.id) && progress < 0) {
             const int pct = s.stage == JobState::Downloading && s.total ? (int)(s.done * 100 / s.total) : s.stage == JobState::Queued ? 0 : 100;
@@ -1194,7 +1192,6 @@ float Launcher::pageLibrary(const Rect& r) {
     segmented("lib:filter", {r.x, y, 330, 30}, {L"All", L"Installed", L"Not installed"}, filter_, [this](int i) { filter_ = i; });
     y += 46;
     auto wanted = [this](const AppItem& a) { return !((filter_ == 1 && !a.inst.found) || (filter_ == 2 && a.inst.found)); };
-    // NorthRay's own apps (CJ Philip's are in CJ Philip Community, a separate download).
     int shown = 0;
     // In the order they were dragged into (0.97); apps not placed yet keep the catalogue's order after them.
     std::vector<AppItem*> ordered;
@@ -1208,7 +1205,7 @@ float Launcher::pageLibrary(const Rect& r) {
     cardRects_.clear();
     for (AppItem* ap : ordered) {
         AppItem& a = *ap;
-        if (a.entry.associatedCreator == "CJ Philip" || !wanted(a)) continue;
+        if (!wanted(a)) continue;
         ++shown;
         const float ch = appCard(a, {r.x, y, r.w, 0});
         cardRects_.push_back({a.entry.id, {r.x, y, r.w, ch}});
@@ -1395,7 +1392,7 @@ float Launcher::pageApp(const Rect& r) {
         if (it == diskUse_.end()) it = diskUse_.emplace(e.id, folderSize(a.inst.dir)).first;
         kv(L"On disk", formatSize(it->second) + L" (the app itself; your own files are kept elsewhere)");
     }
-    if (a.inst.legacy) kv(L"Note", L"Installed by the older CJ Community setup. Updating moves it to NorthRay's folder.");
+    if (a.inst.legacy) kv(L"Note", L"Installed by an older setup from before the NorthRay name. Updating moves it to NorthRay's folder.");
     return std::max(ay, ky) - r.y;
 }
 

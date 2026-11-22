@@ -20,7 +20,7 @@ The brief named WinUI 3 a leading candidate. It was weighed against the framewor
 | | cjui (Win32 + Direct2D, the suite's own) | WinUI 3 (Windows App SDK) |
 |---|---|---|
 | NorthRay look | Already built: palette, night sky, aurora band, menus (`cjui::showMenu`), focus rings, animations | Would be rebuilt in XAML styles, a second design system to keep matching |
-| Shared with | Launcher, Writing Studio, Browser, Community, CJ Radio | Nothing else in the suite |
+| Shared with | Launcher, Writing Studio, Browser, Capture | Nothing else in the suite |
 | Toolchain | MinGW (the suite's) or MSVC; builds and is tested in the project's workspace | MSVC + C++/WinRT + MSBuild/NuGet; can't be built in the project's workspace |
 | Deployment | One static .exe | Windows App SDK runtime (framework package or self-contained ~50 MB) |
 | Controls | Drawn by us (list, tree, breadcrumb) | Ready-made, with UI Automation built in |

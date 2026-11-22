@@ -1,5 +1,5 @@
-; Installer for NorthRay Launcher on its own. The apps (Writing Studio, CJ Radio,
-; CJ Philip Community) have their own installers; the launcher can also download them.
+; Installer for NorthRay Launcher on its own. The apps (Writing Studio, Browser, Files,
+; Capture) have their own installers; the launcher can also download them.
 ; Built by tools/make-installers.sh, which passes APP_VERSION, SRC_DIR, ICON, ART, OUT_FILE.
 
 Target amd64-unicode   ; the apps are 64-bit, so the installers are too
@@ -80,7 +80,7 @@ Function un.onInit
 FunctionEnd
 
 Section "Install"
-  ; The old CJ Community launcher is replaced (CJ Philip Community is now a separate app).
+  ; An older launcher from before the NorthRay name is replaced.
   ReadRegStr $1 HKCU "${LEGACY_KEY}" "InstallLocation"
   StrCmp $1 "" noLegacy
   IfFileExists "$1\Uninstall.exe" 0 +2

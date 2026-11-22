@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.131.0",
+      "date": "2026-11-22",
+      "notes": [
+        "NorthRay is NorthRay's apps only: the community and radio apps are gone from the catalogue, the website and the code, along with every mention of them. Copies already installed aren't removed, but they won't be updated."
+      ]
+    },
+    {
       "version": "0.129.0",
       "date": "2026-11-21",
       "notes": [
@@ -217,13 +224,6 @@
       "date": "2026-11-18",
       "notes": [
         "NorthRay Capture 0.11.0: stream reports, record while streaming, chapters at scene changes, Be right back, going live at a set time with new countdown timers, muting by scene, and a show-or-hide hotkey."
-      ]
-    },
-    {
-      "version": "0.99.0",
-      "date": "2026-11-18",
-      "notes": [
-        "CJ Radio 0.28.0 and CJ Philip Community 0.29.0: a glowing ON AIR sign, the show's name in the title, a gentle fade-in, LIVE NOW in CJ Philip Community and its latest recording."
       ]
     },
     {
@@ -506,7 +506,7 @@
       "version": "0.59.0",
       "date": "2026-11-15",
       "notes": [
-        "NorthRay Launcher now holds NorthRay's own apps only. CJ Philip Community (with CJ Radio) is a separate launcher, downloaded from the NorthRay Software website, and keeps itself up to date.",
+        "NorthRay Launcher holds NorthRay's own apps only.",
         "Today, on the home page: your words today, your goal and your writing streak from NorthRay Writing Studio, and your newest screenshots and pictures saved by NorthRay Capture. Switch it off in Settings if you'd rather not see it.",
         "An app's page shows how much space it takes on disk.",
         "Fixed: a long description on an app's card no longer runs into its version line."
@@ -877,7 +877,7 @@
         "NorthRay Launcher can keep running in the notification area when you close its window, so updates still install. Its icon there opens your apps and quits the launcher.",
         "New setting: Start with Windows (off by default). It starts quietly in the notification area, with no window.",
         "A short three-step welcome tour the first time you open it: what it is, where apps go, and updates.",
-        "Bigger app cards in the Library. CJ Philip's apps now have their own Optional section at the bottom.",
+        "Bigger app cards in the Library.",
         "The setup closes a running launcher by itself, and uninstalling removes it from Windows start-up."
       ]
     },
@@ -909,8 +909,7 @@
         "A new look: the sidebar and banners are a night sky lit by the aurora.",
         "The Library opens with a banner showing what's installed and ready to update, and a \"What's new\" row with the latest notes from each app.",
         "App pages have screenshots. Click one to see it full-size, and use the arrow keys or the buttons to go through them.",
-        "A short welcome the first time the Launcher opens: choose where apps are installed and whether updates install by themselves.",
-        "CJ Philip Community is marked as an optional download."
+        "A short welcome the first time the Launcher opens: choose where apps are installed and whether updates install by themselves."
       ]
     },
     {
@@ -918,13 +917,6 @@
       "date": "2026-11-13",
       "notes": [
         "Settings and the saved catalogue are read more carefully, and an unrecoverable error now shows a message with a saved report."
-      ]
-    },
-    {
-      "version": "0.16.1",
-      "date": "2026-11-13",
-      "notes": [
-        "CJ Radio is no longer listed here: it's installed, updated and opened from CJ Philip Community, which NorthRay Launcher still installs."
       ]
     },
     {
@@ -994,7 +986,6 @@
       "version": "0.7.0",
       "date": "2026-11-13",
       "notes": [
-        "Maintenance release: CJ Philip Community now opens NorthRay Launcher to get or update CJ apps.",
         "No scroll bars: the faint bar that showed while scrolling is gone too."
       ]
     },
@@ -1018,11 +1009,11 @@
       "version": "0.4.0",
       "date": "2026-11-13",
       "notes": [
-        "NorthRay Launcher replaces the CJ Community launcher as the central app manager.",
+        "NorthRay Launcher becomes the central app manager.",
         "Downloads apps over HTTPS with a progress bar, checks each installer's size and SHA-256, then installs it silently.",
         "Update detection, Update all, and optional automatic updates (off by default).",
         "Choose where new apps are installed; apps installed elsewhere are still found.",
-        "Takes over installs from the older CJ Community setup."
+        "Takes over installs from the older setup."
       ]
     }
   ]

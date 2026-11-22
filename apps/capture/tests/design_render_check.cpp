@@ -26,8 +26,8 @@ int wmain(int argc, wchar_t** argv) {
         WideCharToMultiByte(CP_UTF8, 0, argv[2], -1, pic.data(), n, nullptr, nullptr);
         pic.resize(pic.size() - 1);
     }
-    video::Placeholders v = {{"name", "CJ Philip"},
-                             {"twitch", "twitch.tv/cjphilip"},
+    video::Placeholders v = {{"name", "Night Owl"},
+                             {"twitch", "twitch.tv/nightowl"},
                              {"book", "The Envoy of Telvana"},
                              {"series", "Book One of The Alvora Chronicles"},
                              {"chapter", "Chapter 12: Ashes and Embers"},

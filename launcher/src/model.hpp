@@ -64,7 +64,7 @@ struct ReleaseNote {
 struct Release {
     std::string id;
     std::string version;
-    std::string file;                // CJRadio-Setup-0.4.0.exe
+    std::string file;                // WritingStudio-Setup-0.59.0.exe
     std::string url;                 // absolute https:// (or http://localhost for testing)
     unsigned long long size = 0;
     std::string sha256;
@@ -97,13 +97,6 @@ public:
     AppItem* app(const std::string& id);
     std::wstring installDirFor(const std::string& appId) const;
     std::wstring effectiveInstallRoot() const;
-
-    // CJ Philip's apps (CJ Radio, ...) live in CJ Philip Community, which installs,
-    // updates and opens them. Since suite 0.59 NorthRay Launcher leaves out CJ Philip
-    // Community too: it's a separate launcher, downloaded from the NorthRay website,
-    // that updates itself.
-    bool hideCjPhilipApps = false;
-    static bool isCjPhilipApp(const cj::AppEntry& e) { return e.associatedCreator == "CJ Philip" && e.id != "cj-philip-community"; }
 
     std::vector<AppItem> apps;
     std::optional<Release> launcherRelease;   // NorthRay Launcher itself, if the catalogue lists a newer one

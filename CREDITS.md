@@ -2,15 +2,12 @@
 
 **Developed by the NorthRay Software project.** (The name is set in one place, `shared/metadata/brand/identity.json`, and can change before release.)
 
-CJ Philip Community brings together creative applications for writing, publishing and broadcasting. It has a creative association with author and broadcaster CJ Philip, while the software is presented under its own development identity, NorthRay Software. CJ Radio features The CJ Philip Show.
-
-NorthRay Software is a project identity, not a company or a team: credits never list invented people, staff or history. CJ Philip's books, games, characters, worlds and branding remain his own.
+NorthRay Software is a project identity, not a company or a team: credits never list invented people, staff or history.
 
 ## Third-party software
 
 - JSON for Modern C++ by Niels Lohmann, MIT licence (`libs/third_party/nlohmann/LICENSE.MIT`)
-- miniaudio by David Reid, public domain or MIT No Attribution (`libs/third_party/miniaudio/LICENSE`)
-- Microsoft Edge WebView2 SDK 1.0.961.33 (WebView2Loader.dll and interface definitions), Microsoft Corporation, BSD 3-Clause (`apps/cj-radio/licenses/WebView2-LICENSE.txt`). Twitch's player and embed script are loaded from Twitch at run time and are Twitch's.
+- Microsoft Edge WebView2 SDK 1.0.961.33 (WebView2Loader.dll and interface definitions), Microsoft Corporation, BSD 3-Clause (`apps/studio/licenses/WebView2-LICENSE.txt`).
 - SQLite 3.54.1, public domain (`libs/third_party/sqlite3`), used by the Writing & Publishing Studio
 - NSIS (installers), zlib licence; the installers include NSIS's own runtime code
 - Astro (website build), MIT licence
@@ -27,7 +24,7 @@ NorthRay Software is a project identity, not a company or a team: credits never 
 - **miniz** (MIT): reading EPUB (ZIP) files. `libs/third_party/miniz/LICENSE`.
 - **QR Code generator library** by Project Nayuki (MIT): QR codes in NorthRay Capture's overlay designs. `libs/third_party/qrcodegen/LICENSE`.
 - **PDFium** (BSD-3-Clause / Apache-2.0) and the libraries it bundles: PDF import. Windows build from bblanchon/pdfium-binaries. `apps/studio/licenses/PDFium/`.
-- **Microsoft Edge WebView2** loader (BSD-style licence from Microsoft): hosts the editor, as in CJ Radio. `apps/studio/licenses/WebView2-LICENSE.txt`.
+- **Microsoft Edge WebView2** loader (BSD-style licence from Microsoft): hosts the editor. `apps/studio/licenses/WebView2-LICENSE.txt`.
 
 ## Writing Studio typesetting (0.9.0)
 

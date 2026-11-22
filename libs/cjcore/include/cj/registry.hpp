@@ -1,6 +1,6 @@
 // Application registry and community data.
 //
-// Every application CJ Community knows about is described by one JSON file in
+// Every application NorthRay knows about is described by one JSON file in
 // shared/metadata/apps/. The launcher reads that folder at start-up, and the
 // website reads the same files at build time, so adding an app never needs a
 // launcher code change and the two listings can't drift apart.
@@ -18,7 +18,7 @@ enum class AppStatus { InDevelopment, Preview, Available, Retired };
 
 struct AppEntry {
     int schema = 1;
-    std::string id;           // stable, lowercase, e.g. "cj-radio"
+    std::string id;           // stable, lowercase, e.g. "writing-studio"
     std::string name;
     std::string tagline;
     std::string description;

@@ -1,6 +1,5 @@
 // NorthRay Launcher: a general-purpose app manager for NorthRay Software.
-// Find apps, install, update, open and uninstall them. Community features
-// live in the separate, optional CJ Philip Community app.
+// Find apps, install, update, open and uninstall them.
 #pragma once
 
 #include "cjui/format.hpp"

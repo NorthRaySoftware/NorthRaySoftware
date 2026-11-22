@@ -1,42 +1,39 @@
-# CJ Philip Community
+# NorthRay Software
 
-Creative applications for writing, publishing and broadcasting, **developed by the NorthRay Software project**. The platform has a creative association with author and broadcaster CJ Philip, while the software is presented under its own development identity (`shared/metadata/brand/identity.json`).
+Creative applications for writing, publishing, streaming and recording, **developed by the NorthRay Software project** (`shared/metadata/brand/identity.json`).
 
-Don't add invented developers, staff, partnerships or company history anywhere, and don't present the apps as personally made by CJ Philip. Where a legal notice, privacy policy or licence needs the real owner or operator, state it accurately; that's a decision for the project director, not something to fill in with a placeholder. At launch there are no subscriptions, paid tiers, adverts, mandatory accounts or upgrade prompts, and nothing claims the apps are free forever or nonprofit.
+Don't add invented developers, staff, partnerships or company history anywhere. Where a legal notice, privacy policy or licence needs the real owner or operator, state it accurately; that's a decision for the project director, not something to fill in with a placeholder. At launch there are no subscriptions, paid tiers, adverts, mandatory accounts or upgrade prompts, and nothing claims the apps are free forever or nonprofit.
 
-**Products (0.4.0 preview), all published by NorthRay Software:**
+**Products, all published by NorthRay Software:**
 - **NorthRay Launcher** (`launcher/`): installs, updates, opens and uninstalls the apps.
-- **NorthRay Writing Studio** (`apps/studio`): writing and publishing for authors. Milestone 1 (the Author Library: worlds, series and books) is built; see `docs/studio/`.
-- **CJ Radio** (`apps/cj-radio`): CJ Philip's own radio app: The CJ Philip Show, live and usually on Saturdays. Other creators can ask for their own. See `docs/CJ-RADIO-SETUP.md`.
-- **CJ Philip Community** (`apps/community`): an optional launcher for the CJ Philip apps (CJ Radio today). It shows what's installed, running or has an update, opens them, and hands getting or updating them to NorthRay Launcher.
+- **NorthRay Writing Studio** (`apps/studio`): writing and publishing for authors; see `docs/studio/`.
+- **NorthRay Browser** (`apps/browser`), **NorthRay Files** (`apps/files`) and **NorthRay Capture** (`apps/capture`), each with its own docs folder.
 
-See `docs/MIGRATION-NORTHRAY.md` for how the old CJ Community launcher became NorthRay Launcher plus CJ Philip Community.
-
-SkillSwap is postponed. Its code is kept (`apps/skillswap`, off by default) but it isn't part of the launch; see `shared/metadata/postponed/`.
+SkillSwap is postponed. Its core is kept (off by default) but it isn't part of the launch; see `shared/metadata/postponed/`.
 
 ## Layout
 
 ```
 launcher/        NorthRay Launcher (C++20, Win32 + Direct2D)
-apps/community/  CJ Philip Community (optional)
-apps/cj-radio/   CJ Radio: live listening, schedule, recordings, presenter page
-apps/studio/     Writing & Publishing Studio (Windows app)
-apps/skillswap/  SkillSwap (postponed, not built by default)
-libs/cjcore/     Portable core: app registry, radio schedule and live-status rules, UK time
+apps/studio/     Writing Studio (Windows app)
+apps/browser/    NorthRay Browser
+apps/files/      NorthRay Files
+apps/capture/    NorthRay Capture
+libs/cjcore/     Portable core: app registry, UK time, media library
 libs/studiocore/ Portable Studio core: library format (SQLite), worlds, series, books, backups
-libs/cjui/       Shared Windows UI: drawing, window base, controls, HTTP, station monitor, package installer
-libs/third_party/ Vendored libraries (nlohmann/json)
-shared/metadata/ App registry, brand tokens, real and demonstration content
+libs/cjui/       Shared Windows UI: drawing, window base, controls, HTTP, package installer
+libs/third_party/ Vendored libraries
+shared/metadata/ App registry, brand tokens, release notes, demonstration content
 website/         Public website (Astro, static output)
-tools/           Metadata validation, brand sync, build helpers
-tests/           Unit tests for cjcore
+tools/           Metadata validation, build helpers
+tests/           Unit tests
 docs/            Architecture and design notes
-VERSION          Single version number for every component
+VERSION          The suite's version number
 ```
 
 ## Running the launcher
 
-Install with the setup programs in `build/installers/` (made by `tools/make-installers.sh`): CJ Philip Community, CJ Radio and the Writing & Publishing Studio each install on their own, and the launcher finds the others.
+Install with the setup programs in `build/installers/` (made by `tools/make-installers.sh`): each app installs on its own, and the launcher finds the others.
 
 ## Building
 
@@ -80,12 +77,12 @@ node tools/validate-metadata.mjs
 
 ## Adding an application
 
-Add a JSON file to `shared/metadata/apps/` (copy an existing one) and run the validator. To make it installable, build its executable and package it with `cmake/make-package.cmake` (see `apps/cj-radio/CMakeLists.txt`). Installed apps live in `%LOCALAPPDATA%\NorthRay\Apps\<app-id>\` by default, and register `NorthRay.<app-id>` in Windows' installed-apps list.
+Add a JSON file to `shared/metadata/apps/` (copy an existing one) and run the validator. To make it installable, build its executable and package it with `cmake/make-package.cmake` (see `apps/studio/CMakeLists.txt`). Installed apps live in `%LOCALAPPDATA%\NorthRay\Apps\<app-id>\` by default, and register `NorthRay.<app-id>` in Windows' installed-apps list.
 
 ## Installers and website
 
 ```
-tools/build-windows.sh       # build the three apps
+tools/build-windows.sh       # build the apps
 tools/make-installers.sh     # NSIS installers + releases.json, copied into the website
 cd website && npm run build  # static site with a download page, output in website/dist
 ```
