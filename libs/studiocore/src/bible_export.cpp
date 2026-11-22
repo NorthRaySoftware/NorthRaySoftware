@@ -4,6 +4,8 @@
 #include "studio/family_tree.hpp"
 
 #include "studio/document.hpp"
+#include "studio/entry_paste.hpp"
+#include "studio/planning.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
@@ -122,6 +124,58 @@ std::vector<std::pair<std::string, std::string>> detailLines(const std::string& 
         while (!v.empty() && v.front() == ' ') v.erase(0, 1);
         out.push_back({line.substr(0, colon), v});
     }
+    return out;
+}
+
+// An entry's image boards (0.60): the app keeps them with the world (or the book), each marked with its entry.
+struct BoardPictures {
+    std::string name;
+    std::vector<std::pair<std::string, std::string>> pictures;   // blob, caption
+};
+std::vector<BoardPictures> boardsOf(const Library& lib, const Options& o, const Id& entry) {
+    std::vector<BoardPictures> out;
+    const std::string k = !o.worldId.empty() ? "boards:world:" + o.worldId : "boards:book:" + o.bookId;
+    const nlohmann::json j = nlohmann::json::parse(lib.setting(k), nullptr, false);
+    if (!j.is_object() || !j.contains("boards") || !j["boards"].is_array()) return out;
+    for (const auto& bd : j["boards"]) {
+        if (!bd.is_object() || bd.value("entry", "") != entry) continue;
+        BoardPictures b{bd.value("name", "Board"), {}};
+        if (bd.contains("items") && bd["items"].is_array())
+            for (const auto& it : bd["items"])
+                if (it.is_object() && !it.value("blob", "").empty()) b.pictures.push_back({it.value("blob", ""), it.value("caption", "")});
+        if (!b.pictures.empty()) out.push_back(std::move(b));
+    }
+    return out;
+}
+
+// Where it's in the cast (0.60): each book's chapters and scenes it's set to be in, in reading order.
+std::vector<std::pair<const Book*, std::vector<std::string>>> appearsIn(const Library& lib, const std::vector<Id>& books, const Id& entry) {
+    std::vector<std::pair<const Book*, std::vector<std::string>>> out;
+    for (const Id& bk : books) {
+        const Book* book = lib.book(bk);
+        if (!book) continue;
+        const auto cast = plan::nodeCast(lib, bk);
+        if (cast.empty()) continue;
+        std::vector<std::string> where;
+        for (const ManuscriptNode* n : lib.manuscriptOf(bk)) {
+            auto it = cast.find(n->id);
+            if (it == cast.end() || std::find(it->second.begin(), it->second.end(), entry) == it->second.end()) continue;
+            where.push_back(n->title.empty() ? std::string(n->kind == NodeKind::Scene ? "A scene" : "A chapter") : n->title);
+        }
+        if (!where.empty()) out.push_back({book, std::move(where)});
+    }
+    return out;
+}
+
+// The main picture's caption, when it has one in the gallery.
+std::string mainCaption(const Entry& e) {
+    for (auto& g : e.gallery) if (g.blob == e.imageBlob) return g.caption;
+    return {};
+}
+
+std::string joined(const std::vector<std::string>& v) {
+    std::string out;
+    for (auto& x : v) out += (out.empty() ? "" : ", ") + x;
     return out;
 }
 
@@ -512,7 +566,7 @@ td:first-child{color:var(--muted);width:40%;padding-right:10px}
 tr:last-child td{border-bottom:0}
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .gallery figure{margin:0}.gallery img{width:100%;height:200px;object-fit:cover;border-radius:10px;display:block}
-figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+figcaption{font-size:13px;color:var(--muted);margin-top:4px}.portcap{font-size:13px;color:var(--muted);margin:-6px 0 12px}.appears{padding-left:20px}
 .map{position:relative;display:inline-block;max-width:100%}.map img{max-width:100%;display:block;border-radius:12px}
 .pin{position:absolute;transform:translate(-8px,-8px);display:flex;align-items:center;gap:6px;font-size:13px;text-decoration:none;color:var(--ink)}
 .pin i{width:16px;height:16px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px #0006;display:block}
@@ -743,6 +797,19 @@ struct Site {
                 if (note.empty() || !book) continue;
                 main += "<h2>In <em>" + esc(book->title) + "</em></h2>" + prose(note, shown, e.id);
             }
+        if (!view.options().readersGuide)   // notes for books not written yet (0.60)
+            for (auto& [label, note] : paste::laterBookNotes(e))
+                main += "<h2>In <em>" + esc(label) + "</em> <small>(still to come)</small></h2>" + prose(note, shown, e.id);
+        if (!view.options().readersGuide)
+            if (const auto where = appearsIn(lib, booksInOrder(lib, view.options().worldId, view.options().bookId), e.id); !where.empty()) {
+                main += "<h2>Appears in</h2><ul class=\"appears\">";
+                for (auto& [book, nodes] : where) {
+                    std::string list;
+                    for (auto& n : nodes) list += (list.empty() ? "" : ", ") + esc(n);
+                    main += "<li><em>" + esc(book->title) + "</em>: " + list + "</li>";
+                }
+                main += "</ul>";
+            }
         if (!e.mapBlob.empty())
             if (const std::string img = picture(e.mapBlob); !img.empty()) {
                 main += "<h2>Map</h2><div class=\"map\"><img src=\"" + img + "\" alt=\"Map of " + esc(e.name) + "\">";
@@ -761,10 +828,21 @@ struct Site {
                     gal += "<figure><img src=\"" + img + "\" alt=\"" + esc(g.caption.empty() ? e.name : g.caption) + "\" loading=\"lazy\">" +
                            (g.caption.empty() ? "" : "<figcaption>" + esc(g.caption) + "</figcaption>") + "</figure>";
         if (!gal.empty()) main += "<h2>Gallery</h2><div class=\"gallery\">" + gal + "</div>";
+        for (auto& b : boardsOf(lib, view.options(), e.id)) {   // its image boards (0.60)
+            std::string pics;
+            for (auto& [blob, cap] : b.pictures)
+                if (const std::string img = picture(blob); !img.empty())
+                    pics += "<figure><img src=\"" + img + "\" alt=\"" + esc(cap.empty() ? b.name : cap) + "\" loading=\"lazy\">" +
+                            (cap.empty() ? "" : "<figcaption>" + esc(cap) + "</figcaption>") + "</figure>";
+            if (!pics.empty()) main += "<h2>" + esc(b.name) + "</h2><div class=\"gallery\">" + pics + "</div>";
+        }
         if (!view.options().readersGuide && !e.notes.empty()) main += "<h2>Notes</h2>" + prose(e.notes, shown, e.id);
 
         // The box at the side: picture, details, family, relationships.
-        if (const std::string img = picture(e.imageBlob); !img.empty()) aside += "<img class=\"portrait\" src=\"" + img + "\" alt=\"" + esc(e.name) + "\">";
+        if (const std::string img = picture(e.imageBlob); !img.empty()) {
+            aside += "<img class=\"portrait\" src=\"" + img + "\" alt=\"" + esc(e.name) + "\">";
+            if (const std::string cap = mainCaption(e); !cap.empty()) aside += "<div class=\"portcap\">" + esc(cap) + "</div>";
+        }
         aside += "<div class=\"box\"><h3>" + esc(e.name) + "</h3>";
         std::string rows;
         for (auto& [label, value] : detailLines(e.details)) {
@@ -1143,7 +1221,7 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
         s.sections.push_back(part);
         for (const Entry* e : list) {
             doc::Builder d;
-            if (addPicture(e->imageBlob)) d.image(e->imageBlob, e->name);
+            if (addPicture(e->imageBlob)) d.image(e->imageBlob, e->name, mainCaption(*e));
             auto para = [&](const std::string& text, const std::string& style = "first") {
                 d.paragraph(style);
                 d.text(text);
@@ -1214,6 +1292,24 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                     bool first = true;
                     for (auto& p : paragraphs(note)) { para(p, first ? "first" : "body"); first = false; }
                 }
+                for (auto& [label, note] : paste::laterBookNotes(*e)) {   // books not written yet (0.60)
+                    d.heading(2);
+                    d.text("In " + label + " (still to come)");
+                    d.endBlock();
+                    bool first = true;
+                    for (auto& p : paragraphs(note)) { para(p, first ? "first" : "body"); first = false; }
+                }
+                if (const auto where = appearsIn(lib, booksInOrder(lib, options.worldId, options.bookId), e->id); !where.empty()) {
+                    d.heading(2);
+                    d.text("Appears in");
+                    d.endBlock();
+                    for (auto& [book, nodes] : where) {
+                        d.paragraph("first");
+                        d.text(book->title + ": ", doc::Builder::Em);
+                        d.text(joined(nodes));
+                        d.endBlock();
+                    }
+                }
                 if (!e->notes.empty()) {
                     d.heading(2);
                     d.text("Notes");
@@ -1222,8 +1318,25 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                     for (auto& p : paragraphs(e->notes)) { para(p, first ? "first" : "body"); first = false; }
                 }
             }
-            if (!e->mapBlob.empty() && addPicture(e->mapBlob)) d.image(e->mapBlob, "Map of " + e->name, "Map of " + e->name);
+            if (!e->mapBlob.empty() && addPicture(e->mapBlob)) {
+                d.image(e->mapBlob, "Map of " + e->name, "Map of " + e->name);
+                std::vector<std::string> pinned;   // what's marked on it (0.60)
+                for (auto& p : e->pins) if (const Entry* o = lib.entry(p.entry); o && view.shows(p.entry)) pinned.push_back(o->name);
+                if (!pinned.empty()) {
+                    d.paragraph("centered");
+                    d.text("On the map: " + joined(pinned), doc::Builder::Em);
+                    d.endBlock();
+                }
+            }
             for (auto& g : e->gallery) if (g.blob != e->imageBlob && addPicture(g.blob)) d.image(g.blob, g.caption.empty() ? e->name : g.caption, g.caption);
+            for (auto& b : boardsOf(lib, options, e->id)) {   // its image boards (0.60)
+                bool any = false;
+                for (auto& [blob, cap] : b.pictures) {
+                    if (!addPicture(blob)) continue;
+                    if (!any) { d.heading(2); d.text(b.name); d.endBlock(); any = true; }
+                    d.image(blob, cap.empty() ? b.name : cap, cap);
+                }
+            }
             if (d.empty()) para(entryKindLabel(e->kind));
             typeset::Source::Section ch;
             ch.kind = NodeKind::Chapter;

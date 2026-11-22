@@ -3643,6 +3643,34 @@ static void testSexualityFromSeries() {
     // The blank page offers both, and the sexuality line.
     const std::string blank = pa::blankPage("character", {}, {});
     CHECK(blank.find("Sexuality:") != std::string::npos && blank.find("From:") != std::string::npos && blank.find("Lives in:") != std::string::npos);
+    // The bible holds everything (0.60): a later book's note, where it's in the cast, its boards, what's on a map.
+    {
+        Entry u = *lib->entry(tom);
+        u.setBookNote("title:Book 9", "Tom grows old.");
+        lib->updateEntry(u);
+        const Id ch = lib->createNode(a2, {}, NodeKind::Chapter, "The Forge");
+        CHECK(studio::plan::setNodeCast(*lib, a2, ch, {tom}));
+        CHECK(lib->setSetting("boards:world:" + world, R"({"boards":[{"id":"b1","name":"Tom's armour","entry":")" + tom +
+                                                           R"(","items":[{"id":"i1","blob":"nothere","caption":"Plate"}]}]})"));
+        namespace bible = studio::bible;
+        const auto src = bible::printableSource(*lib, bible::Options{world, {}, false, {}}, "Bible", "A. Writer");
+        std::string page;
+        for (auto& sec : src.sections) if (sec.title == "Tom") page = sec.content;
+        CHECK(page.find("Book 9 (still to come)") != std::string::npos && page.find("Tom grows old.") != std::string::npos);
+        CHECK(page.find("Appears in") != std::string::npos && page.find("The Forge") != std::string::npos);
+        const std::string site = dir + "/site060";
+        std::string err;
+        CHECK(bible::exportWebsite(*lib, bible::Options{world, {}, false, {}}, site, err));
+        std::string html;
+        for (auto& f : std::filesystem::directory_iterator(site))
+            if (f.path().filename().string().rfind("e-", 0) == 0) {
+                std::ifstream in(f.path());
+                const std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                if (t.find("<h1>Tom</h1>") != std::string::npos) html = t;
+            }
+        CHECK(html.find("Book 9") != std::string::npos && html.find("Appears in") != std::string::npos && html.find("The Forge") != std::string::npos);
+        CHECK(html.find("Sexuality") != std::string::npos && html.find("Bisexual") != std::string::npos);
+    }
 }
 
 int main() {
