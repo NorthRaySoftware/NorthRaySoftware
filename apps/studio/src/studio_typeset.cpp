@@ -181,8 +181,10 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     y += 24;
     for (const auto& p : ts::presets()) {
         const std::string id = std::string("side:ts:preset:") + p.id;
-        const float th = gfx_.measureHeight(w(p.description), cw - 12, Font::Small);
-        const Rect rr{x, y, wd, th + 34};
+        // Only the chosen design says what it is (0.67): the rest are a list of names.
+        const bool open = ts_.presetId == p.id;
+        const float th = open ? gfx_.measureHeight(w(p.description), cw - 12, Font::Small) : 0;
+        const Rect rr{x, y, wd, open ? th + 34 : 32};
         addHit(id, rr, [this, pid = std::string(p.id)] {
             const std::string trim = ts_.design.trim;
             ts_.design = ts::preset(pid).design;
@@ -195,7 +197,8 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
         if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(w(p.label), {tx0, rr.y + 7, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false});
-        gfx_.text(w(p.description), {tx0, rr.y + 27, cw - 6, th + 4}, Font::Small, pal_.inkMuted);
+        if (open) gfx_.text(w(p.description), {tx0, rr.y + 27, cw - 6, th + 4}, Font::Small, pal_.inkMuted);
+        else tooltip(id, w(p.description));
         if (focused(id)) focusRing(rr);
         y += rr.h + 4;
     }
@@ -214,7 +217,7 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     {
         label(L"Trim size");
         const Rect tb{tx0, y, cw, 30};
-        button("side:ts:trim", tb, w(trimSize(ts_.design.trim.empty() ? b->trim : ts_.design.trim).label), [this] {
+        chooserBox("side:ts:trim", tb, w(trimSize(ts_.design.trim.empty() ? b->trim : ts_.design.trim).label), [this] {
             HMENU m = CreatePopupMenu();
             const auto& sizes = trimSizes();
             const studio::Book* bk = lib_->book(ts_.book);
@@ -234,7 +237,6 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                 designChanged();
             }
         });
-        gfx_.fillTriangle(tb.right() - 20, tb.y + 13, tb.right() - 10, tb.y + 13, tb.right() - 15, tb.y + 18, pal_.inkMuted);
         y += 42;
     }
     // Font.
@@ -246,7 +248,7 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
             std::wstring cur = w(ts_.design.font);
             for (auto& f : fams) if (f.id == ts_.design.font) cur = w(f.name);
             const Rect tb{tx0, y, cw, 30};
-            button("side:ts:font", tb, cur, [this, fams, changed] {
+            chooserBox("side:ts:font", tb, cur, [this, fams, changed] {
                 HMENU m = CreatePopupMenu();
                 const auto own = studio::fonts::familiesIn(studio::fonts::folders(typesetResources(ts_.book).fontsFolder).size() > 1
                                                                ? studio::fonts::folders(typesetResources(ts_.book).fontsFolder)[1]
@@ -263,7 +265,6 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                 ts_.design.font = fams[(size_t)cmd - 1].id;
                 changed();
             });
-            gfx_.fillTriangle(tb.right() - 20, tb.y + 13, tb.right() - 10, tb.y + 13, tb.right() - 15, tb.y + 18, pal_.inkMuted);
             y += 42;
         }
     }
@@ -438,8 +439,15 @@ void StudioApp::drawTypesetPages(const Rect& r) {
             return f.empty() ? std::to_wstring(i) : w(f);
         };
         std::wstring where = a == z ? L"Page " + label(a) : L"Pages " + label(a) + L"–" + label(z);
-        where += L"  (" + std::to_wstring(a) + L" of " + std::to_wstring(n) + L")";
-        const float cx = bar.x + bar.w / 2;
+        // Where you are sits between the view switch on the left and the guides and zoom on the right (0.67), losing
+        // the "(1 of 7)" when the bar is too narrow for it, so nothing overlaps.
+        const std::wstring g = L"Guides";
+        const float gw = gfx_.measureWidth(g, Font::Small) + 30;
+        const float zx = bar.right() - 16 - 196;
+        const float leftEnd = bar.x + 16 + 150 + 8, rightStart = zx - gw - 12 - 8;
+        const std::wstring full = where + L"  (" + std::to_wstring(a) + L" of " + std::to_wstring(n) + L")";
+        if (gfx_.measureWidth(full, Font::SmallStrong) + 24 + 88 <= rightStart - leftEnd) where = full;
+        const float cx = (leftEnd + rightStart) / 2;
         const float tw = gfx_.measureWidth(where, Font::SmallStrong) + 24;
         gfx_.text(where, {cx - tw / 2, bar.y, tw, bar.h}, Font::SmallStrong, pal_.ink, {Align::Center, false, false, true});
         const bool atStart = ts_.single ? ts_.page <= 0 : ts_.spread <= 0;
@@ -452,14 +460,11 @@ void StudioApp::drawTypesetPages(const Rect& r) {
             ts_.single = i == 1;
             showPage(keepPage);
         });
-        const float zx = bar.right() - 16 - 196;
         segmented("ts:zoom", {zx, bar.y + 9, 196, 28}, {L"Fit", L"Actual", L"200%"}, ts_.zoom, [this](int i) {
             ts_.zoom = i;
             ts_.panX = ts_.panY = 0;
             invalidate();
         });
-        const std::wstring g = L"Guides";
-        const float gw = gfx_.measureWidth(g, Font::Small) + 30;
         const Rect gb{zx - gw - 12, bar.y + 9, gw, 28};
         const std::string gid = "ts:guides";
         addHit(gid, gb, [this] { ts_.guides = !ts_.guides; invalidate(); });

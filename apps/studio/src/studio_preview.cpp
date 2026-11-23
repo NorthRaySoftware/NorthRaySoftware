@@ -253,16 +253,11 @@ void StudioApp::drawPreviewPanel(const Rect& r) {
         button("pv:prev", {c.x, y, bw, 32}, L"‹ Back", [this] { preview_.send(R"({"type":"turn","delta":-1})"); });
         button("pv:next", {c.x + bw + 10, y, bw, 32}, L"Next ›", [this] { preview_.send(R"({"type":"turn","delta":1})"); }, true);
         y += 44;
-        y += gfx_.text(L"Or click the right of the screen to turn the page, the left to go back. The arrow keys work too.",
-                       {c.x, y, c.w, 60}, Font::Small, pal_.inkFaint) + 10;
+        y += gfx_.text(L"Or click either side of the screen, or use the arrow keys.", {c.x, y, c.w, 60}, Font::Small, pal_.inkFaint) + 10;
     }
     panelHeading(c, y, L"ABOUT EBOOKS", false);
-    y += gfx_.text(L"Ebooks reflow: each reader chooses the text size, font and page colour, so where pages begin and end changes "
-                   L"from device to device. The trim size, margins and page numbers from Typesetting only apply to print.",
+    y += gfx_.text(L"Ebooks reflow to each reader's settings, so pages break differently on every device.",
                    {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 10;
-    y += gfx_.text(L"This is an approximation of common reading apps; real devices differ a little. The EPUB itself is made in "
-                   L"Publishing.",
-                   {c.x, y, c.w, 80}, Font::Small, pal_.inkFaint) + 10;
     panelHeading(c, y, L"THIS BOOK", false);
     auto row = [&](const std::wstring& k, const std::wstring& v) {
         gfx_.text(k, {c.x, y, c.w * 0.5f, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});

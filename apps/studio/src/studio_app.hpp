@@ -499,6 +499,7 @@ private:
     float pageBook(const Rect& r);
     float pageEmpty(const Rect& r);
     Id fallbackBook() const;
+    bool chooserBox(const std::string& id, const cjui::Rect& b, const std::wstring& value, std::function<void()> act);
     float viewSwitch(const std::string& id, float left, float x, float y, float right);
     void quietEdit(const std::string& id, const Rect& section, float x, float y, const std::wstring& label, std::function<void()> act);
     float emptyState(const Rect& area, cjui::Icon icon, const std::wstring& line, const std::wstring& label, std::function<void()> act);

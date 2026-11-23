@@ -215,13 +215,7 @@ void StudioApp::drawShare(const Rect& r) {
     auto chooser = [&](const std::string& id, const std::wstring& lbl, const std::wstring& value, std::function<void()> act) {
         gfx_.text(lbl, {col.x, y, 150, 32}, Font::Body, pal_.inkMuted, {Align::Left, false, true, true});
         const Rect b{col.x + 150, y, std::min(360.0f, col.w - 150), 32};
-        addHit(id, b, std::move(act));
-        const float hv = hoverAmount(id);
-        gfx_.fillRounded(b, 4, pal_.surface.mix(pal_.sunken, 0.4f * hv));
-        gfx_.strokeRounded(b, 4, pal_.rule.mix(pal_.ribbon, hv));
-        gfx_.text(value, {b.x + 12, b.y, b.w - 36, b.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
-        gfx_.fillTriangle(b.right() - 20, b.y + 13, b.right() - 10, b.y + 13, b.right() - 15, b.y + 19, pal_.inkFaint);
-        if (focused(id)) focusRing(b);
+        chooserBox(id, b, value, std::move(act));
         y += 42;
     };
 

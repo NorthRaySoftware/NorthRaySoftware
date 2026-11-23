@@ -699,17 +699,9 @@ void StudioApp::drawPublishPanel(const Rect& r) {
         y += gfx_.text(pb_.lastExport, {c.x, y, c.w, 60}, Font::Small, pal_.ink) + 14;
     }
     panelHeading(c, y, L"EDITIONS AND ISBNS", false);
-    y += gfx_.text(L"Each edition that has an ISBN needs its own: paperback, hardback, large print and ebook. The copyright page "
-                   L"lists them all.",
-                   {c.x, y, c.w, 160}, Font::Small, pal_.inkMuted) + 14;
-    panelHeading(c, y, L"WHERE THE FILES GO", false);
-    y += gfx_.text(L"Print-on-demand services take the print-ready PDF for the inside of the book, and a separate cover PDF made to their "
-                   L"template.\n\nEbook stores take the EPUB. Upload it as it is; the stores convert it for their own readers.",
-                   {c.x, y, c.w, 240}, Font::Small, pal_.inkMuted) + 14;
+    y += gfx_.text(L"Each edition needs its own ISBN; the copyright page lists them all.", {c.x, y, c.w, 160}, Font::Small, pal_.inkMuted) + 14;
     panelHeading(c, y, L"BEFORE YOU UPLOAD", false);
-    y += gfx_.text(L"Order a printed proof, and read the EPUB on a phone or e-reader. Your printer and each store check the files "
-                   L"when you upload them; follow what they report.",
-                   {c.x, y, c.w, 160}, Font::Small, pal_.inkFaint) + 14;
+    y += gfx_.text(L"Order a printed proof, and read the EPUB on a phone or e-reader.", {c.x, y, c.w, 160}, Font::Small, pal_.inkMuted) + 14;
     pb_.panelContent = y + pb_.panelScroll - r.y + 20;
     clearHitClip();
     gfx_.popClip();

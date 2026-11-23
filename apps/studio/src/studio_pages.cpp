@@ -1529,8 +1529,8 @@ float StudioApp::panelField(const Rect& r, float y, const std::wstring& lbl, Fie
     y += 20;
     const Rect box{r.x, y, r.w, h};
     const bool inView = box.y >= panelRect_.y + 40 && box.bottom() <= panelRect_.bottom() - 4;
-    gfx_.fillRounded(box, 3, pal_.surface);
-    gfx_.strokeRounded(box, 3, GetFocus() == fields_[f] ? pal_.ribbon : pal_.rule);
+    gfx_.fillRounded(box, 7, pal_.surface);
+    gfx_.strokeRounded(box, 7, GetFocus() == fields_[f] ? pal_.ribbon : pal_.rule);
     // A field being edited on a corkboard card (0.51) is there, not here.
     if (ws_ == Workspace::Planning && pl_.cardEdit == (int)f)
         gfx_.text(L"Being edited on the card", box.inset(10, 0), Font::Small, pal_.inkFaint, {Align::Left, false, true, h < 40});
@@ -1582,17 +1582,22 @@ void StudioApp::panelChoice(const std::string& id, const Rect& c, float& y, cons
     gfx_.text(lbl, {c.x, y, c.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
     y += 20;
     // A box you drop down, framed like the text fields, its value on the left (0.43).
-    const Rect b{c.x, y, c.w, 30};
+    chooserBox(id, {c.x, y, c.w, 30}, value, std::move(act));
+    y += 42;
+}
+
+// Every drop-down in the Studio (0.67): a field-like box, the value on the left and a drawn chevron on the right.
+bool StudioApp::chooserBox(const std::string& id, const Rect& b, const std::wstring& value, std::function<void()> act) {
     addHit(id, b, std::move(act));
     const float hv = hoverAmount(id);
-    gfx_.fillRounded(b, 3, pal_.surface.mix(pal_.sunken, 0.35f * hv));
-    gfx_.strokeRounded(b, 3, pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+    gfx_.fillRounded(b, 7, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+    gfx_.strokeRounded(b, 7, pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
     gfx_.text(value, {b.x + 10, b.y, b.w - 38, b.h}, Font::Body, pal_.ink, {Align::Left, false, true, true});
     const float cx = b.right() - 15, cy = b.y + b.h / 2;
     gfx_.line(cx - 4, cy - 2, cx, cy + 2, pal_.inkMuted, 1.4f);
     gfx_.line(cx, cy + 2, cx + 4, cy - 2, pal_.inkMuted, 1.4f);
     if (focused(id)) focusRing(b);
-    y += 42;
+    return hovered(id);
 }
 
 void StudioApp::drawPanel(const Rect& r) {
@@ -1724,12 +1729,11 @@ void StudioApp::drawPanel(const Rect& r) {
                 gfx_.text(L"Kind", {c.x + half + 10, y, half, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
                 y += 20;
                 const Rect nb{c.x, y, half, 30};
-                gfx_.fillRounded(nb, 3, pal_.surface);
-                gfx_.strokeRounded(nb, 3, GetFocus() == fields_[FNumber] ? pal_.ribbon : pal_.rule);
+                gfx_.fillRounded(nb, 7, pal_.surface);
+                gfx_.strokeRounded(nb, 7, GetFocus() == fields_[FNumber] ? pal_.ribbon : pal_.rule);
                 if (nb.y >= panelRect_.y + 40 && nb.bottom() <= panelRect_.bottom()) placeField(FNumber, nb);
                 const Rect kb{c.x + half + 10, y, half, 30};
-                button("panel:kind", kb, w(label(m->kind)), [this] { popupKindMenu(); });
-                gfx_.fillTriangle(kb.right() - 20, kb.y + 13, kb.right() - 10, kb.y + 13, kb.right() - 15, kb.y + 18, pal_.inkMuted);
+                chooserBox("panel:kind", kb, w(label(m->kind)), [this] { popupKindMenu(); });
                 y += 38;
                 linkText("panel:leave", c.x, y, L"Remove from this series", [this] {
                     commitFields();

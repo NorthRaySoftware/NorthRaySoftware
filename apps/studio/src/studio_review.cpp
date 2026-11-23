@@ -347,7 +347,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
             gfx_.text(L"Compared with", {m.x + half + 16, y, half, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
             y += 20;
             const Rect nb{m.x, y, half, 30};
-            button("rv:node", nb, nodeName(n), [this, nodes] {
+            chooserBox("rv:node", nb, nodeName(n), [this, nodes] {
                 std::vector<std::wstring> items;
                 int cur = -1;
                 for (size_t i = 0; i < nodes.size(); ++i) {
@@ -362,7 +362,6 @@ void StudioApp::drawReviewPage(const Rect& r) {
                 rv_.diffKey.clear();
                 invalidate();
             });
-            gfx_.fillTriangle(nb.right() - 20, nb.y + 13, nb.right() - 10, nb.y + 13, nb.right() - 15, nb.y + 18, pal_.inkMuted);
             // Versions saved while writing, and snapshots that have this chapter.
             std::vector<std::pair<std::string, std::wstring>> choices;
             for (const Snapshot& s : lib_->snapshotsOf(rv_.book))
@@ -377,7 +376,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
             const Rect ab{m.x + half + 16, y, half, 30};
             if (choices.empty()) disabledButton(ab, againstLabel);
             else {
-                button("rv:against", ab, againstLabel, [this, choices] {
+                chooserBox("rv:against", ab, againstLabel, [this, choices] {
                     std::vector<std::wstring> items;
                     int cur = -1;
                     for (size_t i = 0; i < choices.size(); ++i) {
@@ -390,7 +389,6 @@ void StudioApp::drawReviewPage(const Rect& r) {
                     rv_.diffKey.clear();
                     invalidate();
                 });
-                gfx_.fillTriangle(ab.right() - 20, ab.y + 13, ab.right() - 10, ab.y + 13, ab.right() - 15, ab.y + 18, pal_.inkMuted);
             }
             y += 46;
             std::wstring label;
@@ -799,8 +797,7 @@ void StudioApp::drawReviewPanel(const Rect& r) {
     float y = r.y + 18;
     if (rv_.section == 0) {
         panelHeading(c, y, L"CHANGES", true);
-        y += gfx_.text(L"Words added are shaded; words removed are struck through in red.\n\nRestoring keeps the current text as an "
-                       L"earlier version, so it can be undone.",
+        y += gfx_.text(L"Added words are shaded, removed ones struck through. Restoring keeps today's text as a version.",
                        {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;
     } else if (rv_.section == 1) {
         bool any = false;
@@ -828,24 +825,16 @@ void StudioApp::drawReviewPanel(const Rect& r) {
             }
         if (!any) {
             panelHeading(c, y, L"SNAPSHOTS", true);
-            y += gfx_.text(L"Select a snapshot to see what has changed since, chapter by chapter. Select a chapter there to compare its "
-                           L"text word by word.\n\nSnapshots are kept until you remove them.",
+            y += gfx_.text(L"Select a snapshot to see what has changed since, chapter by chapter.",
                            {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;
         }
     } else if (rv_.section == 2) {
         panelHeading(c, y, L"NAMES", true);
-        y += gfx_.text(L"A name is a word capitalised in the middle of a sentence that's never written in lower case. Names are "
-                       L"compared with every entry's name and other names in the world's bible.\n\nA spelling one or two letters from a "
-                       L"known name is shown first. Names used three times or more that aren't in the bible come next.",
+        y += gfx_.text(L"Likely misspellings of the bible's names come first, then names the bible doesn't have.",
                        {c.x, y, c.w, 300}, Font::Small, pal_.inkMuted) + 14;
     } else if (rv_.section == 4) {
         panelHeading(c, y, L"COMMENTS", true);
-        y += gfx_.text(L"A comment is a note on some words of the text, for you or a reader helping you. Make one in Writing: select the "
-                       L"words, then choose Comment (✎) in the toolbar or press Ctrl+Alt+M.\n\nComments are kept in the library, never in what "
-                       L"you publish. Resolve one once it's dealt with; it's kept and can be reopened.\n\nBeta readers: \u201CMake a review copy\u201D "
-                       L"saves the book as one web page. Your reader opens it in any browser, comments on words or whole chapters, and "
-                       L"sends you back the file it makes. \u201CImport a reader's comments\u201D puts each one on the words it was about, "
-                       L"with the reader's name.",
+        y += gfx_.text(L"Select words in Writing and press Ctrl+Alt+M to comment. Comments never reach what you publish.",
                        {c.x, y, c.w, 400}, Font::Small, pal_.inkMuted) + 14;
     } else {
         panelHeading(c, y, L"YOUR GOAL", true);

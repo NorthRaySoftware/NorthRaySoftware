@@ -391,8 +391,8 @@ float StudioApp::pageField(const Rect& r, float y, const std::wstring& label, Fi
     gfx_.text(label, {r.x, y, r.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
     y += 22;
     const Rect box{r.x, y, r.w, 34};
-    gfx_.fillRounded(box, 3, pal_.surface);
-    gfx_.strokeRounded(box, 3, GetFocus() == fields_[f] ? pal_.ribbon : pal_.rule);
+    gfx_.fillRounded(box, 7, pal_.surface);
+    gfx_.strokeRounded(box, 7, GetFocus() == fields_[f] ? pal_.ribbon : pal_.rule);
     if (box.y >= pageRect_.y && box.bottom() <= pageRect_.bottom()) placeField(f, box);
     return y + 34 + 14;
 }
