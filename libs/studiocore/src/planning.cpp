@@ -1,5 +1,6 @@
 // Writing Studio: structures, plot threads and outlines as plain text. See studio/planning.hpp.
 #include "studio/planning.hpp"
+#include "studio/calendar.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -806,7 +807,13 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             for (auto& s : splitList(v)) it.threads.push_back(s);
         } else if (field(l, {"beat", "beats"}, v)) {
             for (auto& x : splitList(v)) it.beats.push_back(x);
-        } else if (field(l, {"when", "time"}, v)) it.when = v;
+        } else if (field(l, {"when"}, v)) it.when = v;
+        else if (field(l, {"time", "time of day"}, v)) {
+            // A clock time (0.75); anything else is still words for when it happens.
+            bool clock = !v.empty() && std::isdigit((unsigned char)v[0]) && v.find(':') != std::string::npos;
+            if (clock) it.time = v;
+            else it.when = it.when.empty() ? v : it.when + ", " + v;
+        }
         else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
         else if (field(l, {"characters", "characters present", "present", "cast", "who", "who's there", "in it", "creatures"}, v)) {
             for (auto& x : splitList(v)) it.cast.push_back(x);
@@ -838,7 +845,24 @@ std::string outlineText(const Library& lib, const Id& book) {
         }
     const auto places = nodePlaces(lib, book);
     const auto casts = nodeCast(lib, book);
+    // The world's calendar, when the timeline is in its dates (0.75).
+    const cal::Calendar calendar = cal::calendarOfBook(lib, book);
+    const cal::StorySpan span = cal::storySpan(lib, book);
+    const bool inDates = span.on && !calendar.empty();
     std::string out;
+    // What sort of book it is, and its place in each series (0.76).
+    if (const Book* b = lib.book(book)) {
+        if (const auto t = lib.bookType(b->type)) out += "Book type: " + t->name + "\n";
+        for (const Series* sr : lib.seriesOfBook(book))
+            if (const Membership* m = lib.membership(sr->id, book)) {
+                std::string line = "Series: " + sr->name;
+                if (!m->number.empty()) line += ", Book " + m->number;
+                if (m->role == SeriesRole::Between) line += ", set between books";
+                else if (m->role == SeriesRole::During)
+                    if (const Book* host = lib.book(m->during)) line += ", set during " + host->title;
+                out += line + "\n";
+            }
+    }
     if (st) out += "Book structure: " + st->name + "\n";
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
         if (!out.empty()) out += "\n";
@@ -871,15 +895,21 @@ std::string outlineText(const Library& lib, const Id& book) {
             const json& v = tl["nodes"][n->id];
             std::string when;
             if (v.contains("day") && v["day"].is_number()) {
-                char buf[32];
-                std::snprintf(buf, sizeof buf, "%g", v["day"].get<double>());
-                std::string u = unit;
-                u[0] = (char)std::toupper((unsigned char)u[0]);
-                when = u + " " + buf;
+                if (inDates) {
+                    when = cal::formatDate(calendar, cal::fromDay(calendar, span.start + (std::int64_t)std::floor(v["day"].get<double>())));
+                } else {
+                    char buf[32];
+                    std::snprintf(buf, sizeof buf, "%g", v["day"].get<double>());
+                    std::string u = unit;
+                    u[0] = (char)std::toupper((unsigned char)u[0]);
+                    when = u + " " + buf;
+                }
             }
             const std::string words = v.value("when", "");
-            if (!words.empty()) when += (when.empty() ? "" : ", ") + words;
+            if (!words.empty()) when += (when.empty() ? "" : inDates ? "; " : ", ") + words;   // a date may hold a comma
             if (!when.empty()) out += "When: " + when + "\n";
+            if (v.contains("time") && v["time"].is_number_integer() && v["time"].get<int>() >= 0)
+                out += "Time: " + cal::formatTime(calendar, v["time"].get<int>()) + "\n";
         }
         if (!n->synopsis.empty()) out += n->synopsis + "\n";
     }
@@ -935,6 +965,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     };
     Threads th = threadsOf(lib, book);
     json tl = parseObj(lib.setting("timeline:" + book));
+    const cal::Calendar calendar = cal::calendarOfBook(lib, book);   // dates in "When:" lines (0.75)
     if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
     const bool hadUnit = tl.contains("unit");
     // Parts, chapters and scenes already in the book are matched and filled in rather than added again (0.54): by title
@@ -1076,12 +1107,35 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
             auto& v = bs.beats[beat->id];
             if (std::find(v.begin(), v.end(), id) == v.end()) { v.push_back(id); ++out.beats; bsChanged = true; }
         }
-        if (!it.when.empty()) {
-            // "Day 3", "Week 2, the storm", or just words.
+        if (!it.when.empty() || !it.time.empty()) {
+            // "Day 3", "Week 2, the storm", a date in the world's calendar (0.75), or just words.
             json v = json::object();
             std::string rest = it.when;
+            if (!calendar.empty() && !rest.empty()) {
+                // The longest start of it (up to a ";" or the end) that reads as a date.
+                std::vector<size_t> cuts{rest.size()};
+                for (size_t k = 0; k < rest.size(); ++k) if (rest[k] == ';' || rest[k] == ',') cuts.push_back(k);
+                std::sort(cuts.rbegin(), cuts.rend());
+                for (size_t cut : cuts) {
+                    if (const auto d = cal::parseDate(calendar, rest.substr(0, cut))) {
+                        const std::int64_t abs = cal::toDay(calendar, *d);
+                        if (!tl.value("calendar", false)) {
+                            tl["calendar"] = true;
+                            if (!tl.contains("start") || !tl["start"].is_number()) tl["start"] = abs;
+                            tl["unit"] = "day";
+                        }
+                        const std::int64_t start = (std::int64_t)std::floor(tl["start"].get<double>());
+                        v["day"] = (double)(abs - start);
+                        rest = trim(cut < rest.size() ? rest.substr(cut + 1) : std::string());
+                        break;
+                    }
+                }
+            }
+            if (!it.time.empty())
+                if (const auto mins = cal::parseTime(calendar.empty() ? cal::gregorian() : calendar, it.time)) v["time"] = *mins;
             const std::string lw = lower(rest);
             for (const char* u : units) {
+                if (v.contains("day")) break;
                 const std::string un = u;
                 if (lw.rfind(un + " ", 0) != 0) continue;
                 size_t k = un.size() + 1;
@@ -1141,10 +1195,65 @@ std::string structureScope(const Library& lib, const Id& book) {
 }
 
 bool PlanningImport::any() const {
-    return !outline.made.empty() || !outline.updated.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced;
+    return !outline.made.empty() || !outline.updated.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced || bookTypeSet || placements;
 }
 
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out) {
+    // "Book type:" and "Series:" lines (0.76), before the outline starts.
+    for (const std::string& raw : lines(text)) {
+        std::string l = trim(raw);
+        while (!l.empty() && (l[0] == '#' || l[0] == '-' || l[0] == '*' || l[0] == '>')) l = trim(l.substr(1));
+        std::string v;
+        if (field(l, {"part", "chapter", "scene"}, v) || numberedChapter(l)) break;
+        if (field(l, {"book type", "type of book"}, v)) {
+            const std::string want = lower(trim(v));
+            for (const BookType& t : lib.bookTypes())
+                if (lower(t.name) == want || t.id == want || lower(t.name).rfind(want + " ", 0) == 0) {
+                    if (const Book* b = lib.book(book); b && b->type != t.id) {
+                        Book n = *b;
+                        n.type = t.id;
+                        lib.updateBook(n);
+                    }
+                    out.bookTypeSet = true;
+                    break;
+                }
+        } else if (field(l, {"series"}, v)) {
+            // "The Alvora Chronicles, Book 2.5, set during The Envoy of Telvana" (or "set between books").
+            std::vector<std::string> bits = splitList(v);
+            if (bits.empty()) continue;
+            const Book* b = lib.book(book);
+            const Series* sr = nullptr;
+            for (const Series* x : b ? lib.seriesOfBook(book) : std::vector<const Series*>{})
+                if (lower(x->name) == lower(bits[0])) sr = x;
+            if (!sr) {
+                if (b) for (const Series* x : lib.seriesIn(b->worldId)) if (lower(x->name) == lower(bits[0])) sr = x;
+                if (sr && !lib.addBookToSeries(book, sr->id)) sr = nullptr;
+            }
+            if (!sr) { out.unknownSeries.push_back(bits[0]); continue; }
+            const Membership* m = lib.membership(sr->id, book);
+            if (!m) continue;
+            Membership next = *m;
+            SeriesRole role = SeriesRole::Main;
+            Id during;
+            for (size_t i = 1; i < bits.size(); ++i) {
+                const std::string lb = lower(bits[i]);
+                if (lb.rfind("book ", 0) == 0) next.number = trim(bits[i].substr(5));
+                else if (lb.rfind("set between", 0) == 0) role = SeriesRole::Between;
+                else if (lb.rfind("set during ", 0) == 0) {
+                    const std::string title = lower(trim(bits[i].substr(11)));
+                    for (const Book* x : lib.booksInSeries(sr->id)) if (lower(x->title) == title && x->id != book) during = x->id;
+                    if (!during.empty()) role = SeriesRole::During;
+                    else out.unknownSeries.push_back(trim(bits[i].substr(11)));
+                }
+            }
+            lib.setSeriesRole(sr->id, book, role, during);
+            next = *lib.membership(sr->id, book);
+            for (size_t i = 1; i < bits.size(); ++i)
+                if (lower(bits[i]).rfind("book ", 0) == 0) next.number = trim(bits[i].substr(5));
+            lib.updateMembership(next);
+            ++out.placements;
+        }
+    }
     // Split the text: each line goes to the part it belongs to, by the last heading word seen.
     enum Part { Outline, Structures, ThreadsPart } part = Outline;
     std::string outline, structures, threads;
@@ -1154,7 +1263,7 @@ bool importPlanning(Library& lib, const Id& book, const std::string& scope, cons
         std::string v;
         if (field(l, {"structure", "template"}, v)) part = Structures;
         else if (field(l, {"thread", "plot thread", "subplot"}, v)) part = ThreadsPart;
-        else if (field(l, {"part", "chapter", "scene", "book structure", "structure used"}, v)) part = Outline;
+        else if (field(l, {"part", "chapter", "scene", "book structure", "structure used", "book type", "type of book", "series"}, v)) part = Outline;
         else if (part != Outline && raw.size() > 0 && raw[0] == '#' && trim(raw).find(':') == std::string::npos) part = Outline;   // a plain heading
         (part == Structures ? structures : part == ThreadsPart ? threads : outline) += raw + "\n";
     }

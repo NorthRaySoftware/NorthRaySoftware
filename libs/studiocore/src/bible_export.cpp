@@ -6,6 +6,7 @@
 #include "studio/document.hpp"
 #include "studio/entry_paste.hpp"
 #include "studio/planning.hpp"
+#include "studio/calendar.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
@@ -392,6 +393,119 @@ document.querySelectorAll('input.filter').forEach(function(f){var t=document.get
 })();
 )JS";
 
+// ----------------------------------------------------------------- each book's plan (0.76)
+
+struct PlanRow {
+    NodeKind kind = NodeKind::Chapter;
+    std::string number;     // "3", "3.2"
+    std::string title, synopsis, status, viewpoint, place, when;
+    std::vector<std::string> cast, threads, beats;
+};
+struct BookPlan {
+    Id book;
+    std::string title, type, placement;   // placement: "Book 2.5 of The Chronicles, set during One"
+    std::string structure;
+    std::vector<std::pair<std::string, std::string>> beats;      // beat name, the chapters that carry it (and notes)
+    std::vector<std::tuple<std::string, std::string, std::string>> threads;   // name, colour, what it's about
+    std::vector<PlanRow> rows;
+    bool empty() const { return rows.empty(); }
+};
+
+BookPlan planOf(const Library& lib, const Id& book) {
+    using nlohmann::json;
+    BookPlan p;
+    const Book* b = lib.book(book);
+    if (!b) return p;
+    p.book = book;
+    p.title = b->title;
+    if (const auto t = lib.bookType(b->type)) p.type = t->name;
+    for (const Series* sr : lib.seriesOfBook(book))
+        if (const Membership* m = lib.membership(sr->id, book)) {
+            std::string line = (m->number.empty() ? std::string("In ") : "Book " + m->number + " of ") + sr->name;
+            if (m->role == SeriesRole::Between) line += ", set between books";
+            else if (m->role == SeriesRole::During)
+                if (const Book* host = lib.book(m->during)) line += ", set during " + host->title;
+            p.placement += (p.placement.empty() ? "" : "; ") + line;
+        }
+    const plan::Threads th = plan::threadsOf(lib, book);
+    for (const auto& t : th.threads) p.threads.emplace_back(t.name, t.colour, t.about);
+    const plan::BookStructure bs = plan::bookStructure(lib, book);
+    const auto all = plan::allStructures(lib, plan::structureScope(lib, book));
+    const plan::Structure* st = plan::findStructure(all, bs.templateId);
+    std::map<Id, std::vector<std::string>> beatsOf;
+    if (st) {
+        p.structure = st->name;
+        for (const auto& beat : st->beats) {
+            std::string carried;
+            auto it = bs.beats.find(beat.id);
+            if (it != bs.beats.end())
+                for (const Id& n : it->second)
+                    if (const ManuscriptNode* node = lib.node(n); node && !node->deleted) {
+                        carried += (carried.empty() ? "" : ", ") + node->title;
+                        beatsOf[n].push_back(beat.name);
+                    }
+            auto nt = bs.notes.find(beat.id);
+            if (nt != bs.notes.end() && !nt->second.empty()) carried += (carried.empty() ? "" : ". ") + nt->second;
+            p.beats.emplace_back(beat.name, carried);
+        }
+    }
+    const auto places = plan::nodePlaces(lib, book);
+    // When: calendar dates, story days, or words.
+    const cal::Calendar calendar = cal::calendarOfBook(lib, book);
+    const cal::StorySpan span = cal::storySpan(lib, book);
+    const bool inDates = span.on && !calendar.empty();
+    json tl = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    std::string unit = tl.is_object() ? tl.value("unit", "day") : "day";
+    if (unit != "week" && unit != "month" && unit != "year") unit = "day";
+    int chapter = 0, scene = 0;
+    for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
+        PlanRow r;
+        r.kind = n->kind;
+        r.title = n->title;
+        r.synopsis = n->synopsis;
+        if (n->kind == NodeKind::Chapter && n->matter == 0) { ++chapter; scene = 0; r.number = std::to_string(chapter); }
+        else if (n->kind == NodeKind::Scene) { ++scene; r.number = std::to_string(chapter) + "." + std::to_string(scene); }
+        if (n->kind != NodeKind::Part) r.status = label(n->status);
+        if (const Entry* e = n->povId.empty() ? nullptr : lib.entry(n->povId); e && !e->deleted) r.viewpoint = e->name;
+        if (auto pl = places.find(n->id); pl != places.end())
+            if (const Entry* e = lib.entry(pl->second); e && !e->deleted) r.place = e->name;
+        for (const Id& id : plan::castOf(lib, book, n->id))
+            if (const Entry* e = lib.entry(id); e && !e->deleted) r.cast.push_back(e->name);
+        if (auto it = th.nodes.find(n->id); it != th.nodes.end())
+            for (auto& id : it->second) if (const plan::Thread* t = th.find(id)) r.threads.push_back(t->name);
+        if (auto b2 = beatsOf.find(n->id); b2 != beatsOf.end()) r.beats = b2->second;
+        if (tl.is_object() && tl.contains("nodes") && tl["nodes"].is_object() && tl["nodes"].contains(n->id)) {
+            const json& v = tl["nodes"][n->id];
+            if (v.contains("day") && v["day"].is_number()) {
+                if (inDates) r.when = cal::formatDate(calendar, cal::fromDay(calendar, span.start + (std::int64_t)std::floor(v["day"].get<double>())));
+                else {
+                    char buf[32];
+                    std::snprintf(buf, sizeof buf, "%g", v["day"].get<double>());
+                    std::string u = unit;
+                    u[0] = (char)std::toupper((unsigned char)u[0]);
+                    r.when = u + " " + buf;
+                }
+            }
+            if (v.contains("time") && v["time"].is_number_integer() && v["time"].get<int>() >= 0)
+                r.when += (r.when.empty() ? "" : ", ") + cal::formatTime(calendar, v["time"].get<int>());
+            const std::string words = v.value("when", "");
+            if (!words.empty()) r.when += (r.when.empty() ? "" : "; ") + words;
+        }
+        p.rows.push_back(std::move(r));
+    }
+    return p;
+}
+
+std::vector<BookPlan> plansOf(const Library& lib, const Options& options) {
+    std::vector<BookPlan> out;
+    if (!options.plans || options.readersGuide) return out;   // plans hold everything to come: never in a reader's guide
+    for (const Id& b : booksInOrder(lib, options.worldId, options.bookId)) {
+        BookPlan p = planOf(lib, b);
+        if (!p.empty()) out.push_back(std::move(p));
+    }
+    return out;
+}
+
 }  // namespace
 
 const std::vector<Theme>& themes() {
@@ -584,6 +698,13 @@ dl dt{font-weight:600;margin-top:.9em}dl dd{margin:0;color:var(--muted)}
 .lang th{text-align:left;font:700 11px var(--bf);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--rule)}
 .lang td{padding:7px 12px;width:auto}.lang td:first-child{color:var(--ink);font-weight:600;width:auto}
 .lang .ipa{color:var(--muted);font-style:italic}
+.plan{margin:0 0 56px}.plan .meta,p.meta{color:var(--faint);font-size:14px}.plan h3{margin:1.4em 0 .4em}
+.plan table{font-size:14px;background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.plan th{text-align:left;font:700 11px var(--bf);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--rule)}
+.plan td{padding:8px 12px}.plan table.beats td:first-child{width:14em}.plan td p{margin:.3em 0 0}.plan td.num{color:var(--faint);width:3em}.plan tr.scene td:nth-child(2){padding-left:28px}
+.plan tr.part td{font:700 12px var(--bf);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--paper)}
+.plan ul.threads{list-style:none;padding:0}.plan ul.threads li{margin:.35em 0}.plan ul.threads i{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:8px}
+@media (max-width:760px){.plan table{display:block;overflow-x:auto}}
 input.filter{font:15px var(--bf);padding:7px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);margin:6px 0 12px;width:280px;max-width:100%}
 footer{max-width:1120px;margin:0 auto;padding:0 24px 40px;color:var(--faint);font-size:13px}
 .ehead{margin-bottom:18px}
@@ -707,6 +828,7 @@ struct Site {
     std::string folder;
     std::string title;
     std::vector<conlang::Language> langs;
+    std::vector<BookPlan> plans;                     // each book's plan (0.76)
     std::map<std::string, std::string> pictures;   // blob -> "images/<blob>.<ext>" ("" = couldn't)
     std::vector<std::pair<std::string, std::string>> trees;   // family trees (0.45): title -> "images/familytree-<id>.png"
     std::string error;
@@ -741,6 +863,7 @@ struct Site {
         if (view.options().glossary) nav += "<a href=\"glossary.html\"" + std::string(here == "glossary" ? " class=\"on\"" : "") + ">Glossary</a>";
         if (!langs.empty()) nav += "<a href=\"languages.html\"" + std::string(here == "languages" ? " class=\"on\"" : "") + ">Languages</a>";
         if (!trees.empty()) nav += "<a href=\"families.html\"" + std::string(here == "families" ? " class=\"on\"" : "") + ">Family trees</a>";
+        if (!plans.empty()) nav += "<a href=\"plans.html\"" + std::string(here == "plans" ? " class=\"on\"" : "") + ">Plans</a>";
         nav += "</nav>";
         if (look.search) nav += "<div class=\"search\"><input id=\"q\" type=\"search\" placeholder=\"Search\" autocomplete=\"off\" aria-label=\"Search the bible\"><div id=\"qr\" hidden></div></div>";
         nav += "</header>";
@@ -931,8 +1054,9 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
     fs::create_directories(u8path(folder + "/images"), ec);
     if (ec) { error = "Couldn't make the folder: " + ec.message(); return false; }
     const World* world = lib.world(options.worldId);
-    Site site{lib, view, look, folder, look.title.empty() ? view.title() : look.title, {}, {}, {}, {}};
+    Site site{lib, view, look, folder, look.title.empty() ? view.title() : look.title, {}, {}, {}, {}, {}, {}, {}};
     if (options.languages) site.langs = languagesOf(lib, options.worldId, options.worldId.empty() ? options.bookId : Id{});
+    site.plans = plansOf(lib, options);
     // Family trees as pictures (0.45), when the app's fonts are given; not in a reader's guide.
     if (options.family && !options.readersGuide && !options.treeFonts.empty())
         for (const auto& fg : lib.families(options.worldId, options.worldId.empty() ? options.bookId : Id{})) {
@@ -1032,6 +1156,7 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
         if (options.glossary) chips += "<a href=\"glossary.html\">Glossary</a>";
         if (!site.langs.empty()) chips += "<a href=\"languages.html\">Languages <small>" + std::to_string(site.langs.size()) + "</small></a>";
         if (!site.trees.empty()) chips += "<a href=\"families.html\">Family trees <small>" + std::to_string(site.trees.size()) + "</small></a>";
+        if (!site.plans.empty()) chips += "<a href=\"plans.html\">Plans <small>" + std::to_string(site.plans.size()) + "</small></a>";
         home += "<div class=\"chips\">" + chips + "</div>";
         // On the home page, each kind's first few (those with a picture or a summary first); the rest on its own page (0.46).
         const size_t homeCount = 8;
@@ -1178,6 +1303,64 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
                     std::to_string(site.treeInfo[i].second) + "\"></a></div>" + (site.treeInfo[i].second > 1000 ? "<div class=\"treenote\">Wider than the page: move across it, or open the picture on its own.</div>" : "") + "</section>";
         }
         if (!site.write("families.html", site.page("Family trees \xC2\xB7 " + site.title, body, "families"))) { error = site.error; return false; }
+        ++extra;
+    }
+    // Each book's plan (0.76): its place in the series, structure and beats, threads, and the outline with dates.
+    if (!site.plans.empty()) {
+        std::string body = "<h1>Plans</h1><p class=\"meta\">How each book is planned: its outline, when things happen and who's there. "
+                           "Everything to come is here, so keep this one to yourself.</p>";
+        if (site.plans.size() > 1) {
+            body += "<div class=\"chips\">";
+            for (size_t i = 0; i < site.plans.size(); ++i) body += "<a href=\"#plan" + std::to_string(i) + "\">" + esc(site.plans[i].title) + "</a>";
+            body += "</div>";
+        }
+        for (size_t i = 0; i < site.plans.size(); ++i) {
+            const BookPlan& p = site.plans[i];
+            body += "<section class=\"plan\" id=\"plan" + std::to_string(i) + "\"><h2>" + esc(p.title) + "</h2>";
+            std::string meta = p.type;
+            if (!p.placement.empty()) meta += (meta.empty() ? "" : " \xC2\xB7 ") + p.placement;
+            if (!meta.empty()) body += "<div class=\"meta\">" + esc(meta) + "</div>";
+            if (!p.structure.empty()) {
+                body += "<h3>Structure: " + esc(p.structure) + "</h3><table class=\"beats\"><tbody>";
+                for (auto& [name, carried] : p.beats)
+                    body += "<tr><td><strong>" + esc(name) + "</strong></td><td>" +
+                            (carried.empty() ? "<span class=\"meta\">Not placed yet</span>" : esc(carried)) + "</td></tr>";
+                body += "</tbody></table>";
+            }
+            if (!p.threads.empty()) {
+                body += "<h3>Threads</h3><ul class=\"threads\">";
+                for (auto& [name, colour, about] : p.threads)
+                    body += "<li><i style=\"background:" + esc(colour) + "\"></i><strong>" + esc(name) + "</strong>" + (about.empty() ? "" : ": " + esc(about)) + "</li>";
+                body += "</ul>";
+            }
+            body += "<h3>Outline</h3><table class=\"outline\"><thead><tr><th></th><th>Chapter or scene</th><th>When</th><th>Viewpoint</th><th>Where</th>"
+                    "<th>Who's there</th></tr></thead><tbody>";
+            for (const PlanRow& r : p.rows) {
+                if (r.kind == NodeKind::Part) {
+                    body += "<tr class=\"part\"><td colspan=\"6\">" + esc(r.title) + "</td></tr>";
+                    continue;
+                }
+                std::string cast;
+                for (auto& c : r.cast) cast += (cast.empty() ? "" : ", ") + c;
+                std::string extra;
+                if (!r.threads.empty()) {
+                    std::string t;
+                    for (auto& x : r.threads) t += (t.empty() ? "" : ", ") + x;
+                    extra += "<div class=\"meta\">Threads: " + esc(t) + "</div>";
+                }
+                if (!r.beats.empty()) {
+                    std::string t;
+                    for (auto& x : r.beats) t += (t.empty() ? "" : ", ") + x;
+                    extra += "<div class=\"meta\">Beat: " + esc(t) + "</div>";
+                }
+                body += std::string("<tr") + (r.kind == NodeKind::Scene ? " class=\"scene\"" : "") + "><td class=\"num\">" + esc(r.number) +
+                        "</td><td><strong>" + esc(r.title) + "</strong> <span class=\"meta\">" + esc(r.status) + "</span>" +
+                        (r.synopsis.empty() ? "" : prose(r.synopsis, view.entries(), {})) + extra + "</td><td>" + esc(r.when) + "</td><td>" +
+                        esc(r.viewpoint) + "</td><td>" + esc(r.place) + "</td><td>" + esc(cast) + "</td></tr>";
+            }
+            body += "</tbody></table></section>";
+        }
+        if (!site.write("plans.html", site.page("Plans \xC2\xB7 " + site.title, body, "plans"))) { error = site.error; return false; }
         ++extra;
     }
     if (pages) *pages = n + extra + kindPages;
@@ -1479,6 +1662,96 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
             ch.kind = NodeKind::Chapter;
             ch.matter = 2;
             ch.title = "Glossary";
+            ch.content = d.toJson();
+            ch.words = d.words();
+            s.sections.push_back(std::move(ch));
+        }
+    }
+    // Each book's plan (0.76), at the back: never in a reader's guide.
+    if (const auto plans = plansOf(lib, options); !plans.empty()) {
+        typeset::Source::Section part;
+        part.kind = NodeKind::Part;
+        part.title = "Plans";
+        part.content = doc::emptyDoc();
+        s.sections.push_back(part);
+        for (const BookPlan& p : plans) {
+            doc::Builder d;
+            std::string meta = p.type;
+            if (!p.placement.empty()) meta += (meta.empty() ? "" : ". ") + p.placement;
+            if (!meta.empty()) { d.paragraph("first"); d.text(meta + ".", doc::Builder::Em); d.endBlock(); }
+            if (!p.structure.empty()) {
+                d.heading(3);
+                d.text("Structure: " + p.structure);
+                d.endBlock();
+                for (auto& [name, carried] : p.beats) {
+                    d.paragraph("first");
+                    d.text(name + "  ", doc::Builder::Strong);
+                    d.text(carried.empty() ? "not placed yet" : carried);
+                    d.endBlock();
+                }
+            }
+            if (!p.threads.empty()) {
+                d.heading(3);
+                d.text("Threads");
+                d.endBlock();
+                for (auto& [name, colour, about] : p.threads) {
+                    (void)colour;
+                    d.paragraph("first");
+                    d.text(name, doc::Builder::Strong);
+                    if (!about.empty()) d.text(": " + about);
+                    d.endBlock();
+                }
+            }
+            d.heading(3);
+            d.text("Outline");
+            d.endBlock();
+            for (const PlanRow& r : p.rows) {
+                if (r.kind == NodeKind::Part) {
+                    d.paragraph("first");
+                    d.text(r.title, doc::Builder::SmallCaps);
+                    d.endBlock();
+                    continue;
+                }
+                d.paragraph("first");
+                d.text((r.number.empty() ? std::string() : r.number + "  ") + r.title, doc::Builder::Strong);
+                if (!r.status.empty()) d.text("  " + r.status, doc::Builder::Em);
+                d.endBlock();
+                std::vector<std::string> facts;
+                if (!r.when.empty()) facts.push_back("When: " + r.when);
+                if (!r.viewpoint.empty()) facts.push_back("Viewpoint: " + r.viewpoint);
+                if (!r.place.empty()) facts.push_back("Where: " + r.place);
+                if (!r.cast.empty()) {
+                    std::string c;
+                    for (auto& x : r.cast) c += (c.empty() ? "" : ", ") + x;
+                    facts.push_back("Who's there: " + c);
+                }
+                if (!r.threads.empty()) {
+                    std::string c;
+                    for (auto& x : r.threads) c += (c.empty() ? "" : ", ") + x;
+                    facts.push_back("Threads: " + c);
+                }
+                if (!r.beats.empty()) {
+                    std::string c;
+                    for (auto& x : r.beats) c += (c.empty() ? "" : ", ") + x;
+                    facts.push_back("Beat: " + c);
+                }
+                if (!facts.empty()) {
+                    std::string line;
+                    for (auto& f : facts) line += (line.empty() ? "" : ". ") + f;
+                    d.paragraph("body");
+                    d.text(line + ".", doc::Builder::Em);
+                    d.endBlock();
+                }
+                for (auto& para : paragraphs(r.synopsis)) {
+                    d.paragraph("body");
+                    d.text(para);
+                    d.endBlock();
+                }
+            }
+            typeset::Source::Section ch;
+            ch.kind = NodeKind::Chapter;
+            ch.matter = 2;
+            ch.title = p.title;
             ch.content = d.toJson();
             ch.words = d.words();
             s.sections.push_back(std::move(ch));

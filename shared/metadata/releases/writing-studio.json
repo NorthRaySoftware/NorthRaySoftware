@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.76.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Share the bible can include each book's plan, in the website (a Plans page) and the PDF (a part at the back). Each plan has the book's type and place in its series, its structure and beats, its threads, and the outline: each chapter and scene with its synopsis, when it happens, the viewpoint, where it is and who's there. Plans are never put in a reader's guide.",
+        "Plans as text now carry the book's type, its place in each series, calendar dates (When: 3 Frostmoon 1204 AE) and times of day (Time: 14:30). Importing a plan with them sets all of these, and puts the timeline into calendar dates."
+      ]
+    },
+    {
       "version": "0.75.0",
       "date": "2026-11-23",
       "notes": [

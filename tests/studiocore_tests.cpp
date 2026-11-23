@@ -306,6 +306,80 @@ static void testCalendar() {
     fs::remove_all(dir);
 }
 
+// Plans in calendar dates, with the book's type and place in its series (0.76).
+static void testPlanDates() {
+    using namespace studio::cal;
+    const std::string dir = tempLibrary("plandates");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id s = lib->createSeries("The Chronicles", w);
+    const Id one = lib->createBook("One", {}, s), two = lib->createBook("Two", {}, s);
+    Calendar c = fromText("Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Thaw: 30\nEra: Age of Light (AL) from year 1\n");
+    CHECK(saveWorldCalendar(*lib, w, c));
+    const std::string text =
+        "Book type: Novella\n"
+        "Series: The Chronicles, Book 1.5, set during One\n"
+        "Chapter: The Forge\n"
+        "When: 3 Frostmoon 1204 AL; the night of the storm\n"
+        "Time: 14:30\n"
+        "Tom works late.\n"
+        "Chapter: The Wall\n"
+        "When: 10 Thaw 1204\n"
+        "Time: at dusk\n";
+    plan::PlanningImport pi;
+    CHECK(plan::importPlanning(*lib, two, "world:" + w, text, pi));
+    CHECK(pi.bookTypeSet && pi.placements == 1 && pi.unknownSeries.empty());
+    CHECK(lib->book(two)->type == "novella");
+    CHECK(lib->membership(s, two)->role == SeriesRole::During && lib->membership(s, two)->during == one);
+    CHECK(lib->membership(s, two)->number == "1.5");
+    const StorySpan sp = storySpan(*lib, two);
+    CHECK(sp.on && sp.any && formatDate(c, fromDay(c, sp.first)) == "3 Frostmoon 1204 AL" && formatDate(c, fromDay(c, sp.last)) == "10 Thaw 1204 AL");
+    const std::string back = plan::planningText(*lib, two, "world:" + w);
+    CHECK(back.find("Book type: Novella\n") != std::string::npos);
+    CHECK(back.find("Series: The Chronicles, Book 1.5, set during One\n") != std::string::npos);
+    CHECK(back.find("When: 3 Frostmoon 1204 AL; the night of the storm\nTime: 14:30\n") != std::string::npos);
+    CHECK(back.find("When: 10 Thaw 1204 AL; at dusk\n") != std::string::npos);
+    // The same text again changes nothing it shouldn't, and a series that isn't here is reported.
+    plan::PlanningImport again;
+    CHECK(plan::importPlanning(*lib, two, "world:" + w, back + "", again));
+    CHECK(plan::planningText(*lib, two, "world:" + w) == back);
+    // Each book's plan in the shared bible (0.76): the website's Plans page and the PDF's last part, never a reader's guide.
+    {
+        std::string err;
+        int pages = 0;
+        bible::Options o{w, {}, false, {}};
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages));
+        std::ifstream f(fs::path(dir) / "site" / "plans.html");
+        const std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(html.find("<h2>Two</h2>") != std::string::npos && html.find("Novella") != std::string::npos);
+        CHECK(html.find("Book 1.5 of The Chronicles, set during One") != std::string::npos);
+        CHECK(html.find("3 Frostmoon 1204 AL, 14:30; the night of the storm") != std::string::npos);
+        CHECK(html.find("Tom works late.") != std::string::npos);
+        std::ifstream idx(fs::path(dir) / "site" / "index.html");
+        const std::string home((std::istreambuf_iterator<char>(idx)), std::istreambuf_iterator<char>());
+        CHECK(home.find("href=\"plans.html\"") != std::string::npos);
+        const typeset::Source src = bible::printableSource(*lib, o, "Alvora", "");
+        bool part = false, two = false;
+        for (auto& sec : src.sections) { if (sec.kind == NodeKind::Part && sec.title == "Plans") part = true; if (part && sec.title == "Two") two = true; }
+        CHECK(part && two);
+        // A reader's guide and a bible with plans switched off have none.
+        bible::Options guide{w, {}, true, {}};
+        fs::remove_all(fs::path(dir) / "site2");
+        CHECK(bible::exportWebsite(*lib, guide, dir + "/site2", err, &pages));
+        CHECK(!fs::exists(fs::path(dir) / "site2" / "plans.html"));
+        bible::Options off{w, {}, false, {}};
+        off.plans = false;
+        bool any = false;
+        for (auto& sec : bible::printableSource(*lib, off, "Alvora", "").sections) any |= sec.title == "Plans";
+        CHECK(!any);
+    }
+    plan::PlanningImport odd;
+    plan::importPlanning(*lib, one, "world:" + w, "Series: Nowhere, Book 9\nChapter: A\n", odd);
+    CHECK(odd.unknownSeries.size() == 1 && odd.unknownSeries[0] == "Nowhere");
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 // Sub-books and book types (0.73).
 static void testSubBooks() {
     const std::string dir = tempLibrary("subbooks");
@@ -4323,6 +4397,7 @@ int main() {
     testOrdering();
     testSubBooks();
     testCalendar();
+    testPlanDates();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();

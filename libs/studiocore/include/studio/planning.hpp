@@ -120,6 +120,7 @@ struct OutlineItem {
     std::vector<std::string> threads;
     std::vector<std::string> beats;   // "Beat: Midpoint": beats of the book's structure this chapter carries
     std::vector<std::string> cast;    // "Characters: Tom, Sarrah": who's present (0.59)
+    std::string time;                 // "Time: 14:30": the time of day, in the world's calendar's hours (0.75)
 };
 // `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);
@@ -164,6 +165,9 @@ struct PlanningImport {
     OutlineImport outline;
     ThreadImport threads;
     int structuresAdded = 0, structuresReplaced = 0;
+    bool bookTypeSet = false;      // "Book type: Novella" (0.76)
+    int placements = 0;            // "Series: The Alvora Chronicles, Book 2.5, set during The Envoy" lines applied (0.76)
+    std::vector<std::string> unknownSeries;   // series or books a Series: line names that this library doesn't have
     bool any() const;
 };
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out);
