@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.81.0",
+      "date": "2026-11-23",
+      "notes": [
+        "The shared bible (website and PDF) has excerpts from the books: for each character and creature, up to three a book, from the chapters and scenes Planning's Who's there puts them in (or they're the viewpoint of), or where nothing is chosen, those whose text names them. Each is the sentence that first names them there and the next. A reader's guide has them up to its book only. Switch them off in Share the bible.",
+        "On Planning's timeline in calendar dates, a card's time of day nudges it along its day: dawn early, night late. Story events too."
+      ]
+    },
+    {
       "version": "0.80.0",
       "date": "2026-11-23",
       "notes": [

@@ -54,6 +54,7 @@ void StudioApp::loadShare() {
         s.languages = j.value("languages", true);
         s.glossary = j.value("glossary", true);
         s.plans = j.value("plans", true);
+        s.excerpts = j.value("excerpts", true);
         s.preset = j.value("preset", 0);
         s.font = j.value("font", std::string());
         if (j.contains("look") && j["look"].is_object()) s.look = bible::lookFromJson(j["look"].dump());
@@ -64,7 +65,7 @@ void StudioApp::loadShare() {
 void StudioApp::saveShare() {
     const ShareState& s = wb_.shareState;
     json j{{"pdf", s.pdf}, {"upTo", s.upTo}, {"guide", s.guide}, {"pictures", s.pictures}, {"family", s.family}, {"languages", s.languages},
-           {"glossary", s.glossary}, {"plans", s.plans}, {"preset", s.preset}, {"font", s.font}, {"look", json::parse(bible::toJson(s.look))}};
+           {"glossary", s.glossary}, {"plans", s.plans}, {"excerpts", s.excerpts}, {"preset", s.preset}, {"font", s.font}, {"look", json::parse(bible::toJson(s.look))}};
     lib_->setSetting(wb_.shareKey, j.dump());
     invalidate();
 }
@@ -260,6 +261,8 @@ void StudioApp::drawShare(const Rect& r) {
         std::vector<std::pair<std::wstring, bool*>> items{{L"Pictures and maps", &s.pictures}, {L"Family and relationships", &s.family},
                                                           {L"Glossary", &s.glossary}};
         if (nl) items.push_back({L"Languages (" + std::to_wstring(nl) + L")", &s.languages});
+        // Excerpts from the books (0.81): a reader's guide has them up to its book only.
+        items.push_back({L"Excerpts from the books", &s.excerpts});
         // Each book's plan (0.76): it shows everything to come, so never in a reader's guide.
         if (!s.guide) items.push_back({L"Each book's plan", &s.plans});
         toggles(items, "share:inc:");
@@ -487,6 +490,7 @@ void StudioApp::makeSharedBible() {
     o.languages = s.languages;
     o.glossary = s.glossary;
     o.plans = s.plans && !s.guide;
+    o.excerpts = s.excerpts;
     // Family trees as pictures (0.45): drawn with the app's fonts; the PDF's are written beside the app's state.
     o.treeFonts = narrow(exeDir() + L"\\fonts");
     o.treeFolder = narrow(stateDir() + L"\\family-trees");

@@ -168,6 +168,133 @@ std::vector<std::pair<const Book*, std::vector<std::string>>> appearsIn(const Li
     return out;
 }
 
+}  // namespace
+
+// ------------------------------------------------------------------ excerpts (0.81)
+
+namespace {
+bool closingQuoteAt(const std::string& t, size_t i, size_t& len) {
+    if (i < t.size() && (t[i] == '"' || t[i] == '\'' || t[i] == ')')) { len = 1; return true; }
+    if (i + 2 < t.size() + 0 && (unsigned char)t[i] == 0xE2 && (unsigned char)t[i + 1] == 0x80 &&
+        ((unsigned char)t[i + 2] == 0x9D || (unsigned char)t[i + 2] == 0x99)) { len = 3; return true; }
+    return false;
+}
+bool abbreviationBefore(const std::string& t, size_t dot) {
+    size_t a = dot;
+    while (a > 0 && std::isalpha((unsigned char)t[a - 1])) --a;
+    std::string w = t.substr(a, dot - a);
+    for (auto& c : w) c = (char)std::tolower((unsigned char)c);
+    static const char* abbr[] = {"mr", "mrs", "ms", "dr", "st", "sr", "jr", "prof", "capt", "col", "gen", "lt", "sgt", "rev", "mt"};
+    for (const char* x : abbr) if (w == x) return true;
+    return w.size() == 1 && std::isupper((unsigned char)t[a]);   // an initial: "J. Smith"
+}
+// Where the sentence holding byte `from` ends (just past its closing punctuation and quotes), within [from, limit).
+size_t sentenceEnd(const std::string& t, size_t from, size_t limit) {
+    for (size_t k = from; k < limit; ++k) {
+        if (t[k] == '\n') return k;
+        if (t[k] != '.' && t[k] != '!' && t[k] != '?') {
+            // "…" (E2 80 A6) ends a sentence too
+            if (!((unsigned char)t[k] == 0xE2 && k + 2 < limit && (unsigned char)t[k + 1] == 0x80 && (unsigned char)t[k + 2] == 0xA6)) continue;
+            k += 2;
+        } else if (t[k] == '.' && abbreviationBefore(t, k)) continue;
+        size_t e = k + 1, len = 0;
+        while (e < limit && (t[e] == '.' || t[e] == '!' || t[e] == '?')) ++e;
+        while (closingQuoteAt(t, e, len)) e += len;
+        if (e >= limit || t[e] == ' ' || t[e] == '\n') return e;
+    }
+    return limit;
+}
+}  // namespace
+
+std::string excerptAround(const std::string& t, size_t start, size_t end, int maxWords) {
+    if (start >= t.size()) return {};
+    // The paragraph.
+    size_t pStart = t.rfind('\n', start);
+    pStart = pStart == std::string::npos ? 0 : pStart + 1;
+    size_t pEnd = t.find('\n', end);
+    if (pEnd == std::string::npos) pEnd = t.size();
+    // The sentence's start: just after the last sentence end before the name.
+    size_t sStart = pStart;
+    for (size_t k = pStart; k < start;) {
+        const size_t e = sentenceEnd(t, k, start);
+        if (e >= start) break;
+        sStart = e;
+        while (sStart < start && t[sStart] == ' ') ++sStart;
+        k = sStart;
+    }
+    size_t e1 = sentenceEnd(t, std::max(end, sStart), pEnd);
+    size_t e2 = e1;
+    if (e1 < pEnd) {
+        size_t n = e1;
+        while (n < pEnd && t[n] == ' ') ++n;
+        if (n < pEnd) e2 = sentenceEnd(t, n, pEnd);
+    }
+    // Words of the passage; if the name falls late in a long sentence, start a little before it.
+    std::vector<std::pair<size_t, size_t>> words;
+    for (size_t k = sStart; k < e2;) {
+        while (k < e2 && (t[k] == ' ' || t[k] == '\n')) ++k;
+        size_t w0 = k;
+        while (k < e2 && t[k] != ' ' && t[k] != '\n') ++k;
+        if (k > w0) words.push_back({w0, k});
+    }
+    if (words.empty()) return {};
+    size_t first = 0;
+    while (first + 1 < words.size() && words[first + 1].first <= start) ++first;   // the name's word
+    size_t from = 0;
+    bool lead = false;
+    if ((int)first > maxWords - 12) { from = first > 10 ? first - 10 : 0; lead = from > 0; }
+    size_t to = std::min(words.size(), from + (size_t)maxWords);
+    const bool trail = to < words.size();
+    std::string out = lead ? "\xE2\x80\xA6" : "";
+    for (size_t i = from; i < to; ++i) out += (i > from ? " " : "") + t.substr(words[i].first, words[i].second - words[i].first);
+    if (trail) {
+        while (!out.empty() && (out.back() == ',' || out.back() == ';' || out.back() == ':')) out.pop_back();
+        out += "\xE2\x80\xA6";
+    }
+    return out;
+}
+
+std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts) {
+    std::vector<Excerpt> out;
+    if (e.kind != "character" && e.kind != "creature") return out;
+    const Options& o = view.options();
+    std::vector<Id> books = booksInOrder(lib, o.worldId, o.bookId);
+    if (o.readersGuide && !o.upTo.empty()) {
+        auto it = std::find(books.begin(), books.end(), o.upTo);
+        if (it != books.end()) books.erase(it + 1, books.end());
+    }
+    const std::vector<const Entry*> just{&e};
+    for (const Id& bk : books) {
+        const Book* book = lib.book(bk);
+        if (!book) continue;
+        const auto cast = plan::nodeCast(lib, bk);
+        int taken = 0;
+        std::map<Id, std::string> chapterOf;
+        for (const ManuscriptNode* n : lib.manuscriptOf(bk)) {
+            if (taken >= 3) break;
+            if (n->deleted || n->kind == NodeKind::Part) continue;
+            const auto c = cast.find(n->id);
+            const bool chosen = (c != cast.end() && !c->second.empty()) || !n->povId.empty();
+            const bool inIt = n->povId == e.id || (c != cast.end() && std::find(c->second.begin(), c->second.end(), e.id) != c->second.end());
+            if (chosen && !inIt) continue;   // Planning says who's there, and it isn't them
+            auto t = texts.find(n->id);
+            if (t == texts.end()) t = texts.emplace(n->id, doc::plainText(lib.nodeContent(n->id))).first;
+            const auto spans = findNames(t->second, just);
+            if (spans.empty()) continue;
+            const std::string passage = excerptAround(t->second, spans.front().start, spans.front().end);
+            if (passage.empty()) continue;
+            std::string where = n->title.empty() ? std::string(n->kind == NodeKind::Scene ? "A scene" : "A chapter") : n->title;
+            if (n->kind == NodeKind::Scene)
+                if (const ManuscriptNode* parent = lib.node(n->parentId); parent && !parent->title.empty()) where = parent->title + ", " + where;
+            out.push_back({bk, book->title, where, passage});
+            ++taken;
+        }
+    }
+    return out;
+}
+
+namespace {
+
 // The main picture's caption, when it has one in the gallery.
 std::string mainCaption(const Entry& e) {
     for (auto& g : e.gallery) if (g.blob == e.imageBlob) return g.caption;
@@ -682,7 +809,7 @@ td:first-child{color:var(--muted);width:40%;padding-right:10px}
 tr:last-child td{border-bottom:0}
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .gallery figure{margin:0}.gallery img{width:100%;height:200px;object-fit:cover;border-radius:10px;display:block}
-figcaption{font-size:13px;color:var(--muted);margin-top:4px}.portcap{font-size:13px;color:var(--muted);margin:-6px 0 12px}.appears{padding-left:20px}
+figcaption{font-size:13px;color:var(--muted);margin-top:4px}.portcap{font-size:13px;color:var(--muted);margin:-6px 0 12px}.appears{padding-left:20px}.excerpt{margin:0 0 18px}.excerpt blockquote{margin:0;padding:2px 0 2px 16px;border-left:3px solid var(--accent);font-style:italic}.excerpt figcaption{margin-top:6px}
 .map{position:relative;display:inline-block;max-width:100%}.map img{max-width:100%;display:block;border-radius:12px}
 .pin{position:absolute;transform:translate(-8px,-8px);display:flex;align-items:center;gap:6px;font-size:13px;text-decoration:none;color:var(--ink)}
 .pin i{width:16px;height:16px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px #0006;display:block}
@@ -831,6 +958,7 @@ struct Site {
     std::string title;
     std::vector<conlang::Language> langs;
     std::vector<BookPlan> plans;                     // each book's plan (0.76)
+    std::map<Id, std::string> texts;                 // chapters' plain text, for excerpts (0.81)
     std::map<std::string, std::string> pictures;   // blob -> "images/<blob>.<ext>" ("" = couldn't)
     std::vector<std::pair<std::string, std::string>> trees;   // family trees (0.45): title -> "images/familytree-<id>.png"
     std::string error;
@@ -934,6 +1062,13 @@ struct Site {
                     main += "<li><em>" + esc(book->title) + "</em>: " + list + "</li>";
                 }
                 main += "</ul>";
+            }
+        if (view.options().excerpts)   // a few lines from the books (0.81)
+            if (const auto ex = excerptsOf(lib, view, e, texts); !ex.empty()) {
+                main += "<h2>In the books</h2>";
+                for (auto& x : ex)
+                    main += "<figure class=\"excerpt\"><blockquote>" + esc(x.text) + "</blockquote><figcaption><em>" + esc(x.bookTitle) +
+                            "</em> \xC2\xB7 " + esc(x.where) + "</figcaption></figure>";
             }
         if (!e.mapBlob.empty())
             if (const std::string img = picture(e.mapBlob); !img.empty()) {
@@ -1373,6 +1508,7 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
 
 typeset::Source printableSource(const Library& lib, const Options& options, const std::string& title, const std::string& author) {
     const View view(lib, options);
+    std::map<Id, std::string> texts;   // chapters' plain text, for excerpts (0.81)
     typeset::Source s;
     s.id = "bible-" + (options.worldId.empty() ? options.bookId : options.worldId);
     s.title = title;
@@ -1503,6 +1639,21 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                     for (auto& p : paragraphs(e->notes)) { para(p, first ? "first" : "body"); first = false; }
                 }
             }
+            if (options.excerpts)   // a few lines from the books (0.81)
+                if (const auto ex = excerptsOf(lib, view, *e, texts); !ex.empty()) {
+                    d.heading(2);
+                    d.text("In the books");
+                    d.endBlock();
+                    for (auto& x : ex) {
+                        d.paragraph("epigraph");
+                        d.text(x.text);
+                        d.endBlock();
+                        d.paragraph("attribution");
+                        d.text(x.bookTitle, doc::Builder::Em);
+                        d.text(", " + x.where);
+                        d.endBlock();
+                    }
+                }
             if (!e->mapBlob.empty() && addPicture(e->mapBlob)) {
                 d.image(e->mapBlob, "Map of " + e->name, "Map of " + e->name);
                 std::vector<std::string> pinned;   // what's marked on it (0.60)

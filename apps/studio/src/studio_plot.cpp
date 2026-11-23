@@ -180,6 +180,13 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const bool calOn = timelineInCalendar(pl_.book);
     const cal::Calendar cc = calOn ? cal::calendarOfBook(*lib_, pl_.book) : cal::Calendar{};
     const std::int64_t cStart = calOn ? cal::storySpan(*lib_, pl_.book).start : 0;
+    // How far into its day a time of day falls (0 to under 1; 0 with no time).
+    auto dayFraction = [&](int minutes, const std::string& part) -> double {
+        if (!calOn || (minutes < 0 && part.empty())) return 0;
+        const int k = cal::timeSortKey(cc, {minutes, part});
+        const double perDay = (double)std::max(1, cc.hoursPerDay) * std::max(1, cc.minutesPerHour);
+        return k < 0 ? 0 : std::clamp(k / perDay, 0.0, 0.999);
+    };
     auto lab = [&](double d) -> std::wstring {
         if (!calOn) return storyDayText(pl_.book, d);
         return w(cal::formatDate(cc, cal::fromDay(cc, cStart + (std::int64_t)std::floor(d))));
@@ -251,6 +258,9 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         auto it = times.find(n->id);
         double day = it != times.end() && it->second.placed ? it->second.day : NAN;
         if (pl_.tlDrag.active && pl_.tlDrag.id == n->id && pl_.tlDrag.kind == 0) day = pl_.tlDrag.day;
+        // In calendar dates its time of day nudges it along its day (0.80): dawn early, night late. Only where it's drawn:
+        // the day it's kept on stays whole.
+        if (!std::isnan(day) && calOn && it != times.end()) day += dayFraction(it->second.minutes, it->second.part);
         if (std::isnan(day)) unplaced.push_back(n);
         else placed.push_back({n, day, order++, lbl});
     }
@@ -264,7 +274,10 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     std::vector<const Entry*> unplacedEvents;
     for (const Entry* e : events) {
         auto it = eventDays.find(e->id);
-        if (it != eventDays.end()) placedEvents.push_back({e, it->second});
+        if (it != eventDays.end()) {
+            const cal::TimeOfDay et = calOn ? cal::eventTime(*lib_, pl_.book, e->id) : cal::TimeOfDay{};
+            placedEvents.push_back({e, it->second + dayFraction(et.minutes, et.part)});
+        }
         else unplacedEvents.push_back(e);
     }
 

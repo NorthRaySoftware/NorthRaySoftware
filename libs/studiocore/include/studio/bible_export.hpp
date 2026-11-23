@@ -8,6 +8,7 @@
 #include "studio/library.hpp"
 #include "studio/typeset.hpp"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,8 @@ struct Options {
     bool glossary = true;
     bool plans = true;           // each book's plan (0.76): outline, threads, structure, dates and who's there. Never in a
                                  // reader's guide.
+    bool excerpts = true;        // a few lines from the books where each character or creature appears (0.81); a
+                                 // reader's guide has them from its book and those before it only
     // Family trees as pictures (0.45): every family in the bible, in the PDF (a part of their own) and on the website
     // (a page of their own). Drawn with the app's fonts; the PDF's pictures are written to `treeFolder`. Not in a
     // reader's guide (a tree would show people the guide keeps back).
@@ -79,6 +82,15 @@ private:
     std::vector<const Entry*> entries_;
     bool revealedInTime(const Id& book) const;
 };
+
+// Excerpts (0.81): for a character or creature, up to three a book (in reading order; a reader's guide stops at its
+// book), each from a chapter or scene Planning's Who's there puts them in or they're the viewpoint of, or, where a
+// chapter or scene has neither chosen, one whose text names them: the sentence that first names them there and the
+// one after it, cut to about 60 words. `texts` keeps each chapter's plain text between calls.
+struct Excerpt { Id book; std::string bookTitle; std::string where; std::string text; };
+std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts);
+// The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.
+std::string excerptAround(const std::string& text, size_t start, size_t end, int maxWords = 60);
 
 // A website in `folder` (made if missing): index.html, a page for each entry, glossary.html, languages.html,
 // style.css, site.js (search; the site works without it), the pictures in images/ and, for a bundled typeface, its

@@ -4563,6 +4563,112 @@ static void testPlanReplaces() {
     CHECK(again.outline.made.empty() && again.outline.trashed == 0 && plan::threadsOf(*lib, book).named("Someone watching")->about == "A figure on the ridge.");
 }
 
+// Excerpts from the books in the shared bible (0.81).
+static void testExcerpts() {
+    // The passage: the sentence that names them and the next, cut to 60 words.
+    {
+        const std::string t = "Rain fell on Highcliff. Mr. Holt waited by the gate, and then Maren came round the corner. She was soaked. Nobody spoke.\n\nLater, Maren slept.";
+        const size_t at = t.find("Maren");
+        CHECK(bible::excerptAround(t, at, at + 5) == "Mr. Holt waited by the gate, and then Maren came round the corner. She was soaked.");
+        const std::string q = "\xE2\x80\x9CWait!\xE2\x80\x9D Maren called. \xE2\x80\x9CWait for me.\xE2\x80\x9D The cart rolled on.";
+        const size_t aq = q.find("Maren");
+        CHECK(bible::excerptAround(q, aq, aq + 5) == "Maren called. \xE2\x80\x9CWait for me.\xE2\x80\x9D");
+        std::string longer = "It was";
+        for (int i = 0; i < 80; ++i) longer += " very";
+        longer += " late when Maren came home. She slept.";
+        const size_t al = longer.find("Maren");
+        const std::string cut = bible::excerptAround(longer, al, al + 5);
+        CHECK(cut.rfind("\xE2\x80\xA6", 0) == 0 && cut.find("Maren") != std::string::npos);
+        int words = 1;
+        for (char c : cut) words += c == ' ';
+        CHECK(words <= 60);
+        // At the end of a paragraph there's no next sentence.
+        const size_t a2 = t.rfind("Maren");
+        CHECK(bible::excerptAround(t, a2, a2 + 5) == "Later, Maren slept.");
+    }
+    const std::string dir = tempLibrary("excerpts");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id s = lib->createSeries("The Chronicles", w);
+    const Id one = lib->createBook("One", {}, s), two = lib->createBook("Two", {}, s);
+    const Id maren = lib->createEntry(w, {}, "character", "Maren Holt");
+    const Id tom = lib->createEntry(w, {}, "character", "Tom");
+    const Id wyrm = lib->createEntry(w, {}, "creature", "Bluebolt");
+    const Id town = lib->createEntry(w, {}, "place", "Highcliff");
+    auto chapter = [&](const Id& book, const char* title, const std::string& text) {
+        const Id c = lib->createNode(book, {}, NodeKind::Chapter, title);
+        CHECK(lib->saveNodeContent(c, para(text)));
+        return c;
+    };
+    // Book One: chapter 1 names Maren but Planning puts only Tom there; chapter 2 has her in Who's there; chapters 3-5
+    // have nothing chosen and name her; chapter 6 has her as the viewpoint.
+    const Id c1 = chapter(one, "Arrival", "Tom saw Maren at the dock. He waved.");
+    const Id c2 = chapter(one, "The Storm", "The storm came early. Maren tied the boats down. Bluebolt hid.");
+    chapter(one, "Night", "Holt could not sleep. The wind howled.");
+    chapter(one, "Morning", "Maren woke first. The sea was calm.");
+    chapter(one, "Noon", "Maren ate. Tom laughed.");
+    const Id c6 = chapter(one, "Evening", "She walked home alone. Maren Holt was tired.");
+    CHECK(plan::setNodeCast(*lib, one, c1, {tom}));
+    CHECK(plan::setNodeCast(*lib, one, c2, {maren}));
+    {
+        ManuscriptNode n = *lib->node(c6);
+        n.povId = maren;
+        CHECK(lib->updateNode(n));
+    }
+    chapter(two, "Return", "Years later, Maren came back to Highcliff.");
+    bible::Options o{w, {}, false, {}};
+    bible::View view(*lib, o);
+    std::map<Id, std::string> texts;
+    const auto ex = bible::excerptsOf(*lib, view, *lib->entry(maren), texts);
+    CHECK(ex.size() == 4);   // three from One (the 3-a-book limit), one from Two
+    if (ex.size() == 4) {
+        CHECK(ex[0].where == "The Storm" && ex[0].text == "Maren tied the boats down. Bluebolt hid.");
+        CHECK(ex[1].where == "Night" && ex[1].text == "Holt could not sleep. The wind howled.");   // her last name alone
+        CHECK(ex[2].where == "Morning");
+        CHECK(ex[3].bookTitle == "Two" && ex[3].text == "Years later, Maren came back to Highcliff.");
+    }
+    // Chapter 1 names her but Planning says only Tom is there.
+    for (auto& x : ex) CHECK(x.where != "Arrival");
+    const auto tomEx = bible::excerptsOf(*lib, view, *lib->entry(tom), texts);
+    CHECK(tomEx.size() == 2 && tomEx[0].where == "Arrival" && tomEx[1].where == "Noon");
+    // A creature has them; a place doesn't.
+    CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), texts).empty());   // chapter 2's cast is only Maren
+    CHECK(bible::excerptsOf(*lib, view, *lib->entry(town), texts).empty());
+    // The viewpoint counts.
+    CHECK(plan::setNodeCast(*lib, one, c2, {}));
+    std::map<Id, std::string> t2;
+    const auto ex2 = bible::excerptsOf(*lib, view, *lib->entry(maren), t2);
+    CHECK(ex2.size() == 4 && ex2[0].where == "The Storm");   // nothing chosen now: by the text
+    CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), t2).size() == 1);
+    // A reader's guide to Book One has no excerpts from Two.
+    bible::Options guide{w, {}, true, one};
+    bible::View gv(*lib, guide);
+    const auto gx = bible::excerptsOf(*lib, gv, *lib->entry(maren), t2);
+    CHECK(gx.size() == 3);
+    for (auto& x : gx) CHECK(x.book == one);
+    // On the website and in the PDF.
+    {
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages));
+        std::ifstream f(fs::path(dir) / "site" / ("e-" + maren + ".html"));
+        const std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(html.find("<h2>In the books</h2>") != std::string::npos);
+        CHECK(html.find("<blockquote>Years later, Maren came back to Highcliff.</blockquote><figcaption><em>Two</em> \xC2\xB7 Return</figcaption>") != std::string::npos);
+        bool found = false;
+        for (auto& sec : bible::printableSource(*lib, o, "Alvora", "").sections)
+            if (sec.title == "Maren Holt" && sec.content.find("In the books") != std::string::npos && sec.content.find("epigraph") != std::string::npos) found = true;
+        CHECK(found);
+        bible::Options off = o;
+        off.excerpts = false;
+        bool any = false;
+        for (auto& sec : bible::printableSource(*lib, off, "Alvora", "").sections) any |= sec.content.find("In the books") != std::string::npos;
+        CHECK(!any);
+    }
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 int main() {
     testPlanReplaces();
     testWorldSync();
@@ -4606,6 +4712,7 @@ int main() {
     testCalendar();
     testPlanDates();
     testCalendarTimes();
+    testExcerpts();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();

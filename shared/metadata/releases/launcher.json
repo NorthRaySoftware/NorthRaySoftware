@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.156.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.81.0: excerpts in the shared bible, and times of day on the timeline."
+      ]
+    },
+    {
       "version": "0.155.0",
       "date": "2026-11-23",
       "notes": [

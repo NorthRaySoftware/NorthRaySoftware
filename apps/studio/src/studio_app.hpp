@@ -906,7 +906,8 @@ private:
     struct ShareState {
         bool pdf = false, guide = false;
         Id upTo;
-        bool pictures = true, family = true, languages = true, glossary = true, plans = true;   // plans (0.76): never in a reader's guide
+        bool pictures = true, family = true, languages = true, glossary = true, plans = true, excerpts = true;   // excerpts (0.81)
+        // plans (0.76): never in a reader's guide
         studio::bible::Look look;
         int preset = 0;
         std::string font;
