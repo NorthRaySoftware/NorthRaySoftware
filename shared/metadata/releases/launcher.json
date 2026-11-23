@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.152.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.77.0: a tidier Settings page and smoother scrolling over text boxes."
+      ]
+    },
+    {
       "version": "0.151.0",
       "date": "2026-11-23",
       "notes": [

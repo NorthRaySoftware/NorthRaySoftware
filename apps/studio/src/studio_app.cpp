@@ -62,8 +62,13 @@ static std::wstring w(const std::string& s) { return widen(s); }
 
 static LRESULT CALLBACK wheelScroll(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
     if (msg == WM_MOUSEWHEEL) {
+        // The box's own text first; when it can't move that way (it all fits, or it's at its end), the page or
+        // card around it scrolls instead (0.77).
         const int lines = -GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA * 3;
+        const LRESULT before = SendMessageW(h, EM_GETFIRSTVISIBLELINE, 0, 0);
         SendMessageW(h, EM_LINESCROLL, 0, lines);
+        if (SendMessageW(h, EM_GETFIRSTVISIBLELINE, 0, 0) == before)
+            if (HWND parent = GetParent(h)) SendMessageW(parent, WM_MOUSEWHEEL, wp, lp);
         return 0;
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(h, wheelScroll, 1);

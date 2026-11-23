@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.77.0: Settings without the sidebar; the wheel over full boxes (23 Nov 2026)
+
+- `libLayout` now includes the Settings page (no sidebar; `libCard` leaves Settings out, so a world chosen earlier doesn't put its card there).
+- `wheelScroll` (the multi-line boxes' subclass) scrolls the box's text, and when that doesn't move it (all of it fits, or it's at an end) sends the wheel to the parent window, so the page or card around it scrolls: Planning's details card scrolls with the pointer over its synopsis.
+- Planning's details card: the close cross has the card's colour behind it, so details scrolled under it don't show through.
+- Tested in Wine: Settings with the rail and no sidebar; the details card of a timeline card scrolled from over its synopsis.
+
 ## 0.76.0: each book's plan in the shared bible; plans in calendar dates (23 Nov 2026)
 
 The third part of CJ's request.

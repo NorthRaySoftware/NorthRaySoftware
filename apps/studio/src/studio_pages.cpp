@@ -57,8 +57,9 @@ void StudioApp::drawFrame(float W, float H) {
     const bool planLayout = ws_ == Workspace::Planning && !focusing;
     // And the Library (0.69): its places are tabs along the top; a book has its own page with tabs; a world's, series'
     // or picture's details are a card at the right.
-    const bool libLayout = ws_ == Workspace::Library && !settingsPage && !focusing;
-    const bool libCard = libLayout && lib_ && view_ != View::Book && view_ != View::FromGitHub &&
+    // Settings too (0.77): no sidebar there either; the rail leads back to the Library.
+    const bool libLayout = ws_ == Workspace::Library && !focusing;
+    const bool libCard = libLayout && lib_ && !settingsPage && view_ != View::Book && view_ != View::FromGitHub &&
                          (focus_.kind == Focus::World || focus_.kind == Focus::Series || focus_.kind == Focus::Artwork ||
                           focus_.kind == Focus::Picture);
     // Writing (0.70): a narrower outline (F3 hides it), a bar over the page for the chapter, and the details only when
@@ -268,6 +269,7 @@ void StudioApp::drawFrame(float W, float H) {
             addHit("pl:details:close", xr, [this] { pl_.targetOpen = false; selectCard({}); });
             tooltip("pl:details:close", L"Close   Esc");
             const float hv = hoverAmount("pl:details:close");
+            gfx_.fillRounded(xr, 7, pal_.surface);   // over the details when they're scrolled under it (0.77)
             if (hv > 0.01f) gfx_.fillRounded(xr, 7, pal_.sunken.withAlpha(hv));
             const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
             gfx_.line(cx - 4.5f, cy - 4.5f, cx + 4.5f, cy + 4.5f, pal_.inkMuted, 1.5f);

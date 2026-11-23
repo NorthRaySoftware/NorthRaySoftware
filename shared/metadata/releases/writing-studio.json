@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.77.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Settings has no sidebar now, like the rest of the Library; the rail on the left leads everywhere.",
+        "The mouse wheel over a text box that has nothing more to show scrolls the page or card around it, so Planning's details scroll from anywhere on them."
+      ]
+    },
+    {
       "version": "0.76.0",
       "date": "2026-11-23",
       "notes": [
