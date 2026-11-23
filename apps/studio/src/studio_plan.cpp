@@ -291,8 +291,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
     setHitClip(r);
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
     float y = r.y + 14 - pl_.sideScroll;
-    linkText("side:pl:library", tx0, y, L"‹ Library", [this] { ws_ = Workspace::Library; goTo(View::Book, pl_.book); });
-    y += 30;
+    // (Back to the Library is on the rail, 0.66.)
     gfx_.text(L"PLANNING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 20;
     y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 6;
@@ -930,22 +929,13 @@ void StudioApp::drawPlanPanel(const Rect& r) {
     } else {
         panelHeading(c, y, L"THE BOOK", true);
         y = panelField(c, y, L"Target words for the book (blank: none)", FTarget);
-        y += gfx_.text(L"Novels are often 70,000 to 100,000 words; novellas 20,000 to 40,000. A chapter's or scene's own target "
-                       L"is set on its card.",
+        y += gfx_.text(L"Novels are often 70,000 to 100,000 words.",
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 14;
         planPanelExtras(c, y);
         panelHeading(c, y, pl_.view == 0 ? L"THE CORKBOARD" : pl_.view == 1 ? L"ABOUT THE TIMELINE" : L"ABOUT STRUCTURE", false);
-        y += gfx_.text(pl_.view == 0 ? L"Every chapter and scene as an index card, in the order of the book. The pin is its status: "
-                       L"outline, draft, revised or final. Click a card's title or synopsis to write it there, its status word to change "
-                       L"it, and its viewpoint line to choose whose eyes it's seen through.\n\nDrag a card to move it: beside another card "
-                       L"to go before or after it, onto the middle of a chapter to make a scene part of it, or (in columns) to the foot "
-                       L"of a part's column. Ctrl and the mouse wheel make the cards bigger or smaller.\n\nA card shows who's there: those you "
-                       L"choose under Who's there in its panel, or until you choose, the bible's characters its text names."
-                       : pl_.view == 1 ? L"Choose a card to set when it happens, or drag it along. Cards without a time wait below; drag one "
-                                         L"onto the timeline. Lanes can follow the viewpoint, the plot threads or where it happens (set in a "
-                                         L"card's panel). The bible's events can be dragged on too, and stay for this book."
-                       : L"Match each beat to the chapters that carry it, and select a beat to keep notes on it for this book. The "
-                         L"bar shows the book by length, so you can see whether a turning point comes early or late.",
+        y += gfx_.text(pl_.view == 0 ? L"Drag a card to move it, or onto a chapter to make it a scene. Ctrl and the wheel change their size."
+                       : pl_.view == 1 ? L"Drag a card along to set when it happens, or onto the timeline from below."
+                       : L"Match each beat to the chapters that carry it; the bar shows where it falls by length.",
                        {c.x, y, c.w, 200}, Font::Small, pal_.inkMuted) + 14;
     }
     pl_.panelContent = y + pl_.panelScroll - r.y + 20;

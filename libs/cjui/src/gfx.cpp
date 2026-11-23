@@ -272,10 +272,18 @@ void Gfx::arc(float cx, float cy, float r, float a0, float a1, Color c, float w)
     if (FAILED(d2d_->CreatePathGeometry(&g))) return;
     ID2D1GeometrySink* s = nullptr;
     g->Open(&s);
+    // As cubic Béziers of a quarter turn or less (2026-11): the same curve everywhere, and Wine's Direct2D, which
+    // doesn't draw AddArc, draws these too.
     s->BeginFigure(D2D1::Point2F(cx + r * std::cos(a0), cy + r * std::sin(a0)), D2D1_FIGURE_BEGIN_HOLLOW);
-    s->AddArc(D2D1::ArcSegment(D2D1::Point2F(cx + r * std::cos(a1), cy + r * std::sin(a1)), D2D1::SizeF(r, r), 0,
-                               D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                               (a1 - a0) > 3.14159f ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+    const float sweep = a1 - a0;
+    const int n = std::max(1, (int)std::ceil(std::fabs(sweep) / 1.5708f));
+    const float step = sweep / n, k = 4.0f / 3.0f * std::tan(step / 4);
+    for (int i = 0; i < n; ++i) {
+        const float t0 = a0 + step * i, t1 = t0 + step;
+        const float x0 = cx + r * std::cos(t0), y0 = cy + r * std::sin(t0), x3 = cx + r * std::cos(t1), y3 = cy + r * std::sin(t1);
+        s->AddBezier(D2D1::BezierSegment(D2D1::Point2F(x0 - k * r * std::sin(t0), y0 + k * r * std::cos(t0)),
+                                         D2D1::Point2F(x3 + k * r * std::sin(t1), y3 - k * r * std::cos(t1)), D2D1::Point2F(x3, y3)));
+    }
     s->EndFigure(D2D1_FIGURE_END_OPEN);
     s->Close();
     rt_->DrawGeometry(g, brush(c), w);

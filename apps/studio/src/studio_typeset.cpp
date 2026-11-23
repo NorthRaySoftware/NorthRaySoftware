@@ -164,8 +164,7 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     setHitClip(r);
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
     float y = r.y + 14 - ts_.sideScroll;
-    linkText("side:ts:library", tx0, y, L"‹ Library", [this] { ws_ = Workspace::Library; goTo(View::Book, ts_.book); });
-    y += 30;
+    // (Back to the Library is on the rail, 0.66.)
     gfx_.text(L"TYPESETTING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 20;
     y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 2;

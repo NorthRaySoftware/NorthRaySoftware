@@ -148,8 +148,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
     const std::string unit = timelineUnit(pl_.book);
     float y = m.y + pageHeader(m, L"TIMELINE", w(b->title),
-                               L"Chapters and scenes in the order they happen. Drag a card along to move it in time, or drag one from below "
-                               L"onto it. The line joins them in reading order, so a flashback shows as the line turning back.");
+                               L"When things happen. The line joins them in reading order, so a flashback turns back.");
     // Lanes by viewpoint, plot thread or place, or one lane (0.52); and the zoom.
     const std::string laneBy = planPref(pl_.book, "lanes", "viewpoint");
     {
@@ -891,9 +890,7 @@ void StudioApp::planPanelExtras(const Rect& c, float& y) {
             const UINT c2 = showMenu(hwnd(), items, pt, pal_);
             if (c2) { setTimelineUnit(pl_.book, units[c2 - 1]); invalidate(); }
         });
-        y += gfx_.text(L"Number the story's days (or weeks, months, years) from any start you like: day 1 can be the first chapter's "
-                       L"morning; a prologue a hundred years before is -36500, or use years. Words such as \"Midsummer, 1204\" show on "
-                       L"the card instead of the number.",
+        y += gfx_.text(L"Start counting wherever you like; words such as \"Midsummer, 1204\" can show instead.",
                        {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
     }
 }

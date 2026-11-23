@@ -283,6 +283,7 @@ void AppWindow::calmFace(const std::string& id, const Rect& r, const std::wstrin
     Icon ic = iconFor(label);
     if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
     else if (!text.empty() && text[0] == L'\u2039') text.erase(0, text.size() > 1 && text[1] == L' ' ? 2 : 1);
+    if (text.size() <= 1) ic = Icon::None;   // "+" and "-" on their own are already the symbol
     float isz = ic == Icon::None ? 0 : std::min(15.0f, b.h - 8);
     if (isz && gfx_.measureWidth(text, f) + isz + 6 + 10 > b.w) isz = 0;   // no room: the words come first
     const float tw = std::min(gfx_.measureWidth(text, f), b.w - (isz ? isz + 16 : 14));

@@ -341,6 +341,21 @@ bool StudioApp::tabActive(int i) const {
                                 (t.milestone == 8 && planning && ws_ == Workspace::Planning) || (t.milestone == 9 && ws_ == Workspace::Review);
 }
 
+// The book a workspace opens on when nothing names one (0.66): a series' first book, else the book last written in, else
+// the one changed most recently. So every place on the rail opens something rather than asking you to choose first.
+Id StudioApp::fallbackBook() const {
+    if (!lib_) return {};
+    if (view_ == View::Series)
+        for (const studio::Book* b : lib_->booksInSeries(viewId_)) if (b && !b->deleted) return b->id;
+    if (view_ == View::World)
+        for (const studio::Book* b : lib_->liveBooks()) if (b->worldId == viewId_) return b->id;
+    if (const studio::Book* lb = lib_->book(settings_.lastBook); lb && !lb->deleted) return lb->id;
+    Id best;
+    Time newest = 0;
+    for (const studio::Book* x : lib_->liveBooks()) if (x->modified >= newest) { newest = x->modified; best = x->id; }
+    return best;
+}
+
 // Opens a workspace from the rail (or Ctrl+1 to Ctrl+8): the book or world in hand, as the tabs did.
 void StudioApp::openTab(int i) {
     if (!lib_ || i < 0 || i >= tabCount()) return;
@@ -371,22 +386,24 @@ if (ws_ == Workspace::Worldbuilding && book.empty()) {
     if (lib_->book(writingBook_) && lib_->book(writingBook_)->worldId == wb_.world) book = writingBook_;
     else for (const studio::Book* x : lib_->liveBooks()) if (x->worldId == wb_.world) { book = x->id; break; }
 }
-if (book.empty() || !lib_->book(book))
-    flash(std::wstring(L"Choose a book in the Library first, then open ") + (planning ? L"Planning." : L"Review."), 5);
+if (book.empty() || !lib_->book(book) || lib_->book(book)->deleted) book = fallbackBook();
+if (book.empty())
+    flash(std::wstring(L"Make a book in the Library first, then open ") + (planning ? L"Planning." : L"Review."), 5);
 else if (planning) openPlanning(book);
 else openReview(book);
     }
     else if (t.milestone == 8) {
 Id world, book;
-if (!worldbuildingScope(world, book)) flash(L"Choose a world or a book in the Library first, then open Worldbuilding.", 5);
+if (!worldbuildingScope(world, book)) flash(L"Make a world or a book in the Library first, then open Worldbuilding.", 5);
 else openWorldbuilding(world, book);
     }
     else if (t.milestone >= 5 && t.milestone <= 7) {
 Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
         : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book : ws_ == Workspace::Publishing ? pb_.book
         : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : !ts_.book.empty() ? ts_.book : writingBook_;
-if (book.empty() || !lib_->book(book))
-    flash(std::wstring(L"Choose a book in the Library first, then open ") +
+if (book.empty() || !lib_->book(book) || lib_->book(book)->deleted) book = fallbackBook();
+if (book.empty())
+    flash(std::wstring(L"Make a book in the Library first, then open ") +
               (t.milestone == 5 ? L"Typesetting." : t.milestone == 6 ? L"Preview." : L"Publishing."), 5);
 else if (t.milestone == 5) openTypesetting(book);
 else if (t.milestone == 6) openPreview(book);
@@ -777,14 +794,28 @@ float StudioApp::actionRow(float x, float y, float maxW, const std::vector<Actio
     return by - y + 30;
 }
 
+// Bookshelf / List at the right of a row of controls, or on its own row below when the row is full (0.66). The extra height.
+float StudioApp::viewSwitch(const std::string& id, float left, float x, float y, float right) {
+    const float sw = 180;
+    float extra = 0, sx = right - sw;
+    if (sx < x + 8) { sx = left; extra = 38; }
+    segmented(id, {sx, y + extra, sw, 28}, {L"Bookshelf", L"List"}, settings_.gallery ? 0 : 1, [this](int i) {
+        settings_.gallery = i == 0;
+        saveSettings();
+    });
+    return extra;
+}
+
 // Search box, sort, filter and view toggle above a collection.
 float StudioApp::toolbar(const Rect& r, bool withSearch) {
     float x = r.x;
     if (withSearch) {
+        // The same find box as the bible's (0.66): a drawn magnifier, rounded like the buttons.
         const Rect sr{x, r.y, std::min(300.0f, r.w * 0.4f), 30};
-        gfx_.fillRounded(sr, 3, pal_.surface);
-        gfx_.strokeRounded(sr, 3, GetFocus() == fields_[FSearch] ? pal_.ribbon : pal_.rule);
-        placeField(FSearch, sr);
+        gfx_.fillRounded(sr, 7, pal_.surface);
+        gfx_.strokeRounded(sr, 7, GetFocus() == fields_[FSearch] ? pal_.ribbon : pal_.rule);
+        cjui::drawIcon(gfx_, cjui::Icon::Search, {sr.x + 9, sr.y + (sr.h - 15) / 2, 15, 15}, pal_.inkFaint, 1.4f);
+        placeField(FSearch, {sr.x + 28, sr.y, sr.w - 28, sr.h});
         x = sr.right() + 12;
     }
     static const wchar_t* sortNames[] = {L"Title", L"Series order", L"Author", L"Status", L"Recently changed"};
@@ -796,11 +827,7 @@ float StudioApp::toolbar(const Rect& r, bool withSearch) {
     if (!tagFilter_.empty()) filt = L"Show: tag “" + w(tagFilter_) + L"”";
     smallButton("tb:filter", x, r.y + 1, filt, [this] { popupFilterMenu(0, 0); }, &bw);
     x += bw + 8;
-    segmented("tb:view", {std::max(x + 4, r.right() - 180), r.y + 1, 180, 28}, {L"Bookshelf", L"List"}, settings_.gallery ? 0 : 1, [this](int i) {
-        settings_.gallery = i == 0;
-        saveSettings();
-    });
-    return 46;
+    return 46 + viewSwitch("tb:view", r.x, x, r.y + 1, r.right());
 }
 
 std::vector<const Book*> StudioApp::filteredBooks(std::vector<const Book*> in) const {
@@ -1040,7 +1067,7 @@ float StudioApp::pageAllBooks(const Rect& r) {
     float y = r.y;
     const auto all = lib_->liveBooks();
     y += pageHeader(r, L"AUTHOR LIBRARY", L"All books",
-                    all.empty() ? L"Your library is empty. Start with a world for a fictional universe, or a book on its own."
+                    all.empty() ? L"Your library is empty."
                                 : plural(all.size(), L"book", L"books") + L" across " +
                                       plural(lib_->liveWorlds().size(), L"world", L"worlds") + L".");
     if (!libraryNote_.empty()) {
@@ -1050,31 +1077,12 @@ float StudioApp::pageAllBooks(const Rect& r) {
         y += h + 36;
     }
     if (all.empty()) {
-        // First run: the two ways in.
-        const std::wstring create = L"Create a book", import = L"Import a book...";
-        const float cw = gfx_.measureWidth(create, Font::BodyStrong) + 40, iw = gfx_.measureWidth(import, Font::BodyStrong) + 36;
-        button("all:newbook", {r.x, y, cw, 34}, create, [this] { newBook({}, {}); }, true);
-        button("all:import", {r.x + cw + 10, y, iw, 34}, import, [this] { startImport({}); });
-        y += 46;
-        y += gfx_.text(L"Import reads EPUB, Word (.docx), OpenDocument (.odt), web pages, Markdown and plain text. PDF importing is experimental.",
-                       {r.x, y, std::min(r.w, 640.0f), 60}, Font::Small, pal_.inkMuted) + 6;
-        float lw = 0;
-        linkText("all:newworld", r.x, y, L"Or start with a world, for a series set in one universe", [this] { newWorld(); });
-        (void)lw;
-        y += 40;
-        linkText("all:github", r.x, y, L"Or open a world you keep on GitHub from another computer", [this] { goTo(View::FromGitHub); });
-        y += 44;
-        gfx_.text(L"HOW THE LIBRARY WORKS", {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-        y += 26;
-        static const wchar_t* tips[] = {
-            L"A world (say, Alvora) holds its series, standalone books and, later, its characters, places and timeline.",
-            L"A series keeps a reading order and a separate chronological order.",
-            L"Books can also sit outside any world: nonfiction, collections, anything else.",
-            L"Nothing is ever copied: moving a book between series or worlds just changes where it's listed."};
-        for (auto* t : tips) {
-            gfx_.text(L"–", {r.x, y, 14, 20}, Font::Body, pal_.inkFaint);
-            y += gfx_.text(t, {r.x + 18, y, std::min(r.w, 640.0f) - 18, 60}, Font::Body, pal_.inkMuted) + 8;
-        }
+        // First run (0.66): the other ways in as the page's usual row, then one line and one button.
+        y += actionRow(r.x, y, r.w, {{"all:import", L"Import a book...", [this] { startImport({}); }},
+                                     {"all:newworld", L"New world", [this] { newWorld(); }},
+                                     {"all:github", L"Open a world from GitHub...", [this] { goTo(View::FromGitHub); }}}) + 14;
+        y += emptyState({r.x, y, std::min(r.w, 700.0f), 360}, cjui::Icon::Book, L"Start with a book, or a world for a series set in one place.",
+                        L"+ New book", [this] { newBook({}, {}); });
         return y - r.y;
     }
     {
@@ -1270,10 +1278,7 @@ float StudioApp::pageWorld(const Rect& r) {
     float bx = r.x, bw = 0;
     smallButton("world:newseries", bx, y, L"New series", [this] { newSeries(viewId_); }, &bw); bx += bw + 8;
     smallButton("world:newbook", bx, y, L"New standalone book", [this] { newBook(viewId_, {}); }, &bw); bx += bw + 8;
-    segmented("world:view", {r.right() - 180, y, 180, 28}, {L"Bookshelf", L"List"}, settings_.gallery ? 0 : 1, [this](int i) {
-        settings_.gallery = i == 0;
-        saveSettings();
-    });
+    y += viewSwitch("world:view", r.x, bx, y, r.right());
     y += 48;
 
     const auto series = lib_->seriesIn(wd.id);
@@ -1344,14 +1349,14 @@ float StudioApp::pageSeries(const Rect& r) {
     const auto books = lib_->booksInSeries(s.id, chrono_);
     float bx = r.x, bw = 0;
     smallButton("series:newbook", bx, y, L"New book in series", [this] { newBook({}, viewId_); }, &bw); bx += bw + 12;
-    segmented("series:order", {bx, y, 260, 28}, {L"Reading order", L"Chronological"}, chrono_ ? 1 : 0, [this](int i) { chrono_ = i == 1; });
-    segmented("series:view", {r.right() - 180, y, 180, 28}, {L"Bookshelf", L"List"}, settings_.gallery ? 0 : 1, [this](int i) {
-        settings_.gallery = i == 0;
-        saveSettings();
-    });
+    const float ow = std::max(260.0f, gfx_.measureWidth(L"Reading order", Font::SmallStrong) + gfx_.measureWidth(L"Chronological", Font::SmallStrong) + 64);
+    if (bx + ow > r.right()) { bx = r.x; y += 38; }
+    segmented("series:order", {bx, y, ow, 28}, {L"Reading order", L"Chronological"}, chrono_ ? 1 : 0, [this](int i) { chrono_ = i == 1; });
+    bx += ow;
+    y += viewSwitch("series:view", r.x, bx, y, r.right());
     y += 40;
-    y += gfx_.text(chrono_ ? L"Chronological order follows the story's own timeline. Drag books to rearrange it; reading order isn't affected."
-                           : L"Reading order is the order readers should take. Drag books to rearrange, or select one and press Alt+Up or Alt+Down.",
+    y += gfx_.text(chrono_ ? L"The story's own timeline. Drag books to change it; reading order stays."
+                           : L"The order readers take. Drag books to change it, or use Alt+Up and Alt+Down.",
                    {r.x, y, std::min(r.w, 700.0f), 60}, Font::Small, pal_.inkMuted) + 16;
     y += bookCollection({r.x, y, r.w, 0}, books, chrono_ ? "sc" : "sr", s.id, chrono_, true) + 24;
     if (!s.notes.empty()) {
@@ -1383,26 +1388,29 @@ float StudioApp::pageIndependent(const Rect& r) {
 }
 
 float StudioApp::pageTrash(const Rect& r) {
-    float y = r.y + pageHeader(r, L"", L"Trash",
-                               L"Nothing here is lost until you empty the Trash. A world in the Trash keeps its series and books with it.");
+    float y = r.y + pageHeader(r, L"AUTHOR LIBRARY", L"Trash", L"Nothing here is lost until you empty the Trash.");
     const auto c = lib_->trashCounts();
     int pictures = 0;
     for (auto& a : lib_->artworks()) if (a.deleted) ++pictures;
     if (!c.worlds && !c.series && !c.books && !pictures && !c.entries) {
-        y += gfx_.text(L"The Trash is empty.", {r.x, y, r.w, 24}, Font::Body, pal_.inkMuted);
+        y += emptyState({r.x, y, std::min(r.w, 700.0f), 320}, cjui::Icon::Trash, L"The Trash is empty.", L"", nullptr);
         return y - r.y;
     }
-    button("trash:empty", {r.x, y, 150, 34}, L"Empty Trash...", [this] { emptyTrash(); });
-    y += 52;
+    smallButton("trash:empty", r.x, y, L"Empty Trash...", [this] { emptyTrash(); });
+    y += 46;
     auto item = [&](const std::string& id, const std::wstring& kind, const std::wstring& name, Time when) {
         const Rect rr{r.x, y, r.w, 46};
         gfx_.text(kind, {rr.x, rr.y + 4, 90, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         gfx_.text(name, {rr.x + 90, rr.y, rr.w - 240, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
         gfx_.text(L"Moved to the Trash " + cjui::formatRelative((cj::UtcSeconds)when, cjui::nowUtc()), {rr.x + 90, rr.y + 22, 300, 18},
                   Font::Small, pal_.inkMuted, {Align::Left, false});
-        button("trash:restore:" + id, {rr.right() - 110, rr.y + 6, 110, 30}, L"Restore", [this, id, name] {
-            if (lib_->restore(id)) flash(L"Restored “" + name + L"”.", 4);
-        });
+        // Restore shows on the row you point at (0.66), so the page is a list rather than a column of buttons.
+        const std::string bid = "trash:restore:" + id;
+        const Rect br{rr.right() - 110, rr.y + 6, 110, 30};
+        auto restore = [this, id] { lib_->restore(id); invalidate(); };
+        if (rr.contains(mouseX(), mouseY()) || hovered(bid) || focused(bid)) button(bid, br, L"Restore", restore);
+        else addHit(bid, br, restore);
+        (void)name;
         gfx_.line(rr.x, rr.bottom() - 0.5f, rr.right(), rr.bottom() - 0.5f, pal_.rule);
         y += 50;
     };

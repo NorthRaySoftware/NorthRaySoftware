@@ -296,8 +296,7 @@ float StudioApp::pageArtwork(const Rect& r) {
     }
     const size_t rows = (all.size() + perRow - 1) / perRow;
     y += rows * (rowH + 18);
-    y += gfx_.text(L"The dot shows how each picture would print across the full width of a 6 × 9 in book's text: green sharp, "
-                   L"amber soft, red blurred. Printed smaller, a picture is sharper; select one to see how large it can go.",
+    y += gfx_.text(L"The dot: how sharp it prints across a 6 × 9 in page (green sharp, amber soft, red blurred).",
                    {r.x, y + 6, std::min(r.w, 700.0f), 60}, Font::Small, pal_.inkFaint);
     return y - r.y + 20;
 }

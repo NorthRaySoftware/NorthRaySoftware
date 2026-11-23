@@ -382,7 +382,7 @@ bool StudioApp::worldbuildingScope(Id& worldId, Id& bookId) const {
     int n = 0;
     for (auto& x : lib_->worlds()) if (!x.deleted) { only = x.id; ++n; }
     if (n == 1) { worldId = only; return true; }
-    return false;
+    return fromBook(fallbackBook());   // the book last written in, or the latest changed (0.66)
 }
 
 void StudioApp::openWorldbuilding(const Id& worldId, const Id& bookId) {
@@ -1022,15 +1022,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
         {
             // The find box, and for characters how they're grouped, on one row.
             const Rect fr{m.x, y - 6, std::min(320.0f, cw * 0.5f), 32};
-            gfx_.fillRounded(fr, 6, pal_.surface);
-            gfx_.strokeRounded(fr, 6, GetFocus() == fields_[FFind] ? pal_.ribbon : pal_.rule);
-            {
-                // A magnifier, drawn.
-                const float gx = fr.x + 15, gy = fr.y + fr.h / 2 - 1;
-                gfx_.circle(gx, gy, 5, pal_.inkFaint, false, 1.4f);
-                gfx_.line(gx + 3.6f, gy + 3.6f, gx + 7.5f, gy + 7.5f, pal_.inkFaint, 1.6f);
-            }
-            placeField(FFind, {fr.x + 22, fr.y, fr.w - 22 - (find_.empty() ? 0 : 26), fr.h});
+            gfx_.fillRounded(fr, 7, pal_.surface);
+            gfx_.strokeRounded(fr, 7, GetFocus() == fields_[FFind] ? pal_.ribbon : pal_.rule);
+            cjui::drawIcon(gfx_, cjui::Icon::Search, {fr.x + 9, fr.y + (fr.h - 15) / 2, 15, 15}, pal_.inkFaint, 1.4f);
+            placeField(FFind, {fr.x + 28, fr.y, fr.w - 28 - (find_.empty() ? 0 : 26), fr.h});
             if (!find_.empty()) {
                 // Clear: a drawn cross (not every font has one).
                 const Rect xr{fr.right() - 28, fr.y + 4, 24, fr.h - 8};
