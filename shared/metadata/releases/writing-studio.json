@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.66.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Every place on the rail opens something: Planning, Review, Typesetting, Preview and Publishing open the book you're looking at, a series' first book, or the book you last wrote in, instead of asking you to choose one first.",
+        "On a series page, Reading order / Chronological and Bookshelf / List no longer overlap; when a row of controls is full, the view switch moves to the next line (All books and world pages too).",
+        "The Library's search box matches the bible's: a magnifier, and the same rounded corners as the buttons.",
+        "The Trash is a quiet list: Restore shows on the row you point at, and an empty Trash is one line.",
+        "A new library's page is one line and one button, with Import, New world and Open a world from GitHub in the usual row.",
+        "Planning's panel notes and the timeline's introduction are one line each; the timeline's + button shows one plus.",
+        "The ‹ Library link is gone from every workspace's sidebar (the rail has it).",
+        "Icons with curves (Undo, Sync, Person, Share) are drawn the same way on every PC."
+      ]
+    },
+    {
       "version": "0.65.0",
       "date": "2026-11-23",
       "notes": [

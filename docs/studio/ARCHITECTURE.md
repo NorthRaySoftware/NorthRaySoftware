@@ -415,6 +415,18 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.66.0: UI pass, part 3: Library and Planning (23 Nov 2026)
+
+- `fallbackBook()`: a series view's first book (`booksInSeries`), a world view's first book, `settings_.lastBook`, else the latest `modified`. `openTab` uses it for Planning, Review and milestones 5-7 when the book in hand is missing or trashed; `worldbuildingScope` ends with it. The flashes now only say to make a book.
+- `viewSwitch(id, left, x, y, right)`: Bookshelf / List at `right - 180`, or at `left` one row (38) lower when that would overlap `x`; returns the extra height. `toolbar`, the world page and the series page use it; the series' order switch is measured (at least 260) and wraps too.
+- Find boxes (`toolbar` FSearch, Worldbuilding FFind): radius 7, `Icon::Search`, field placed 28 in.
+- `pageTrash`: kicker AUTHOR LIBRARY, one-line note, `emptyState` (icon only) when empty, `smallButton` for Empty Trash, Restore drawn only for the row under the pointer or with focus (hit always added), no flash.
+- `pageAllBooks` first run: `actionRow` (Import, New world, Open a world from GitHub) and `emptyState(Book, …, "+ New book")`; the tips list is gone (the manual has it).
+- The sidebars of Planning, Preview, Publishing, Review and Typesetting lose `‹ Library`.
+- Planning: one-line panel notes per view and for the book's target; the timeline subtitle and Counts in note are one line.
+- cjui: `calmFace` gives a one-character label (+, −) no icon. `Gfx::arc` draws cubic Béziers of at most a quarter turn (k = 4/3·tan(θ/4)) instead of `AddArc`, which Wine's Direct2D doesn't draw.
+- Tested in Wine: Planning from a series page opening its book, the series and All books rows wrapping, the Trash with Restore on the pointed row and the Undo icon's arc, the timeline's zoom buttons.
+
 ## 0.65.0: UI pass, part 2: Worldbuilding (23 Nov 2026)
 
 - `quietEdit(id, section, x, y, label, act)` (studio_pages.cpp): draws a small link only while the pointer is in `section`, the link is hovered, or it has keyboard focus; otherwise it only adds the hit, so it can be clicked and tabbed to. Entry sections and notes per book use it (drawn after the text so the section's height is known).
