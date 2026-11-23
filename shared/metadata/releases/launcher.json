@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.148.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.73.0, with sub-books in a series and types of book."
+      ]
+    },
+    {
       "version": "0.147.0",
       "date": "2026-11-23",
       "notes": [

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.73.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Sub-books in a series: a book can be one of the main books, set between two of them (numbered like 2.5), or set during one, and then it follows that book in reading order. Choose it on the book's page under Book settings, beside its number in each series.",
+        "Types of book: novel, novella, novelette, short story, flash fiction, collection or anthology, and serial or episode, plus your own with a range in words (Settings › Book types). Until you choose, the Studio says which type fits the book's length.",
+        "A series that numbers its books 1, 2, 3 keeps doing so with sub-books (2.5, or 2.1 and 2.2 when there are several); numbers you've typed yourself are left alone.",
+        "A series' list shows its sub-books indented under the book they follow, and a book's page names its type above the title."
+      ]
+    },
+    {
       "version": "0.72.0",
       "date": "2026-11-23",
       "notes": [

@@ -18,14 +18,14 @@ Keep the folder out of OneDrive, Dropbox and similar folders: a sync program can
 | `meta` | `format = studio-library`, `schema_version = 7` |
 | `worlds` | id, name, description, accent, notes, banner_blob, logo_blob, sort_order, created, modified, deleted |
 | `series` | id, world_id (NULL: outside any world), name, description, status, notes, cover_blob, logo_blob, sort_order, timestamps, deleted |
-| `books` | id, world_id (NULL: independent), title, subtitle, author, pen_name, synopsis, genre, language, isbn, edition, status, tags (JSON array), cover_blob, word_count, sort_order, timestamps, deleted, trim (3: print trim size id, empty = 6 × 9 in) |
+| `books` | id, world_id (NULL: independent), title, subtitle, author, pen_name, synopsis, genre, language, isbn, edition, status, tags (JSON array), cover_blob, word_count, sort_order, timestamps, deleted, trim (3: print trim size id, empty = 6 × 9 in), type (0.73: a book type id: novel, novella, novelette, short-story, flash, collection, serial, or one of the setting `book-types`; empty = not chosen) |
 | `editions` | (4) id, book_id, kind (paperback, hardback, large-print, ebook), name (empty: the kind's name), isbn, trim (empty: the book's), design (a preset id; empty: the book's Typesetting design), paper (white, cream), bleed, colour, sort_order, created, modified. Removed for good rather than trashed; they go with their book. |
 | `entries` | (5) id, world_id (NULL: an independent book's), book_id, kind (character, place, group, thing, lore, event), name, aliases (JSON array), summary, details ("Label: value" lines), notes, image_blob, sort_order, timestamps, deleted |
 | `entry_links` | (5) from_id, to_id, label (a relationship, read from `from`) |
 | `snapshots` | (7) id, book_id, name, taken, words |
 | `snapshot_nodes` | (7) snapshot_id, node_id, kind, title, content (document JSON), word_count, position |
 | `writing_log` | (7) day (local YYYY-MM-DD), book_id, words added that day |
-| `memberships` | series_id, book_id, reading_order, chrono_order, number (free text, empty = unnumbered), kind |
+| `memberships` | series_id, book_id, reading_order, chrono_order, number (free text, empty = unnumbered), kind (before 0.73; still written: companion for a sub-book), role (0.73: main, between or during; empty = main, or between for an old companion), during_book (role during: the book it's set during) |
 | `nodes` (2) | id, book_id, parent_id (NULL: top of the book), kind (`part`, `chapter`, `scene`), title, synopsis, status (`outline`, `draft`, `revised`, `final`), sort_order, content (document JSON, below), word_count, timestamps, deleted, pov_id (6: a viewpoint entry), target_words (6) |
 | `artworks` (3) | id, blob (SHA-256, unique: each picture is listed once), name, kind (`illustration`, `map`, `ornament`, `photo`, `diagram`, `other`), width and height in pixels, format, source, notes, timestamps, deleted |
 | `node_versions` (2) | id, node_id, saved, word_count, reason (`autosave`, `before restore`), content: earlier text, the newest 40 per node |

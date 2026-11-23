@@ -1211,24 +1211,6 @@ void StudioApp::popupStatusMenu() {
     invalidate();
 }
 
-void StudioApp::popupKindMenu() {
-    const Membership* mem = lib_->membership(focus_.contextSeries, focus_.id);
-    if (!mem) return;
-    HMENU m = CreatePopupMenu();
-    for (int i = 0; i <= (int)Instalment::Collection; ++i)
-        AppendMenuW(m, MF_STRING | ((int)mem->kind == i ? MF_CHECKED : 0), CmdKindBase + i, w(label((Instalment)i)).c_str());
-    POINT pt;
-    GetCursorPos(&pt);
-    const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
-    DestroyMenu(m);
-    if (cmd < CmdKindBase) return;
-    commitFields();
-    Membership x = *lib_->membership(focus_.contextSeries, focus_.id);
-    x.kind = (Instalment)(cmd - CmdKindBase);
-    lib_->updateMembership(x);
-    invalidate();
-}
-
 void StudioApp::popupSortMenu(float, float) {
     static const wchar_t* names[] = {L"Title", L"Series order", L"Author or pen name", L"Status", L"Recently changed"};
     HMENU m = CreatePopupMenu();
@@ -2097,6 +2079,8 @@ void StudioApp::loadFields() {
         loadRelationFields();
     } else if (focus_.kind == Focus::Font) {
         loadFontFields();
+    } else if (focus_.kind == Focus::BookType) {
+        loadBookTypeFields();
     } else if (focus_.kind == Focus::Thread || focus_.kind == Focus::Beat || focus_.kind == Focus::Structure) {
         loadPlanFields();
     } else if (focus_.kind == Focus::Entry) {
@@ -2213,6 +2197,8 @@ void StudioApp::commitFields() {
         commitRelationFields(f);
     } else if (f.kind == Focus::Font) {
         commitFontFields(f);
+    } else if (f.kind == Focus::BookType) {
+        ok = commitBookTypeFields(f.id);
     } else if (f.kind == Focus::Thread || f.kind == Focus::Beat || f.kind == Focus::Structure) {
         commitPlanFields(f);
     } else if (f.kind == Focus::Entry) {

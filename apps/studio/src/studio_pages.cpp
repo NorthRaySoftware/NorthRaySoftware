@@ -1384,8 +1384,10 @@ void StudioApp::bookCard(const Rect& r, const Book& b, const Id& seriesId, const
     float y = cover.bottom() + 8;
     if (!seriesId.empty())
         if (const Membership* m = lib_->membership(seriesId, b.id)) {
+            // The number, then the book's type unless it's a novel (0.73).
+            const std::wstring type = b.type == "novel" ? std::wstring() : bookTypeText(b);
             const std::wstring k = (m->number.empty() ? std::wstring(L"") : L"Book " + w(m->number)) +
-                                   (m->kind != Instalment::Novel ? (m->number.empty() ? L"" : L" · ") + w(label(m->kind)) : L"");
+                                   (!type.empty() ? (m->number.empty() ? L"" : L" · ") + type : L"");
             if (!k.empty()) { gfx_.text(k, {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true}); y += 17; }
         }
     // Progress towards the book's target, as a thin bar under the cover.
@@ -1415,27 +1417,42 @@ void StudioApp::bookRow(const Rect& r, const Book& b, const Id& seriesId, const 
     if (sel) gfx_.fill(r, pal_.surface);
     else if (float hv = hoverAmount(hitId); hv > 0.01f) gfx_.fill(r, pal_.surface.withAlpha(0.5f * hv));
     if (sel) gfx_.fill({r.x, r.y + 6, 3, r.h - 12}, pal_.ribbon);
-    drawCover({r.x + 10, r.y + 5, 26, 38}, b);
-    float x = r.x + 44;
+    // In a series' list, sub-books sit indented under the book before them (0.73).
+    const Membership* own = seriesId.empty() ? nullptr : lib_->membership(seriesId, b.id);
+    const float in = own && own->role != SeriesRole::Main ? 24.0f : 0.0f;
+    if (in > 0) {
+        gfx_.line(r.x + 22, r.y, r.x + 22, r.y + r.h / 2, pal_.rule, 1.5f);
+        gfx_.line(r.x + 22, r.y + r.h / 2, r.x + 30, r.y + r.h / 2, pal_.rule, 1.5f);
+    }
+    drawCover({r.x + 10 + in, r.y + 5, 26, 38}, b);
+    float x = r.x + 44 + in;
     const std::wstring sub = !b.subtitle.empty() ? w(b.subtitle) : !b.penName.empty() ? w(b.penName) : w(b.author);
     // The title centred in the row, or over its subtitle when it has one.
     if (sub.empty()) {
-        gfx_.text(w(b.title), {x, r.y, c1 - 50, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
+        gfx_.text(w(b.title), {x, r.y, c1 - 50 - in, r.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
     } else {
-        gfx_.text(w(b.title), {x, r.y + 5, c1 - 50, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-        gfx_.text(sub, {x, r.y + 24, c1 - 50, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        gfx_.text(w(b.title), {x, r.y + 5, c1 - 50 - in, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+        gfx_.text(sub, {x, r.y + 24, c1 - 50 - in, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
     }
-    x += c1 - 44;
-    // The series, with the book's number under it (so a long series name never hides it).
+    x += c1 - 44 - in;
+    // The series, with the book's number under it (so a long series name never hides it). In a series' own list,
+    // that series, and where a sub-book is set.
     {
-        const auto ss = lib_->seriesOfBook(b.id);
+        auto ss = lib_->seriesOfBook(b.id);
+        if (own)
+            if (const Series* here = lib_->seriesById(seriesId)) {
+                ss.erase(std::remove(ss.begin(), ss.end(), here), ss.end());
+                ss.insert(ss.begin(), here);
+            }
         const Membership* mb = ss.empty() ? nullptr : lib_->membership(ss.front()->id, b.id);
         if (ss.empty()) {
             gfx_.text(L"\u2014", {x, r.y, c2 - 10, r.h}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
-        } else if (mb && !mb->number.empty()) {
+        } else if (mb && (!mb->number.empty() || mb->role != SeriesRole::Main)) {
             gfx_.text(w(ss.front()->name), {x, r.y + 6, c2 - 10, 18}, Font::Small, pal_.ink, {Align::Left, false, true});
-            gfx_.text(L"Book " + w(mb->number) + (ss.size() > 1 ? L" \u00B7 and " + std::to_wstring(ss.size() - 1) + L" more" : L""),
-                      {x, r.y + 24, c2 - 10, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+            std::wstring line = mb->number.empty() ? std::wstring() : L"Book " + w(mb->number);
+            if (mb->role != SeriesRole::Main) line += (line.empty() ? L"" : L" \u00B7 ") + seriesRoleText(*mb);
+            else if (ss.size() > 1) line += L" \u00B7 and " + std::to_wstring(ss.size() - 1) + L" more";
+            gfx_.text(line, {x, r.y + 24, c2 - 10, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
         } else {
             gfx_.text(w(ss.front()->name), {x, r.y, c2 - 10, r.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
         }
@@ -1923,6 +1940,7 @@ float StudioApp::pageBook(const Rect& r) {
         float ty = y + 2;
         std::wstring kick = upper(seriesLine(b));
         if (kick.empty()) kick = wd ? L"A BOOK OF " + upper(w(wd->name)) : L"AN INDEPENDENT BOOK";
+        if (const std::wstring t = bookTypeText(b); !t.empty()) kick = upper(t) + L"  \u00B7  " + kick;   // 0.73
         gfx_.text(kick, {x, ty, tw, 16}, Font::Label, gold_, {Align::Left, false, true});
         ty += 20;
         ty += gfx_.text(w(b.title), {x, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 2;
@@ -2060,6 +2078,7 @@ float StudioApp::pageBook(const Rect& r) {
             cy = pageField(c, cy, L"Title", FName);
             cy = pageField(c, cy, L"Subtitle", FSubtitle);
             panelChoice("book:status", c, cy, L"Status", w(label(b.status)), [this] { popupStatusMenu(); });
+            panelChoice("book:type", c, cy, L"Type of book", bookTypeValue(b), [this, bid = b.id] { chooseBookType(bid); });
             panelChoice("book:format", c, cy, L"Format", isComic(b.id) ? L"Comic script" : L"Novel or prose", [this] {
                 const Id bid = viewId_;
                 const int i = popupAt(hwnd(), {L"Novel or prose", L"Comic script"}, isComic(bid) ? 1 : 0);
@@ -2129,13 +2148,29 @@ float StudioApp::pageBook(const Rect& r) {
             for (const Series* s : lib_->seriesIn(b.worldId))
                 if (const Membership* m = lib_->membership(s->id, b.id)) {
                     any = true;
-                    gfx_.text(w(s->name), {c.x, cy, c.w - 150, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
-                    std::wstring k = m->number.empty() ? std::wstring() : L"Book " + w(m->number) + L" · ";
-                    k += w(label(m->kind));
-                    gfx_.text(k, {c.x, cy + 22, c.w - 150, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-                    linkText("book:ser:" + s->id, c.right() - gfx_.measureWidth(L"Change", Font::Small) - 4, cy + 6, L"Change",
-                             [this, sid = s->id, bid = b.id] { goTo(View::Series, sid); setFocus({Focus::Book, bid, sid}); });
-                    cy += 52;
+                    gfx_.text(w(s->name), {c.x, cy, c.w - 120, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+                    linkText("book:ser:" + s->id, c.right() - gfx_.measureWidth(L"The series", Font::Small) - 4, cy, L"The series",
+                             [this, sid = s->id] { goTo(View::Series, sid); });
+                    cy += 28;
+                    // Its number (typed) and its place: a main book, between books, or during one (0.73).
+                    const Rect nb{c.x, cy, 96, 32};
+                    const bool here = focus_.kind == Focus::Book && focus_.id == b.id && focus_.contextSeries == s->id;
+                    gfx_.fillRounded(nb, 7, pal_.surface);
+                    gfx_.strokeRounded(nb, 7, here && GetFocus() == fields_[FNumber] ? pal_.ribbon : pal_.rule);
+                    if (here) {
+                        if (nb.y >= pageRect_.y && nb.bottom() <= pageRect_.bottom()) placeField(FNumber, nb.inset(8, 6));
+                    } else {
+                        gfx_.text(m->number.empty() ? L"Unnumbered" : L"Book " + w(m->number), nb.inset(10, 0), Font::Body,
+                                  m->number.empty() ? pal_.inkFaint : pal_.ink, {Align::Left, false, true, true});
+                        addHit("book:num:" + s->id, nb, [this, sid = s->id, bid = b.id] {
+                            setFocus({Focus::Book, bid, sid});
+                            focusFieldSoon_ = FNumber;
+                            invalidate();
+                        });
+                    }
+                    chooserBox("book:role:" + s->id, {nb.right() + 10, cy, c.right() - nb.right() - 10, 32}, seriesRoleText(*m),
+                               [this, sid = s->id, bid = b.id] { chooseSeriesRole(sid, bid); });
+                    cy += 46;
                 }
             if (!any) {
                 cy += gfx_.text(L"In no series. Drag the book onto a series on its world's page to add it.", {c.x, cy, c.w, 40}, Font::Small,
@@ -2444,14 +2479,14 @@ void StudioApp::drawPanel(const Rect& r) {
                 y += 24;
                 const float half = (c.w - 10) / 2;
                 gfx_.text(L"Number", {c.x, y, half, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
-                gfx_.text(L"Kind", {c.x + half + 10, y, half, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+                gfx_.text(L"Place in the series", {c.x + half + 10, y, half, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
                 y += 20;
                 const Rect nb{c.x, y, half, 30};
                 gfx_.fillRounded(nb, 7, pal_.surface);
                 gfx_.strokeRounded(nb, 7, GetFocus() == fields_[FNumber] ? pal_.ribbon : pal_.rule);
                 if (nb.y >= panelRect_.y + 40 && nb.bottom() <= panelRect_.bottom()) placeField(FNumber, nb);
                 const Rect kb{c.x + half + 10, y, half, 30};
-                chooserBox("panel:kind", kb, w(label(m->kind)), [this] { popupKindMenu(); });
+                chooserBox("panel:kind", kb, seriesRoleText(*m), [this] { chooseSeriesRole(focus_.contextSeries, focus_.id); });
                 y += 38;
                 linkText("panel:leave", c.x, y, L"Remove from this series", [this] {
                     commitFields();
@@ -2471,6 +2506,7 @@ void StudioApp::drawPanel(const Rect& r) {
             y += 30;
             // A novel or a comic script: comics get Page, Panel, Dialogue, Caption and SFX in Writing,
             // and the comic script layout in Typesetting.
+            panelChoice("panel:btype", c, y, L"Type of book", bookTypeValue(*b), [this] { chooseBookType(focus_.id); });
             panelChoice("panel:format", c, y, L"Format", isComic(b->id) ? L"Comic script" : L"Novel or prose", [this] {
                 const Id bid = focus_.id;
                 const int i = popupAt(hwnd(), {L"Novel or prose", L"Comic script"}, isComic(bid) ? 1 : 0);
@@ -2627,6 +2663,9 @@ float StudioApp::pageSettings(const Rect& r0) {
         settings_.writingDetails = i == 0; saveSettings();
     });
     y += 48;
+
+    section(L"BOOK TYPES");
+    y = drawBookTypeSettings(r, y);
 
     section(L"KEYBOARD SHORTCUTS");
     struct K { std::wstring keys, what; };

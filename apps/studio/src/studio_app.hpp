@@ -61,7 +61,8 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure, Sync } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure, Sync, BookType } kind = None;
+    // BookType (0.73): one of the author's own book types (id), edited on the Settings page.
     // Thread, Beat (0.50): a plot thread or a structure beat (id), of a book (contextSeries). Structure: one of the
     // author's own (id), of the book whose plan is open (contextSeries).
     // Language: a constructed language (id); contextSeries "w:<word>" for one of its words.
@@ -224,7 +225,16 @@ private:
     void addToSeries(const Id& bookId, const Id& seriesId);
     void moveSeriesTo(const Id& seriesId, const Id& worldId);
     void popupStatusMenu();
-    void popupKindMenu();
+    // Book types and places in a series (0.73, studio_booktypes.cpp).
+    std::wstring bookTypeText(const studio::Book& b) const;              // the chosen type's name, or ""
+    std::wstring bookTypeValue(const studio::Book& b) const;             // for a chooser: the name, or "Not chosen (… suggested)"
+    void chooseBookType(const Id& bookId);
+    std::wstring seriesRoleText(const studio::Membership& m) const;      // "Main book", "Set between books", "Set during One"
+    void chooseSeriesRole(const Id& seriesId, const Id& bookId);
+    float drawBookTypeSettings(const Rect& r, float y);
+    void newBookType();
+    void loadBookTypeFields();
+    bool commitBookTypeFields(const Id& id);
     void popupSortMenu(float x, float y);
     void popupFilterMenu(float x, float y);
     void showAbout();

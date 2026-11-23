@@ -39,6 +39,24 @@ std::optional<BookStatus> bookStatusFrom(const std::string& s);
 std::optional<SeriesStatus> seriesStatusFrom(const std::string& s);
 std::optional<Instalment> instalmentFrom(const std::string& s);
 
+// A book's place in one series (0.73): one of the main books, or a sub-book set between two of them or during one.
+enum class SeriesRole { Main, Between, During };
+const char* toString(SeriesRole r);
+const char* label(SeriesRole r);   // "Main book", "Set between books", "Set during a book"
+std::optional<SeriesRole> seriesRoleFrom(const std::string& s);
+
+// What sort of book it is (0.73): built in (novel, novella, novelette, short story, flash fiction, collection or
+// anthology, serial or episode) or the author's own (library setting "book-types"). A range in words, when given,
+// lets the Studio suggest the type from the book's length (maxWords 0 = no upper limit).
+struct BookType {
+    std::string id;
+    std::string name;
+    std::int64_t minWords = 0, maxWords = 0;
+    bool builtIn = false;
+    bool hasRange() const { return minWords > 0 || maxWords > 0; }
+};
+const std::vector<BookType>& builtInBookTypes();
+
 struct World {
     Id id;
     std::string name;
@@ -80,6 +98,7 @@ struct Book {
     std::vector<std::string> tags;
     std::string coverBlob;
     std::string trim;            // print trim size id (studio/artwork.hpp); empty = the default
+    std::string type;            // a BookType id (0.73); empty = not chosen (the Studio suggests one from the words)
     std::int64_t wordCount = 0;  // filled in by the manuscript editor (Milestone 2)
     double order = 0;            // position among the world's standalone books
     Time created = 0, modified = 0, deleted = 0;
@@ -93,7 +112,9 @@ struct Membership {
     double readingOrder = 0;
     double chronoOrder = 0;
     std::string number;
-    Instalment kind = Instalment::Novel;
+    Instalment kind = Instalment::Novel;   // before 0.73; still written for older builds
+    SeriesRole role = SeriesRole::Main;      // 0.73
+    Id during;                               // role During: the main book it's set during
 };
 
 // ------------------------------------------------------------ manuscripts
@@ -357,6 +378,20 @@ public:
     bool updateBook(const Book& b);
     bool updateMembership(const Membership& m);
 
+    // Book types (0.73): the built-in ones, then the author's own.
+    std::vector<BookType> bookTypes() const;
+    std::optional<BookType> bookType(const std::string& id) const;
+    std::vector<BookType> customBookTypes() const;
+    bool setCustomBookTypes(const std::vector<BookType>& types);   // ids made from names where missing
+    // The type whose range holds this many words (the narrowest when several do); "" for none or no words.
+    std::string suggestedBookType(std::int64_t words) const;
+    // A series' numbers worked out from its reading order: main books 1, 2, 3...; one sub-book after Book 2 is
+    // "2.5", several are "2.1", "2.2"...; sub-books before the first main book count from 0.
+    std::vector<std::pair<Id, std::string>> autoNumbers(const Id& seriesId) const;
+    bool usesAutoNumbers(const Id& seriesId) const;
+    // Sets a book's role in a series (and the book it's set during), renumbering an automatically numbered series.
+    bool setSeriesRole(const Id& seriesId, const Id& bookId, SeriesRole role, const Id& during = {});
+
     // Ordering: the given ids, in their new order.
     bool reorderWorlds(const std::vector<Id>& ids);
     bool reorderSeries(const std::vector<Id>& ids);
@@ -599,6 +634,7 @@ private:
     bool saveSeries(const Series& s);
     bool saveBook(const Book& b);
     bool saveMembership(const Membership& m);
+    bool renumberTx(const Id& seriesId);   // inside a transaction: the series' automatic numbers
     bool deleteMembership(const Id& seriesId, const Id& bookId);
     bool moveBookToWorldTx(Book& b, const Id& worldId);
     bool saveNode(const ManuscriptNode& n);

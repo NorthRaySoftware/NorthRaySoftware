@@ -11,6 +11,8 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <limits>
 #include <map>
 #include <nlohmann/json.hpp>
 #include <random>
@@ -48,6 +50,9 @@ const EnumTable<Instalment, 5> kKind{{{{Instalment::Novel, "novel"}, {Instalment
                                        {Instalment::Companion, "companion"}, {Instalment::ShortStory, "short-story"},
                                        {Instalment::Collection, "collection"}}},
                                      {"Novel", "Novella", "Companion story", "Short story", "Collection"}};
+const EnumTable<SeriesRole, 3> kRole{{{{SeriesRole::Main, "main"}, {SeriesRole::Between, "between"},
+                                       {SeriesRole::During, "during"}}},
+                                     {"Main book", "Set between books", "Set during a book"}};
 
 template <class E, size_t N> const char* idOf(const EnumTable<E, N>& t, E v) {
     for (auto& [e, s] : t.ids) if (e == v) return s;
@@ -72,6 +77,22 @@ const char* label(Instalment k) { return labelOf(kKind, k); }
 std::optional<BookStatus> bookStatusFrom(const std::string& s) { return fromId(kBook, s); }
 std::optional<SeriesStatus> seriesStatusFrom(const std::string& s) { return fromId(kSeries, s); }
 std::optional<Instalment> instalmentFrom(const std::string& s) { return fromId(kKind, s); }
+const char* toString(SeriesRole r) { return idOf(kRole, r); }
+const char* label(SeriesRole r) { return labelOf(kRole, r); }
+std::optional<SeriesRole> seriesRoleFrom(const std::string& s) { return fromId(kRole, s); }
+
+const std::vector<BookType>& builtInBookTypes() {
+    static const std::vector<BookType> t{
+        {"novel", "Novel", 40000, 0, true},
+        {"novella", "Novella", 17500, 39999, true},
+        {"novelette", "Novelette", 7500, 17499, true},
+        {"short-story", "Short story", 1000, 7499, true},
+        {"flash", "Flash fiction", 1, 999, true},
+        {"collection", "Collection or anthology", 0, 0, true},
+        {"serial", "Serial or episode", 0, 0, true},
+    };
+    return t;
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -353,6 +374,9 @@ std::unique_ptr<Library> Library::open(const std::string& folder, OpenResult& r)
         struct Add { const char* table; const char* column; const char* sql; };
         static const Add adds[] = {
             {"books", "trim", "ALTER TABLE books ADD COLUMN trim TEXT NOT NULL DEFAULT ''"},
+            {"books", "type", "ALTER TABLE books ADD COLUMN type TEXT NOT NULL DEFAULT ''"},
+            {"memberships", "role", "ALTER TABLE memberships ADD COLUMN role TEXT NOT NULL DEFAULT ''"},
+            {"memberships", "during_book", "ALTER TABLE memberships ADD COLUMN during_book TEXT NOT NULL DEFAULT ''"},
             {"nodes", "pov_id", "ALTER TABLE nodes ADD COLUMN pov_id TEXT NOT NULL DEFAULT ''"},
             {"nodes", "target_words", "ALTER TABLE nodes ADD COLUMN target_words INTEGER NOT NULL DEFAULT 0"},
             {"nodes", "matter", "ALTER TABLE nodes ADD COLUMN matter INTEGER NOT NULL DEFAULT 0"},
@@ -434,7 +458,7 @@ bool Library::load() {
     }
     {
         Stmt q(db_, "SELECT id, world_id, title, subtitle, author, pen_name, synopsis, genre, language, isbn, edition, status, tags, "
-                    "cover_blob, word_count, sort_order, created, modified, deleted, trim FROM books ORDER BY sort_order, created");
+                    "cover_blob, word_count, sort_order, created, modified, deleted, trim, type FROM books ORDER BY sort_order, created");
         if (!q) { error_ = sqlite3_errmsg(db_); return false; }
         while (q.row()) {
             Book b;
@@ -446,17 +470,28 @@ bool Library::load() {
                 for (auto& x : t) if (x.is_string()) b.tags.push_back(x.get<std::string>());
             b.coverBlob = q.text(13); b.wordCount = q.i64(14); b.order = q.dbl(15);
             b.created = q.i64(16); b.modified = q.i64(17); b.deleted = q.i64(18); b.trim = q.text(19);
+            b.type = q.text(20);
             books_.push_back(std::move(b));
         }
     }
     {
-        Stmt q(db_, "SELECT series_id, book_id, reading_order, chrono_order, number, kind FROM memberships");
+        Stmt q(db_, "SELECT series_id, book_id, reading_order, chrono_order, number, kind, role, during_book FROM memberships");
         if (!q) { error_ = sqlite3_errmsg(db_); return false; }
         while (q.row()) {
             Membership m;
             m.seriesId = q.text(0); m.bookId = q.text(1); m.readingOrder = q.dbl(2); m.chronoOrder = q.dbl(3);
             m.number = q.text(4); m.kind = instalmentFrom(q.text(5)).value_or(Instalment::Novel);
+            // Before 0.73 a companion story was the only kind of sub-book.
+            m.role = seriesRoleFrom(q.text(6)).value_or(m.kind == Instalment::Companion ? SeriesRole::Between : SeriesRole::Main);
+            m.during = q.text(7);
             memberships_.push_back(std::move(m));
+        }
+        // Before 0.73 the kind in a series said what sort of book it was.
+        for (auto& m : memberships_) {
+            const char* t = m.kind == Instalment::Novella ? "novella" : m.kind == Instalment::ShortStory ? "short-story"
+                          : m.kind == Instalment::Collection ? "collection" : nullptr;
+            if (!t) continue;
+            for (auto& b : books_) if (b.id == m.bookId && b.type.empty()) b.type = t;
         }
     }
     return loadNodes() && loadArtworks() && loadEditions() && loadEntries() && loadComments();
@@ -526,7 +561,26 @@ std::vector<const Book*> Library::booksInSeries(const Id& seriesId, bool chronol
     }
     std::stable_sort(v.begin(), v.end(), [](auto& a, auto& b) { return a.first < b.first; });
     std::vector<const Book*> out;
-    for (auto& [o, b] : v) out.push_back(b);
+    if (chronological) {
+        for (auto& [o, b] : v) out.push_back(b);
+        return out;
+    }
+    // Reading order (0.73): a book set during another follows that book (if it's in the series), in their own order.
+    std::vector<const Book*> during;
+    auto hostOf = [&](const Book* b) -> Id {
+        const Membership* m = membership(seriesId, b->id);
+        if (!m || m->role != SeriesRole::During || m->during.empty() || m->during == b->id) return {};
+        for (auto& [o, x] : v) if (x->id == m->during) return m->during;
+        return {};
+    };
+    std::function<void(const Book*, int)> put = [&](const Book* b, int depth) {
+        out.push_back(b);
+        if (depth > 8) return;
+        for (auto& [o, x] : v) if (hostOf(x) == b->id) put(x, depth + 1);
+    };
+    for (auto& [o, b] : v) if (hostOf(b).empty()) put(b, 0);
+    // A loop of books set during each other: keep any left out at the end.
+    for (auto& [o, b] : v) if (std::find(out.begin(), out.end(), b) == out.end()) out.push_back(b);
     return out;
 }
 std::vector<const Series*> Library::seriesOfBook(const Id& bookId) const {
@@ -575,27 +629,33 @@ bool Library::saveSeries(const Series& x) {
 }
 bool Library::saveBook(const Book& b) {
     Stmt s(db_, "INSERT INTO books(id, world_id, title, subtitle, author, pen_name, synopsis, genre, language, isbn, edition, status, "
-                "tags, cover_blob, word_count, sort_order, created, modified, deleted, trim) VALUES "
-                "(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20) ON CONFLICT(id) DO UPDATE SET "
+                "tags, cover_blob, word_count, sort_order, created, modified, deleted, trim, type) VALUES "
+                "(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21) ON CONFLICT(id) DO UPDATE SET "
                 "world_id=excluded.world_id, title=excluded.title, subtitle=excluded.subtitle, author=excluded.author, "
                 "pen_name=excluded.pen_name, synopsis=excluded.synopsis, genre=excluded.genre, language=excluded.language, "
                 "isbn=excluded.isbn, edition=excluded.edition, status=excluded.status, tags=excluded.tags, "
                 "cover_blob=excluded.cover_blob, word_count=excluded.word_count, sort_order=excluded.sort_order, "
-                "modified=excluded.modified, deleted=excluded.deleted, trim=excluded.trim");
+                "modified=excluded.modified, deleted=excluded.deleted, trim=excluded.trim, type=excluded.type");
     s.bind(1, b.id).bindIdOrNull(2, b.worldId).bind(3, b.title).bind(4, b.subtitle).bind(5, b.author).bind(6, b.penName)
         .bind(7, b.synopsis).bind(8, b.genre).bind(9, b.language).bind(10, b.isbn).bind(11, b.edition)
         .bind(12, std::string(toString(b.status))).bind(13, json(b.tags).dump()).bind(14, b.coverBlob)
         .bind(15, (std::int64_t)b.wordCount).bind(16, b.order).bind(17, (std::int64_t)b.created)
-        .bind(18, (std::int64_t)b.modified).bind(19, (std::int64_t)b.deleted).bind(20, b.trim);
+        .bind(18, (std::int64_t)b.modified).bind(19, (std::int64_t)b.deleted).bind(20, b.trim).bind(21, b.type);
     if (!s.run()) { error_ = sqlite3_errmsg(db_); return false; }
     return true;
 }
 bool Library::saveMembership(const Membership& m) {
-    Stmt s(db_, "INSERT INTO memberships(series_id, book_id, reading_order, chrono_order, number, kind) VALUES (?1,?2,?3,?4,?5,?6) "
+    // Older builds read `kind`: a sub-book is a companion to them.
+    const Instalment kind = m.role != SeriesRole::Main ? Instalment::Companion
+                            : m.kind == Instalment::Companion ? Instalment::Novel : m.kind;
+    Stmt s(db_, "INSERT INTO memberships(series_id, book_id, reading_order, chrono_order, number, kind, role, during_book) "
+                "VALUES (?1,?2,?3,?4,?5,?6,?7,?8) "
                 "ON CONFLICT(series_id, book_id) DO UPDATE SET reading_order=excluded.reading_order, "
-                "chrono_order=excluded.chrono_order, number=excluded.number, kind=excluded.kind");
+                "chrono_order=excluded.chrono_order, number=excluded.number, kind=excluded.kind, role=excluded.role, "
+                "during_book=excluded.during_book");
     s.bind(1, m.seriesId).bind(2, m.bookId).bind(3, m.readingOrder).bind(4, m.chronoOrder).bind(5, m.number)
-        .bind(6, std::string(toString(m.kind)));
+        .bind(6, std::string(toString(kind))).bind(7, std::string(toString(m.role)))
+        .bind(8, m.role == SeriesRole::During ? m.during : std::string());
     if (!s.run()) { error_ = sqlite3_errmsg(db_); return false; }
     return true;
 }
@@ -742,6 +802,8 @@ bool Library::updateMembership(const Membership& in) {
     Membership next = *m;
     next.number = trimmed(in.number);
     next.kind = in.kind;
+    next.role = in.role;
+    next.during = in.role == SeriesRole::During ? in.during : Id();
     if (!begin()) return false;
     if (!saveMembership(next)) { rollback(); return false; }
     if (!commit()) return false;
@@ -796,18 +858,44 @@ bool Library::reorderStandaloneBooks(const std::vector<Id>& ids) {
     std::stable_sort(books_.begin(), books_.end(), [](auto& a, auto& b) { return a.order < b.order; });
     return true;
 }
-bool Library::reorderSeriesBooks(const Id& seriesId, const std::vector<Id>& bookIds, bool chronological) {
-    // If the series still uses the automatic numbering (1, 2, 3... in reading
-    // order), the numbers follow a new reading order. Custom numbers ("2.5",
-    // gaps, unnumbered companions) are never touched.
-    bool autoNumbered = !chronological;
-    if (autoNumbered) {
-        int expect = 1;
-        for (const Book* b : booksInSeries(seriesId, false)) {
-            const Membership* m = membership(seriesId, b->id);
-            if (!m || m->number != std::to_string(expect++)) { autoNumbered = false; break; }
+std::vector<std::pair<Id, std::string>> Library::autoNumbers(const Id& seriesId) const {
+    const std::vector<const Book*> order = booksInSeries(seriesId, false);
+    std::vector<std::pair<Id, std::string>> out;
+    int main = 0;
+    size_t i = 0;
+    while (i < order.size()) {
+        const Membership* m = membership(seriesId, order[i]->id);
+        if (!m || m->role == SeriesRole::Main) { out.push_back({order[i]->id, std::to_string(++main)}); ++i; continue; }
+        size_t j = i;   // a run of sub-books after main book `main`
+        while (j < order.size()) {
+            const Membership* k = membership(seriesId, order[j]->id);
+            if (!k || k->role == SeriesRole::Main) break;
+            ++j;
         }
+        const std::string base = std::to_string(main);
+        if (j - i == 1) out.push_back({order[i]->id, base + ".5"});
+        else for (size_t k = i; k < j; ++k) out.push_back({order[k]->id, base + "." + std::to_string(k - i + 1)});
+        i = j;
     }
+    return out;
+}
+bool Library::usesAutoNumbers(const Id& seriesId) const {
+    // Before 0.73 numbers were 1, 2, 3... for every book; that still counts as automatic.
+    const auto expect = autoNumbers(seriesId);
+    bool same = true, plain = true;
+    int n = 0;
+    for (auto& [id, num] : expect) {
+        const Membership* m = membership(seriesId, id);
+        if (!m || m->number != num) same = false;
+        if (!m || m->number != std::to_string(++n)) plain = false;
+    }
+    return same || plain;
+}
+bool Library::reorderSeriesBooks(const Id& seriesId, const std::vector<Id>& bookIds, bool chronological) {
+    // If the series still uses the automatic numbering (1, 2, 2.5, 3... in reading
+    // order), the numbers follow a new reading order. Custom numbers (gaps,
+    // unnumbered companions, the author's own) are never touched.
+    const bool autoNumbered = !chronological && usesAutoNumbers(seriesId);
     if (!begin()) return false;
     double o = 1;
     for (auto& id : bookIds) {
@@ -815,12 +903,117 @@ bool Library::reorderSeriesBooks(const Id& seriesId, const std::vector<Id>& book
         if (!m) continue;
         Membership next = *m;
         (chronological ? next.chronoOrder : next.readingOrder) = o;
-        if (autoNumbered) next.number = std::to_string((int)o);
         ++o;
         if (!saveMembership(next)) { rollback(); return false; }
         *m = next;
     }
+    if (autoNumbered && !renumberTx(seriesId)) { rollback(); return false; }
     return commit();
+}
+bool Library::renumberTx(const Id& seriesId) {
+    for (auto& [id, num] : autoNumbers(seriesId)) {
+        Membership* m = const_cast<Membership*>(membership(seriesId, id));
+        if (!m || m->number == num) continue;
+        Membership next = *m;
+        next.number = num;
+        if (!saveMembership(next)) return false;
+        *m = next;
+    }
+    return true;
+}
+bool Library::setSeriesRole(const Id& seriesId, const Id& bookId, SeriesRole role, const Id& during) {
+    Membership* m = const_cast<Membership*>(membership(seriesId, bookId));
+    if (!m) { error_ = "That book isn't in that series."; return false; }
+    if (role == SeriesRole::During && (during.empty() || during == bookId || !membership(seriesId, during))) {
+        error_ = "Choose a book of the series that it's set during.";
+        return false;
+    }
+    const bool autoNumbered = usesAutoNumbers(seriesId);
+    if (!begin()) return false;
+    Membership next = *m;
+    next.role = role;
+    next.during = role == SeriesRole::During ? during : Id();
+    if (!saveMembership(next)) { rollback(); return false; }
+    *m = next;
+    // Two books set during each other would have no place in reading order: the other one becomes "between".
+    for (auto& x : memberships_)
+        if (x.seriesId == seriesId && x.role == SeriesRole::During && x.during == bookId && role == SeriesRole::During && during == x.bookId) {
+            Membership y = x;
+            y.role = SeriesRole::Between;
+            y.during.clear();
+            if (!saveMembership(y)) { rollback(); return false; }
+            x = y;
+        }
+    if (autoNumbered && !renumberTx(seriesId)) { rollback(); return false; }
+    return commit();
+}
+
+std::vector<BookType> Library::customBookTypes() const {
+    std::vector<BookType> out;
+    json j = json::parse(setting("book-types"), nullptr, false);
+    if (!j.is_array()) return out;
+    for (auto& x : j) {
+        if (!x.is_object()) continue;
+        BookType t;
+        t.id = x.value("id", std::string());
+        t.name = trimmed(x.value("name", std::string()));
+        t.minWords = std::max<std::int64_t>(0, x.value("min", (std::int64_t)0));
+        t.maxWords = std::max<std::int64_t>(0, x.value("max", (std::int64_t)0));
+        if (t.id.empty() || t.name.empty()) continue;
+        bool clash = false;
+        for (auto& b : builtInBookTypes()) if (b.id == t.id) clash = true;
+        for (auto& o : out) if (o.id == t.id) clash = true;
+        if (!clash) out.push_back(std::move(t));
+    }
+    return out;
+}
+std::vector<BookType> Library::bookTypes() const {
+    std::vector<BookType> out = builtInBookTypes();
+    for (auto& t : customBookTypes()) out.push_back(t);
+    return out;
+}
+std::optional<BookType> Library::bookType(const std::string& id) const {
+    if (id.empty()) return std::nullopt;
+    for (auto& t : bookTypes()) if (t.id == id) return t;
+    return std::nullopt;
+}
+bool Library::setCustomBookTypes(const std::vector<BookType>& types) {
+    json j = json::array();
+    std::set<std::string> used;
+    for (auto& b : builtInBookTypes()) used.insert(b.id);
+    for (auto t : types) {
+        t.name = trimmed(t.name);
+        if (t.name.empty()) continue;
+        if (t.id.empty() || used.count(t.id)) {
+            std::string base;
+            for (unsigned char c : t.name) {
+                if (std::isalnum(c)) base += (char)std::tolower(c);
+                else if (!base.empty() && base.back() != '-') base += '-';
+            }
+            while (!base.empty() && base.back() == '-') base.pop_back();
+            if (base.empty()) base = "type";
+            base = "own-" + base;
+            t.id = base;
+            for (int n = 2; used.count(t.id); ++n) t.id = base + "-" + std::to_string(n);
+        }
+        used.insert(t.id);
+        std::int64_t lo = std::max<std::int64_t>(0, t.minWords), hi = std::max<std::int64_t>(0, t.maxWords);
+        if (hi && lo > hi) std::swap(lo, hi);
+        j.push_back({{"id", t.id}, {"name", t.name}, {"min", lo}, {"max", hi}});
+    }
+    return setSetting("book-types", j.empty() ? std::string() : j.dump());
+}
+std::string Library::suggestedBookType(std::int64_t words) const {
+    if (words <= 0) return {};
+    std::string best;
+    std::int64_t bestSpan = 0;
+    for (auto& t : bookTypes()) {
+        if (!t.hasRange()) continue;
+        if (words < t.minWords || (t.maxWords && words > t.maxWords)) continue;
+        const std::int64_t span = t.maxWords ? t.maxWords - t.minWords : std::numeric_limits<std::int64_t>::max() / 2;
+        if (best.empty() || span < bestSpan) { best = t.id; bestSpan = span; }
+    }
+    return best;
 }
 
 // ------------------------------------------------------------------ moving
@@ -1113,11 +1306,12 @@ bool Library::exportJson(const std::string& path, std::string& err) const {
                               {"author", b.author}, {"penName", b.penName}, {"synopsis", b.synopsis}, {"genre", b.genre},
                               {"language", b.language}, {"isbn", b.isbn}, {"edition", b.edition},
                               {"status", toString(b.status)}, {"tags", b.tags}, {"coverBlob", b.coverBlob}, {"trim", b.trim},
-                              {"wordCount", b.wordCount}, {"order", b.order}, {"created", b.created},
+                              {"type", b.type}, {"wordCount", b.wordCount}, {"order", b.order}, {"created", b.created},
                               {"modified", b.modified}, {"deleted", b.deleted}});
     for (auto& m : memberships_)
         j["memberships"].push_back({{"seriesId", m.seriesId}, {"bookId", m.bookId}, {"readingOrder", m.readingOrder},
-                                    {"chronoOrder", m.chronoOrder}, {"number", m.number}, {"kind", toString(m.kind)}});
+                                    {"chronoOrder", m.chronoOrder}, {"number", m.number}, {"kind", toString(m.kind)},
+                                    {"role", toString(m.role)}, {"during", m.during}});
     for (auto& n : nodes_) {
         json c = json::parse(nodeContent(n.id), nullptr, false);
         j["nodes"].push_back({{"id", n.id}, {"bookId", n.bookId}, {"parentId", n.parentId}, {"kind", toString(n.kind)},

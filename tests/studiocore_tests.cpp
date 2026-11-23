@@ -124,6 +124,7 @@ static void testOrdering() {
     Membership m = *lib->membership(s, a);
     m.number = "";            // unnumbered companion story
     m.kind = Instalment::Companion;
+    m.role = SeriesRole::Between;
     CHECK(lib->updateMembership(m));
     // ...but once numbers are customised, reordering leaves them alone.
     CHECK(lib->reorderSeriesBooks(s, {a, c, b}, false));
@@ -135,6 +136,73 @@ static void testOrdering() {
     CHECK(again->booksInSeries(s, true)[0]->id == b);
     CHECK(again->liveWorlds()[0]->id == w3);
     CHECK(again->membership(s, a)->number.empty() && again->membership(s, a)->kind == Instalment::Companion);
+    CHECK(again->membership(s, a)->role == SeriesRole::Between);
+    again.reset();
+    fs::remove_all(dir);
+}
+
+// Sub-books and book types (0.73).
+static void testSubBooks() {
+    const std::string dir = tempLibrary("subbooks");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id s = lib->createSeries("The Chronicles", w);
+    const Id one = lib->createBook("One", {}, s), two = lib->createBook("Two", {}, s), three = lib->createBook("Three", {}, s);
+    const Id tale = lib->createBook("A Tale Between", {}, s), side = lib->createBook("Meanwhile", {}, s);
+    CHECK(lib->usesAutoNumbers(s));
+    // A sub-book between Two and Three: placed by reading order, numbered 2.5.
+    CHECK(lib->reorderSeriesBooks(s, {one, two, tale, three, side}, false));
+    CHECK(lib->setSeriesRole(s, tale, SeriesRole::Between));
+    CHECK(lib->membership(s, tale)->number == "2.5");
+    CHECK(lib->membership(s, three)->number == "3");
+    // One set during Book One goes straight after it in reading order, whatever its own order.
+    CHECK(!lib->setSeriesRole(s, side, SeriesRole::During, side));      // not during itself
+    CHECK(!lib->setSeriesRole(s, side, SeriesRole::During, "nope"));    // only a book of the series
+    CHECK(lib->setSeriesRole(s, side, SeriesRole::During, one));
+    auto order = lib->booksInSeries(s);
+    CHECK(order.size() == 5 && order[0]->id == one && order[1]->id == side && order[2]->id == two && order[3]->id == tale && order[4]->id == three);
+    CHECK(lib->membership(s, side)->number == "1.5" && lib->membership(s, two)->number == "2" && lib->membership(s, three)->number == "3");
+    // Two sub-books after one book: 1.1 and 1.2.
+    CHECK(lib->reorderSeriesBooks(s, {one, side, tale, two, three}, false));
+    CHECK(lib->membership(s, side)->number == "1.1" && lib->membership(s, tale)->number == "1.2" && lib->membership(s, two)->number == "2");
+    // A sub-book before the first main book counts from 0.
+    CHECK(lib->reorderSeriesBooks(s, {tale, one, side, two, three}, false));
+    CHECK(lib->membership(s, tale)->number == "0.5");
+    // Two books set during each other can't both be: the earlier one becomes "between".
+    CHECK(lib->setSeriesRole(s, one, SeriesRole::During, side));
+    CHECK(lib->membership(s, side)->role == SeriesRole::Between && lib->membership(s, one)->role == SeriesRole::During);
+    CHECK(lib->booksInSeries(s).size() == 5);
+    CHECK(lib->setSeriesRole(s, one, SeriesRole::Main));
+    // Own numbers are left alone.
+    Membership m = *lib->membership(s, tale);
+    m.number = "Prequel";
+    CHECK(lib->updateMembership(m));
+    CHECK(!lib->usesAutoNumbers(s));
+    CHECK(lib->setSeriesRole(s, tale, SeriesRole::Main));
+    CHECK(lib->membership(s, tale)->number == "Prequel");
+    // Book types: suggested from the words, the author's own with a range, kept.
+    CHECK(lib->suggestedBookType(0).empty());
+    CHECK(lib->suggestedBookType(600) == "flash");
+    CHECK(lib->suggestedBookType(5000) == "short-story");
+    CHECK(lib->suggestedBookType(9000) == "novelette");
+    CHECK(lib->suggestedBookType(25000) == "novella");
+    CHECK(lib->suggestedBookType(120000) == "novel");
+    CHECK(lib->setCustomBookTypes({{"", "Epic", 150000, 400000, false}, {"", "Vignette", 0, 0, false}, {"novel", "Novel again", 0, 0, false}}));
+    auto own = lib->customBookTypes();
+    CHECK(own.size() == 3 && own[0].id == "own-epic" && own[1].id == "own-vignette" && own[2].id == "own-novel-again");
+    CHECK(lib->suggestedBookType(200000) == "own-epic");      // the narrower range wins over the novel's
+    CHECK(lib->bookTypes().size() == builtInBookTypes().size() + 3);
+    CHECK(lib->bookType("own-vignette") && lib->bookType("own-vignette")->name == "Vignette");
+    Book b = *lib->book(two);
+    b.type = "own-epic";
+    CHECK(lib->updateBook(b));
+    lib.reset();
+    auto again = openOk(dir);
+    CHECK(again->book(two)->type == "own-epic");
+    CHECK(again->membership(s, side)->role == SeriesRole::Between);
+    CHECK(again->membership(s, one)->role == SeriesRole::Main);
+    CHECK(again->membership(s, tale)->number == "Prequel");
+    CHECK(again->customBookTypes().size() == 3);
     again.reset();
     fs::remove_all(dir);
 }
@@ -4088,6 +4156,7 @@ int main() {
     testUpgradeFromVersion1();
     testCreateAndReopen();
     testOrdering();
+    testSubBooks();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();
