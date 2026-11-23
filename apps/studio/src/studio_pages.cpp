@@ -61,13 +61,18 @@ void StudioApp::drawFrame(float W, float H) {
     const bool libCard = libLayout && lib_ && view_ != View::Book && view_ != View::FromGitHub &&
                          (focus_.kind == Focus::World || focus_.kind == Focus::Series || focus_.kind == Focus::Artwork ||
                           focus_.kind == Focus::Picture);
-    const float sideW = focusing || worldLayout || planLayout || libLayout || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
-    const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && settings_.showPanel && lib_ && !settingsPage;
-    panelAsCard_ = worldCard || planLayout || libCard;
+    // Writing (0.70): a narrower outline (F3 hides it), a bar over the page for the chapter, and the details only when
+    // there's something to show: a picture or comment chosen in the text, or the chapter's details asked for (F4).
+    const bool writeLayout = ws_ == Workspace::Writing && !focusing && lib_ && lib_->book(writingBook_);
+    const bool writeCard = writeLayout && (focus_.kind == Focus::Picture || focus_.kind == Focus::Comment || settings_.writingDetails);
+    const float sideW = focusing || worldLayout || planLayout || libLayout || (!settings_.showSide && !settingsPage) ? 0
+                      : writeLayout ? kWriteSideW : kSideW;
+    const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && !writeLayout && settings_.showPanel && lib_ && !settingsPage;
+    panelAsCard_ = worldCard || planLayout || libCard || writeCard;
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
     const float railW = focusing ? 0 : kRailW;
     railRect_ = {0, kTopH, railW, H - kTopH};
-    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard ? kPanelW + 34 : 0);
+    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard || writeCard ? kPanelW + 34 : 0);
     sideRect_ = {railW, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
     pageRect_ = {railW + sideW, kTopH, centreW, H - kTopH};
@@ -260,14 +265,21 @@ void StudioApp::drawFrame(float W, float H) {
     }
     if (ws_ == Workspace::Review) ws_ = Workspace::Library;
     if (ws_ == Workspace::Writing && lib_ && lib_->book(writingBook_)) {
+        // The chapter's bar over the page (0.70); the editor fills the rest of the centre (a separate window placed over it).
+        Rect stripRect{};
+        if (writeLayout && !currentNode_.empty()) {
+            stripRect = {pageRect_.x, pageRect_.y, pageRect_.w, kWriteBarH};
+            pageRect_.y += kWriteBarH;
+            pageRect_.h -= kWriteBarH;
+        }
         // The editor fills the centre; it's a separate window placed over this area.
-        const Rect m{pageRect_.x + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+        const Rect m{pageRect_.x + pad, pageRect_.y + 26, std::min(centreW - pad * 2, 620.0f), 0};
         if (!editorNote_.empty()) {
             float y = m.y + pageHeader(m, L"WRITING", L"The editor isn't available", editorNote_);
             linkText("ed:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
                      [] { cjui::openInBrowser("https://developer.microsoft.com/microsoft-edge/webview2/"); });
         } else if (currentNode_.empty()) {
-            emptyState({pageRect_.x + pad, kTopH + 26, centreW - pad * 2, pageRect_.bottom() - kTopH - 60}, cjui::Icon::Writing,
+            emptyState({pageRect_.x + pad, pageRect_.y + 26, centreW - pad * 2, pageRect_.h - 60}, cjui::Icon::Writing,
                        L"Pick a chapter on the left, or start a new one.", L"+ Chapter", [this] { addNode(NodeKind::Chapter); });
         } else if (!editor_.ready()) {
             gfx_.text(L"Opening the editor...", {m.x, m.y + 20, 400, 30}, Font::Body, pal_.inkFaint);
@@ -283,6 +295,26 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.text(todayLine(), {foot.x + 22, foot.y, foot.w - 36, foot.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
         }
         if (panel) drawPanel(panelRect_);
+        if (stripRect.w > 0) drawWritingBar(stripRect);
+        if (writeCard) {
+            panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+            card(panelRect_, 14);
+            gfx_.pushClip(panelRect_.inset(0, 6));
+            drawPanel(panelRect_);
+            gfx_.popClip();
+            if (focus_.kind != Focus::Picture && focus_.kind != Focus::Comment) {
+                const Rect xr{panelRect_.right() - 38, panelRect_.y + 10, 28, 28};
+                addHit("wr:details:close", xr, [this] { settings_.writingDetails = false; saveSettings(); invalidate(); });
+                tooltip("wr:details:close", L"Close   F4");
+                const float hv = hoverAmount("wr:details:close");
+                if (hv > 0.01f) gfx_.fillRounded(xr, 7, pal_.sunken.withAlpha(hv));
+                const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
+                gfx_.line(cx - 4.5f, cy - 4.5f, cx + 4.5f, cy + 4.5f, pal_.inkMuted, 1.5f);
+                gfx_.line(cx - 4.5f, cy + 4.5f, cx + 4.5f, cy - 4.5f, pal_.inkMuted, 1.5f);
+            }
+        } else if (writeLayout) {
+            panelRect_ = {};
+        }
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         {   // Today's words against the daily goal: a thin bar along the foot of the top bar (0.35).
@@ -627,8 +659,14 @@ void StudioApp::drawTopBar(const Rect& r) {
         const float bx = r.right() - capW - 80;
         layoutButton("tab:side", bx, cjui::Icon::Sidebar, settings_.showSide, L"Show or hide the left side   F3",
                      [this] { settings_.showSide = !settings_.showSide; saveSettings(); invalidate(); });
-        layoutButton("tab:panel", bx + 34, cjui::Icon::Panel, settings_.showPanel, L"Show or hide the details   F4",
-                     [this] { settings_.showPanel = !settings_.showPanel; saveSettings(); invalidate(); });
+        const bool writing = ws_ == Workspace::Writing;   // there, the button shows the chapter's details (0.70)
+        layoutButton("tab:panel", bx + 34, cjui::Icon::Panel, writing ? settings_.writingDetails : settings_.showPanel, L"Show or hide the details   F4",
+                     [this, writing] {
+                         if (writing) settings_.writingDetails = !settings_.writingDetails;
+                         else settings_.showPanel = !settings_.showPanel;
+                         saveSettings();
+                         invalidate();
+                     });
     }    drawSearchResults();   // over everything below the bar
 }
 
@@ -1082,6 +1120,7 @@ void StudioApp::inlineBox(const Rect& r) {
         placeField(f, r);
     }
     ie_.placed = true;
+    if (ie_.key.rfind("wr:", 0) == 0) return;   // the chapter's bar: no room for the hint under it
     gfx_.text(isMultiField(ie_.field) ? L"Ctrl+Enter or a click elsewhere keeps it; Esc puts it back." : L"Enter or a click elsewhere keeps it; Esc puts it back.",
               {r.x + 2, r.bottom() + 4, r.w, 16}, Font::Small, pal_.inkFaint,
               {Align::Left, false, true});
@@ -2103,6 +2142,8 @@ float StudioApp::panelField(const Rect& r, float y, const std::wstring& lbl, Fie
     // A field being edited on a corkboard card (0.51) is there, not here.
     if (ws_ == Workspace::Planning && pl_.cardEdit == (int)f)
         gfx_.text(L"Being edited on the card", box.inset(10, 0), Font::Small, pal_.inkFaint, {Align::Left, false, true, h < 40});
+    else if (ie_.field == (int)f)   // being edited where it's shown (0.70)
+        gfx_.text(L"Being edited above", box.inset(10, 0), Font::Small, pal_.inkFaint, {Align::Left, false, true, h < 40});
     else if (inView) placeField(f, box);
     return y + h + 12;
 }

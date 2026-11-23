@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.70.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Writing has more room for the text: the outline is narrower (F3 still hides it), and the details panel is gone until you want it.",
+        "A bar over the page shows the chapter you're in: its kind, its name (click it to rename it there; Enter keeps it and goes on to the text, Esc puts it back), its status (click it to change it) and its words.",
+        "At the bar's right, Details (or F4) opens the chapter's details in a card beside the text, and Chapter tools ▾ has Details, Earlier versions…, Plan it on the corkboard, New chapter, New scene, New part, Move up, Move down, Import into this book… and Move to Trash.",
+        "A picture or a comment chosen in the text opens its details in the same card. The top bar's details button in Writing shows and hides the chapter's details."
+      ]
+    },
+    {
       "version": "0.69.0",
       "date": "2026-11-23",
       "notes": [

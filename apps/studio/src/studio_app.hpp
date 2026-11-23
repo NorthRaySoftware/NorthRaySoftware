@@ -44,6 +44,7 @@ enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Set
 // The workspace tabs along the top. Import is the preview shown before an import.
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
+inline constexpr float kWriteSideW = 230, kWriteBarH = 52;   // Writing's outline and chapter bar (0.70)
 inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28, kRailW = 76;
 inline constexpr UINT WM_APP_IMPORT = WM_APP + 20;  // an import file has been read (lParam: Plan*)
 inline constexpr UINT WM_APP_TYPESET = WM_APP + 21; // a book has been typeset (wParam: generation, lParam: typeset::Book*)
@@ -94,6 +95,7 @@ struct Settings {
     // Where you were: reopened on the next start.
     std::string lastBook, lastNode;
     bool lastInWriting = false;
+    bool writingDetails = false;   // Writing shows the chapter's details in a card (0.70; F4)
     bool entryList = false;   // Worldbuilding shows entries as a list of rows rather than cards (0.59)
     // Books written in lately, newest first, each with the chapter it was on (0.58): NorthRay Launcher's Jump back in.
     std::vector<std::pair<std::string, std::string>> recentBooks;
@@ -247,6 +249,8 @@ private:
     void drawBinder(const Rect& r);
     void drawNodePanel(const Rect& r, const Rect& c, float& y);
     void placeEditor();
+    void drawWritingBar(const Rect& r);   // the chapter's name, status and words over the page, with its tools (0.70)
+    std::vector<ToolItem> chapterTools();
     void sendView();                  // the writing view and the bible's names, to the editor
     // Style rules belong to the book's world, or to the book itself when it's in no world.
     struct StyleScope { std::string key; std::string name, label; };

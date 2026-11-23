@@ -120,6 +120,7 @@ void StudioApp::loadSettings() {
     settings_.lastNode = cj::valueOr(j, "lastNode", "");
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
     settings_.entryList = cj::valueOr(j, "entryList", false);
+    settings_.writingDetails = cj::valueOr(j, "writingDetails", false);
     if (j.contains("recentBooks") && j["recentBooks"].is_array())
         for (auto& r : j["recentBooks"])
             if (r.is_object() && settings_.recentBooks.size() < 8)
@@ -146,6 +147,7 @@ void StudioApp::saveSettings() {
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
     j["entryList"] = settings_.entryList;
+    j["writingDetails"] = settings_.writingDetails;
     {
         json rb = json::array();
         for (auto& [b, c] : settings_.recentBooks) rb.push_back({{"book", b}, {"chapter", c}});
@@ -796,7 +798,11 @@ void StudioApp::command(int id) {
         case CmdEmptyTrash: emptyTrash(); break;
         case CmdGallery: settings_.gallery = true; saveSettings(); break;
         case CmdList: settings_.gallery = false; saveSettings(); break;
-        case CmdPanel: settings_.showPanel = !settings_.showPanel; saveSettings(); break;
+        case CmdPanel:   // in Writing, the chapter's details (0.70)
+            if (ws_ == Workspace::Writing) settings_.writingDetails = !settings_.writingDetails;
+            else settings_.showPanel = !settings_.showPanel;
+            saveSettings();
+            break;
         case CmdSide: settings_.showSide = !settings_.showSide; saveSettings(); break;
         case CmdThemeSystem: settings_.theme = 0; saveSettings(); applyTheme(); break;
         case CmdThemeLight: settings_.theme = 1; saveSettings(); applyTheme(); break;

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.145.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.70.0: more room for writing, with a bar for the chapter and its details only when you ask for them."
+      ]
+    },
+    {
       "version": "0.144.0",
       "date": "2026-11-23",
       "notes": [

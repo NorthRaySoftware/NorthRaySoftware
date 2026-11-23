@@ -191,7 +191,7 @@ void StudioApp::editorMessage(const std::string& text) {
     const std::string type = m.value("type", "");
     if (type == "togglePanel") {   // F3 / F4 pressed in the text
         if (m.value("which", "") == "side") settings_.showSide = !settings_.showSide;
-        else settings_.showPanel = !settings_.showPanel;
+        else settings_.writingDetails = !settings_.writingDetails;   // the chapter's details (0.70)
         saveSettings();
         invalidate();
         return;
@@ -1326,4 +1326,114 @@ void StudioApp::drawNewNames(const Rect& c, float& y) {
     y += 8;
 }
 
+
+// ------------------------------------------------------- the chapter's bar (0.70)
+
+// What can be done with the chapter being written, beyond writing it: under Chapter tools in its bar.
+std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
+    std::vector<ToolItem> t;
+    const ManuscriptNode* n = lib_->node(currentNode_);
+    if (!n) return t;
+    t.push_back(ToolItem::item(L"Details", [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); }, settings_.writingDetails));
+    t.push_back(ToolItem::item(L"Earlier versions…", [this] {
+        setFocus({Focus::Node, currentNode_, {}});
+        settings_.writingDetails = true;
+        saveSettings();
+    }));
+    t.push_back(ToolItem::item(L"Plan it on the corkboard", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; selectCard(id); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"Add"));
+    t.push_back(ToolItem::item(L"New chapter", [this] { addNode(NodeKind::Chapter); }));
+    t.push_back(ToolItem::item(L"New scene", [this] { addNode(NodeKind::Scene); }));
+    t.push_back(ToolItem::item(L"New part", [this] { addNode(NodeKind::Part); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Move up", [this] { moveNodeBy(currentNode_, -1); }));
+    t.push_back(ToolItem::item(L"Move down", [this] { moveNodeBy(currentNode_, 1); }));
+    t.push_back(ToolItem::item(L"Import into this book…", [this, bid = n->bookId] { startImport(bid); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Move to Trash", [this] { setFocus({Focus::Node, currentNode_, {}}); trashFocused(); }));
+    return t;
+}
+
+// Over the page while writing: the chapter's name (click to rename it there), its status, its words, and its tools.
+void StudioApp::drawWritingBar(const Rect& r) {
+    const ManuscriptNode* n = lib_->node(currentNode_);
+    if (!n) return;
+    gfx_.fill(r, pal_.paper);
+    gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
+    const float pad = r.w > 900 ? 28 : 18;
+    const float x = r.x + pad;
+    // The tools at the right first, so the name knows its room.
+    const float tw = gfx_.measureWidth(L"Chapter tools", Font::Body) + 44;
+    const float tx = r.right() - pad - tw;
+    menuButton("wr:tools", tx, r.y + (r.h - 32) / 2, L"Chapter tools", [this] { return chapterTools(); });
+    const float dw = gfx_.measureWidth(L"Details", Font::Body) + 28;
+    const Rect db{tx - 8 - dw, r.y + (r.h - 32) / 2, dw, 32};
+    addHit("wr:details", db, [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); invalidate(); });
+    tooltip("wr:details", L"The chapter's details   F4");
+    {
+        const float hv = hoverAmount("wr:details");
+        const bool on = settings_.writingDetails;
+        gfx_.fillRounded(db, 8, on ? pal_.ribbon.withAlpha(pal_.dark ? 0.22f : 0.14f) : pal_.surface.mix(pal_.sunken, 0.35f * hv));
+        gfx_.strokeRounded(db, 8, on ? pal_.ribbon.withAlpha(0.6f) : pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+        gfx_.text(L"Details", db, Font::Body, on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Center, false, false, true});
+        if (focused("wr:details")) focusRing(db);
+    }
+    // Words, then the status, from the right of the name's room.
+    const std::int64_t own = liveWords_ >= 0 ? liveWords_ : n->wordCount;
+    const std::wstring words = own == 1 ? L"1 word" : thousands(own) + L" words";
+    const float ww = gfx_.measureWidth(words, Font::Small) + 8;
+    const std::wstring st = w(label(n->status));
+    const float sw = n->kind == NodeKind::Part ? 0 : gfx_.measureWidth(st, Font::Small) + 30;
+    const float nameRoom = std::max(120.0f, db.x - 24 - ww - 16 - sw - 12 - x);
+    // The kind over the name, small; the name in the heading's size.
+    std::wstring kind = w(label(n->kind));
+    for (auto& c : kind) c = (wchar_t)towupper(c);
+    const float ky = r.y + 7;
+    gfx_.text(kind, {x, ky, nameRoom, 14}, Font::Label, gold_, {Align::Left, false, true});
+    const Rect nr{x, ky + 15, nameRoom, 24};
+    if (editingInline("wr:title")) {
+        inlineBox({nr.x - 8, nr.y - 4, nameRoom + 8, 32});
+    } else {
+        const std::wstring title = n->title.empty() ? w(label(n->kind)) : w(n->title);
+        const float tlen = std::min(nameRoom, gfx_.measureWidth(title, Font::Heading) + 4);
+        editableArea("wr:ed:title", {nr.x, nr.y, tlen, nr.h}, L"Click to rename it", [this] {
+            setFocus({Focus::Node, currentNode_, {}});
+            loadedFocus_ = {Focus::None, "-", ""};
+            loadFields();
+            const ManuscriptNode before = *lib_->node(currentNode_);
+            startInline("wr:title", FName, [this, before] { lib_->updateNode(before); });
+        });
+        gfx_.text(title, nr, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+    }
+    float sx = x + std::min(nameRoom, std::max(gfx_.measureWidth(n->title.empty() ? w(label(n->kind)) : w(n->title), Font::Heading), 60.0f)) + 18;
+    if (editingInline("wr:title")) sx = x + nameRoom + 12;
+    const float cy = nr.y + nr.h / 2;
+    if (sw > 0) {
+        const Rect sr{sx, cy - 12, sw, 24};
+        addHit("wr:status", sr, [this, sr] {
+            const ManuscriptNode* x2 = lib_->node(currentNode_);
+            if (!x2) return;
+            std::vector<ToolItem> items;
+            for (int k = 0; k < 4; ++k)
+                items.push_back(ToolItem::item(w(label((NodeStatus)k)), [this, k] {
+                    if (const ManuscriptNode* x3 = lib_->node(currentNode_)) {
+                        ManuscriptNode u = *x3;
+                        u.status = (NodeStatus)k;
+                        lib_->updateNode(u);
+                    }
+                }, (int)x2->status == k));
+            showTools(items, sr.x, sr.bottom() + 4);
+        });
+        tooltip("wr:status", L"Change its status");
+        const Color sc = statusColour(n->status);
+        const float hv = hoverAmount("wr:status");
+        gfx_.fillRounded(sr, 12, sc.withAlpha((pal_.dark ? 0.18f : 0.12f) + 0.08f * hv));
+        gfx_.circle(sr.x + 11, cy, 3.5f, sc, true);
+        gfx_.text(st, {sr.x + 20, sr.y, sr.w - 24, sr.h}, Font::Small, pal_.ink, {Align::Left, false, false, true});
+        if (focused("wr:status")) focusRing(sr);
+        sx += sw + 12;
+    }
+    gfx_.text(words, {sx, cy - 10, ww, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+}
 }  // namespace nrs
