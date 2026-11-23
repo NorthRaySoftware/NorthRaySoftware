@@ -111,6 +111,21 @@ inline constexpr ULONG_PTR kOpenBookMessage = 0x4E52424B;   // "NRBK"
 
 class StudioApp : public AppWindow {
 public:
+    struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; };
+    // A row of tabs (the chosen one in strong ink over the accent); tabs that don't fit before `right` go in "More".
+    // Returns the row's height.
+    float pageTabs(const std::string& id, float x, float y, float right, const std::vector<PageTab>& tabs, const std::vector<PageTab>& more = {});
+    struct ToolItem {
+        std::wstring label;
+        std::function<void()> act;
+        int kind = 0;   // 0 an item, 1 a line between groups, 2 a small heading
+        bool checked = false, enabled = true;
+        std::vector<ToolItem> sub;
+        static ToolItem item(std::wstring l, std::function<void()> a, bool checked = false) { ToolItem t; t.label = std::move(l); t.act = std::move(a); t.checked = checked; return t; }
+        static ToolItem line() { ToolItem t; t.kind = 1; return t; }
+        static ToolItem heading(std::wstring l) { ToolItem t; t.kind = 2; t.label = std::move(l); return t; }
+        static ToolItem menu(std::wstring l, std::vector<ToolItem> s) { ToolItem t; t.label = std::move(l); t.sub = std::move(s); return t; }
+    };
     bool create(HINSTANCE inst, int show);
     // Command line: WritingStudio.exe [--import] <file> opens the import preview for that file.
     void handleCommandLine();
@@ -431,7 +446,16 @@ private:
     void addKindUnder(const Id& parent);
     void entryKindMenu(const Id& entry);
     void tidyBibles();
-    void drawWorldSidebar(const Rect& r);
+    void drawWorldStrip(const Rect& r);   // a bible tool's way back, and the tools menu (0.68)
+    std::vector<ToolItem> bibleTools();
+    std::vector<ToolItem> entryTools(const studio::Entry& e);
+    void entryKindChoice();
+    void entryKindOfChoice();
+    void entryFacetChoice(const std::string& key);
+    void entrySpoilerChoice(const std::string& key);
+    void entryNoteBookChoice();
+    void trashOpenEntry();
+    void startEntryEdit(const std::string& key, int field);
     void drawWorldPage(const Rect& r);
     void drawWorldPanel(const Rect& r);
     // Text with the bible's names as links to their pages (wiki-style). Returns its height.
@@ -511,6 +535,22 @@ private:
     Color accentFor(const studio::Book& b) const;
     Color accentOfWorld(const Id& worldId) const;
     float pageHeader(const Rect& r, const std::wstring& kicker, const std::wstring& title, const std::wstring& sub);
+    // The second redesign (0.68): cards on warm paper, a page's tabs along its top, a tools menu per workspace, and
+    // editing where the text is shown.
+    void card(const Rect& r, float radius = 12, float lift = 1.0f);
+    // A menu with its top-left (or with `right`, its top-right) corner at (x, y) in the window.
+    void showTools(const std::vector<ToolItem>& items, float x, float y, bool right = false);
+    // A button with a drawn chevron that opens a menu under it; its width.
+    float menuButton(const std::string& id, float x, float y, const std::wstring& label, std::function<std::vector<ToolItem>()> items,
+                     bool primary = false);
+    // Editing in place: a click on the text puts a box there; Enter or a click elsewhere keeps it, Esc puts it back.
+    void startInline(const std::string& key, int field, std::function<void()> revert, bool big = false);
+    bool editingInline(const std::string& key) const { return ie_.field >= 0 && ie_.key == key; }
+    void inlineBox(const Rect& r);   // the box for the edit going on, with its field in it
+    float inlineHeight(float minH) const;   // how tall a box the text being edited needs
+    void editableArea(const std::string& id, const Rect& r, const std::wstring& tip, std::function<void()> start);
+    void settleInline();   // after a frame: focus the new box; end the edit when the focus has gone
+    void endInline(bool keep);
     float toolbar(const Rect& r, bool withSearch);
     bool smallButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> act, float* w = nullptr);
     std::vector<const studio::Book*> filteredBooks(std::vector<const studio::Book*> in) const;
@@ -669,6 +709,12 @@ private:
     bool suppressChange_ = false;
     bool dirty_ = false;
     HFONT fieldFont_ = nullptr;
+    HFONT titleFont_ = nullptr;   // a name being edited in place, in the page title's size (0.68)
+    struct InlineEdit { int field = -1; std::string key; bool placed = false, focused = false, big = false; std::function<void()> revert; };
+    InlineEdit ie_;
+    std::map<std::string, float> areaH_;   // how tall each editable piece of text was last drawn
+    Color gold_{};   // the kicker labels' warm gold (0.68)
+    bool panelAsCard_ = false;   // a details column drawn as a card on the page (0.68)
     HBRUSH fieldBrush_ = nullptr;
     HACCEL accel_ = nullptr;
 
@@ -821,6 +867,7 @@ private:
         bool editTemplate = false; // the panel edits the kind's page template
         Id boardEntry;             // the board open belongs to this entry (back goes to it)
         int picture = -1;          // the gallery picture selected on the entry's page
+        bool spoilersOpen = false; // the entry's spoilers, in a card at the top of its page (0.68)
         Id familyRoot;             // the family tree shown ("" = none), drawn from this person
         Id pinning;                // placing this entry's pin on the open map: the next click on it says where
         // The map viewer (0.48): a place's or realm's map over the whole page, zoomed and moved about, pins dragged.

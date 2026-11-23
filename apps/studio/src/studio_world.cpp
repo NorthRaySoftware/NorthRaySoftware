@@ -9,6 +9,9 @@
 #include "cjui/dialog.hpp"
 #include "studio/bible_export.hpp"
 #include "cjui/menu.hpp"
+#include "cjui/northray.hpp"
+#include "studio/sync.hpp"
+#include "studio/fonts.hpp"
 
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -423,6 +426,7 @@ void StudioApp::openEntry(const Id& id) {
         wb_.section.clear();
         wb_.editTemplate = false;
         wb_.picture = -1;
+        wb_.spoilersOpen = false;
     }
     wb_.entry = id;
     wb_.scroll = 0;
@@ -450,9 +454,8 @@ void StudioApp::newEntry(const std::string& kindIn) {
     if (kind == "place" && wb_.kind == "place" && wb_.facet.rfind("under=", 0) == 0)
         if (const Entry* in = lib_->entry(wb_.facet.substr(6)); in && in->kind == "place") lib_->addLink(id, in->id, "Located in");
     openEntry(id);
-    // Straight into naming it.
-    loadFields();
-    if (fields_[FName]) { SetFocus(fields_[FName]); SendMessageW(fields_[FName], EM_SETSEL, 0, -1); }
+    // Straight into naming it, on its page (0.68).
+    focusFieldSoon_ = FName;
 }
 
 // "+ Add members…": tick characters (and creatures) in and out of a group or race; the list stays open
@@ -613,258 +616,33 @@ void StudioApp::openEntryChoice(const std::vector<Id>& ids) {
     if (c && c <= ids.size()) openEntry(ids[c - 1]);
 }
 
-void StudioApp::drawWorldSidebar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
-    gfx_.pushClip(r);
-    setHitClip(r);
-    const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
-    float y = r.y + 14 - wb_.sideScroll;
-    // (Back to the Library is on the rail now, 0.65.)
-    gfx_.text(L"WORLDBUILDING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 20;
-    std::wstring name;
-    if (const World* wo = lib_->world(wb_.world)) name = w(wo->name);
-    else if (const studio::Book* b = lib_->book(wb_.book)) name = w(b->title);
-    y += gfx_.text(name, {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 2;
-    const auto all = lib_->entriesOf(wb_.world, wb_.book);
-    gfx_.text(wb_.world.empty() ? L"An independent book" : L"A world", {tx0, y, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
-    y += 30;
-    button("side:wb:new", {tx0, y, cw, 32}, wb_.kind.empty() ? L"+ New entry" : L"+ New " + [&] {
-        std::wstring l = w(entryKindLabel(wb_.kind));
-        for (auto& c : l) c = (wchar_t)towlower(c);
-        return l;
-    }(), [this] { newEntry(wb_.kind); }, true);
-    y += 48;
-    // Kinds.
-    auto row = [&](const std::string& kind, const std::wstring& label, int count) {
-        const std::string id = "side:wb:kind:" + kind;
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this, kind] {
-            wb_.kind = kind;
-            wb_.facet.clear();
-            wb_.scroll = 0;
-            openEntry({});
-        });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.syncPage && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        if (!kind.empty()) gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 3.5f, kindColor(kind, pal_.dark), true);
-        const float lx = kind.empty() ? tx0 : tx0 + 16;
-        // Kinds with nothing in them yet are quieter (0.43).
-        gfx_.text(label, {lx, rr.y, cw - 30 - (lx - tx0), rr.h}, sel ? Font::BodyStrong : Font::Body, count || sel ? pal_.ink : pal_.inkMuted,
-                  {Align::Left, false, true, true});
-        if (count) gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
-    };
-    gfx_.text(L"ENTRIES", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 22;
-    row("", L"Everything", (int)all.size());
-    for (auto& k : entryKinds()) {
-        int n = 0;
-        for (auto* e : all) if (e->kind == k) ++n;
-        row(k, w(entryKindPlural(k)), n);
-        // Creatures: the top-level kinds (Dragon, ...), each with everything under it.
-        if (wb_.kind == k && k == "creature" && n > 0) {
-            std::vector<std::pair<const Entry*, int>> roots;
-            for (auto* e : all)
-                if (e->kind == "creature" && parentPlace(*lib_, *e).empty()) {
-                    int under = 0;
-                    for (auto* o : all) if (o->kind == "creature" && o != e && isUnder(*lib_, *o, e->id)) ++under;
-                    if (under) roots.push_back({e, under + 1});
-                }
-            if (!roots.empty()) {
-                gfx_.text(L"KINDS", {tx0 + 14, y + 4, cw - 14, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-                y += 22;
-                for (auto& [e, cnt] : roots) {
-                    const std::string filter = "under=" + e->id;
-                    const std::string id = "side:wb:under:" + e->id;
-                    const Rect rr{x + 14, y, wd - 14, 26};
-                    addHit(id, rr, [this, filter] { wb_.kind = "creature"; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
-                    const bool sel = wb_.facet == filter && wb_.board.empty();
-                    const float hv = hoverAmount(id);
-                    if (sel) sideRowFrame({}, rr, true, 0, 0);
-                    else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-                    gfx_.text(w(e->name), {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
-                              {Align::Left, false, true, true});
-                    gfx_.text(std::to_wstring(cnt), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-                    if (focused(id)) focusRing(rr);
-                    y += 27;
-                }
-                y += 4;
-            }
-        }
-        // The selected kind's entries by gender, race, realm or type: the values in use, with counts.
-        if (wb_.kind == k && n > 0)
-            for (const Facet* f : facetsFor(k)) {
-                std::map<std::string, int> counts;
-                int unset = 0;
-                for (auto* e : all) if (e->kind == k) { const std::string v = facetOf(*e, *f); if (v.empty()) ++unset; else ++counts[v]; }
-                if (counts.empty()) continue;   // nothing set yet: no list to show
-                gfx_.text(upper(f->title), {tx0 + 14, y + 4, cw - 14, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-                y += 22;
-                auto sub = [&](const std::string& value, const std::wstring& label, int count) {
-                    const std::string filter = f->key + "=" + value;
-                    const std::string id = "side:wb:facet:" + k + ":" + filter;
-                    const Rect rr{x + 14, y, wd - 14, 26};
-                    addHit(id, rr, [this, k, filter] { wb_.kind = k; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
-                    const bool sel = wb_.facet == filter && wb_.board.empty();
-                    const float hv = hoverAmount(id);
-                    if (sel) sideRowFrame({}, rr, true, 0, 0);
-                    else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-                    gfx_.text(label, {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
-                              {Align::Left, false, true, true});
-                    gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-                    if (focused(id)) focusRing(rr);
-                    y += 27;
-                };
-                // The listed options in order, then the rest; past six, the five with most and "N more" (0.59).
-                std::vector<std::pair<std::string, std::pair<std::wstring, int>>> vals;
-                for (auto& o : f->options) if (auto it = counts.find(narrow(o)); it != counts.end()) { vals.push_back({it->first, {o, it->second}}); counts.erase(it); }
-                for (auto& [v, cnt] : counts) vals.push_back({v, {w(v), cnt}});
-                const std::string openKey = k + ":" + f->key;
-                const bool open = wb_.facetsOpen.count(openKey) > 0;
-                size_t showN = vals.size();
-                if (!open && vals.size() > 6) {
-                    std::vector<size_t> idx(vals.size());
-                    for (size_t i = 0; i < idx.size(); ++i) idx[i] = i;
-                    std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return vals[a].second.second > vals[b].second.second; });
-                    std::set<size_t> keep(idx.begin(), idx.begin() + 5);
-                    // The value being looked at always stays.
-                    for (size_t i = 0; i < vals.size(); ++i) if (wb_.facet == f->key + "=" + vals[i].first) keep.insert(i);
-                    decltype(vals) kept;
-                    for (size_t i = 0; i < vals.size(); ++i) if (keep.count(i)) kept.push_back(vals[i]);
-                    vals = kept;
-                }
-                for (auto& [v, lc] : vals) sub(v, lc.first, lc.second);
-                if (unset) sub("-", L"Not set", unset);
-                if (showN > 6) {
-                    const std::wstring t = open ? L"Fewer" : std::to_wstring(showN - vals.size()) + L" more…";
-                    linkText("side:wb:more:" + openKey, tx0 + 26, y + 2, t, [this, openKey] {
-                        if (!wb_.facetsOpen.erase(openKey)) wb_.facetsOpen.insert(openKey);
-                        invalidate();
-                    });
-                    y += 26;
-                }
-                y += 4;
-            }
-    }
-    y += 18;
-    gfx_.text(L"THE WORLD", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 22;
-    // Glossary and checks.
+// The bible's tools (0.68): what the sidebar listed, in one menu at the top of every bible page.
+std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
+    std::vector<ToolItem> t;
+    auto open = [this](std::function<void()> f) { return [this, f] { f(); invalidate(); }; };
+    t.push_back(ToolItem::heading(L"The world"));
+    t.push_back(ToolItem::item(L"Glossary", open([this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; }), wb_.glossary));
     {
-        const std::string id = "side:wb:glossary";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; invalidate(); });
-        const bool sel = wb_.glossary;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Glossary", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
+        const size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
+        t.push_back(ToolItem::item(n ? L"Languages  (" + std::to_wstring(n) + L")" : L"Languages", [this] { openLanguages(); }, wb_.languages));
     }
     {
-        const std::string id = "side:wb:languages";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openLanguages(); });
-        const bool sel = wb_.languages;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Languages", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        const std::size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
-        if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
+        const size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
+        t.push_back(ToolItem::item(n ? L"Relationships  (" + std::to_wstring(n) + L")" : L"Relationships", [this] { openRelations({}); }, wb_.relationsPage));
     }
     {
-        const std::string id = "side:wb:relations";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openRelations({}); });
-        const bool sel = wb_.relationsPage;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Relationships", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        const std::size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
-        if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
+        const size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
+        t.push_back(ToolItem::item(n ? L"Fonts  (" + std::to_wstring(n) + L")" : L"Fonts", [this] { openFonts({}); }, wb_.fontsPage));
     }
+    t.push_back(ToolItem::item(L"Checks", open([this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; }), wb_.checks));
+    // Image boards: the world's own (a character's are on their page).
     {
-        const std::string id = "side:wb:fonts";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openFonts({}); });
-        const bool sel = wb_.fontsPage;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Fonts", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        const std::size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
-        if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
-    }
-    {
-        const std::string id = "side:wb:share";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { shareBible(); });
-        const bool sel = wb_.share;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Share the bible", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        if (focused(id)) focusRing(rr);
-        y += 32;
-    }
-    if (!wb_.world.empty()) {   // a world (not an independent book) can be kept in GitHub (0.61)
-        const std::string id = "side:wb:sync";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openSyncPage(); });
-        const bool sel = wb_.syncPage;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Sync with GitHub", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
-        if (!ss.repo.empty()) {
-            const bool bad = syncFailed_.count(wb_.world) && syncFailed_[wb_.world];
-            const bool now = syncBusy_ && syncRunning_ == wb_.world;
-            gfx_.circle(tx0 + cw - 6, rr.y + rr.h / 2, 4, now ? pal_.ribbon.withAlpha(0.5f) : bad ? cjui::hexColor("#C0392B") : pal_.ribbon, true);
-        }
-        if (focused(id)) focusRing(rr);
-        y += 32;
-    }
-    {
-        const std::string id = "side:wb:checks";
-        const Rect rr{x, y, wd, 30};
-        addHit(id, rr, [this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; invalidate(); });
-        const bool sel = wb_.checks;
-        const float hv = hoverAmount(id);
-        if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-        gfx_.text(L"Checks", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-        if (focused(id)) focusRing(rr);
-        y += 44;
-    }
-    // Image boards.
-    gfx_.text(L"IMAGE BOARDS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    linkText("side:wb:newboard", tx0 + cw - gfx_.measureWidth(L"+ New", Font::Small), y - 2, L"+ New", [this] { newBoard(); });
-    y += 24;
-    {
+        std::vector<ToolItem> boards;
         const json bj = boardsData();
-        int shown = 0;
         for (auto& bd : bj["boards"]) {
-            if (!bd.value("entry", "").empty()) continue;   // kept on an entry's page
-            ++shown;
+            if (!bd.value("entry", "").empty()) continue;
             const std::string bid = bd.value("id", "");
-            const std::string id = "side:wb:board:" + bid;
-            const Rect rr{x, y, wd, 30};
-            addHit(id, rr, [this, bid] {
+            boards.push_back(ToolItem::item(w(bd.value("name", "Board")) + L"  (" + std::to_wstring(bd["items"].size()) + L")", [this, bid] {
                 commitFields();
                 wb_.board = bid;
                 wb_.item.clear();
@@ -873,40 +651,51 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                 wb_.panelScroll = 0;
                 setFocus({Focus::Board, bid, {}});
                 invalidate();
-            });
-            const bool sel = wb_.board == bid;
-            const float hv = hoverAmount(id);
-            if (sel) sideRowFrame({}, rr, true, 0, 0);
-            else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
-            gfx_.text(w(bd.value("name", "Board")), {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink,
-                      {Align::Left, false, true, true});
-            gfx_.text(std::to_wstring(bd["items"].size()), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
-            if (focused(id)) focusRing(rr);
-            y += 32;
+            }, wb_.board == bid));
         }
-        if (!shown) {
-            y += gfx_.text(L"Pictures for this world: maps, places, moods. A character's own boards are on their page.", {tx0, y, cw, 40}, Font::Small, pal_.inkFaint) + 6;
-        }
+        if (!boards.empty()) boards.push_back(ToolItem::line());
+        boards.push_back(ToolItem::item(L"New image board", [this] { newBoard(); }));
+        t.push_back(ToolItem::menu(L"Image boards", boards));
     }
-    y += 20;
-    // The books it covers.
-    gfx_.text(L"BOOKS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 22;
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"Sharing"));
+    t.push_back(ToolItem::item(L"Share the bible", [this] { shareBible(); }, wb_.share));
+    if (!wb_.world.empty()) {   // a world (not an independent book) can be kept in GitHub (0.61)
+        std::wstring l = L"Sync with GitHub";
+        const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
+        if (!ss.repo.empty()) {
+            const bool bad = syncFailed_.count(wb_.world) && syncFailed_[wb_.world];
+            l += syncBusy_ && syncRunning_ == wb_.world ? L"  (syncing…)" : bad ? L"  (didn't finish)" : L"  (on)";
+        }
+        t.push_back(ToolItem::item(l, [this] { openSyncPage(); }, wb_.syncPage));
+    }
+    // Its books, to write in.
     std::vector<const studio::Book*> books;
     if (wb_.world.empty()) { if (const studio::Book* b = lib_->book(wb_.book)) books.push_back(b); }
     else for (const studio::Book* b : lib_->liveBooks()) if (b->worldId == wb_.world) books.push_back(b);
-    for (const studio::Book* b : books) {
-        linkText("side:wb:book:" + b->id, tx0, y, w(b->title), [this, id = b->id] { openWriting(id); });
-        y += 24;
+    if (!books.empty()) {
+        std::vector<ToolItem> bs;
+        for (const studio::Book* b : books) bs.push_back(ToolItem::item(w(b->title), [this, id = b->id] { openWriting(id); }));
+        t.push_back(ToolItem::line());
+        t.push_back(ToolItem::menu(L"Write in a book", bs));
     }
-    if (books.empty()) { gfx_.text(L"No books yet.", {tx0, y, cw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false}); y += 24; }
-    // Starting again (0.38.1), out of the way at the foot.
-    y += 18;
-    linkText("side:wb:import", tx0, y, L"Import many pages\u2026", [this] { importManyPages(false); });
-    y += 30;
-    linkText("side:wb:reset", tx0, y, L"Reset the bible\u2026", [this] { resetBible(); });
-    y += 30;
-    wb_.sideContent = y + wb_.sideScroll - r.y + 20;
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"Bringing pages in"));
+    t.push_back(ToolItem::item(L"Import many pages…", [this] { importManyPages(false); }));
+    t.push_back(ToolItem::item(L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Reset the bible…", [this] { resetBible(); }));
+    return t;
+}
+
+// Along the top of a bible tool's page: back to the cards, and the tools.
+void StudioApp::drawWorldStrip(const Rect& r) {
+    gfx_.pushClip(r);
+    setHitClip(r);
+    const float pad = r.w > 900 ? 40 : 28;
+    linkText("wb:strip:back", r.x + pad, r.y + 16, L"‹ The bible", [this] { openEntry({}); });
+    menuButton("wb:strip:tools", r.right() - pad - (gfx_.measureWidth(L"Bible tools", Font::Body) + 44), r.y + 10, L"Bible tools",
+               [this] { return bibleTools(); });
     clearHitClip();
     gfx_.popClip();
 }
@@ -997,10 +786,75 @@ void StudioApp::drawWorldPage(const Rect& r) {
             if (f) title += L": " + (v == "-" ? f->title + L" not set" : w(v));
             else if (wb_.facet.rfind("under=", 0) == 0) if (const Entry* r = lib_->entry(v)) title += L": " + w(r->name);
         }
-        std::wstring sub = std::to_wstring(list.size()) + (list.size() == 1 ? L" entry" : L" entries");
+        // How many: all of the kind (places inside others included, as on the tabs), or how many were found.
+        size_t shown = list.size();
+        if (findWords.empty() && wb_.facet.empty()) {
+            shown = 0;
+            for (const Entry* x : wb_.scopeEntries) if (wb_.kind.empty() || x->kind == wb_.kind) ++shown;
+        }
+        std::wstring sub = std::to_wstring(shown) + (shown == 1 ? L" entry" : L" entries");
         if (!findWords.empty()) sub += L" found";
         if (!wb_.kind.empty()) sub += L" in " + scopeName;
-        y += pageHeader(m, L"WORLDBUILDING", title, sub);
+        (void)title;
+        // The header (0.68): what this bible is, its name, and the two things to do from here.
+        {
+            const std::wstring kick = wb_.world.empty() ? L"AN INDEPENDENT BOOK’S BIBLE" : L"THE WORLD BIBLE";
+            gfx_.text(kick, {m.x, y, cw, 16}, Font::Label, gold_, {Align::Left, false, true});
+            std::wstring nl = L"+ New entry";
+            if (!wb_.kind.empty()) {
+                std::wstring l = w(entryKindLabel(wb_.kind));
+                for (auto& c : l) c = (wchar_t)towlower(c);
+                nl = L"+ New " + l;
+            }
+            const float tbw = gfx_.measureWidth(L"Bible tools", Font::Body) + 44;
+            const float nw = gfx_.measureWidth(nl.substr(2), Font::Body) + 26 + 21;
+            menuButton("wb:tools", m.right() - tbw, y + 12, L"Bible tools", [this] { return bibleTools(); });
+            button("wb:new", {m.right() - tbw - 10 - nw, y + 12, nw, 32}, nl, [this] { newEntry(wb_.kind); }, true);
+            y += 20;
+            y += gfx_.text(scopeName, {m.x, y, std::max(200.0f, cw - tbw - nw - 30), 90}, Font::SerifTitle, pal_.ink) + 2;
+            gfx_.text(sub, {m.x, y, cw, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            y += 26;
+        }
+        // The kinds as tabs (the empty ones under More), and the find box at the end of the row.
+        const float findW = std::min(280.0f, cw * 0.32f);
+        {
+            std::vector<PageTab> tabs, more;
+            const auto& everything = wb_.scopeEntries;
+            PageTab all;
+            all.label = L"Everything";
+            all.count = (int)everything.size();
+            all.on = wb_.kind.empty();
+            all.act = [this] { wb_.kind.clear(); wb_.facet.clear(); wb_.scroll = 0; openEntry({}); };
+            tabs.push_back(all);
+            for (const auto& k : entryKinds()) {
+                int n = 0;
+                for (const Entry* x : everything) if (x->kind == k) ++n;
+                PageTab t;
+                t.label = w(entryKindPlural(k));
+                t.count = n;
+                t.on = wb_.kind == k;
+                t.dot = kindColor(k, pal_.dark);
+                t.act = [this, k] { wb_.kind = k; wb_.facet.clear(); wb_.scroll = 0; openEntry({}); };
+                (n || t.on ? tabs : more).push_back(t);
+            }
+            pageTabs("wb:tabs", m.x, y, m.right() - findW - 16, tabs, more);
+            const Rect fr{m.right() - findW, y + 3, findW, 32};
+            gfx_.fillRounded(fr, 16, pal_.surface);
+            gfx_.strokeRounded(fr, 16, GetFocus() == fields_[FFind] ? pal_.ribbon : pal_.rule);
+            cjui::drawIcon(gfx_, cjui::Icon::Search, {fr.x + 11, fr.y + (fr.h - 15) / 2, 15, 15}, pal_.inkFaint, 1.4f);
+            placeField(FFind, {fr.x + 30, fr.y, fr.w - 30 - (find_.empty() ? 8 : 28), fr.h});
+            if (!find_.empty()) {
+                // Clear: a drawn cross (not every font has one).
+                const Rect xr{fr.right() - 30, fr.y + 4, 24, fr.h - 8};
+                addHit("wb:findclear", xr, [this] { setFieldText(FFind, ""); find_.clear(); invalidate(); });
+                const float hv = hoverAmount("wb:findclear");
+                if (hv > 0.01f) gfx_.fillRounded(xr, 4, pal_.sunken.withAlpha(hv));
+                const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
+                gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, pal_.inkMuted, 1.4f);
+                gfx_.line(cx - 4, cy + 4, cx + 4, cy - 4, pal_.inkMuted, 1.4f);
+            }
+            y += 40 + 14;
+        }
         // Looking inside a place: the way back up (0.48.5).
         if (!placeUnder.empty())
             if (const Entry* in = lib_->entry(placeUnder)) {
@@ -1020,51 +874,125 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 y += 34;
             }
         {
-            // The find box, and for characters how they're grouped, on one row.
-            const Rect fr{m.x, y - 6, std::min(320.0f, cw * 0.5f), 32};
-            gfx_.fillRounded(fr, 7, pal_.surface);
-            gfx_.strokeRounded(fr, 7, GetFocus() == fields_[FFind] ? pal_.ribbon : pal_.rule);
-            cjui::drawIcon(gfx_, cjui::Icon::Search, {fr.x + 9, fr.y + (fr.h - 15) / 2, 15, 15}, pal_.inkFaint, 1.4f);
-            placeField(FFind, {fr.x + 28, fr.y, fr.w - 28 - (find_.empty() ? 0 : 26), fr.h});
-            if (!find_.empty()) {
-                // Clear: a drawn cross (not every font has one).
-                const Rect xr{fr.right() - 28, fr.y + 4, 24, fr.h - 8};
-                addHit("wb:findclear", xr, [this] { setFieldText(FFind, ""); find_.clear(); invalidate(); });
-                const float hv = hoverAmount("wb:findclear");
-                if (hv > 0.01f) gfx_.fillRounded(xr, 4, pal_.sunken.withAlpha(hv));
-                const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
-                gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, pal_.inkMuted, 1.4f);
-                gfx_.line(cx - 4, cy + 4, cx + 4, cy - 4, pal_.inkMuted, 1.4f);
-            }
-            // Cards or a list (0.59), beside the find box.
+            // Under the tabs (0.68): a kind's entries by gender, race, realm or type as chips; and how they're shown.
             const bool listable = !list.empty() && !(wb_.kind == "place" && wb_.placesOutline && findWords.empty() && wb_.facet.empty()) &&
                                   !(wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0));
-            if (listable) {
-                const float vx = fr.right() + 12;
-                segmented("wb:view", {vx, fr.y + 2, 140, 28}, {L"Cards", L"List"}, settings_.entryList ? 1 : 0, [this](int i) {
+            const bool grouping = wb_.kind == "character" && !list.empty();
+            const std::wstring groupLabel = wb_.groupBy == "sexuality" ? L"Grouped by sexuality" : wb_.groupBy == "race" ? L"Grouped by race"
+                                          : wb_.groupBy == "none" ? L"Not grouped" : L"Grouped by gender";
+            const float gw = grouping ? gfx_.measureWidth(groupLabel, Font::Body) + 44 : 0;
+            const float vw = listable ? 140 : 0;
+            const float ctrlW = gw + vw + (gw > 0 && vw > 0 ? 8 : 0);
+            const float chipRight = m.right() - ctrlW - (ctrlW > 0 ? 16 : 0);
+            const float rowY = y;
+            float cx = m.x, cy = y;
+            bool anyChip = false;
+            auto chip = [&](const std::string& id, const std::wstring& label, int count, bool on, std::function<void()> act) {
+                const std::wstring cnt = count >= 0 ? std::to_wstring(count) : L"";
+                const float cwid = gfx_.measureWidth(label, Font::Small) + (cnt.empty() ? 0 : gfx_.measureWidth(cnt, Font::Small) + 6) + 24;
+                if (cx + cwid > chipRight && cx > m.x) { cx = m.x; cy += 36; }
+                const Rect r2{cx, cy, cwid, 28};
+                addHit(id, r2, std::move(act));
+                const float hv = hoverAmount(id);
+                if (!on) softShadow(r2, 14, 0.7f + 0.6f * hv);
+                gfx_.fillRounded(r2, 14, on ? pal_.ribbon : pal_.surface);
+                const Color ink = on ? (pal_.dark ? pal_.paper : cjui::hexColor("#FFFFFF")) : pal_.ink;
+                const float lw = gfx_.measureWidth(label, Font::Small);
+                gfx_.text(label, {r2.x + 12, r2.y, lw + 2, r2.h}, Font::Small, ink, {Align::Left, false, false, true});
+                if (!cnt.empty())
+                    gfx_.text(cnt, {r2.x + 18 + lw, r2.y, 40, r2.h}, Font::Small, on ? ink.withAlpha(0.8f) : pal_.inkFaint, {Align::Left, false, false, true});
+                if (focused(id)) focusRing(r2);
+                cx += cwid + 8;
+                anyChip = true;
+            };
+            auto chipLabel = [&](const std::wstring& t) {
+                const float lw = gfx_.measureWidth(t, Font::Label) + 10;
+                if (cx + lw + 130 > chipRight && cx > m.x) { cx = m.x; cy += 36; }   // with room for a chip after it
+                gfx_.text(t, {cx, cy, lw, 28}, Font::Label, pal_.inkFaint, {Align::Left, false, false, true});
+                cx += lw;
+            };
+            if (!wb_.kind.empty() && findWords.empty()) {
+                const auto& everything = wb_.scopeEntries;
+                if (wb_.kind == "creature") {
+                    // The top-level kinds of creature (Dragon, ...), each with everything under it.
+                    bool first = true;
+                    for (const Entry* x : everything)
+                        if (x->kind == "creature" && parentPlace(*lib_, *x).empty()) {
+                            int under = 0;
+                            for (const Entry* o : everything) if (o->kind == "creature" && o != x && isUnder(*lib_, *o, x->id)) ++under;
+                            if (!under) continue;
+                            if (first) { chipLabel(L"KINDS"); first = false; }
+                            const std::string filter = "under=" + x->id;
+                            chip("wb:chip:under:" + x->id, w(x->name), under + 1, wb_.facet == filter,
+                                 [this, filter] { wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; invalidate(); });
+                        }
+                    if (!first) cx += 10;
+                }
+                for (const Facet* f : facetsFor(wb_.kind)) {
+                    std::map<std::string, int> counts;
+                    int unset = 0;
+                    for (const Entry* x : everything)
+                        if (x->kind == wb_.kind) { const std::string v = facetOf(*x, *f); if (v.empty()) ++unset; else ++counts[v]; }
+                    if (counts.empty()) continue;   // nothing set yet: no chips
+                    // The listed options in order, then the rest; past eight, the seven with most and "N more".
+                    std::vector<std::pair<std::string, std::pair<std::wstring, int>>> vals;
+                    for (auto& o : f->options)
+                        if (auto it = counts.find(narrow(o)); it != counts.end()) { vals.push_back({it->first, {o, it->second}}); counts.erase(it); }
+                    for (auto& [v, cnt] : counts) vals.push_back({v, {w(v), cnt}});
+                    const std::string openKey = wb_.kind + ":" + f->key;
+                    const bool open = wb_.facetsOpen.count(openKey) > 0;
+                    const size_t total = vals.size();
+                    if (!open && vals.size() > 8) {
+                        std::vector<size_t> idx(vals.size());
+                        for (size_t i = 0; i < idx.size(); ++i) idx[i] = i;
+                        std::stable_sort(idx.begin(), idx.end(), [&](size_t a2, size_t b2) { return vals[a2].second.second > vals[b2].second.second; });
+                        std::set<size_t> keep(idx.begin(), idx.begin() + 7);
+                        for (size_t i = 0; i < vals.size(); ++i) if (wb_.facet == f->key + "=" + vals[i].first) keep.insert(i);
+                        decltype(vals) kept;
+                        for (size_t i = 0; i < vals.size(); ++i) if (keep.count(i)) kept.push_back(vals[i]);
+                        vals = kept;
+                    }
+                    chipLabel(upper(f->title));
+                    for (auto& [v, lc] : vals) {
+                        const std::string filter = f->key + "=" + v;
+                        chip("wb:chip:" + filter, lc.first, lc.second, wb_.facet == filter,
+                             [this, filter] { wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; invalidate(); });
+                    }
+                    if (unset) {
+                        const std::string filter = f->key + "=-";
+                        chip("wb:chip:" + filter, L"Not set", unset, wb_.facet == filter,
+                             [this, filter] { wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; invalidate(); });
+                    }
+                    if (total > 8)
+                        chip("wb:chip:more:" + openKey, open ? L"Fewer" : std::to_wstring(total - vals.size()) + L" more", -1, false, [this, openKey] {
+                            if (!wb_.facetsOpen.erase(openKey)) wb_.facetsOpen.insert(openKey);
+                            invalidate();
+                        });
+                    cx += 10;
+                }
+            }
+            float rx = m.right() - ctrlW;
+            if (grouping) {
+                menuButton("wb:groupby", rx, rowY - 2, groupLabel, [this] {
+                    std::vector<ToolItem> t;
+                    const std::pair<const char*, const wchar_t*> opts[] = {{"gender", L"By gender or sex"}, {"sexuality", L"By sexuality"},
+                                                                           {"race", L"By race"}, {"none", L"Not grouped"}};
+                    for (auto& [k, l] : opts) {
+                        const std::string key = k;
+                        const bool on = wb_.groupBy == key || (key == "gender" && wb_.groupBy.empty());
+                        t.push_back(ToolItem::item(l, [this, key] { wb_.groupBy = key; invalidate(); }, on));
+                    }
+                    return t;
+                });
+                rx += gw + 8;
+            }
+            if (listable)
+                segmented("wb:view", {rx, rowY, vw, 28}, {L"Cards", L"List"}, settings_.entryList ? 1 : 0, [this](int i) {
                     settings_.entryList = i == 1;
                     saveSettings();
                     invalidate();
                 });
-            }
-            if (wb_.kind == "character" && !list.empty() && fr.right() + 160 + 460 <= m.right()) {
-                const float gx = m.right() - 380;
-                gfx_.text(L"Group by", {gx - 70, fr.y, 66, fr.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
-                const int at = wb_.groupBy == "sexuality" ? 1 : wb_.groupBy == "race" ? 2 : wb_.groupBy == "none" ? 3 : 0;
-                segmented("wb:groupby", {gx, fr.y + 2, 380, 28}, {L"Gender or sex", L"Sexuality", L"Race", L"Nothing"}, at, [this](int i) {
-                    wb_.groupBy = i == 1 ? "sexuality" : i == 2 ? "race" : i == 3 ? "none" : "gender";
-                    invalidate();
-                });
-            } else if (wb_.kind == "character" && !list.empty()) {
-                y += 42;
-                gfx_.text(L"Group by", {m.x, y - 4, 70, 28}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
-                const int at = wb_.groupBy == "sexuality" ? 1 : wb_.groupBy == "race" ? 2 : wb_.groupBy == "none" ? 3 : 0;
-                segmented("wb:groupby", {m.x + 72, y - 4, 380, 28}, {L"Gender or sex", L"Sexuality", L"Race", L"Nothing"}, at, [this](int i) {
-                    wb_.groupBy = i == 1 ? "sexuality" : i == 2 ? "race" : i == 3 ? "none" : "gender";
-                    invalidate();
-                });
-            }
-            y += 46;
+            if (anyChip || ctrlW > 0) y = cy + 28 + 22;
         }
         if (findWords.empty()) y = drawKindSuggestions(m, y);
         if ((wb_.kind == "character" || wb_.kind == "creature") && wb_.facet.empty() && findWords.empty()) {
@@ -1331,12 +1259,13 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 const std::string id = "wb:card:" + x->id;
                 addHit(id, cr, [this, eid = x->id] { openEntry(eid); });
                 const float hv = hoverAmount(id);
-                softShadow(cr, 4, hv);
                 const cjui::Color kc = kindColor(x->kind, pal_.dark);
-                gfx_.fillRounded(cr, 4, pal_.surface);
-                gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
+                // A card on the paper (0.68): lifted a little, more when pointed at.
+                softShadow(cr, 10, 1.3f + 1.2f * hv);
+                gfx_.fillRounded(cr, 10, pal_.surface);
+                if (pal_.dark || hv > 0.01f) gfx_.strokeRounded(cr, 10, (pal_.dark ? pal_.rule : pal_.surface).mix(kc, 0.4f * hv), 1);
                 // The kind's colour: a band down the left edge, and the initials' circle.
-                gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
+                gfx_.fillRounded({cr.x + 5, cr.y + 12, 3, cr.h - 24}, 1.5f, kc);
                 // The picture (a portrait's top), or the initials in a ring of the kind's colour.
                 const Rect pic{cr.x + 14, cr.y + 14, 72, 90};
                 if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
@@ -1442,7 +1371,31 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
         }
     } else {
-        // ---- One entry.
+        // ---- One entry, edited where it's shown (0.68): click a name, the summary, the details or a section and type;
+        // Enter or a click elsewhere keeps it, Esc puts it back. Its rarer things are under the "..." button.
+        if (!(focus_ == loadedFocus_)) loadFields();
+        if (wb_.picture >= (int)e->gallery.size()) wb_.picture = -1;
+        if (wb_.editTemplate && !editingInline("template")) wb_.editTemplate = false;
+        // A field asked for elsewhere (a new entry's name, a section to write, a picture to caption) is edited here.
+        if (focusFieldSoon_ >= 0) {
+            const int f = focusFieldSoon_;
+            focusFieldSoon_ = -1;
+            if (f == FName) startEntryEdit("name", FName);
+            else if (f == FSection && !wb_.section.empty()) startEntryEdit("sec:" + wb_.section, FSection);
+            else if (f == FBookNote) { if (const Id nb = noteBookFor(*e); !nb.empty()) startEntryEdit("bn:" + nb, FBookNote); }
+            else if (f == FSynopsis) startEntryEdit("details", FSynopsis);
+            else if (f == FCaption && wb_.picture >= 0) startEntryEdit("caption", FCaption);
+            else if (f == FTemplate) startEntryEdit("template", FTemplate);
+            else if (f == FNotes) startEntryEdit("notes", FNotes);
+        }
+        const float measure = std::min(cw, 700.0f);
+        // A piece of text to click and edit: the hover frame (behind it, sized as it was last drawn), then the text.
+        auto editable = [&](const std::string& key, int field, float x, float yy, float wid, std::function<float()> drawIt, const std::wstring& tip) {
+            float& h = areaH_["wb:" + key];
+            editableArea("wb:ed:" + key, {x, yy, wid, std::max(h, 18.0f)}, tip, [this, key, field] { startEntryEdit(key, field); });
+            h = drawIt();
+            return h;
+        };
         const std::wstring back = wb_.kind.empty() ? L"‹ Everything" : L"‹ " + w(entryKindPlural(wb_.kind));
         linkText("wb:back", m.x, y, back, [this] { openEntry({}); });
         // Where it is: the places it sits in, each a link (0.48).
@@ -1452,79 +1405,252 @@ void StudioApp::drawWorldPage(const Rect& r) {
             for (size_t i = 0; i < path.size(); ++i) {
                 const std::wstring t = w(path[i]->name);
                 const float tw2 = gfx_.measureWidth(t, Font::Small);
-                if (px + tw2 > m.right()) break;
+                if (px + tw2 > m.right() - 300) break;
                 linkText("wb:path:" + path[i]->id, px, y, t, [this, id = path[i]->id] { openEntry(id); });
                 px += tw2 + 18;
-                gfx_.text(L"\u203A", {px - 4, y + 2, 14, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
+                gfx_.text(L"›", {px - 4, y + 2, 14, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
                 px += 14;
             }
-            if (!path.empty()) gfx_.text(w(e->name), {px, y + 3, m.right() - px, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            if (!path.empty()) gfx_.text(w(e->name), {px, y + 3, std::max(0.0f, m.right() - 300 - px), 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         }
-        y += 34;
+        // At the right: a section to add, and the rest of what can be done with it.
+        {
+            const Rect mb{m.right() - 40, y - 7, 40, 32};
+            addHit("wb:entrymore", mb, [this, mb] {
+                if (const Entry* x = lib_->entry(wb_.entry)) showTools(entryTools(*x), mb.right(), mb.bottom() + 4, true);
+            });
+            tooltip("wb:entrymore", L"More for this entry");
+            const float hv = hoverAmount("wb:entrymore");
+            if (hv > 0.01f) softShadow(mb, 8, 0.6f * hv);
+            gfx_.fillRounded(mb, 8, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+            gfx_.strokeRounded(mb, 8, pal_.rule.mix(pal_.inkFaint, 0.55f * hv));
+            for (int i = -1; i <= 1; ++i) gfx_.circle(mb.x + mb.w / 2 + i * 6.5f, mb.y + mb.h / 2, 1.8f, pal_.ink, true);
+            if (focused("wb:entrymore")) focusRing(mb);
+            const float aw = gfx_.measureWidth(L"Add a section", Font::Body) + 44;
+            menuButton("wb:addsec", mb.x - 8 - aw, mb.y, L"Add a section", [this] {
+                std::vector<ToolItem> t;
+                const Entry* x = lib_->entry(wb_.entry);
+                if (!x) return t;
+                bool any = false;
+                for (const auto& [title, text] : lib_->entrySections(*x))
+                    if (text.empty()) { t.push_back(ToolItem::item(w(title), [this, title = title] { startEntryEdit("sec:" + title, FSection); })); any = true; }
+                if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+                std::vector<ToolItem> notes;
+                for (const Id& bid : x->bookId.empty() ? wb_.bookOrder : std::vector<Id>{x->bookId})
+                    if (const studio::Book* b = lib_->book(bid); b && x->bookNote(bid).empty())
+                        notes.push_back(ToolItem::item(L"In " + w(b->title), [this, bid] { startEntryEdit("bn:" + bid, FBookNote); }));
+                if (!notes.empty()) {
+                    if (any) t.push_back(ToolItem::line());
+                    t.push_back(ToolItem::heading(L"What happens to it in a book"));
+                    for (auto& n : notes) t.push_back(n);
+                    any = true;
+                }
+                if (x->notes.empty()) {
+                    if (any) t.push_back(ToolItem::line());
+                    t.push_back(ToolItem::item(L"Notes", [this] { startEntryEdit("notes", FNotes); }));
+                }
+                t.push_back(ToolItem::line());
+                t.push_back(ToolItem::item(L"Change the sections every " + w(entryKindLabel(x->kind)) + L" page has…", [this] {
+                    wb_.editTemplate = true;
+                    startEntryEdit("template", FTemplate);
+                }));
+                return t;
+            });
+        }
+        y += 40;
+        // A paste taken back stays offered at the top, where it's wanted straight after one.
+        if (wb_.pasteUndo && wb_.pasteUndo->entry == e->id) {
+            gfx_.text(L"This page was filled from what you copied.", {m.x, y, measure, 22}, Font::Small, pal_.inkMuted, {Align::Left, false, false, true});
+            linkText("wb:pasteundo", m.x + gfx_.measureWidth(L"This page was filled from what you copied.", Font::Small) + 16, y + 2, L"Undo the paste",
+                     [this] { undoEntryPaste(); });
+            y += 34;
+        }
+        // The spoilers, in a card while they're being set.
+        if (wb_.spoilersOpen) {
+            if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+            std::vector<std::pair<std::string, std::wstring>> facts{{"entry", L"The whole entry"}};
+            if (!e->summary.empty()) facts.push_back({"summary", L"Summary"});
+            {
+                size_t at = 0;
+                while (at <= e->details.size()) {
+                    size_t nl = e->details.find('\n', at);
+                    if (nl == std::string::npos) nl = e->details.size();
+                    const std::string line = e->details.substr(at, nl - at);
+                    at = nl + 1;
+                    const size_t colon = line.find(':');
+                    if (colon != std::string::npos && colon > 0 && colon < 40) facts.push_back({"detail:" + line.substr(0, colon), w(line.substr(0, colon))});
+                }
+            }
+            for (auto& [t, text] : lib_->entrySections(*e)) if (!text.empty()) facts.push_back({"section:" + t, w(t)});
+            const float ch = 92 + facts.size() * 28.0f;
+            const Rect cr{m.x, y, measure, ch};
+            card(cr, 12);
+            gfx_.text(L"Spoilers", {cr.x + 18, cr.y + 14, cr.w - 120, 26}, Font::Heading, pal_.ink, {Align::Left, false});
+            linkText("wb:spoildone", cr.right() - 18 - gfx_.measureWidth(L"Done", Font::Small), cr.y + 18, L"Done", [this] { wb_.spoilersOpen = false; invalidate(); });
+            gfx_.text(L"Mark what readers only learn in a later book. A reader's guide or shared wiki for an earlier book leaves it out.",
+                      {cr.x + 18, cr.y + 42, cr.w - 36, 36}, Font::Small, pal_.inkMuted);
+            float sy = cr.y + 82;
+            for (auto& [key, label] : facts) {
+                const studio::Book* rb = lib_->book(e->revealedIn(key));
+                gfx_.text(label, {cr.x + 18, sy, cr.w * 0.5f, 22}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                const std::wstring v = rb ? L"Revealed in " + w(rb->title) : L"Not a spoiler";
+                linkText("wb:spoil:" + key, cr.right() - 18 - gfx_.measureWidth(v, Font::Small), sy + 3, v, [this, key = key] { entrySpoilerChoice(key); });
+                sy += 28;
+            }
+            y += ch + 24;
+        }
         const bool hasPic = !e->imageBlob.empty();
-        const float picW = hasPic ? std::min(220.0f, cw * 0.3f) : 0;
+        const float picW = std::min(200.0f, cw * 0.28f);
         float ty = y;
-        const float tx = m.x + (hasPic ? picW + 28 : 0), tw = m.right() - tx;
-        if (hasPic) {
-            const auto [iw, ih] = gfx_.imageSize(w(lib_->blobPath(e->imageBlob)));
-            const float ph = iw > 0 ? std::min(picW * ih / (float)iw, picW * 1.5f) : picW;
-            gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), {m.x, y, picW, ph}, true);
-            gfx_.stroke({m.x, y, picW, ph}, pal_.rule);
-            addDrop({Drop::MainPicture, {m.x, y, picW, ph}, e->id});   // drag a picture here to make it the main one
-            ty = y;
+        const float tx = m.x + picW + 28, tw = m.right() - tx, tmeasure = std::min(tw, 640.0f);
+        {
+            // The picture, or a place for one: click to choose it, or drop one from the gallery on it.
+            float ph = picW * 1.2f;
+            const std::wstring path = hasPic ? w(lib_->blobPath(e->imageBlob)) : std::wstring();
+            if (hasPic) {
+                const auto [iw, ih] = gfx_.imageSize(path);
+                ph = iw > 0 ? std::min(picW * ih / (float)iw, picW * 1.5f) : picW;
+            }
+            const Rect pr{m.x, y, picW, ph};
+            addHit("wb:pic", pr, [this] { chooseImage(Focus::Entry, wb_.entry, 0); });
+            tooltip("wb:pic", hasPic ? L"Change the picture" : L"Choose a picture");
+            addDrop({Drop::MainPicture, pr, e->id});   // drag a picture here to make it the main one
+            const float hv = hoverAmount("wb:pic");
+            if (hasPic) {
+                softShadow(pr, 12, 1.6f + hv);
+                gfx_.drawImage(path, pr, true);
+                cjui::northray::roundCorners(gfx_, pr, 12, pal_.paper);
+                if (hv > 0.01f) {
+                    const Rect lb{pr.x + 10, pr.bottom() - 36, pr.w - 20, 26};
+                    gfx_.fillRounded(lb, 7, cjui::Color{0.06f, 0.08f, 0.12f, 0.6f * hv});
+                    gfx_.text(L"Change the picture", lb, Font::Small, cjui::hexColor("#FFFFFF").withAlpha(hv), {Align::Center, false, true, true});
+                }
+            } else {
+                gfx_.fillRounded(pr, 12, pal_.surface.mix(pal_.sunken, 0.3f + 0.4f * hv));
+                gfx_.strokeRounded(pr, 12, pal_.rule.mix(pal_.inkFaint, 0.5f * hv), 1.2f);
+                cjui::drawIcon(gfx_, cjui::Icon::Picture, {pr.x + pr.w / 2 - 14, pr.y + pr.h / 2 - 26, 28, 28}, pal_.inkFaint, 1.4f);
+                gfx_.text(L"Add a picture", {pr.x, pr.y + pr.h / 2 + 8, pr.w, 20}, Font::Small, pal_.inkMuted, {Align::Center, false, true});
+            }
+            if (focused("wb:pic")) focusRing(pr);
             y += ph;
         }
         {
-            std::wstring label = upper(w(entryKindLabel(e->kind)));
+            // What it is: the kind and how it's filed, each a click away from being changed.
+            float kx = tx;
+            auto part = [&](const std::string& id, const std::wstring& t, cjui::Color c, std::function<void()> act, const std::wstring& tip) {
+                const float pw = gfx_.measureWidth(t, Font::Label);
+                const Rect pr{kx - 3, ty - 3, pw + 6, 22};
+                addHit(id, pr, std::move(act));
+                tooltip(id, tip);
+                const float hv = hoverAmount(id);
+                if (hv > 0.01f) gfx_.fillRounded(pr, 5, c.withAlpha(0.12f * hv));
+                gfx_.text(t, {kx, ty, pw + 2, 16}, Font::Label, c, {Align::Left, false});
+                if (focused(id)) focusRing(pr);
+                kx += pw;
+            };
+            const cjui::Color kc = kindColor(e->kind, pal_.dark);
+            part("wb:k:kind", upper(w(entryKindLabel(e->kind))), kc, [this] { entryKindChoice(); }, L"Change what kind of entry it is");
             for (const Facet* f : facetsFor(e->kind))
-                if (const std::string v = facetOf(*e, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
-            gfx_.text(label, {tx, ty, tw, 16}, Font::Label, kindColor(e->kind, pal_.dark), {Align::Left, false});
+                if (const std::string v = facetOf(*e, *f); !v.empty()) {
+                    gfx_.text(L"  ·  ", {kx, ty, 30, 16}, Font::Label, kc, {Align::Left, false});
+                    kx += gfx_.measureWidth(L"  ·  ", Font::Label);
+                    part("wb:k:" + f->key, upper(w(v)), kc, [this, key = f->key] { entryFacetChoice(key); }, L"Change its " + f->title);
+                }
         }
-        ty += 20;
-        ty += gfx_.text(w(e->name), {tx, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 4;
-        if (!e->pronunciation.empty()) ty += gfx_.text(L"Said \u201C" + w(e->pronunciation) + L"\u201D", {tx, ty, tw, 22}, Font::Body, pal_.inkMuted) + 6;
+        ty += 22;
+        // Its name, in the title's size.
+        if (editingInline("name")) {
+            const Rect nr{tx - 10, ty - 4, std::min(tw + 10, 660.0f), 50};
+            inlineBox(nr);
+            ty += 50 + 22;
+        } else {
+            ty += editable("name", FName, tx, ty, tmeasure, [&] { return gfx_.text(w(e->name), {tx, ty, tmeasure, 90}, Font::SerifTitle, pal_.ink); },
+                           L"Click to rename it") + 6;
+        }
+        // How it's said.
+        if (editingInline("said")) {
+            gfx_.text(L"How it's said (for the glossary: ZAH-mez)", {tx, ty, tmeasure, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+            inlineBox({tx - 8, ty + 20, std::min(tmeasure, 360.0f), 34});
+            ty += 20 + 34 + 26;
+        } else if (!e->pronunciation.empty()) {
+            ty += editable("said", FAlt, tx, ty, tmeasure,
+                           [&] { return gfx_.text(L"Said “" + w(e->pronunciation) + L"”", {tx, ty, tmeasure, 22}, Font::Body, pal_.inkMuted); },
+                           L"Click to change how it's said") + 6;
+        }
         if (const studio::Book* rb = lib_->book(e->revealedIn("entry")))
-            ty += gfx_.text(L"SPOILER \u00B7 FIRST MET IN " + upper(w(rb->title)), {tx, ty, tw, 18}, Font::Label, pal_.demo, {Align::Left, false}) + 8;
-        if (!e->aliases.empty()) {
+            ty += gfx_.text(L"SPOILER · FIRST MET IN " + upper(w(rb->title)), {tx, ty, tw, 18}, Font::Label, pal_.demo, {Align::Left, false}) + 8;
+        // Its other names.
+        if (editingInline("aliases")) {
+            gfx_.text(L"Other names, with commas between", {tx, ty, tmeasure, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+            inlineBox({tx - 8, ty + 20, tmeasure + 8, 34});
+            ty += 20 + 34 + 26;
+        } else if (!e->aliases.empty()) {
             std::wstring a = L"Also ";
             for (size_t i = 0; i < e->aliases.size(); ++i) a += (i ? L", " : L"") + std::wstring(L"“") + w(e->aliases[i]) + L"”";
-            ty += gfx_.text(a, {tx, ty, tw, 60}, Font::Small, pal_.inkMuted) + 8;
+            ty += editable("aliases", FTags, tx, ty, tmeasure, [&] { return gfx_.text(a, {tx, ty, tmeasure, 60}, Font::Small, pal_.inkMuted); },
+                           L"Click to change its other names") + 8;
         }
-        if (!e->summary.empty()) ty += drawLinkedText(e->summary, {tx, ty, std::min(tw, 640.0f), 0}, Font::Body, pal_.ink, e->id, "wb:ls:") + 12;
-        // Details: "Label: value" lines as a table.
-        if (!e->details.empty()) {
-            ty += 8;
-            size_t at = 0;
-            while (at <= e->details.size()) {
-                size_t nl = e->details.find('\n', at);
-                if (nl == std::string::npos) nl = e->details.size();
-                std::string line = e->details.substr(at, nl - at);
-                at = nl + 1;
-                while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
-                if (line.empty()) continue;
-                const size_t colon = line.find(':');
-                const float lw = std::min(160.0f, tw * 0.35f);
-                if (colon != std::string::npos && colon > 0 && colon < 40) {
-                    std::string val = line.substr(colon + 1);
-                    while (!val.empty() && val.front() == ' ') val.erase(0, 1);
-                    gfx_.text(w(line.substr(0, colon)), {tx, ty, lw - 10, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-                    if (const studio::Book* rb = lib_->book(e->revealedIn("detail:" + line.substr(0, colon)))) {
-                        const std::wstring t = L"spoiler \u00B7 " + w(rb->title);
-                        const float bw = std::min(gfx_.measureWidth(t, Font::Small) + 14, 220.0f);
-                        const Rect badge{tx + std::min(tw, 640.0f) - bw, ty, bw, 20};
-                        gfx_.fillRounded(badge, 10, pal_.demo.withAlpha(0.12f));
-                        gfx_.text(t, badge, Font::Small, pal_.demo, {Align::Center, false, true, true});
+        // The summary.
+        ty += 4;
+        if (editingInline("summary")) {
+            const float h = inlineHeight(70);
+            inlineBox({tx - 8, ty - 4, tmeasure + 8, h});
+            ty += h + 26;
+        } else if (!e->summary.empty()) {
+            ty += editable("summary", FDescription, tx, ty, tmeasure,
+                           [&] { return drawLinkedText(e->summary, {tx, ty, tmeasure, 0}, Font::Body, pal_.ink, e->id, "wb:ls:"); },
+                           L"Click to change the summary") + 12;
+        } else {
+            ty += editable("summary", FDescription, tx, ty, tmeasure,
+                           [&] { return gfx_.text(L"Write a summary…", {tx, ty, tmeasure, 22}, Font::Body, pal_.inkFaint); },
+                           L"Click to write a summary") + 12;
+        }
+        // Details: "Label: value" lines as a table; click it to change them.
+        ty += 6;
+        if (editingInline("details")) {
+            gfx_.text(L"One per line, like Age: 34", {tx, ty, tmeasure, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+            const float h = inlineHeight(90);
+            inlineBox({tx - 8, ty + 20, tmeasure + 8, h});
+            ty += 20 + h + 26;
+        } else if (!e->details.empty()) {
+            ty += editable("details", FSynopsis, tx, ty, tmeasure, [&] {
+                float dy = ty;
+                size_t at = 0;
+                while (at <= e->details.size()) {
+                    size_t nl = e->details.find('\n', at);
+                    if (nl == std::string::npos) nl = e->details.size();
+                    std::string line = e->details.substr(at, nl - at);
+                    at = nl + 1;
+                    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+                    if (line.empty()) continue;
+                    const size_t colon = line.find(':');
+                    const float lw = std::min(160.0f, tw * 0.35f);
+                    if (colon != std::string::npos && colon > 0 && colon < 40) {
+                        std::string val = line.substr(colon + 1);
+                        while (!val.empty() && val.front() == ' ') val.erase(0, 1);
+                        gfx_.text(w(line.substr(0, colon)), {tx, dy, lw - 10, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                        if (const studio::Book* rb = lib_->book(e->revealedIn("detail:" + line.substr(0, colon)))) {
+                            const std::wstring t = L"spoiler · " + w(rb->title);
+                            const float bw = std::min(gfx_.measureWidth(t, Font::Small) + 14, 220.0f);
+                            const Rect badge{tx + tmeasure - bw, dy, bw, 20};
+                            gfx_.fillRounded(badge, 10, pal_.demo.withAlpha(0.12f));
+                            gfx_.text(t, badge, Font::Small, pal_.demo, {Align::Center, false, true, true});
+                        }
+                        dy += std::max(20.0f, drawLinkedText(val, {tx + lw, dy, std::min(tw - lw, 480.0f), 0}, Font::Small, pal_.ink, e->id,
+                                                             "wb:ld" + std::to_string(at) + ":")) + 4;
+                    } else {
+                        dy += gfx_.text(w(line), {tx, dy, tmeasure, 80}, Font::Small, pal_.ink) + 4;
                     }
-                    ty += std::max(20.0f, drawLinkedText(val, {tx + lw, ty, std::min(tw - lw, 480.0f), 0}, Font::Small, pal_.ink, e->id,
-                                                         "wb:ld" + std::to_string(at) + ":")) + 4;
-                } else {
-                    ty += gfx_.text(w(line), {tx, ty, std::min(tw, 640.0f), 80}, Font::Small, pal_.ink) + 4;
+                    gfx_.line(tx, dy - 1.5f, tx + tmeasure, dy - 1.5f, pal_.rule.withAlpha(0.5f));
+                    dy += 2;
                 }
-                gfx_.line(tx, ty - 1.5f, tx + std::min(tw, 640.0f), ty - 1.5f, pal_.rule.withAlpha(0.5f));
-                ty += 2;
-            }
+                return dy - ty;
+            }, L"Click to change the details");
+        } else {
+            linkText("wb:adddetail", tx, ty, L"+ Detail", [this] { startEntryEdit("details", FSynopsis); });
+            ty += 30;
         }
-        y = std::max(y, ty) + 26;
+        y = std::max(y, ty) + 30;
         // A row to jump to the page's parts further down (where they started last time it was drawn) (0.48.4).
         {
             const auto anchors = wb_.anchors;
@@ -1548,73 +1674,107 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
         auto anchor = [&](const wchar_t* name, float at) { wb_.anchors.push_back({name, at - m.y}); };
 
-        // The page's sections, from the kind's template: written ones in full, the rest as a row to start.
-        {
-            const auto secs = lib_->entrySections(*e);
-            std::vector<std::string> empty;
-            for (const auto& [title, text] : secs) {
-                if (text.empty()) { empty.push_back(title); continue; }
-                const std::string id = "wb:sec:" + title;
-                gfx_.text(upper(w(title)), {m.x, y, cw - 60, 18}, Font::Label, wb_.section == title ? pal_.ribbon : pal_.inkFaint, {Align::Left, false});
-                if (const studio::Book* rb = lib_->book(e->revealedIn("section:" + title)))
-                    gfx_.text(L"SPOILER \u00B7 " + upper(w(rb->title)), {m.x + gfx_.measureWidth(upper(w(title)), Font::Label) + 14, y, 300, 18}, Font::Label,
-                              pal_.demo, {Align::Left, false, true});
-                const float y0 = y;
-                y += 26;
-                y += drawLinkedText(text, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lsec" + title + ":") + 24;
-                quietEdit(id, {m.x, y0 - 6, cw, y - y0 - 12}, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y0 - 2, L"Edit", [this, title] {
-                    commitFields();
-                    wb_.section = title;
-                    wb_.editTemplate = false;
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    invalidate();
-                    focusFieldSoon_ = FSection;
-                });
-            }
-            if (!empty.empty()) {
-                gfx_.text(L"STILL TO WRITE", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-                y += 26;
-                float lx = m.x;
-                for (const std::string& t : empty) {
-                    // The same buttons as everywhere else (0.65), the one being written outlined in the accent.
-                    const std::wstring nm = L"+ " + w(t);
-                    const float lw2 = gfx_.measureWidth(w(t), Font::Body) + 26 + 21;
-                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 38; }
-                    const Rect chip{lx, y, lw2, 30};
-                    const std::string id = "wb:secnew:" + t;
-                    button(id, chip, nm, [this, t] {
-                        commitFields();
-                        wb_.section = t;
-                        wb_.editTemplate = false;
-                        loadedFocus_ = {Focus::None, "-", ""};
-                        focusFieldSoon_ = FSection;
-                        invalidate();
-                    });
-                    if (wb_.section == t) gfx_.strokeRounded(chip, 7, pal_.ribbon, 1.5f);
-                    lx += lw2 + 8;
+        // Changing the sections every page of its kind has: here, in a card, while it's being done.
+        if (editingInline("template")) {
+            const World* wo = lib_->world(e->worldId);
+            const std::wstring kindName = w(entryKindLabel(e->kind));
+            const float h = inlineHeight(130);
+            const Rect cr{m.x, y, measure, 150 + h};
+            card(cr, 12);
+            gfx_.text(L"The sections of a " + kindName + L" page" + (wo ? L" (all of " + w(wo->name) + L")" : L""), {cr.x + 18, cr.y + 14, cr.w - 36, 26},
+                      Font::Heading, pal_.ink, {Align::Left, false, true});
+            gfx_.text(L"One per line.", {cr.x + 18, cr.y + 42, cr.w - 36, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+            inlineBox({cr.x + 14, cr.y + 64, cr.w - 28, h});
+            linkText("wb:tplreset", cr.x + 18, cr.y + 64 + h + 28, L"Use the built-in sections", [this] {
+                const Entry* x = lib_->entry(wb_.entry);
+                if (!x) return;
+                endInline(false);
+                wb_.editTemplate = false;
+                lib_->setEntryTemplate(x->worldId, x->kind, defaultEntryTemplate(x->kind));
+                loadedFocus_ = {Focus::None, "-", ""};
+                invalidate();
+            });
+            gfx_.text(L"For buttons to pick from, write the choices after a colon: “Status: Alive | Dead | Missing”. Add (any) to the name to "
+                      L"pick several. Writing in a section you take out stays on the page.",
+                      {cr.x + 230, cr.y + 64 + h + 26, cr.w - 248, 40}, Font::Small, pal_.inkFaint);
+            y += cr.h + 26;
+        }
+        // The page's sections, from the kind's template: those written, and the one being started. The rest are under
+        // "Add a section".
+        for (const auto& [title, text] : lib_->entrySections(*e)) {
+            const std::string key = "sec:" + title;
+            const bool editing = editingInline(key);
+            if (text.empty() && !editing) continue;
+            gfx_.text(w(title), {m.x, y, measure, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
+            if (const studio::Book* rb = lib_->book(e->revealedIn("section:" + title)))
+                gfx_.text(L"SPOILER · " + upper(w(rb->title)), {m.x + gfx_.measureWidth(w(title), Font::Heading) + 14, y + 6, 300, 18}, Font::Label,
+                          pal_.demo, {Align::Left, false, true});
+            y += 32;
+            if (editing) {
+                // A choice (0.37): its options as buttons, and the box for anything else.
+                const SectionSpec spec = lib_->entrySectionSpec(*e, title);
+                if (!spec.options.empty()) {
+                    const std::string cur = e->section(title);
+                    gfx_.text(spec.many ? L"Pick any that fit, or write your own" : L"Pick one, or write your own", {m.x, y, measure, 18}, Font::Small,
+                              pal_.inkFaint, {Align::Left, false});
+                    y += 24;
+                    float lx = m.x;
+                    for (const std::string& o : spec.options) {
+                        const std::wstring nm = w(o);
+                        const float bw = std::min(measure, gfx_.measureWidth(nm, Font::Small) + 28);
+                        if (lx + bw > m.x + measure && lx > m.x) { lx = m.x; y += 36; }
+                        const Rect chip{lx, y, bw, 30};
+                        const std::string id = "wb:opt:" + o;
+                        const bool on = sectionOptionPicked(spec, cur, o);
+                        addHit(id, chip, [this, o, title = title] {
+                            commitFields();   // what was typed first
+                            const Entry* x = lib_->entry(wb_.entry);
+                            if (!x) return;
+                            const SectionSpec sp = lib_->entrySectionSpec(*x, title);
+                            Entry u = *x;
+                            u.setSection(title, toggleSectionOption(sp, u.section(title), o));
+                            lib_->updateEntry(u);
+                            startEntryEdit("sec:" + title, FSection);   // still being written
+                        }, false);
+                        const float hv = hoverAmount(id);
+                        gfx_.fillRounded(chip, 15, on ? pal_.ribbon : pal_.surface.mix(pal_.sunken, 0.4f * hv));
+                        gfx_.strokeRounded(chip, 15, on ? pal_.ribbon : pal_.rule.mix(pal_.ribbon, hv));
+                        gfx_.text(nm, chip, Font::Small, on ? pal_.paper : pal_.ink, {Align::Center, false, true, true});
+                        lx += bw + 8;
+                    }
+                    y += 44;
                 }
-                y += 50;
+                const float h = inlineHeight(spec.options.empty() ? 120 : 60);
+                inlineBox({m.x - 8, y - 4, measure + 8, h});
+                y += h + 34;
+            } else {
+                y += editable(key, FSection, m.x, y, measure,
+                              [&] { return drawLinkedText(text, {m.x, y, measure, 0}, Font::Body, pal_.ink, e->id, "wb:lsec" + title + ":"); },
+                              L"Click to change it") + 28;
             }
         }
 
-        // Notes for each book, in reading order.
+        // Notes for each book, in reading order: what happens to it there, what it knows.
         {
             if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
             for (const Id& bid : wb_.bookOrder) {
                 const std::string& note = e->bookNote(bid);
                 const studio::Book* b = lib_->book(bid);
-                if (note.empty() || !b) continue;
-                gfx_.text(L"IN " + upper(w(b->title)), {m.x, y, cw - 60, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-                const float y0 = y;
-                y += 26;
-                y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
-                quietEdit("wb:bnedit:" + bid, {m.x, y0 - 6, cw, y - y0 - 12}, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y0 - 2, L"Edit", [this, bid] {
-                    commitFields();
-                    wb_.noteBook = bid;
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    focusFieldSoon_ = FBookNote;
-                    invalidate();
-                });
+                const std::string key = "bn:" + bid;
+                const bool editing = editingInline(key);
+                if ((note.empty() && !editing) || !b) continue;
+                gfx_.text(L"In " + w(b->title), {m.x, y, measure, 28}, Font::Heading, pal_.ink, {Align::Left, false, true});
+                y += 32;
+                if (editing) {
+                    gfx_.text(L"What happens to it in this book, what it knows", {m.x, y, measure, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+                    const float h = inlineHeight(100);
+                    inlineBox({m.x - 8, y + 20, measure + 8, h});
+                    y += 20 + h + 34;
+                } else {
+                    y += editable(key, FBookNote, m.x, y, measure,
+                                  [&] { return drawLinkedText(note, {m.x, y, measure, 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":"); },
+                                  L"Click to change it") + 28;
+                }
             }
             // Notes for books that aren't in Writing Studio yet (0.56): kept until the book is added, then moved onto it.
             for (auto& [label, note] : studio::paste::laterBookNotes(*e)) {
@@ -1707,6 +1867,44 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     lx += tw + gap;
                 }
                 y += rowH + 24;
+                // The picture picked: its caption, edited here, and what else can be done with it (0.68).
+                if (wb_.picture >= 0 && wb_.picture < (int)e->gallery.size()) {
+                    const auto& pic = e->gallery[(size_t)wb_.picture];
+                    const bool editing = editingInline("caption");
+                    const Rect cr{m.x, y, measure, editing ? 132.0f : 104.0f};
+                    card(cr, 12);
+                    gfx_.text(L"Caption", {cr.x + 18, cr.y + 14, 200, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+                    if (editing) inlineBox({cr.x + 14, cr.y + 36, cr.w - 28, 36});
+                    else {
+                        const float cx0 = cr.x + 18, cyy = cr.y + 38;
+                        editable("caption", FCaption, cx0, cyy, cr.w - 36, [&] {
+                            return gfx_.text(pic.caption.empty() ? L"Write a caption…" : w(pic.caption), {cx0, cyy, cr.w - 36, 22}, Font::Body,
+                                             pic.caption.empty() ? pal_.inkFaint : pal_.ink, {Align::Left, false, true});
+                        }, L"Click to change the caption");
+                    }
+                    float lx2 = cr.x + 18;
+                    const float ly = cr.bottom() - 30;
+                    if (pic.blob != e->imageBlob) {
+                        linkText("wb:galmain", lx2, ly, L"Use as the main picture", [this] {
+                            commitFields();
+                            if (const Entry* x = lib_->entry(wb_.entry); x && wb_.picture >= 0 && wb_.picture < (int)x->gallery.size()) {
+                                Entry u = *x;
+                                u.imageBlob = x->gallery[(size_t)wb_.picture].blob;
+                                lib_->updateEntry(u);
+                                flash(L"It's now the entry's main picture.", 4);
+                            }
+                        });
+                        lx2 += gfx_.measureWidth(L"Use as the main picture", Font::Small) + 28;
+                    }
+                    linkText("wb:galremove", lx2, ly, L"Remove from the gallery", [this] { galleryMenu((size_t)wb_.picture); });
+                    linkText("wb:galdone", cr.right() - 18 - gfx_.measureWidth(L"Done", Font::Small), ly, L"Done", [this] {
+                        endInline(true);
+                        wb_.picture = -1;
+                        loadedFocus_ = {Focus::None, "-", ""};
+                        invalidate();
+                    });
+                    y += cr.h + 24;
+                }
             }
 
             // Its boards, under the pictures.
@@ -1871,12 +2069,20 @@ void StudioApp::drawWorldPage(const Rect& r) {
         }
         y += 22;
 
-        // Notes.
-        if (!e->notes.empty()) {
+        // Notes: click them to change them.
+        if (!e->notes.empty() || editingInline("notes")) {
             anchor(L"Notes", y);
-            gfx_.text(L"NOTES", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-            y += 26;
-            y += drawLinkedText(e->notes, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:ln:") + 26;
+            gfx_.text(L"Notes", {m.x, y, measure, 28}, Font::Heading, pal_.ink, {Align::Left, false});
+            y += 32;
+            if (editingInline("notes")) {
+                const float h = inlineHeight(140);
+                inlineBox({m.x - 8, y - 4, measure + 8, h});
+                y += h + 34;
+            } else {
+                y += editable("notes", FNotes, m.x, y, measure,
+                              [&] { return drawLinkedText(e->notes, {m.x, y, measure, 0}, Font::Body, pal_.ink, e->id, "wb:ln:"); },
+                              L"Click to change the notes") + 28;
+            }
         }
 
         // Linked from: other entries whose text names this one.
@@ -1960,8 +2166,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
 }
 
 void StudioApp::drawWorldPanel(const Rect& r) {
-    gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
-    gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    // Only the bible's tools that keep a details column call this (as a card on the page, 0.68); an entry's own
+    // things are on its page.
+    if (!panelAsCard_) {
+        gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
+        gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (wb_.languages) { drawLanguagePanel(r); return; }
     if (wb_.share) { drawSharePanel(r); return; }
@@ -1969,33 +2179,73 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     if (wb_.relationsPage) { drawRelationsPanel(r); return; }
     if (wb_.fontsPage) { drawFontsPanel(r); return; }
     if (!wb_.familyRoot.empty() && wb_.entry.empty()) { drawFamilyPanel(r); return; }
-    if (const Entry* ce = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry)) {
-        // The section written in the panel: the one picked, else the first of the template.
-        const auto secs = lib_->entrySections(*ce);
-        if (std::none_of(secs.begin(), secs.end(), [&](auto& s) { return s.first == wb_.section; })) {
-            wb_.section = secs.empty() ? std::string() : secs[0].first;
-            loadedFocus_ = {Focus::None, "-", ""};
-        }
-        if (wb_.picture >= (int)ce->gallery.size()) wb_.picture = -1;
+}
+
+// ------------------------------------------------------------- an entry's choices (from its page, 0.68)
+
+void StudioApp::startEntryEdit(const std::string& key, int field) {
+    const Entry* e = lib_->entry(wb_.entry);
+    if (!e) return;
+    if (ie_.field >= 0) endInline(true);
+    commitFields();
+    if (key.rfind("sec:", 0) == 0) wb_.section = key.substr(4);
+    else if (key.rfind("bn:", 0) == 0) wb_.noteBook = key.substr(3);
+    if (key == "template") wb_.editTemplate = true;
+    loadedFocus_ = {Focus::None, "-", ""};
+    loadFields();
+    // Esc puts back what was there when the edit began (what's typed is saved as it goes).
+    const Entry before = *lib_->entry(wb_.entry);
+    const auto tpl = lib_->entryTemplate(before.worldId, before.kind);
+    startInline(key, field, [this, before, tpl, key] {
+        lib_->updateEntry(before);
+        if (key == "template") { lib_->setEntryTemplate(before.worldId, before.kind, tpl); wb_.editTemplate = false; }
+    }, field == FName);
+}
+
+// What can be done with an entry beyond its text: under the "..." button on its page.
+std::vector<StudioApp::ToolItem> StudioApp::entryTools(const Entry& e) {
+    std::vector<ToolItem> t;
+    t.push_back(ToolItem::heading(L"What it is"));
+    t.push_back(ToolItem::item(L"Kind: " + w(entryKindLabel(e.kind)) + L"…", [this] { entryKindChoice(); }));
+    if (e.kind == "creature" || e.kind == "character") {
+        const Entry* parent = nullptr;
+        for (const EntryLink& l : lib_->linksOf(e.id))
+            if (l.from == e.id && l.label == "Kind of") if (const Entry* o = lib_->entry(l.to); o && !o->deleted && o->kind == "creature") parent = o;
+        const std::wstring now = parent ? w(parent->name) : e.kind == "character" ? L"not a creature" : L"a species of its own";
+        t.push_back(ToolItem::item((e.kind == "character" ? L"Kind of creature: " : L"A kind of: ") + now + L"…", [this] { entryKindOfChoice(); }));
     }
-    if (!(focus_ == loadedFocus_)) loadFields();
-    gfx_.pushClip(r);
-    setHitClip(r);
-    const Rect c{r.x + 20, r.y, r.w - 40, 0};
-    float y = r.y + 18 - wb_.panelScroll;
-    const Entry* e = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry);
-    std::map<int, float> fieldTop;   // where some fields are, to scroll to them
-    if (e && !e->deleted) {
-        panelHeading(c, y, L"ENTRY", true);
-        // A whole page from elsewhere (0.37), and taking the last one back.
-        // Taking a paste back stays at the top, where it's wanted straight after one (the paste tools are at the foot, 0.43).
-        if (wb_.pasteUndo && wb_.pasteUndo->entry == e->id) {
-            linkText("wb:pasteundo", c.x, y, L"Undo the paste", [this] { undoEntryPaste(); });
-            y += 32;
-        }
-        fieldTop[FName] = y;
-        y = panelField(c, y, L"Name", FName);
-        panelChoice("wb:kind", c, y, L"Kind", w(entryKindLabel(e->kind)), [this] {
+    for (const Facet* f : facetsFor(e.kind)) {
+        const std::string v = facetOf(e, *f);
+        t.push_back(ToolItem::item(f->title + L": " + (v.empty() ? std::wstring(L"not set") : w(v)) + L"…", [this, key = f->key] { entryFacetChoice(key); }));
+    }
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"On the page"));
+    t.push_back(ToolItem::item(e.aliases.empty() ? L"Add other names" : L"Change its other names", [this] { startEntryEdit("aliases", FTags); }));
+    t.push_back(ToolItem::item(e.pronunciation.empty() ? L"Add how it's said" : L"Change how it's said", [this] { startEntryEdit("said", FAlt); }));
+    t.push_back(ToolItem::item(e.imageBlob.empty() ? L"Choose a picture…" : L"Change the picture…", [this] { chooseImage(Focus::Entry, wb_.entry, 0); }));
+    if (!e.imageBlob.empty())
+        t.push_back(ToolItem::item(L"Remove the picture", [this] {
+            if (const Entry* x = lib_->entry(wb_.entry)) {
+                const Entry before = *x;
+                Entry u = *x;
+                u.imageBlob.clear();
+                lib_->updateEntry(u);
+                flashUndo(L"Removed the picture.", [this, before] { lib_->updateEntry(before); invalidate(); });
+            }
+        }));
+    if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
+    if (!wb_.bookOrder.empty()) t.push_back(ToolItem::item(L"Spoilers…", [this] { wb_.spoilersOpen = true; wb_.scroll = 0; invalidate(); }, wb_.spoilersOpen));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"Pages from elsewhere"));
+    t.push_back(ToolItem::item(L"Fill this page from what you've copied", [this] { pasteFromClipboard(); }));
+    t.push_back(ToolItem::item(L"Replace all its text with what you've copied", [this] { pasteFromClipboard(true); }));
+    t.push_back(ToolItem::item(L"Copy a blank page to fill in", [this] { copyBlankPage(); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Move to Trash", [this] { trashOpenEntry(); }));
+    return t;
+}
+
+void StudioApp::entryKindChoice() {
             const Entry* x = lib_->entry(wb_.entry);
             if (!x) return;
             std::vector<std::wstring> items;
@@ -2011,17 +2261,9 @@ void StudioApp::drawWorldPanel(const Rect& r) {
             u.kind = entryKinds()[i];
             lib_->updateEntry(u);
             invalidate();
-        });
-        if (e->kind == "creature" || e->kind == "character") {
-            // What it's a kind of: another creature in the bible (Dragon > Wyvern > Bluebolt). A character
-            // that's a kind of creature is a named one (Bluebolt the wyvern), listed under its kind.
-            Id pid;
-            for (const EntryLink& l : lib_->linksOf(e->id))
-                if (l.from == e->id && l.label == "Kind of") if (const Entry* o = lib_->entry(l.to); o && !o->deleted && o->kind == "creature") pid = o->id;
-            const Entry* parent = lib_->entry(pid);
-            const bool ch = e->kind == "character";
-            panelChoice("wb:kindof", c, y, ch ? L"Kind of creature (for a named creature)" : L"A kind of",
-                        parent ? w(parent->name) : ch ? L"Not a creature" : L"Nothing (a species of its own)", [this] {
+}
+
+void StudioApp::entryKindOfChoice() {
                 const Entry* x = lib_->entry(wb_.entry);
                 if (!x) return;
                 std::vector<const Entry*> options;
@@ -2037,11 +2279,11 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 const int i = popupAt(hwnd(), items, checked);
                 if (i < 0 || i == checked) return;
                 setKindOf(x->id, i < (int)options.size() ? options[(size_t)i]->id : Id{});
-            });
-        }
-        for (const Facet* f : facetsFor(e->kind)) {
-            const std::string cur = facetOf(*e, *f);
-            panelChoice("wb:facet:" + f->key, c, y, f->title, cur.empty() ? L"Not set" : w(cur), [this, f] {
+}
+
+void StudioApp::entryFacetChoice(const std::string& key) {
+    const Facet* f = findFacet(key);
+    if (!f) return;
                 const Entry* x = lib_->entry(wb_.entry);
                 if (!x) return;
                 std::vector<std::wstring> items = facetChoices(*f, lib_->entriesOf(wb_.world, wb_.book), x->kind);
@@ -2091,150 +2333,28 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 }
                 loadedFocus_ = {Focus::None, "-", ""};   // the details field shows the new line
                 invalidate();
-            });
-        }
-        y = panelField(c, y, L"Other names (separate with commas)", FTags);
-        y = panelField(c, y, L"How it's said (for the glossary: ZAH-mez)", FAlt);
-        y = panelField(c, y, L"Summary", FDescription, 70);
-        y = panelImage(c, y, L"Picture", e->imageBlob, [this] { chooseImage(Focus::Entry, wb_.entry, 0); }, [this] {
-            if (const Entry* x = lib_->entry(wb_.entry)) { Entry u = *x; u.imageBlob.clear(); lib_->updateEntry(u); }
-        }, false);
-        y = panelField(c, y, L"Details (one per line, like Age: 34)", FSynopsis, 120);
+}
 
-        // The selected gallery picture.
-        if (wb_.picture >= 0 && wb_.picture < (int)e->gallery.size()) {
-            panelHeading(c, y, L"GALLERY PICTURE", false);
-            const auto& pic = e->gallery[(size_t)wb_.picture];
-            const std::wstring path = w(lib_->blobPath(pic.blob));
-            const auto [pw, ph] = gfx_.imageSize(path);
-            const float bh = pw > 0 ? std::min(c.w * ph / (float)pw, 220.0f) : 120.0f;
-            const float bw = pw > 0 ? std::min(c.w, bh * pw / (float)ph) : c.w;
-            if (!gfx_.drawImage(path, {c.x, y, bw, bh}, true)) gfx_.fillRounded({c.x, y, c.w, bh}, 3, pal_.sunken);
-            y += bh + 10;
-            fieldTop[FCaption] = y;
-            y = panelField(c, y, L"Caption", FCaption);
-            if (pic.blob != e->imageBlob) {
-                linkText("wb:galmain", c.x, y, L"Use as the main picture", [this] {
-                    commitFields();
-                    if (const Entry* x = lib_->entry(wb_.entry); x && wb_.picture >= 0 && wb_.picture < (int)x->gallery.size()) {
-                        Entry u = *x;
-                        u.imageBlob = x->gallery[(size_t)wb_.picture].blob;
-                        lib_->updateEntry(u);
-                        flash(L"It's now the entry's main picture.", 4);
-                    }
-                });
-                y += 26;
-            }
-            linkText("wb:galremove", c.x, y, L"Remove from the gallery", [this] { galleryMenu((size_t)wb_.picture); });
-            y += 26;
-            linkText("wb:galdone", c.x, y, L"Done", [this] { commitFields(); wb_.picture = -1; loadedFocus_ = {Focus::None, "-", ""}; invalidate(); });
-            y += 36;
-        }
-
-        // The page's sections, one at a time.
-        panelHeading(c, y, L"PAGE", false);
-        {
-            const auto secs = lib_->entrySections(*e);
-            if (!secs.empty()) {
-                panelChoice("wb:section", c, y, L"Section", w(wb_.section), [this] {
+void StudioApp::entrySpoilerChoice(const std::string& key) {
                     const Entry* x = lib_->entry(wb_.entry);
                     if (!x) return;
-                    const auto ss = lib_->entrySections(*x);
-                    std::vector<std::wstring> items;
-                    int cur = -1;
-                    for (size_t i = 0; i < ss.size(); ++i) {
-                        items.push_back(w(ss[i].first) + (ss[i].second.empty() ? L"" : L"  ✓"));
-                        if (ss[i].first == wb_.section) cur = (int)i;
+                    std::vector<std::wstring> items{L"Not a spoiler"};
+                    int cur = 0;
+                    for (size_t i = 0; i < wb_.bookOrder.size(); ++i) {
+                        const studio::Book* bk = lib_->book(wb_.bookOrder[i]);
+                        items.push_back(L"Revealed in " + (bk ? w(bk->title) : std::wstring(L"?")));
+                        if (x->revealedIn(key) == wb_.bookOrder[i]) cur = (int)i + 1;
                     }
                     const int i = popupAt(hwnd(), items, cur);
                     if (i < 0 || i == cur) return;
                     commitFields();
-                    wb_.section = ss[(size_t)i].first;
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    focusFieldSoon_ = FSection;
+                    Entry u = *lib_->entry(wb_.entry);
+                    u.setRevealedIn(key, i == 0 ? Id{} : wb_.bookOrder[(size_t)i - 1]);
+                    lib_->updateEntry(u);
                     invalidate();
-                });
-                // A choice (0.37): its options as buttons, and the box for anything else.
-                const SectionSpec spec = lib_->entrySectionSpec(*e, wb_.section);
-                if (!spec.options.empty()) {
-                    const std::string cur = e->section(wb_.section);
-                    gfx_.text(spec.many ? L"Pick any that fit" : L"Pick one", {c.x, y, c.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false});
-                    y += 22;
-                    float lx = c.x;
-                    for (const std::string& o : spec.options) {
-                        const std::wstring nm = w(o);
-                        const float bw = std::min(c.w, gfx_.measureWidth(nm, Font::Small) + 28);
-                        if (lx + bw > c.right() && lx > c.x) { lx = c.x; y += 36; }
-                        const Rect chip{lx, y, bw, 30};
-                        const std::string id = "wb:opt:" + o;
-                        const bool on = sectionOptionPicked(spec, cur, o);
-                        addHit(id, chip, [this, o] {
-                            commitFields();
-                            const Entry* x = lib_->entry(wb_.entry);
-                            if (!x) return;
-                            const SectionSpec sp = lib_->entrySectionSpec(*x, wb_.section);
-                            Entry u = *x;
-                            u.setSection(wb_.section, toggleSectionOption(sp, x->section(wb_.section), o));
-                            lib_->updateEntry(u);
-                            loadedFocus_ = {Focus::None, "-", ""};
-                            invalidate();
-                        });
-                        const float hv = hoverAmount(id);
-                        gfx_.fillRounded(chip, 15, on ? pal_.ribbon : pal_.surface.mix(pal_.sunken, 0.4f * hv));
-                        gfx_.strokeRounded(chip, 15, on ? pal_.ribbon : pal_.rule.mix(pal_.ribbon, hv));
-                        gfx_.text(nm, chip, Font::Small, on ? pal_.paper : pal_.ink, {Align::Center, false, true, true});
-                        if (focused(id)) focusRing(chip);
-                        lx += bw + 8;
-                    }
-                    y += 44;
-                }
-                fieldTop[FSection] = y;
-                y = panelField(c, y, spec.options.empty() ? w(wb_.section) : L"Or in your own words", FSection, spec.options.empty() ? 170 : 70);
-            }
-        }
-        {
-            const std::wstring kindName = w(entryKindLabel(e->kind));
-            if (!wb_.editTemplate) {
-                linkText("wb:tpl", c.x, y, L"Change the sections every " + kindName + L" page has…", [this] {
-                    commitFields();
-                    wb_.editTemplate = true;
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    focusFieldSoon_ = FTemplate;
-                    invalidate();
-                });
-                y += 34;
-            } else {
-                const World* wo = lib_->world(e->worldId);
-                fieldTop[FTemplate] = y;
-                y = panelField(c, y, L"Sections of a " + kindName + L" page, one per line" + (wo ? L" (all of " + w(wo->name) + L")" : L""), FTemplate, 130);
-                linkText("wb:tpldone", c.x, y, L"Done", [this] {
-                    commitFields();
-                    wb_.editTemplate = false;
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    invalidate();
-                });
-                linkText("wb:tplreset", c.x + 60, y, L"Use the built-in sections", [this] {
-                    const Entry* x = lib_->entry(wb_.entry);
-                    if (!x) return;
-                    wb_.editTemplate = false;
-                    commitFields();
-                    lib_->setEntryTemplate(x->worldId, x->kind, defaultEntryTemplate(x->kind));
-                    loadedFocus_ = {Focus::None, "-", ""};
-                    invalidate();
-                });
-                y += 26;
-                y += gfx_.text(L"For buttons to pick from, write the choices after a colon: “Status: Alive | Dead | Missing”. "
-                               L"Add (any) to the name to pick several: “Traits (any): Brave | Loyal | Proud”. "
-                               L"Writing already in a section you take out stays on the page, after the others.",
-                               {c.x, y, c.w, 120}, Font::Small, pal_.inkFaint) + 12;
-            }
-        }
+}
 
-        // Notes for one book at a time.
-        if (const Id nb = noteBookFor(*e); !nb.empty()) {
-            const studio::Book* b = lib_->book(nb);
-            if (wb_.bookOrder.size() > 1) {
-                panelChoice("wb:notebook", c, y, L"Notes for the book", b ? w(b->title) : L"", [this] {
+void StudioApp::entryNoteBookChoice() {
                     std::vector<std::wstring> items;
                     int cur = -1;
                     const Entry* x = lib_->entry(wb_.entry);
@@ -2252,71 +2372,9 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                     loadedFocus_ = {Focus::None, "-", ""};
                     focusFieldSoon_ = FBookNote;
                     invalidate();
-                });
-            }
-            fieldTop[FBookNote] = y;
-            y = panelField(c, y, L"In " + (b ? w(b->title) : std::wstring()) + L": what happens to it, what it knows", FBookNote, 110);
-        }
-        y = panelField(c, y, L"Notes", FNotes, 180);
+}
 
-        // Spoilers: what readers only learn in a later book.
-        if (wb_.bookOrder.empty()) wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
-        if (!wb_.bookOrder.empty()) {
-            panelHeading(c, y, L"SPOILERS", false);
-            y += gfx_.text(L"Mark what readers only learn in a later book. A reader's guide or shared wiki for an earlier book leaves it out.",
-                           {c.x, y, c.w, 60}, Font::Small, pal_.inkMuted) + 8;
-            std::vector<std::pair<std::string, std::wstring>> facts{{"entry", L"The whole entry"}};
-            if (!e->summary.empty()) facts.push_back({"summary", L"Summary"});
-            {
-                size_t at = 0;
-                while (at <= e->details.size()) {
-                    size_t nl = e->details.find('\n', at);
-                    if (nl == std::string::npos) nl = e->details.size();
-                    const std::string line = e->details.substr(at, nl - at);
-                    at = nl + 1;
-                    const size_t colon = line.find(':');
-                    if (colon != std::string::npos && colon > 0 && colon < 40) facts.push_back({"detail:" + line.substr(0, colon), w(line.substr(0, colon))});
-                }
-            }
-            for (auto& [t, text] : lib_->entrySections(*e)) if (!text.empty()) facts.push_back({"section:" + t, w(t)});
-            for (auto& [key, label] : facts) {
-                const studio::Book* rb = lib_->book(e->revealedIn(key));
-                gfx_.text(label, {c.x, y, c.w * 0.5f, 22}, Font::Small, pal_.ink, {Align::Left, false, true, true});
-                const std::wstring v = rb ? w(rb->title) : L"Not a spoiler";
-                const float vw = gfx_.measureWidth(v, Font::Small);
-                linkText("wb:spoil:" + key, c.right() - vw - 4, y + 3, v, [this, key = key] {
-                    const Entry* x = lib_->entry(wb_.entry);
-                    if (!x) return;
-                    std::vector<std::wstring> items{L"Not a spoiler"};
-                    int cur = 0;
-                    for (size_t i = 0; i < wb_.bookOrder.size(); ++i) {
-                        const studio::Book* bk = lib_->book(wb_.bookOrder[i]);
-                        items.push_back(L"Revealed in " + (bk ? w(bk->title) : std::wstring(L"?")));
-                        if (x->revealedIn(key) == wb_.bookOrder[i]) cur = (int)i + 1;
-                    }
-                    const int i = popupAt(hwnd(), items, cur);
-                    if (i < 0 || i == cur) return;
-                    commitFields();
-                    Entry u = *lib_->entry(wb_.entry);
-                    u.setRevealedIn(key, i == 0 ? Id{} : wb_.bookOrder[(size_t)i - 1]);
-                    lib_->updateEntry(u);
-                    invalidate();
-                }, Font::Small);
-                y += 26;
-            }
-            y += 14;
-        }
-        panelHeading(c, y, L"PAGES FROM ELSEWHERE", false);
-        linkText("wb:paste", c.x, y, L"Fill this page from what you've copied", [this] { pasteFromClipboard(); });
-        y += 30;
-        linkText("wb:pasteall", c.x, y, L"Replace all its text with what you've copied", [this] { pasteFromClipboard(true); });
-        tooltip("wb:pasteall", L"Everything written on this page goes and the copied page takes its place; its picture, gallery and map stay. Ctrl+Z puts it back.");
-        y += 30;
-        linkText("wb:blank", c.x, y, L"Copy a blank page to fill in", [this] { copyBlankPage(); });
-        y += 30;
-        y += gfx_.text(L"Or press Ctrl+V on this page with a copied page: what it has replaces what's here.", {c.x, y + 2, c.w, 40}, Font::Small,
-                       pal_.inkFaint) + 14;
-        linkText("wb:trash", c.x, y, L"Move to Trash", [this] {
+void StudioApp::trashOpenEntry() {
             const Entry* x = lib_->entry(wb_.entry);
             if (!x) return;
             const std::wstring name = w(x->name);
@@ -2327,91 +2385,6 @@ void StudioApp::drawWorldPanel(const Rect& r) {
                 openEntry({});
                 flash(L"Moved “" + name + L"” to the Trash.", 5);
             }
-        });
-        y += 34;
-    } else {
-        // The world at a glance (0.43): how many of each kind, what changed lately, and the things to do from here.
-        const auto all = lib_->entriesOf(wb_.world, wb_.book);
-        std::wstring scope;
-        if (const World* wo = lib_->world(wb_.world)) scope = w(wo->name);
-        else if (const studio::Book* b = lib_->book(wb_.book)) scope = w(b->title);
-        panelHeading(c, y, L"THIS WORLD", true);
-        y += gfx_.text(scope, {c.x, y, c.w, 30}, Font::Heading, pal_.ink, {Align::Left, false, true}) + 2;
-        y += gfx_.text(std::to_wstring(all.size()) + (all.size() == 1 ? L" entry, shared by every book in it." : L" entries, shared by every book in it."),
-                       {c.x, y, c.w, 40}, Font::Small, pal_.inkMuted) + 12;
-        {
-            // A bar per kind with something in it.
-            int most = 1;
-            std::map<std::string, int> n;
-            for (const Entry* x : all) most = std::max(most, ++n[x->kind]);
-            for (const auto& k : entryKinds()) {
-                if (!n[k]) continue;
-                const std::string id = "wb:pk:" + k;
-                const Rect row{c.x - 6, y, c.w + 12, 24};
-                addHit(id, row, [this, k] { wb_.kind = k; wb_.facet.clear(); wb_.scroll = 0; openEntry({}); });
-                const float hv = hoverAmount(id);
-                if (hv > 0.01f) gfx_.fillRounded(row, 4, pal_.sunken.withAlpha(0.6f * hv));
-                const cjui::Color kc = kindColor(k, pal_.dark);
-                gfx_.text(w(entryKindPlural(k)), {c.x, y, c.w * 0.42f, 24}, Font::Small, pal_.ink, {Align::Left, false, true, true});
-                const float bx = c.x + c.w * 0.44f, bw = c.w * 0.44f;
-                gfx_.fillRounded({bx, y + 9, bw, 6}, 3, pal_.sunken);
-                gfx_.fillRounded({bx, y + 9, std::max(6.0f, bw * n[k] / most), 6}, 3, kc);
-                gfx_.text(std::to_wstring(n[k]), {c.x, y, c.w, 24}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
-                y += 26;
-            }
-            y += 10;
-        }
-        {
-            // What changed lately.
-            std::vector<const Entry*> recent(all.begin(), all.end());
-            std::sort(recent.begin(), recent.end(), [](const Entry* a, const Entry* b) { return a->modified > b->modified; });
-            if (!recent.empty()) {
-                panelHeading(c, y, L"CHANGED LATELY", false);
-                for (size_t i = 0; i < recent.size() && i < 5; ++i) {
-                    const Entry* x = recent[i];
-                    const std::string id = "wb:recent:" + x->id;
-                    const Rect row{c.x - 6, y, c.w + 12, 26};
-                    addHit(id, row, [this, eid = x->id] { openEntry(eid); });
-                    const float hv = hoverAmount(id);
-                    if (hv > 0.01f) gfx_.fillRounded(row, 4, pal_.sunken.withAlpha(0.6f * hv));
-                    gfx_.circle(c.x + 4, y + 13, 3.5f, kindColor(x->kind, pal_.dark), true);
-                    gfx_.text(w(x->name), {c.x + 16, y, c.w - 16, 26}, Font::Small, pal_.ink, {Align::Left, false, true, true});
-                    y += 27;
-                }
-                y += 10;
-            }
-        }
-        panelHeading(c, y, L"FROM HERE", false);
-        auto act = [&](const std::string& id, const std::wstring& label, std::function<void()> fn) {
-            linkText(id, c.x, y, label, std::move(fn));
-            y += 30;
-        };
-        act("wb:pa:new", wb_.kind.empty() ? L"New entry\u2026" : L"New " + [&] { std::wstring l = w(entryKindLabel(wb_.kind)); for (auto& ch : l) ch = (wchar_t)towlower(ch); return l; }(),
-            [this] { newEntry(wb_.kind); });
-        act("wb:pa:import", L"Import many pages\u2026", [this] { importManyPages(false); });
-        act("wb:pa:blank", L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); });
-        act("wb:pa:share", L"Share the bible\u2026", [this] { shareBible(); });
-        y += gfx_.text(L"Paste a copied page onto the cards with Ctrl+V to make an entry from it.", {c.x, y + 4, c.w, 40}, Font::Small, pal_.inkFaint) + 10;
-    }
-    wb_.panelContent = y + wb_.panelScroll - r.y + 20;
-    clearHitClip();
-    gfx_.popClip();
-    if (focusFieldSoon_ >= 0 && focusFieldSoon_ < FieldCount) {
-        if (placed_[focusFieldSoon_]) {
-            SetFocus(fields_[focusFieldSoon_]);
-            // A name is replaced as you type; writing goes on at the end.
-            if (focusFieldSoon_ == FName) SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, 0, -1);
-            else SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, (WPARAM)-1, -1);
-            focusFieldSoon_ = -1;
-        } else if (auto it = fieldTop.find(focusFieldSoon_); it != fieldTop.end()) {
-            // Out of sight: scroll the panel to it, and focus it once it's placed.
-            const float want = wb_.panelScroll + (it->second - (r.y + 50));
-            wb_.panelScroll = std::clamp(want, 0.0f, std::max(0.0f, wb_.panelContent - r.h));
-            invalidate();
-        } else {
-            focusFieldSoon_ = -1;
-        }
-    }
 }
 
 // The book whose notes the panel shows: the one picked, else the book open in Writing, else the first.

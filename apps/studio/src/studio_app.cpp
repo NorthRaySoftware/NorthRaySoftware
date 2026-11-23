@@ -258,6 +258,7 @@ void StudioApp::onDestroy() {
     backupTick();   // what changed since the last backup isn't left without one
     lib_.reset();  // closes the database cleanly (checkpoints the journal)
     if (fieldFont_) DeleteObject(fieldFont_);
+    if (titleFont_) DeleteObject(titleFont_);
     if (fieldBrush_) DeleteObject(fieldBrush_);
     if (accel_) DestroyAcceleratorTable(accel_);
 }
@@ -266,6 +267,17 @@ void StudioApp::applyTheme() {
     const bool dark = settings_.theme == 2 || (settings_.theme == 0 && systemPrefersDark());
     // The NorthRay look, like the Launcher, Browser and Files: cool neutrals and aurora green.
     Palette p = cjui::northray::palette(dark);
+    // The second redesign (0.68): warm paper and cards, like a writing desk; the night-sky bar and the accent stay.
+    if (!dark) {
+        p.paper = cjui::hexColor("#F4F1EA"); p.surface = cjui::hexColor("#FFFDF8"); p.sunken = cjui::hexColor("#EBE6DA");
+        p.rule = cjui::hexColor("#DDD6C6"); p.ink = cjui::hexColor("#1E2433"); p.inkMuted = cjui::hexColor("#4E5A70");
+        p.inkFaint = cjui::hexColor("#5F687B");   // 4.9:1 on the paper
+        gold_ = cjui::hexColor("#7F6129");        // 5:1 on the paper
+    } else {
+        p.paper = cjui::hexColor("#12141B"); p.surface = cjui::hexColor("#1B1E28"); p.sunken = cjui::hexColor("#0E1016");
+        p.rule = cjui::hexColor("#2A2E3B");
+        gold_ = cjui::hexColor("#D6B677");
+    }
     // (The UI pass's contrast, 0.64, is in the shared palette now: every app has it.)
     setCalmControls(true);
     applyPalette(p);
@@ -1398,7 +1410,11 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                         if (f == FSearch) { search_ = fieldText(FSearch); invalidate(); }
                         else if (f == FFind) { find_ = fieldText(FFind); wb_.scroll = 0; invalidate(); }
                         else if (f == FTopSearch) { topSel_ = 0; invalidate(); }
-                        else { dirty_ = true; SetTimer(hwnd(), kSaveTimer, 700, nullptr); }
+                        else {
+                            dirty_ = true;
+                            SetTimer(hwnd(), kSaveTimer, 700, nullptr);
+                            if (ie_.field == f) invalidate();   // an edit in place grows with its text
+                        }
                     } else if (code == EN_KILLFOCUS && f == FTopSearch) {
                         invalidate();
                     } else if (code == EN_KILLFOCUS && f != FSearch && f != FFind) {
@@ -1798,6 +1814,41 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     return false;
 }
 
+// ------------------------------------------------- editing in place (0.68)
+
+void StudioApp::endInline(bool keep) {
+    if (ie_.field < 0) return;
+    const int f = ie_.field;
+    auto revert = std::move(ie_.revert);
+    const bool big = ie_.big;
+    ie_ = {};
+    if (keep) commitFields();
+    else {
+        KillTimer(hwnd(), kSaveTimer);
+        dirty_ = false;
+        if (revert) revert();
+        loadedFocus_ = {Focus::None, "-", ""};
+    }
+    if (big && fieldFont_) SendMessageW(fields_[f], WM_SETFONT, reinterpret_cast<WPARAM>(fieldFont_), TRUE);
+    if (GetFocus() == fields_[f]) SetFocus(hwnd());
+    invalidate();
+}
+
+void StudioApp::settleInline() {
+    if (ie_.field < 0) return;
+    if (!ie_.placed) { endInline(true); return; }
+    ie_.placed = false;
+    HWND f = fields_[ie_.field];
+    if (!ie_.focused) {
+        SetFocus(f);
+        if (isMultiField(ie_.field)) SendMessageW(f, EM_SETSEL, (WPARAM)-1, -1);
+        else SendMessageW(f, EM_SETSEL, 0, -1);
+        ie_.focused = true;
+    } else if (GetFocus() != f) {
+        endInline(true);
+    }
+}
+
 // ----------------------------------------------------------- native fields
 
 bool StudioApp::preTranslate(const MSG& msg) {
@@ -1832,6 +1883,11 @@ bool StudioApp::preTranslate(const MSG& msg) {
         editor_.focus();
         editor_.send(R"({"type":"focus"})");
         invalidate();
+        return true;
+    }
+    const bool ctrlDown = GetKeyState(VK_CONTROL) & 0x8000;
+    if (ie_.field == current && (msg.wParam == VK_ESCAPE || (msg.wParam == VK_RETURN && (!multi || ctrlDown)))) {
+        endInline(msg.wParam == VK_RETURN);   // Enter (Ctrl+Enter in longer text) keeps it, Esc puts it back
         return true;
     }
     if (msg.wParam == VK_ESCAPE || (msg.wParam == VK_RETURN && !multi)) {
@@ -1873,6 +1929,10 @@ void StudioApp::layoutFont() {
     fieldFont_ = CreateFontW(-MulDiv(14, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     for (HWND h : fields_) if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(fieldFont_), TRUE);
+    if (titleFont_) DeleteObject(titleFont_);
+    titleFont_ = CreateFontW(-MulDiv(28, dpi, 96), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Georgia");
+    if (ie_.big && ie_.field >= 0) SendMessageW(fields_[ie_.field], WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);
 }
 
 void StudioApp::placeField(Field f, const Rect& r) {
@@ -1890,6 +1950,17 @@ void StudioApp::placeField(Field f, const Rect& r) {
 }
 
 void StudioApp::hideUnplacedFields() {
+    // A field asked to be focused (a new relationship's name, say): once it's on screen. Pages that edit in place
+    // took theirs while drawing (0.68).
+    if (focusFieldSoon_ >= 0 && focusFieldSoon_ < FieldCount) {
+        if (placed_[focusFieldSoon_]) {
+            SetFocus(fields_[focusFieldSoon_]);
+            if (focusFieldSoon_ == FName) SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, 0, -1);
+            else SendMessageW(fields_[focusFieldSoon_], EM_SETSEL, (WPARAM)-1, -1);
+        }
+        focusFieldSoon_ = -1;
+    }
+    settleInline();   // an edit in place: focused once placed, ended once left
     for (int f = 0; f < FieldCount; ++f) {
         if (!placed_[f] && IsWindowVisible(fields_[f])) {
             if (GetFocus() == fields_[f]) SetFocus(hwnd());

@@ -42,8 +42,14 @@ void StudioApp::drawFrame(float W, float H) {
     // Focus mode (Writing): the text alone, without the outline and the details panel.
     const bool focusing = focusMode() && lib_ && lib_->book(writingBook_);
     const bool settingsPage = ws_ == Workspace::Library && view_ == View::Settings;
-    const float sideW = focusing || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
-    const bool panel = !focusing && settings_.showPanel && lib_ && !settingsPage;
+    // The second redesign (0.68): Worldbuilding has no sidebar and no details panel. Its pages have tabs and a tools
+    // menu, entries are edited where they're shown, and the few pages that keep a details column have it as a card.
+    const bool worldLayout = ws_ == Workspace::Worldbuilding && !focusing;
+    const bool worldCard = worldLayout && (!wb_.board.empty() || wb_.languages || wb_.share || wb_.syncPage || wb_.relationsPage ||
+                                           wb_.fontsPage || (!wb_.familyRoot.empty() && wb_.entry.empty()));
+    const float sideW = focusing || worldLayout || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
+    const bool panel = !focusing && !worldLayout && settings_.showPanel && lib_ && !settingsPage;
+    panelAsCard_ = worldCard;
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
     const float railW = focusing ? 0 : kRailW;
     railRect_ = {0, kTopH, railW, H - kTopH};
@@ -119,9 +125,23 @@ void StudioApp::drawFrame(float W, float H) {
                                                                        : lib_->world(wb_.world) && !lib_->world(wb_.world)->deleted)) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        drawWorldPage(pageRect_);
-        if (sideRect_.w > 0) drawWorldSidebar(sideRect_);
-        if (panel) drawWorldPanel(panelRect_);
+        const bool worldSub = worldCard || !wb_.familyRoot.empty() || !wb_.mapView.empty() || wb_.checks || wb_.glossary;
+        if (worldSub) {
+            // One of the bible's tools: a strip along its top back to the bible, and any details as a card at the right.
+            const float cardW = worldCard ? std::min(kPanelW + 10, pageRect_.w * 0.4f) : 0;
+            const Rect page{pageRect_.x, pageRect_.y + 44, pageRect_.w - (worldCard ? cardW + 24 : 0), pageRect_.h - 44};
+            drawWorldPage(page);
+            drawWorldStrip({pageRect_.x, pageRect_.y, page.w, 44});
+            if (worldCard) {
+                panelRect_ = {pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
+                card(panelRect_, 14);
+                gfx_.pushClip(panelRect_.inset(0, 6));
+                drawWorldPanel(panelRect_);
+                gfx_.popClip();
+            }
+        } else {
+            drawWorldPage(pageRect_);
+        }
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -523,7 +543,8 @@ void StudioApp::drawTopBar(const Rect& r) {
         gfx_.text(L"Ctrl+K", {sr.right() - 58, sr.y, 48, sr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
     }
     // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
-    if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings)) {
+    // (Not in Worldbuilding, which has neither since 0.68.)
+    if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings) && ws_ != Workspace::Worldbuilding) {
         auto layoutButton = [&](const std::string& bid, float bx, cjui::Icon icon, bool on, const wchar_t* tip, std::function<void()> act) {
             const Rect b{bx, (r.h - 30) / 2, 30, 30};
             addHit(bid, b, std::move(act), false);
@@ -763,12 +784,203 @@ float StudioApp::booksTotals(float x, float y, const std::vector<const Book*>& b
 float StudioApp::pageHeader(const Rect& r, const std::wstring& kicker, const std::wstring& title, const std::wstring& sub) {
     float y = r.y;
     if (!kicker.empty()) {
-        gfx_.text(kicker, {r.x, y, r.w, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+        gfx_.text(kicker, {r.x, y, r.w, 16}, Font::Label, gold_, {Align::Left, false, true});
         y += 20;
     }
     y += gfx_.text(title, {r.x, y, r.w, 80}, Font::SerifTitle, pal_.ink) + 4;
     if (!sub.empty()) y += gfx_.text(sub, {r.x, y, std::min(r.w, 700.0f), 200}, Font::Body, pal_.inkMuted) + 4;
     return y - r.y + 16;
+}
+
+// ------------------------------------------------------- the second redesign (0.68)
+
+// A card on the paper: the surface, lifted by a soft shadow.
+void StudioApp::card(const Rect& r, float radius, float lift) {
+    softShadow(r, radius, 1.6f * lift);
+    gfx_.fillRounded(r, radius, pal_.surface);
+    if (pal_.dark) gfx_.strokeRounded(r, radius, pal_.rule);
+}
+
+float StudioApp::pageTabs(const std::string& id, float x, float y, float right, const std::vector<PageTab>& tabs, const std::vector<PageTab>& more) {
+    const float h = 40;
+    gfx_.line(x, y + h - 0.5f, right, y + h - 0.5f, pal_.rule);
+    auto widthOf = [&](const PageTab& t) {
+        float tw = gfx_.measureWidth(t.label, t.on ? Font::BodyStrong : Font::Body) + 24;
+        if (t.count >= 0) tw += gfx_.measureWidth(std::to_wstring(t.count), Font::Small) + 7;
+        if (t.dot.a > 0) tw += 14;
+        return tw;
+    };
+    // What fits; the rest (and those given as "more") under More.
+    std::vector<const PageTab*> shown, rest;
+    const float moreW = gfx_.measureWidth(L"More", Font::Body) + 40;
+    float used = 0;
+    for (size_t i = 0; i < tabs.size(); ++i) {
+        const float tw = widthOf(tabs[i]);
+        const bool last = i + 1 == tabs.size() && more.empty();
+        if (x + used + tw > right - (last ? 0 : moreW) && !shown.empty() && rest.empty()) rest.push_back(&tabs[i]);
+        else if (!rest.empty()) rest.push_back(&tabs[i]);
+        else { shown.push_back(&tabs[i]); used += tw; }
+    }
+    // The chosen tab always shows: if it fell under More, it takes the last place.
+    for (size_t i = 0; i < rest.size(); ++i)
+        if (rest[i]->on && !shown.empty()) { rest.insert(rest.begin(), shown.back()); shown.back() = rest[i + 1]; rest.erase(rest.begin() + (long)i + 1); break; }
+    for (const PageTab& t : more) rest.push_back(&t);
+    float tx = x, selX = -1, selW = 0;
+    for (size_t i = 0; i < shown.size(); ++i) {
+        const PageTab& t = *shown[i];
+        const float tw = widthOf(t);
+        const Rect b{tx, y, tw, h};
+        const std::string tid = id + ":" + std::to_string(i);
+        addHit(tid, b, t.act);
+        const float hv = hoverAmount(tid);
+        if (!t.on && hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 5, b.w - 4, b.h - 10}, 7, pal_.ink.withAlpha(0.05f * hv));
+        float lx = b.x + 12;
+        if (t.dot.a > 0) { gfx_.circle(lx + 3.5f, b.y + h / 2, 3.5f, t.dot, true); lx += 14; }
+        const Font f = t.on ? Font::BodyStrong : Font::Body;
+        const float lw = gfx_.measureWidth(t.label, f);
+        gfx_.text(t.label, {lx, b.y, lw + 2, h}, f, t.on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Left, false, false, true});
+        if (t.count >= 0)
+            gfx_.text(std::to_wstring(t.count), {lx + lw + 7, b.y + 1, 60, h}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+        if (t.on) { selX = b.x; selW = b.w; }
+        if (focused(tid)) focusRing(b.inset(2, 4));
+        tx += tw;
+    }
+    if (!rest.empty()) {
+        bool restOn = false;
+        for (const PageTab* t : rest) restOn = restOn || t->on;
+        const Rect b{tx, y, moreW, h};
+        const std::string mid = id + ":more";
+        std::vector<PageTab> copy;
+        for (const PageTab* t : rest) copy.push_back(*t);
+        addHit(mid, b, [this, copy, b] {
+            std::vector<ToolItem> items;
+            for (const PageTab& t : copy)
+                items.push_back(ToolItem::item(t.count > 0 ? t.label + L"  (" + std::to_wstring(t.count) + L")" : t.label, t.act, t.on));
+            showTools(items, b.x, b.bottom());
+        });
+        tooltip(mid, L"The rest");
+        const float hv = hoverAmount(mid);
+        if (hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 5, b.w - 4, b.h - 10}, 7, pal_.ink.withAlpha(0.05f * hv));
+        const Font f = restOn ? Font::BodyStrong : Font::Body;
+        gfx_.text(L"More", {b.x + 12, b.y, b.w, h}, f, restOn ? pal_.ink : pal_.inkMuted, {Align::Left, false, false, true});
+        const float cx = b.x + 12 + gfx_.measureWidth(L"More", f) + 10, cy = b.y + h / 2;
+        gfx_.line(cx - 3.5f, cy - 1.5f, cx, cy + 2, pal_.inkMuted, 1.4f);
+        gfx_.line(cx, cy + 2, cx + 3.5f, cy - 1.5f, pal_.inkMuted, 1.4f);
+        if (restOn) { selX = b.x; selW = b.w; }
+        if (focused(mid)) focusRing(b.inset(2, 4));
+    }
+    if (selX >= 0) {
+        const float ax = slideTo(id + "#x", selX), aw = slideTo(id + "#w", selW);
+        gfx_.fillRounded({ax + 8, y + h - 2.5f, aw - 16, 2.5f}, 1.25f, pal_.ribbon);
+    }
+    return h;
+}
+
+void StudioApp::showTools(const std::vector<ToolItem>& items, float x, float y, bool right) {
+    std::vector<std::function<void()>> acts;
+    std::function<std::vector<cjui::MenuItem>(const std::vector<ToolItem>&)> build = [&](const std::vector<ToolItem>& in) {
+        std::vector<cjui::MenuItem> out;
+        for (const ToolItem& t : in) {
+            if (t.kind == 1) { out.push_back(cjui::MenuItem::sep()); continue; }
+            if (t.kind == 2) {
+                if (!out.empty() && out.back().separator && out.back().label.empty()) out.pop_back();   // a heading has its own line
+                out.push_back(cjui::MenuItem::heading(t.label));
+                continue;
+            }
+            if (!t.sub.empty()) { out.push_back(cjui::MenuItem::sub(t.label, build(t.sub))); continue; }
+            acts.push_back(t.act);
+            out.push_back(cjui::MenuItem::item(t.label, (UINT)acts.size(), {}, t.enabled, t.checked));
+        }
+        return out;
+    };
+    const auto menu = build(items);
+    const float s = gfx_.dpiScale();
+    POINT pt{(LONG)std::lround(x * s), (LONG)std::lround(y * s)};
+    ClientToScreen(hwnd(), &pt);
+    const UINT c = cjui::showMenu(hwnd(), menu, pt, pal_, right ? cjui::MenuAnchor::TopRight : cjui::MenuAnchor::TopLeft);
+    if (c >= 1 && c <= acts.size() && acts[c - 1]) {
+        commitFields();
+        acts[c - 1]();
+    }
+    invalidate();
+}
+
+float StudioApp::menuButton(const std::string& id, float x, float y, const std::wstring& label, std::function<std::vector<ToolItem>()> items,
+                            bool primary) {
+    const float bw = gfx_.measureWidth(label, Font::Body) + 26 + 18;
+    const Rect b{x, y, bw, 32};
+    // A button on the right half of the page opens its menu leftwards, so it stays in the window.
+    const bool rightSide = b.x > pageRect_.x + pageRect_.w / 2;
+    addHit(id, b, [this, items, b, rightSide] { showTools(items(), rightSide ? b.right() : b.x, b.bottom() + 4, rightSide); });
+    const float hv = hoverAmount(id), dn = pressed(id) ? 1.0f : 0.0f;
+    const Rect f{b.x, b.y - 1.5f * hv + dn, b.w, b.h};
+    if (hv > 0.01f) softShadow(f, 8, 0.6f * hv);
+    const Color bg = primary ? pal_.ribbon : pal_.surface.mix(pal_.sunken, 0.35f * hv);
+    const Color ink = primary ? (pal_.dark ? pal_.paper : cjui::hexColor("#FFFFFF")) : pal_.ink;
+    gfx_.fillRounded(f, 8, bg);
+    if (!primary) gfx_.strokeRounded(f, 8, pal_.rule.mix(pal_.inkFaint, 0.55f * hv));
+    gfx_.text(label, {f.x + 13, f.y, bw, f.h}, primary ? Font::BodyStrong : Font::Body, ink, {Align::Left, false, false, true});
+    const float cx = f.right() - 16, cy = f.y + f.h / 2;
+    gfx_.line(cx - 3.5f, cy - 1.5f, cx, cy + 2, ink, 1.5f);
+    gfx_.line(cx, cy + 2, cx + 3.5f, cy - 1.5f, ink, 1.5f);
+    if (focused(id)) focusRing(f);
+    return bw;
+}
+
+void StudioApp::startInline(const std::string& key, int field, std::function<void()> revert, bool big) {
+    if (ie_.field >= 0) endInline(true);
+    commitFields();
+    ie_ = {};
+    ie_.field = field;
+    ie_.key = key;
+    ie_.big = big;
+    ie_.revert = std::move(revert);
+    invalidate();
+}
+
+float StudioApp::inlineHeight(float minH) const {
+    if (ie_.field < 0) return minH;
+    if (!isMultiField(ie_.field)) return ie_.big ? 50.0f : 36.0f;
+    const int lines = std::max(1, (int)SendMessageW(fields_[ie_.field], EM_GETLINECOUNT, 0, 0));
+    return std::max(minH, lines * 20.0f + 22);
+}
+
+void StudioApp::inlineBox(const Rect& r) {
+    if (ie_.field < 0) return;
+    gfx_.fillRounded(r.inset(-4), 10, pal_.ribbon.withAlpha(0.12f));
+    gfx_.fillRounded(r, 8, pal_.surface);
+    gfx_.strokeRounded(r, 8, pal_.ribbon, 1.5f);
+    const Field f = (Field)ie_.field;
+    if (ie_.big && !isMultiField(f)) {
+        // The name in the title's size: its own font, and the box sized for it.
+        const float s = gfx_.dpiScale();
+        const RECT rc{(LONG)std::lround((r.x + 10) * s), (LONG)std::lround((r.y + (r.h - 36) / 2) * s), (LONG)std::lround((r.right() - 8) * s),
+                      (LONG)std::lround((r.y + (r.h + 36) / 2) * s)};
+        placed_[f] = true;
+        if (titleFont_ && (HFONT)SendMessageW(fields_[f], WM_GETFONT, 0, 0) != titleFont_)
+            SendMessageW(fields_[f], WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);
+        if (memcmp(&rc, &fieldRects_[f], sizeof rc) != 0 || !IsWindowVisible(fields_[f])) {
+            fieldRects_[f] = rc;
+            SetWindowPos(fields_[f], nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+    } else {
+        placeField(f, r);
+    }
+    ie_.placed = true;
+    gfx_.text(isMultiField(ie_.field) ? L"Ctrl+Enter or a click elsewhere keeps it; Esc puts it back." : L"Enter or a click elsewhere keeps it; Esc puts it back.",
+              {r.x + 2, r.bottom() + 4, r.w, 16}, Font::Small, pal_.inkFaint,
+              {Align::Left, false, true});
+}
+
+void StudioApp::editableArea(const std::string& id, const Rect& r, const std::wstring& tip, std::function<void()> start) {
+    addHit(id, r, std::move(start));
+    tooltip(id, tip);
+    const float hv = hoverAmount(id);
+    if (hv > 0.01f) {
+        gfx_.fillRounded(r.inset(-6, -3), 8, pal_.surface.withAlpha(0.55f * hv));
+        gfx_.strokeRounded(r.inset(-6, -3), 8, pal_.rule.mix(pal_.inkFaint, 0.4f).withAlpha(hv), 1.0f);
+    }
+    if (focused(id)) focusRing(r.inset(-6, -3));
 }
 
 bool StudioApp::smallButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> act, float* outW) {

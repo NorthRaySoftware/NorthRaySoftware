@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.68.0",
+      "date": "2026-11-23",
+      "notes": [
+        "A warmer look: the Studio's pages are warm paper, with cards that sit up from it on soft shadows, and gold labels over the page titles. The night-sky bar and the workspaces down the left stay as they were.",
+        "Worldbuilding has no sidebar and no details panel. The top of the bible shows the world's name, + New entry and Bible tools ▾, a menu with the Glossary, Languages, Relationships, Fonts, Checks, image boards, Share the bible, Sync with GitHub, the world's books, importing pages and Reset the bible.",
+        "The kinds of entry are tabs along the top of the bible, with how many each has (kinds with nothing in them yet are under More), and the find box sits at the end of the tab row. Under the tabs, a kind's entries can be narrowed by gender, race, realm or type with a click on a chip, and characters can be grouped by gender, sexuality or race from a small menu.",
+        "Entries are edited where they're shown. Click the name, the summary, the details, a section, a book's notes or the notes and type there; Enter (Ctrl+Enter in longer text) or a click elsewhere keeps it, and Esc puts back what was there. A section with choices shows them as buttons while it's being written.",
+        "On an entry's page, Add a section ▾ lists the sections still to write, the books it has no notes for yet, and changing the sections every page of its kind has. The ⋯ button holds the rest: its kind, gender, race and the like, other names, how it's said, the picture, spoilers, filling the page from what you've copied, and Move to Trash. The kind and the gender or race over the name can be clicked to change them too.",
+        "A new entry opens with its name ready to type. An entry with no picture has a place for one: click it to choose a picture, or drag one from its gallery onto it.",
+        "Pages of the bible's tools (Languages, Relationships, Fonts, Share, Sync, image boards, family trees, the map, the Glossary and Checks) have ‹ The bible and Bible tools ▾ along the top, and those with details show them in a card at the right of the page."
+      ]
+    },
+    {
       "version": "0.67.2",
       "date": "2026-11-23",
       "notes": [

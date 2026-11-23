@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.143.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.68.0: a warmer look, and Worldbuilding redesigned without its sidebar and details panel, with entries edited where they're shown."
+      ]
+    },
+    {
       "version": "0.142.0",
       "date": "2026-11-23",
       "notes": [

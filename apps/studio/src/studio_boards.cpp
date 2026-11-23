@@ -257,8 +257,10 @@ void StudioApp::drawBoard(const Rect& r) {
 }
 
 void StudioApp::drawBoardPanel(const Rect& r) {
+    if (!panelAsCard_) {   // as a card on the page (0.68), the card is its background
     gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
     gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     if (!(focus_ == loadedFocus_)) loadFields();
     gfx_.pushClip(r);
     setHitClip(r);
