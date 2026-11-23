@@ -834,6 +834,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 t.count = n;
                 t.on = wb_.kind == k;
                 t.dot = kindColor(k, pal_.dark);
+                t.hasDot = true;
                 t.act = [this, k] { wb_.kind = k; wb_.facet.clear(); wb_.scroll = 0; openEntry({}); };
                 (n || t.on ? tabs : more).push_back(t);
             }
@@ -1912,8 +1913,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                       Font::Label, pal_.inkFaint, {Align::Left, false});
             y += 26;
             if (mine.empty()) {
-                y += gfx_.text(L"Boards arrange pictures freely: outfits, moods, a place's look. A board from the sidebar can be moved here "
-                               L"from its panel.",
+                y += gfx_.text(L"Boards arrange pictures freely: outfits, moods, a place's look. A world board (Bible tools) can be moved "
+                               L"here from its details.",
                                {m.x, y, std::min(cw, 640.0f), 40}, Font::Small, pal_.inkFaint) + 18;
             } else {
                 const float bw = 260, bh = 150, gap = 12;

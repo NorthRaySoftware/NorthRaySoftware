@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.69.0",
+      "date": "2026-11-23",
+      "notes": [
+        "The Library has no sidebar. Your worlds, All books, Independent books, Artwork and the Trash are tabs along the top, with Library tools ▾ at the end of the row (a new world, book or series, importing a book, opening a world from GitHub, backing up, exporting, another library). A world's or series' details sit in a card at the right of its page.",
+        "Clicking a book opens its own page: its cover and series line, its words against the target, its chapters and status, and the ways in (Open in Writing, or Continue writing at the chapter you were on; Plan; The bible; Book tools ▾).",
+        "A book's page has tabs. Overview has the synopsis (click it to change it, where it's shown) and the manuscript. Book settings has what the details panel held, in cards: title, subtitle, status, format and tags; author, pen name, genre, language, edition, ISBN and trim; the cover; and the series it's in. Editions lists each edition with its ISBN. Import & export gathers bringing a manuscript or a plan in, and sending the book out as print-ready PDF and EPUB, a proof, a review copy or the plan as text. History has when it last changed and its snapshots, with Take a snapshot.",
+        "Planning has no sidebar either. Its header shows the book with its progress (click it to set the target), + Chapter and Plan tools ▾ (the target, a new thread, importing and exporting the plan, Writing and the bible). Corkboard, Timeline, Structure and the new Threads are tabs, with All statuses ▾, Any viewpoint ▾ and Any thread ▾ at the end of the row.",
+        "On the corkboard, a card's details open beside it as a pop-over; the cross or Esc puts them away. On the other views they're a card at the right of the page.",
+        "Threads shows each plot thread as a card, with how many cards it runs through; click one to name it, colour it and say what it's about."
+      ]
+    },
+    {
       "version": "0.68.0",
       "date": "2026-11-23",
       "notes": [

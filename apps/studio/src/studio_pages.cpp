@@ -31,6 +31,11 @@ using namespace studio;
 
 static std::wstring w(const std::string& s) { return widen(s); }
 
+static std::wstring upper(std::wstring s) {
+    for (auto& c : s) c = (wchar_t)towupper(c);
+    return s;
+}
+
 static std::wstring plural(size_t n, const wchar_t* one, const wchar_t* many) {
     return std::to_wstring(n) + L" " + (n == 1 ? one : many);
 }
@@ -47,13 +52,22 @@ void StudioApp::drawFrame(float W, float H) {
     const bool worldLayout = ws_ == Workspace::Worldbuilding && !focusing;
     const bool worldCard = worldLayout && (!wb_.board.empty() || wb_.languages || wb_.share || wb_.syncPage || wb_.relationsPage ||
                                            wb_.fontsPage || (!wb_.familyRoot.empty() && wb_.entry.empty()));
-    const float sideW = focusing || worldLayout || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
-    const bool panel = !focusing && !worldLayout && settings_.showPanel && lib_ && !settingsPage;
-    panelAsCard_ = worldCard;
+    // Planning too (0.69): its views are tabs, and a card's details are a pop-over beside it on the corkboard, or a card at
+    // the right of the other views.
+    const bool planLayout = ws_ == Workspace::Planning && !focusing;
+    // And the Library (0.69): its places are tabs along the top; a book has its own page with tabs; a world's, series'
+    // or picture's details are a card at the right.
+    const bool libLayout = ws_ == Workspace::Library && !settingsPage && !focusing;
+    const bool libCard = libLayout && lib_ && view_ != View::Book && view_ != View::FromGitHub &&
+                         (focus_.kind == Focus::World || focus_.kind == Focus::Series || focus_.kind == Focus::Artwork ||
+                          focus_.kind == Focus::Picture);
+    const float sideW = focusing || worldLayout || planLayout || libLayout || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
+    const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && settings_.showPanel && lib_ && !settingsPage;
+    panelAsCard_ = worldCard || planLayout || libCard;
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
     const float railW = focusing ? 0 : kRailW;
     railRect_ = {0, kTopH, railW, H - kTopH};
-    const float centreW = W - railW - sideW - (panel ? kPanelW : 0);
+    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard ? kPanelW + 34 : 0);
     sideRect_ = {railW, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
     pageRect_ = {railW + sideW, kTopH, centreW, H - kTopH};
@@ -160,10 +174,18 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Planning && lib_ && lib_->book(pl_.book) && !lib_->book(pl_.book)->deleted) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        if (pl_.view == 1) drawPlanTimeline(pageRect_);
-        else if (pl_.view == 2) drawPlanStructure(pageRect_);
-        else drawPlanBoard(pageRect_);
-        if (sideRect_.w > 0) drawPlanSidebar(sideRect_);
+        const ManuscriptNode* seln = pl_.node.empty() ? nullptr : lib_->node(pl_.node);
+        if (seln && seln->deleted) seln = nullptr;
+        if (focus_.kind != Focus::Plan) pl_.targetOpen = false;
+        const bool popover = seln && pl_.view == 0 && !focusing;
+        const bool details = !focusing && !popover && (seln || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat ||
+                                                       focus_.kind == Focus::Structure || pl_.targetOpen);
+        const float cardW = std::min(kPanelW + 10, pageRect_.w * 0.4f);
+        const Rect page{pageRect_.x, pageRect_.y, pageRect_.w - (details ? cardW + 24 : 0), pageRect_.h};
+        if (pl_.view == 1) drawPlanTimeline(page);
+        else if (pl_.view == 2) drawPlanStructure(page);
+        else if (pl_.view == 3) drawPlanThreads(page);
+        else drawPlanBoard(page);
         if (drag_.active && pl_.view == 0) {
             // Where a dragged card would go: a bar beside the card it's over, or a frame round a chapter it would join.
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
@@ -183,7 +205,38 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.fillRounded(g, 3, pal_.ink.withAlpha(0.88f));
             gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
         }
-        if (panel) drawPlanPanel(panelRect_);
+        // The details: beside the selected card, or as a card at the right; a cross puts them away.
+        Rect dr{};
+        if (popover && pl_.selCard.w > 0 && !drag_.active) {
+            const float pw = 340, ph = std::min(600.0f, page.h - 24);
+            const Rect sc = pl_.selCard;
+            float px = sc.right() + 14;
+            if (px + pw > page.right() - 12) px = sc.x - 14 - pw;
+            if (px < page.x + 12) px = std::clamp(sc.x + sc.w / 2 - pw / 2, page.x + 12, page.right() - pw - 12);
+            const float py = std::clamp(sc.y - 10, page.y + 12, page.bottom() - ph - 12);
+            dr = {px, py, pw, ph};
+            softShadow(dr, 14, 3.5f);
+        } else if (details) {
+            dr = {pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
+        }
+        if (dr.w > 0) {
+            panelRect_ = dr;
+            addHit("pl:details", dr, nullptr, false);   // clicks on it stay on it
+            card(dr, 14);
+            gfx_.pushClip(dr.inset(0, 6));
+            drawPlanPanel(dr);
+            gfx_.popClip();
+            const Rect xr{dr.right() - 38, dr.y + 10, 28, 28};
+            addHit("pl:details:close", xr, [this] { pl_.targetOpen = false; selectCard({}); });
+            tooltip("pl:details:close", L"Close   Esc");
+            const float hv = hoverAmount("pl:details:close");
+            if (hv > 0.01f) gfx_.fillRounded(xr, 7, pal_.sunken.withAlpha(hv));
+            const float cx = xr.x + xr.w / 2, cy = xr.y + xr.h / 2;
+            gfx_.line(cx - 4.5f, cy - 4.5f, cx + 4.5f, cy + 4.5f, pal_.inkMuted, 1.5f);
+            gfx_.line(cx - 4.5f, cy + 4.5f, cx + 4.5f, cy - 4.5f, pal_.inkMuted, 1.5f);
+        } else {
+            panelRect_ = {};
+        }
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -266,22 +319,39 @@ void StudioApp::drawFrame(float W, float H) {
     float h = 0;
     if (!lib_) h = pageEmpty(page);
     else if (ws_ == Workspace::Import) h = pageImport(page);
-    else switch (view_) {
-        case View::Worlds: h = pageWorlds(page); break;
-        case View::AllBooks: h = pageAllBooks(page); break;
-        case View::World: h = lib_->world(viewId_) ? pageWorld(page) : pageWorlds(page); break;
-        case View::Series: h = lib_->seriesById(viewId_) ? pageSeries(page) : pageAllBooks(page); break;
-        case View::Independent: h = pageIndependent(page); break;
-        case View::Trash: h = pageTrash(page); break;
-        case View::Settings: h = pageSettings(page); break;
-        case View::Artwork: h = pageArtwork(page); break;
-        case View::FromGitHub: h = pageFromGitHub(page); break;
-        case View::Book: h = lib_->book(viewId_) ? pageBook(page) : pageAllBooks(page); break;
+    else {
+        // The Library's places as tabs (0.69), over every page of it but a book's own, Settings and opening from GitHub.
+        if (ws_ == Workspace::Library && view_ != View::Book && view_ != View::Settings && view_ != View::FromGitHub) {
+            const float th = libraryTabs(page);
+            page.y += th;
+            h += th;
+        }
+        switch (view_) {
+        case View::Worlds: h += pageWorlds(page); break;
+        case View::AllBooks: h += pageAllBooks(page); break;
+        case View::World: h += lib_->world(viewId_) ? pageWorld(page) : pageWorlds(page); break;
+        case View::Series: h += lib_->seriesById(viewId_) ? pageSeries(page) : pageAllBooks(page); break;
+        case View::Independent: h += pageIndependent(page); break;
+        case View::Trash: h += pageTrash(page); break;
+        case View::Settings: h += pageSettings(page); break;
+        case View::Artwork: h += pageArtwork(page); break;
+        case View::FromGitHub: h += pageFromGitHub(page); break;
+        case View::Book: h += lib_->book(viewId_) ? pageBook(page) : pageAllBooks(page); break;
+        }
     }
     endScroll(h + 60);
 
     if (sideRect_.w > 0) drawSidebar(sideRect_);
     if (panel) drawPanel(panelRect_);
+    if (libCard) {
+        panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+        card(panelRect_, 14);
+        gfx_.pushClip(panelRect_.inset(0, 6));
+        drawPanel(panelRect_);
+        gfx_.popClip();
+    } else if (libLayout) {
+        panelRect_ = {};
+    }
     drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
     drawStatusBar({0, H, W, 0});
@@ -544,7 +614,8 @@ void StudioApp::drawTopBar(const Rect& r) {
     }
     // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
     // (Not in Worldbuilding, which has neither since 0.68.)
-    if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings) && ws_ != Workspace::Worldbuilding) {
+    if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings) && ws_ != Workspace::Worldbuilding &&
+        ws_ != Workspace::Planning && ws_ != Workspace::Library) {   // (nor Planning and the Library, 0.69)
         auto layoutButton = [&](const std::string& bid, float bx, cjui::Icon icon, bool on, const wchar_t* tip, std::function<void()> act) {
             const Rect b{bx, (r.h - 30) / 2, 30, 30};
             addHit(bid, b, std::move(act), false);
@@ -794,6 +865,50 @@ float StudioApp::pageHeader(const Rect& r, const std::wstring& kicker, const std
 
 // ------------------------------------------------------- the second redesign (0.68)
 
+// The Library's places (0.69): what its sidebar listed, as tabs, with Library tools at the end of the row. Its height.
+float StudioApp::libraryTabs(const Rect& page) {
+    const float y = page.y - 8;
+    std::vector<PageTab> tabs;
+    auto add = [&](const wchar_t* l, int n, bool on, View v) {
+        PageTab t;
+        t.label = l;
+        t.count = n;
+        t.on = on;
+        t.act = [this, v] { goTo(v); };
+        tabs.push_back(t);
+    };
+    bool indieSeries = false;
+    if (view_ == View::Series) if (const Series* s = lib_->seriesById(viewId_)) indieSeries = s->worldId.empty();
+    size_t indie = lib_->standaloneBooksIn({}).size();
+    for (auto* s : lib_->seriesIn({})) indie += lib_->booksInSeries(s->id).size();
+    const auto tc = lib_->trashCounts();
+    int inTrash = tc.worlds + tc.series + tc.books;
+    for (auto& a : lib_->artworks()) if (a.deleted) ++inTrash;
+    add(L"Your worlds", (int)lib_->liveWorlds().size(), view_ == View::Worlds || view_ == View::World || (view_ == View::Series && !indieSeries), View::Worlds);
+    add(L"All books", (int)lib_->liveBooks().size(), view_ == View::AllBooks, View::AllBooks);
+    add(L"Independent books", (int)indie, view_ == View::Independent || indieSeries, View::Independent);
+    add(L"Artwork", (int)lib_->liveArtworks().size(), view_ == View::Artwork, View::Artwork);
+    add(L"Trash", inTrash, view_ == View::Trash, View::Trash);
+    const float tbw = gfx_.measureWidth(L"Library tools", Font::Body) + 44;
+    pageTabs("lib:tabs", page.x, y, page.right() - tbw - 16, tabs);
+    menuButton("lib:tools", page.right() - tbw, y + 4, L"Library tools", [this] {
+        std::vector<ToolItem> t;
+        const Id world = view_ == View::World ? viewId_ : Id{};
+        t.push_back(ToolItem::item(L"New world", [this] { newWorld(); }));
+        t.push_back(ToolItem::item(world.empty() ? L"New book" : L"New book in this world", [this, world] { newBook(world, {}); }));
+        if (!world.empty()) t.push_back(ToolItem::item(L"New series in this world", [this, world] { newSeries(world); }));
+        t.push_back(ToolItem::item(L"Import a book…", [this] { startImport({}); }));
+        t.push_back(ToolItem::item(L"Open a world from GitHub…", [this] { goTo(View::FromGitHub); }));
+        t.push_back(ToolItem::line());
+        t.push_back(ToolItem::heading(L"The library"));
+        t.push_back(ToolItem::item(L"Back up now", [this] { backupNow(); }));
+        t.push_back(ToolItem::item(L"Export the library…", [this] { exportLibrary(); }));
+        t.push_back(ToolItem::item(L"Open or create another library…", [this] { chooseLibraryFolder(); }));
+        return t;
+    });
+    return 40 + 26;
+}
+
 // A card on the paper: the surface, lifted by a soft shadow.
 void StudioApp::card(const Rect& r, float radius, float lift) {
     softShadow(r, radius, 1.6f * lift);
@@ -807,7 +922,7 @@ float StudioApp::pageTabs(const std::string& id, float x, float y, float right, 
     auto widthOf = [&](const PageTab& t) {
         float tw = gfx_.measureWidth(t.label, t.on ? Font::BodyStrong : Font::Body) + 24;
         if (t.count >= 0) tw += gfx_.measureWidth(std::to_wstring(t.count), Font::Small) + 7;
-        if (t.dot.a > 0) tw += 14;
+        if (t.hasDot) tw += 14;
         return tw;
     };
     // What fits; the rest (and those given as "more") under More.
@@ -835,7 +950,7 @@ float StudioApp::pageTabs(const std::string& id, float x, float y, float right, 
         const float hv = hoverAmount(tid);
         if (!t.on && hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 5, b.w - 4, b.h - 10}, 7, pal_.ink.withAlpha(0.05f * hv));
         float lx = b.x + 12;
-        if (t.dot.a > 0) { gfx_.circle(lx + 3.5f, b.y + h / 2, 3.5f, t.dot, true); lx += 14; }
+        if (t.hasDot) { gfx_.circle(lx + 3.5f, b.y + h / 2, 3.5f, t.dot, true); lx += 14; }
         const Font f = t.on ? Font::BodyStrong : Font::Body;
         const float lw = gfx_.measureWidth(t.label, f);
         gfx_.text(t.label, {lx, b.y, lw + 2, h}, f, t.on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Left, false, false, true});
@@ -1114,7 +1229,7 @@ std::wstring StudioApp::wordsText(std::int64_t n) const {
 
 void StudioApp::bookCard(const Rect& r, const Book& b, const Id& seriesId, const std::string& hitId) {
     const bool sel = focus_.kind == Focus::Book && focus_.id == b.id;
-    addHit(hitId, r, [this, id = b.id, seriesId] { setFocus({Focus::Book, id, seriesId}); });
+    addHit(hitId, r, [this, id = b.id, seriesId] { goTo(View::Book, id); setFocus({Focus::Book, id, seriesId}); });   // its own page (0.69)
     // Covers rise a little on hover, with a soft shadow.
     const float lift = hoverAmount(hitId);
     const Rect cover{r.x, r.y - 3 * lift, r.w, r.w * 1.5f};
@@ -1151,7 +1266,7 @@ void StudioApp::bookRow(const Rect& r, const Book& b, const Id& seriesId, const 
         return;
     }
     const bool sel = focus_.kind == Focus::Book && focus_.id == b.id;
-    addHit(hitId, r, [this, id = b.id, seriesId] { setFocus({Focus::Book, id, seriesId}); });
+    addHit(hitId, r, [this, id = b.id, seriesId] { goTo(View::Book, id); setFocus({Focus::Book, id, seriesId}); });   // its own page (0.69)
     if (sel) gfx_.fill(r, pal_.surface);
     else if (float hv = hoverAmount(hitId); hv > 0.01f) gfx_.fill(r, pal_.surface.withAlpha(0.5f * hv));
     if (sel) gfx_.fill({r.x, r.y + 6, 3, r.h - 12}, pal_.ribbon);
@@ -1638,96 +1753,338 @@ float StudioApp::pageTrash(const Rect& r) {
     return y - r.y;
 }
 
+// A book's own page (0.69): its cover, title and progress with the ways in, then tabs for its overview, its settings
+// (what the details panel held), its editions, bringing things in and sending them out, and its history.
 float StudioApp::pageBook(const Rect& r) {
     const Book& b = *lib_->book(viewId_);
+    if (!(focus_.kind == Focus::Book && focus_.id == b.id)) setFocus({Focus::Book, b.id, {}});
+    if (!(focus_ == loadedFocus_)) loadFields();
     float y = r.y;
     const World* wd = b.worldId.empty() ? nullptr : lib_->world(b.worldId);
-    const std::wstring crumb = (wd ? w(wd->name) : std::wstring(L"Independent books")) + L"  ›  " + w(b.title);
-    addHit("book:crumb", {r.x, y, gfx_.measureWidth(crumb, Font::Small), 18}, [this, wd] {
+    // A warm band behind the top of the page, fading into it.
+    gfx_.fillGradient({pageRect_.x, y - 30, pageRect_.w, std::min(150.0f, r.w * 0.22f) * 1.5f + 110}, 0,
+                      pal_.paper.mix(gold_, pal_.dark ? 0.10f : 0.13f), pal_.paper, true);
+    linkText("book:crumb", r.x + 7, y, L"‹ " + (wd ? w(wd->name) : std::wstring(L"Independent books")), [this, wd] {
         if (wd) goTo(View::World, wd->id); else goTo(View::Independent);
     });
-    gfx_.text(crumb, {r.x, y, r.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
-    y += 30;
-    const float cw = std::min(220.0f, r.w * 0.3f);
-    drawCover({r.x, y, cw, cw * 1.5f}, b);
-    const float x = r.x + cw + 32, tw = r.w - cw - 32;
-    float ty = y;
-    ty += gfx_.text(w(b.title), {x, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 2;
-    if (!b.subtitle.empty()) ty += gfx_.text(w(b.subtitle), {x, ty, tw, 60}, Font::Heading, pal_.inkMuted) + 4;
-    const std::string by = !b.penName.empty() ? b.penName + (b.author.empty() || b.author == b.penName ? "" : " (" + b.author + ")") : b.author;
-    if (!by.empty()) ty += gfx_.text(L"by " + w(by), {x, ty, tw, 24}, Font::Body, pal_.ink) + 10;
-    float tagW = 0;
-    tag(x, ty, w(label(b.status)), pal_.ribbon, &tagW);
-    ty += 34;
-    auto kv = [&](const std::wstring& k, const std::wstring& v) {
-        if (v.empty()) return;
-        gfx_.text(k, {x, ty, 120, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
-        ty += std::max(20.0f, gfx_.text(v, {x + 120, ty, tw - 120, 60}, Font::Body, pal_.ink)) + 6;
-    };
-    kv(L"Series", seriesLine(b));
-    kv(L"Genre", w(b.genre));
-    kv(L"Language", w(b.language));
-    kv(L"ISBN", w(b.isbn));
-    kv(L"Edition", w(b.edition));
-    if (!b.tags.empty()) {
-        std::wstring t;
-        for (auto& x2 : b.tags) t += (t.empty() ? L"" : L", ") + w(x2);
-        kv(L"Tags", t);
-    }
-    kv(L"Words", b.wordCount ? std::to_wstring(b.wordCount) : L"");
-    kv(L"Last changed", cjui::formatRelative((cj::UtcSeconds)b.modified, cjui::nowUtc()));
-    y = std::max(y + cw * 1.5f, ty) + 28;
-    if (!b.synopsis.empty()) {
-        gfx_.text(L"SYNOPSIS", {r.x, y, r.w, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-        y += 24;
-        y += gfx_.text(w(b.synopsis), {r.x, y, std::min(r.w, 720.0f), 2000}, Font::Body, pal_.ink) + 24;
-    }
-    gfx_.text(L"MANUSCRIPT", {r.x, y, r.w, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 26;
+    y += 36;
+    // The band: cover, what it is, how far it's got, and the ways in.
+    const float cw = std::min(150.0f, r.w * 0.22f);
     {
-        float bx = r.x, bw = 0;
+        const Rect cr{r.x, y, cw, cw * 1.5f};
+        softShadow(cr, 6, 2.5f);
+        drawCover(cr, b);
+        const float x = r.x + cw + 30, tw = r.w - cw - 30;
+        float ty = y + 2;
+        std::wstring kick = upper(seriesLine(b));
+        if (kick.empty()) kick = wd ? L"A BOOK OF " + upper(w(wd->name)) : L"AN INDEPENDENT BOOK";
+        gfx_.text(kick, {x, ty, tw, 16}, Font::Label, gold_, {Align::Left, false, true});
+        ty += 20;
+        ty += gfx_.text(w(b.title), {x, ty, tw, 90}, Font::SerifTitle, pal_.ink) + 2;
+        if (!b.subtitle.empty()) ty += gfx_.text(w(b.subtitle), {x, ty, tw, 40}, Font::Heading, pal_.inkMuted, {Align::Left, false, true}) + 4;
+        const std::string by = !b.penName.empty() ? b.penName + (b.author.empty() || b.author == b.penName ? "" : " (" + b.author + ")") : b.author;
+        if (!by.empty()) ty += gfx_.text(L"by " + w(by), {x, ty, tw, 22}, Font::SerifSmall, pal_.inkMuted, {Align::Left, false, true}) + 8;
+        // Words (against the target), chapters, status.
+        int chapters = 0;
+        for (auto* n : lib_->manuscriptOf(b.id)) if (n->kind == NodeKind::Chapter) ++chapters;
+        const std::int64_t target = bookTarget(b.id);
+        float sx = x;
+        std::wstring wl = wordsText(b.wordCount);
+        if (target > 0) wl += L" of " + wordsText(target).substr(0, wordsText(target).find(L' '));
+        gfx_.text(wl, {sx, ty, 260, 22}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+        sx += std::min(260.0f, gfx_.measureWidth(wl, Font::Body)) + 22;
+        const std::wstring cl = std::to_wstring(chapters) + (chapters == 1 ? L" chapter" : L" chapters");
+        gfx_.text(cl, {sx, ty, 140, 22}, Font::Body, pal_.inkMuted, {Align::Left, false, true, true});
+        sx += gfx_.measureWidth(cl, Font::Body) + 22;
+        statusTag(sx, ty + 1, b.status, 160);
+        ty += 30;
+        if (target > 0) {
+            const float f = std::clamp((float)b.wordCount / (float)target, 0.0f, 1.0f);
+            gfx_.fillRounded({x, ty, 260, 5}, 2.5f, pal_.rule);
+            if (f > 0) gfx_.fillRounded({x, ty, std::max(5.0f, 260 * f), 5}, 2.5f, pal_.ribbon);
+            ty += 16;
+        }
+        ty += 6;
+        // The ways in: carry on writing (where you were), plan it, its bible, and the rest.
+        float bx = x;
+        std::wstring cont = L"Start writing";
+        if (!lib_->childrenOf(b.id, {}).empty()) {
+            cont = L"Open in Writing";
+            if (settings_.lastBook == b.id)
+                if (const ManuscriptNode* n = lib_->node(settings_.lastNode); n && !n->deleted)
+                    cont = L"Continue writing · " + (n->title.empty() ? w(label(n->kind)) : w(n->title));
+        }
+        const float cwid = std::min(gfx_.measureWidth(cont, Font::BodyStrong) + 36, std::max(160.0f, tw - 330));
+        button("book:write", {bx, ty, cwid, 34}, cont, [this, id = b.id] { openWriting(id); }, true);
+        bx += cwid + 10;
+        float bw2 = 0;
+        smallButton("book:plan", bx, ty + 2, L"Plan", [this, id = b.id] { openPlanning(id); }, &bw2);
+        bx += bw2 + 8;
+        smallButton("book:bible", bx, ty + 2, L"The bible", [this, wid = b.worldId, id = b.id] { openWorldbuilding(wid, wid.empty() ? id : Id{}); }, &bw2);
+        bx += bw2 + 8;
+        menuButton("book:tools", bx, ty + 1, L"Book tools", [this, id = b.id] {
+            std::vector<ToolItem> t;
+            t.push_back(ToolItem::item(L"Review", [this, id] { openReview(id); }));
+            t.push_back(ToolItem::item(L"Typesetting", [this, id] { openTypesetting(id); }));
+            t.push_back(ToolItem::item(L"Publishing", [this, id] { openPublishing(id); }));
+            t.push_back(ToolItem::line());
+            t.push_back(ToolItem::item(L"Import into this book…", [this, id] { startImport(id); }));
+            t.push_back(ToolItem::item(L"Design a cover…", [this, id] { openPublishing(id); openCoverDesigner(); }));
+            t.push_back(ToolItem::line());
+            t.push_back(ToolItem::item(L"Move to Trash", [this] { trashFocused(); }));
+            return t;
+        });
+        ty += 34;
+        y = std::max(y + cw * 1.5f, ty) + 26;
+    }
+    // The tabs.
+    {
+        static const wchar_t* names[] = {L"Overview", L"Book settings", L"Editions", L"Import & export", L"History"};
+        std::vector<PageTab> tabs;
+        for (int i = 0; i < 5; ++i) {
+            PageTab t;
+            t.label = names[i];
+            t.on = bookTab_ == i;
+            t.act = [this, i] { commitFields(); bookTab_ = i; invalidate(); };
+            tabs.push_back(t);
+        }
+        pageTabs("book:tabs", r.x, y, r.right(), tabs);
+        y += 40 + 22;
+    }
+    const float half = (r.w - 20) / 2;
+    // A card whose height is what its contents took last time (it's drawn behind them).
+    auto cardBehind = [&](const std::string& key, const Rect& at) {
+        float& h = areaH_[key];
+        card({at.x, at.y, at.w, std::max(h, 60.0f)}, 12);
+        return &h;
+    };
+    if (bookTab_ == 0) {
+        // Overview: the synopsis (click to change it), and the manuscript.
+        gfx_.text(L"Synopsis", {r.x, y, r.w, 28}, Font::Heading, pal_.ink, {Align::Left, false});
+        y += 32;
+        const float measure = std::min(r.w, 720.0f);
+        if (editingInline("book:syn")) {
+            const float h = inlineHeight(110);
+            inlineBox({r.x - 8, y - 4, measure + 8, h});
+            y += h + 34;
+        } else {
+            float& h = areaH_["book:syn"];
+            editableArea("book:ed:syn", {r.x, y, measure, std::max(h, 18.0f)}, L"Click to change the synopsis", [this] {
+                const Book before = *lib_->book(viewId_);
+                startInline("book:syn", FSynopsis, [this, before] { lib_->updateBook(before); });
+            });
+            h = gfx_.text(b.synopsis.empty() ? L"Write a synopsis…" : w(b.synopsis), {r.x, y, measure, 2000}, Font::Body,
+                          b.synopsis.empty() ? pal_.inkFaint : pal_.ink);
+            y += h + 28;
+        }
+        gfx_.text(L"Manuscript", {r.x, y, r.w, 28}, Font::Heading, pal_.ink, {Align::Left, false});
+        y += 34;
         const auto top = lib_->childrenOf(b.id, {});
-        const std::wstring write = top.empty() ? L"Start writing" : L"Open in Writing";
-        bw = gfx_.measureWidth(write, Font::BodyStrong) + 36;
-        button("book:write", {bx, y, bw, 34}, write, [this, id = b.id] { openWriting(id); }, true);
-        bx += bw + 10;
-        float iw = 0;
-        smallButton("book:import", bx, y + 3, L"Import into this book...", [this, id = b.id] { startImport(id); }, &iw);
-        if (!top.empty()) {
-            float bx2 = bx + iw + 8, bw2 = 0;
-            smallButton("book:plan", bx2, y + 3, L"Plan", [this, id = b.id] { openPlanning(id); }, &bw2);
-            bx2 += bw2 + 8;
-            smallButton("book:typeset", bx2, y + 3, L"Typeset", [this, id = b.id] { openTypesetting(id); }, &bw2);
-            bx2 += bw2 + 8;
-            smallButton("book:publish", bx2, y + 3, L"Publish", [this, id = b.id] { openPublishing(id); });
-        }
-        y += 50;
-        if (top.empty()) {
-            y += gfx_.text(L"No chapters yet. Start writing, or import an EPUB, Word, OpenDocument, PDF, web page, Markdown or text file.",
-                           {r.x, y, std::min(r.w, 720.0f), 40}, Font::Small, pal_.inkMuted) + 12;
-        }
+        if (top.empty())
+            y += gfx_.text(L"No chapters yet. Start writing, or import an EPUB, Word, OpenDocument, PDF, web page, Markdown or text file "
+                           L"(Import & export).", {r.x, y, measure, 40}, Font::Small, pal_.inkMuted) + 12;
         int shown = 0;
         for (auto* n : lib_->manuscriptOf(b.id)) {
             if (n->kind == NodeKind::Scene) continue;
-            if (++shown > 40) {
-                gfx_.text(L"...", {r.x, y, 40, 20}, Font::Small, pal_.inkFaint, {Align::Left, false});
-                y += 22;
-                break;
-            }
+            if (++shown > 60) { gfx_.text(L"…", {r.x, y, 40, 20}, Font::Small, pal_.inkFaint, {Align::Left, false}); y += 22; break; }
             const bool part = n->kind == NodeKind::Part;
             const float ix = r.x + (part || n->parentId.empty() ? 0 : 20);
-            const Rect row{ix, y, std::min(r.w, 720.0f) - (ix - r.x), 28};
+            const Rect row{ix, y, measure - (ix - r.x), 30};
             const std::string id = "bookms:" + n->id;
             addHit(id, row, [this, nid = n->id, bid = b.id] { openWriting(bid); selectNode(nid); });
-            if (hoverAmount(id) > 0.01f) gfx_.fillRounded(row, 3, pal_.surface.withAlpha(0.7f * hoverAmount(id)));
+            if (hoverAmount(id) > 0.01f) gfx_.fillRounded(row, 7, pal_.surface.withAlpha(0.9f * hoverAmount(id)));
             std::int64_t words = n->wordCount;
             std::function<void(const Id&)> add = [&](const Id& pid) { for (auto* c : lib_->childrenOf(b.id, pid)) { words += c->wordCount; add(c->id); } };
             add(n->id);
-            gfx_.text(n->title.empty() ? w(label(n->kind)) : w(n->title), {row.x + 8, row.y, row.w - 130, row.h},
+            gfx_.circle(row.x + 10, row.y + 15, 3.5f, statusColour(n->status), true);
+            gfx_.text(n->title.empty() ? w(label(n->kind)) : w(n->title), {row.x + 22, row.y, row.w - 150, row.h},
                       part ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
-            gfx_.text(std::to_wstring(words) + L" words", {row.right() - 120, row.y, 112, row.h}, Font::Small, pal_.inkMuted,
-                      {Align::Right, false, false, true});
-            y += 30;
+            gfx_.text(wordsText(words), {row.right() - 130, row.y, 122, row.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
+            if (focused(id)) focusRing(row);
+            y += 32;
+        }
+    } else if (bookTab_ == 1) {
+        // Book settings: what the details panel had, in cards.
+        const Rect c1{r.x, y, half, 0}, c2{r.x + half + 20, y, half, 0};
+        {
+            float* h = cardBehind("book:c1", c1);
+            const Rect c{c1.x + 18, 0, c1.w - 36, 0};
+            float cy = c1.y + 16;
+            gfx_.text(L"The book", {c.x, cy, c.w, 26}, Font::Heading, pal_.ink, {Align::Left, false});
+            cy += 34;
+            cy = pageField(c, cy, L"Title", FName);
+            cy = pageField(c, cy, L"Subtitle", FSubtitle);
+            panelChoice("book:status", c, cy, L"Status", w(label(b.status)), [this] { popupStatusMenu(); });
+            panelChoice("book:format", c, cy, L"Format", isComic(b.id) ? L"Comic script" : L"Novel or prose", [this] {
+                const Id bid = viewId_;
+                const int i = popupAt(hwnd(), {L"Novel or prose", L"Comic script"}, isComic(bid) ? 1 : 0);
+                if (i < 0) return;
+                lib_->setSetting("format:" + bid, i == 1 ? "comic" : "");
+                if (i == 1 && lib_->setting("typeset:" + bid).empty()) lib_->setSetting("typeset:" + bid, R"({"preset":"comic-script"})");
+                if (ts_.book == bid) ts_.book.clear();
+                sendView();
+                invalidate();
+            });
+            cy = pageField(c, cy, L"Tags, with commas between", FTags);
+            const float nh = cy - c1.y + 6;
+            if (std::abs(nh - *h) > 0.5f) { *h = nh; invalidate(); }
+        }
+        {
+            float* h = cardBehind("book:c2", c2);
+            const Rect c{c2.x + 18, 0, c2.w - 36, 0};
+            float cy = c2.y + 16;
+            gfx_.text(L"Author and publishing", {c.x, cy, c.w, 26}, Font::Heading, pal_.ink, {Align::Left, false});
+            cy += 34;
+            cy = pageField(c, cy, L"Author", FAuthor);
+            cy = pageField(c, cy, L"Pen name", FPenName);
+            cy = pageField(c, cy, L"Genre", FGenre);
+            {
+                const float hw = (c.w - 12) / 2;
+                const float y0 = cy;
+                cy = pageField({c.x, 0, hw, 0}, y0, L"Language", FLanguage);
+                pageField({c.x + hw + 12, 0, hw, 0}, y0, L"Edition", FEdition);
+            }
+            if (lib_->editionsOf(b.id).empty()) cy = pageField(c, cy, L"ISBN", FIsbn);
+            else {
+                gfx_.text(L"ISBNs are kept with each edition (the Editions tab).", {c.x, cy, c.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                cy += 30;
+            }
+            panelChoice("book:trim", c, cy, L"Trim size (for print)", w(trimSize(b.trim).label), [this] { popupTrimMenu(); });
+            const float nh = cy - c2.y + 6;
+            if (std::abs(nh - *h) > 0.5f) { *h = nh; invalidate(); }
+        }
+        y += std::max(areaH_["book:c1"], areaH_["book:c2"]) + 20;
+        const Rect c3{r.x, y, half, 0}, c4{r.x + half + 20, y, half, 0};
+        {
+            float* h = cardBehind("book:c3", c3);
+            const Rect c{c3.x + 18, 0, c3.w - 36, 0};
+            float cy = c3.y + 16;
+            gfx_.text(L"Cover", {c.x, cy, c.w, 26}, Font::Heading, pal_.ink, {Align::Left, false});
+            cy += 34;
+            cy = panelImage(c, cy, L"The book's cover", b.coverBlob, [this] { chooseImage(Focus::Book, viewId_, 0); }, [this] {
+                Book n = *lib_->book(viewId_);
+                const Book before = n;
+                n.coverBlob.clear();
+                lib_->updateBook(n);
+                flashUndo(L"Removed the cover.", [this, before] { lib_->updateBook(before); invalidate(); });
+            }, false);
+            linkText("book:designcover", c.x + 7, cy - 4, L"Design a cover…", [this, bid = b.id] { openPublishing(bid); openCoverDesigner(); });
+            cy += 34;
+            const float nh = cy - c3.y + 6;
+            if (std::abs(nh - *h) > 0.5f) { *h = nh; invalidate(); }
+        }
+        {
+            // Its series: number and kind in each, or a note that it's in none.
+            float* h = cardBehind("book:c4", c4);
+            const Rect c{c4.x + 18, 0, c4.w - 36, 0};
+            float cy = c4.y + 16;
+            gfx_.text(L"Series", {c.x, cy, c.w, 26}, Font::Heading, pal_.ink, {Align::Left, false});
+            cy += 34;
+            bool any = false;
+            for (const Series* s : lib_->seriesIn(b.worldId))
+                if (const Membership* m = lib_->membership(s->id, b.id)) {
+                    any = true;
+                    gfx_.text(w(s->name), {c.x, cy, c.w - 150, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+                    std::wstring k = m->number.empty() ? std::wstring() : L"Book " + w(m->number) + L" · ";
+                    k += w(label(m->kind));
+                    gfx_.text(k, {c.x, cy + 22, c.w - 150, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+                    linkText("book:ser:" + s->id, c.right() - gfx_.measureWidth(L"Change", Font::Small) - 4, cy + 6, L"Change",
+                             [this, sid = s->id, bid = b.id] { goTo(View::Series, sid); setFocus({Focus::Book, bid, sid}); });
+                    cy += 52;
+                }
+            if (!any) {
+                cy += gfx_.text(L"In no series. Drag the book onto a series on its world's page to add it.", {c.x, cy, c.w, 40}, Font::Small,
+                                pal_.inkMuted) + 8;
+            }
+            const float nh = cy - c4.y + 6;
+            if (std::abs(nh - *h) > 0.5f) { *h = nh; invalidate(); }
+        }
+        y += std::max(areaH_["book:c3"], areaH_["book:c4"]) + 20;
+    } else if (bookTab_ == 2) {
+        // Editions: each with its ISBN; they're made and changed in Publishing.
+        const auto eds = lib_->editionsOf(b.id);
+        if (eds.empty()) {
+            y += gfx_.text(L"No editions yet. Publishing makes a paperback and an ebook the first time it opens, each with its own ISBN, trim "
+                           L"and design.", {r.x, y, std::min(r.w, 720.0f), 40}, Font::Small, pal_.inkMuted) + 12;
+        }
+        const float gap = 16, ew = 260;
+        const int cols = std::max(1, (int)((r.w + gap) / (ew + gap)));
+        const float ewid = (r.w - gap * (cols - 1)) / cols;
+        int col = 0;
+        for (const Edition* e : eds) {
+            const Rect er{r.x + col * (ewid + gap), y, ewid, 110};
+            card(er, 12);
+            gfx_.text(upper(w(editionKindLabel(e->kind))), {er.x + 18, er.y + 16, er.w - 36, 16}, Font::Label, gold_, {Align::Left, false});
+            gfx_.text(w(e->name.empty() ? std::string(editionKindLabel(e->kind)) : e->name), {er.x + 18, er.y + 34, er.w - 36, 26}, Font::Heading,
+                      pal_.ink, {Align::Left, false, true});
+            gfx_.text(e->isbn.empty() ? L"No ISBN yet" : L"ISBN " + w(e->isbn), {er.x + 18, er.y + 64, er.w - 36, 20}, Font::Small,
+                      e->isbn.empty() ? pal_.inkFaint : pal_.inkMuted, {Align::Left, false, true});
+            if (e->kind != "ebook")
+                gfx_.text(w(trimSize(e->trim.empty() ? b.trim : e->trim).label), {er.x + 18, er.y + 84, er.w - 36, 18}, Font::Small, pal_.inkFaint,
+                          {Align::Left, false, true});
+            if (++col == cols) { col = 0; y += 110 + gap; }
+        }
+        if (col) y += 110 + gap;
+        y += 6;
+        smallButton("book:editions", r.x, y, L"Change them in Publishing", [this, id = b.id] { openPublishing(id); });
+        y += 50;
+    } else if (bookTab_ == 3) {
+        // Bringing things in, and sending the book out.
+        auto row = [&](const std::string& id, const std::wstring& title, const std::wstring& about, const std::wstring& label,
+                       std::function<void()> act) {
+            const Rect rr{r.x, y, std::min(r.w, 820.0f), 76};
+            card(rr, 12);
+            gfx_.text(title, {rr.x + 18, rr.y + 14, rr.w - 260, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            gfx_.text(about, {rr.x + 18, rr.y + 38, rr.w - 260, 34}, Font::Small, pal_.inkMuted);
+            const float lw = gfx_.measureWidth(label, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
+            smallButton(id, rr.right() - 18 - lw, rr.y + 23, label, std::move(act));
+            y += 76 + 12;
+        };
+        gfx_.text(L"Bringing things in", {r.x, y, r.w, 28}, Font::Heading, pal_.ink, {Align::Left, false});
+        y += 36;
+        row("book:ie:import", L"A manuscript", L"EPUB, Word, OpenDocument, PDF, a web page, Markdown or text, as chapters of this book.", L"Import…",
+            [this, id = b.id] { startImport(id); });
+        row("book:ie:plan", L"A plan", L"An outline, threads and a structure written as text, matched to the chapters it already has.", L"Import planning…",
+            [this, id = b.id] { openPlanning(id); importPlanText(); });
+        y += 14;
+        gfx_.text(L"Sending it out", {r.x, y, r.w, 28}, Font::Heading, pal_.ink, {Align::Left, false});
+        y += 36;
+        row("book:ie:publish", L"Print-ready PDF and EPUB", L"Checked first, for each edition, in Publishing.", L"Publishing",
+            [this, id = b.id] { openPublishing(id); });
+        row("book:ie:proof", L"A proof PDF", L"The typeset pages as they are, to read through or print at home.", L"Typesetting",
+            [this, id = b.id] { openTypesetting(id); });
+        row("book:ie:review", L"A review copy", L"One web page a reader can open and comment on; their comments come back into Review.", L"Make a review copy…",
+            [this, id = b.id] { rv_.book = id; makeReviewCopy(); });
+        row("book:ie:planout", L"The plan as text", L"Its outline, threads and structure, to keep or to change and import again.", L"Export the plan…",
+            [this, id = b.id] { openPlanning(id); exportPlanText(); });
+    } else {
+        // History: when it changed, and its snapshots.
+        const float measure = std::min(r.w, 720.0f);
+        gfx_.text(L"Last changed " + (b.modified ? cjui::formatRelative((cj::UtcSeconds)b.modified, cjui::nowUtc()) : std::wstring(L"never")) +
+                      L". Every chapter keeps its earlier versions as you write; a snapshot keeps the whole book as it is.",
+                  {r.x, y, measure, 40}, Font::Small, pal_.inkMuted);
+        y += 44;
+        float bw = 0;
+        smallButton("book:snap", r.x, y, L"+ Take a snapshot", [this, id = b.id] {
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            wchar_t buf[64];
+            swprintf(buf, 64, L"%04d-%02d-%02d %02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute);
+            if (!lib_->takeSnapshot(id, narrow(std::wstring(L"Snapshot ") + buf)).empty()) flash(L"Took a snapshot of the whole book.", 4);
+            invalidate();
+        }, &bw);
+        smallButton("book:compare", r.x + bw + 8, y, L"Compare in Review", [this, id = b.id] { openReview(id); });
+        y += 50;
+        const auto snaps = lib_->snapshotsOf(b.id);
+        if (snaps.empty()) y += gfx_.text(L"No snapshots yet.", {r.x, y, measure, 20}, Font::Small, pal_.inkFaint, {Align::Left, false}) + 10;
+        for (const Snapshot& sn : snaps) {
+            const Rect rr{r.x, y, measure, 52};
+            card(rr, 10, 0.7f);
+            gfx_.text(w(sn.name), {rr.x + 16, rr.y + 8, rr.w - 220, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            gfx_.text(cjui::formatRelative((cj::UtcSeconds)sn.taken, cjui::nowUtc()), {rr.x + 16, rr.y + 28, rr.w - 220, 18}, Font::Small,
+                      pal_.inkMuted, {Align::Left, false, true});
+            gfx_.text(wordsText(sn.words), {rr.right() - 200, rr.y, 184, rr.h}, Font::Small, pal_.inkMuted, {Align::Right, false, false, true});
+            y += 60;
         }
     }
     y += 20;
@@ -1813,8 +2170,10 @@ bool StudioApp::chooserBox(const std::string& id, const Rect& b, const std::wstr
 }
 
 void StudioApp::drawPanel(const Rect& r) {
-    gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
-    gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.69), that's its background
+        gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
+        gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     if (!(focus_ == loadedFocus_)) loadFields();
     gfx_.pushClip(r);
     setHitClip(r);

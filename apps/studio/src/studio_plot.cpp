@@ -147,8 +147,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const float cw = r.w - pad * 2;
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
     const std::string unit = timelineUnit(pl_.book);
-    float y = m.y + pageHeader(m, L"TIMELINE", w(b->title),
-                               L"When things happen. The line joins them in reading order, so a flashback turns back.");
+    float y = m.y + planHeader(m, L"When things happen. The line joins them in reading order, so a flashback turns back.");
     // Lanes by viewpoint, plot thread or place, or one lane (0.52); and the zoom.
     const std::string laneBy = planPref(pl_.book, "lanes", "viewpoint");
     {
@@ -267,7 +266,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const Rect area{m.x + labelW, y, avail, 0};
     if (!anyPlaced)
         y += gfx_.text(L"Nothing is on the timeline yet. Drag a card from below onto it, press Place to put one after the last, or "
-                       L"give a card a day in the panel.",
+                       L"give a card a day in its details.",
                        {m.x, y, std::min(cw, 680.0f), 60}, Font::Body, pal_.inkMuted) + 12;
     // Ticks along the top, at a step that leaves room for their labels.
     double step = 1;
@@ -562,7 +561,7 @@ void StudioApp::drawPlanStructure(const Rect& r) {
     const Structure* tp = plan::findStructure(shapes, bs.templateId);
     float y = m.y;
     if (!tp) {
-        y += pageHeader(m, L"STRUCTURE", w(b->title),
+        y += planHeader(m,
                         L"Choose a story shape to lay over the book, or make your own. Its beats are placed by length, so you can see "
                         L"which chapter falls where, and match each beat to the chapters that carry it. Structures are guides, not rules.");
         const float gap = 14, cardH = 150;
@@ -628,14 +627,14 @@ void StudioApp::drawPlanStructure(const Rect& r) {
             gfx_.fillRounded(c, 6, pal_.surface.withAlpha(0.5f + 0.5f * hv));
             gfx_.strokeRounded(c, 6, pal_.rule.mix(pal_.ribbon, 0.4f + 0.6f * hv), 1.5f);
             gfx_.text(L"+ Make your own", {c.x + 18, c.y + 16, c.w - 36, 24}, Font::Heading, pal_.ribbon, {Align::Left, false, true});
-            gfx_.text(L"Start from a simple shape and write your own beats in the panel, as plain text. Or bring them in with "
-                      L"“Import planning” in the sidebar.",
+            gfx_.text(L"Start from a simple shape and write your own beats beside them, as plain text. Or bring them in with "
+                      L"Import planning in Plan tools.",
                       {c.x + 18, c.y + 48, c.w - 36, c.h - 62}, Font::Small, pal_.inkMuted);
             if (focused(id)) focusRing(c);
         }
         if (col) y += cardH + gap;
     } else {
-        y += pageHeader(m, L"STRUCTURE: " + w(tp->name), w(b->title), w(tp->about));
+        y += planHeader(m, w(tp->name) + L": " + w(tp->about));
         float lx = m.x, lw = 0;
         linkText("pl:tplchange", lx, y - 8, L"Choose another structure", [this] {
             plan::BookStructure s = plan::bookStructure(*lib_, pl_.book);
@@ -940,7 +939,7 @@ void StudioApp::newThread(const Id& tagNode) {
     if (!tagNode.empty()) th.nodes[tagNode].push_back(t.id);
     plan::setThreads(*lib_, pl_.book, th);
     selectThread(t.id);
-    if (HWND f = fields_[FName]) { SetFocus(f); SendMessageW(f, EM_SETSEL, 0, -1); }
+    focusFieldSoon_ = FName;   // its name, all selected, once its details are drawn
 }
 
 void StudioApp::loadPlanFields() {
@@ -1034,7 +1033,7 @@ void StudioApp::drawThreadPanel(const Rect& c, float& y) {
     }
     if (count > 30) { gfx_.text(L"and " + std::to_wstring(count - 30) + L" more", {c.x, y, c.w, 18}, Font::Small, pal_.inkFaint, {Align::Left, false}); y += 24; }
     if (!count) {
-        y += gfx_.text(L"Not in any chapter or scene yet. Select a card and tick this thread in its panel.", {c.x, y, c.w, 60}, Font::Small,
+        y += gfx_.text(L"Not in any chapter or scene yet. Click a card and tick this thread in its details.", {c.x, y, c.w, 60}, Font::Small,
                        pal_.inkMuted) + 10;
     }
     y += 8;

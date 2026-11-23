@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.144.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.69.0: the Library and Planning redesigned without their sidebars, and a page of its own for every book."
+      ]
+    },
+    {
       "version": "0.143.0",
       "date": "2026-11-23",
       "notes": [

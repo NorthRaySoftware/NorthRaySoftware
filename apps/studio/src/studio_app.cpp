@@ -1265,8 +1265,10 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (!lib_) return false;
     if (ws_ == Workspace::Review && !ctrl && vk == VK_ESCAPE) { ws_ = Workspace::Library; goTo(View::Book, rv_.book); return true; }
     if (ws_ == Workspace::Planning && !ctrl && vk == VK_ESCAPE) {
-        if (!pl_.node.empty()) selectCard({});
-        else { ws_ = Workspace::Library; goTo(View::Book, pl_.book); }
+        if (!pl_.node.empty() || pl_.targetOpen || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat || focus_.kind == Focus::Structure) {
+            pl_.targetOpen = false;   // the details put away (0.69)
+            selectCard({});
+        } else { ws_ = Workspace::Library; goTo(View::Book, pl_.book); }
         return true;
     }
     if (ws_ == Workspace::Worldbuilding && !wb_.familyRoot.empty() && GetFocus() == hwnd()) {

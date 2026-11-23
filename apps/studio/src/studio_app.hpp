@@ -111,7 +111,7 @@ inline constexpr ULONG_PTR kOpenBookMessage = 0x4E52424B;   // "NRBK"
 
 class StudioApp : public AppWindow {
 public:
-    struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; };
+    struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; bool hasDot = false; };
     // A row of tabs (the chosen one in strong ink over the accent); tabs that don't fit before `right` go in "More".
     // Returns the row's height.
     float pageTabs(const std::string& id, float x, float y, float right, const std::vector<PageTab>& tabs, const std::vector<PageTab>& more = {});
@@ -357,7 +357,9 @@ private:
     // Planning (studio_plan.cpp)
     void openPlanning(const Id& bookId);
     void selectCard(const Id& nodeId);   // "" = the book itself
-    void drawPlanSidebar(const Rect& r);
+    float planHeader(const Rect& m, const std::wstring& sub);   // Planning's header, tabs and filters (0.69)
+    void drawPlanThreads(const Rect& r);
+    std::vector<ToolItem> planTools();
     void drawPlanBoard(const Rect& r);
     void drawPlanPanel(const Rect& r);
     // Planning's other views (studio_plot.cpp): the timeline and story structure.
@@ -521,6 +523,8 @@ private:
     std::string worldFontFolders(const Id& world, const Id& book) const;
     std::string ownFontsFolder(const Id& world, const Id& book) const;
     float pageBook(const Rect& r);
+    float libraryTabs(const Rect& page);
+    int bookTab_ = 0;   // the book page's tab (0.69)
     float pageEmpty(const Rect& r);
     Id fallbackBook() const;
     bool chooserBox(const std::string& id, const cjui::Rect& b, const std::wstring& value, std::function<void()> act);
@@ -823,7 +827,9 @@ private:
         float boardX = 0, boardW = 0;   // the corkboard's columns: scrolled along, and how wide they are
         std::map<Id, std::vector<Id>> appearances;   // node -> entries found in its text
         float scroll = 0, content = 0, sideScroll = 0, sideContent = 0, panelScroll = 0, panelContent = 0;
-        int view = 0;              // 0 corkboard, 1 timeline, 2 structure
+        int view = 0;              // 0 corkboard, 1 timeline, 2 structure, 3 threads (0.69)
+        Rect selCard{};            // where the selected card was drawn on the corkboard (0.69: its pop-over goes beside it)
+        bool targetOpen = false;   // the book's target, in the details card (0.69)
         // Timeline: where it is, and a card being dragged along it.
         float tlScrollX = 0, tlContentW = 0;
         Rect tlArea{};
