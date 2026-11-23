@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.153.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.78.0: moons set to the calendar."
+      ]
+    },
+    {
       "version": "0.152.0",
       "date": "2026-11-23",
       "notes": [

@@ -36,10 +36,23 @@ struct Era {
     std::int64_t start = 1;
 };
 
+// A moon may be anchored to the calendar (0.78) instead of running freely: on a date it's at a set point of its cycle,
+// every year ("full on 3 Frostmoon every year") or every month ("full on 15 of every month", with months it skips,
+// such as an intercalary month 0). The cycle runs on from the anchor and snaps back to it each time the anchor comes
+// round, so a phase can be skipped or repeated where the year or month doesn't fit the cycle.
+struct MoonAnchor {
+    enum Repeat { None, Year, Month } repeat = None;
+    int month = 0;              // Year: the anchor's month (index)
+    int day = 1;                // the day of that month (a month too short for it uses its last day)
+    double days = 0;            // how far into the cycle it is then: 0 new, cycle/4 first quarter, cycle/2 full...
+    std::vector<int> except;    // Month: months with no anchor of their own (the cycle runs on through them)
+};
+
 struct Moon {
     std::string name;
     double cycle = 29.53;   // days from new moon to new moon
-    double offset = 0;      // days into its cycle on day 0
+    double offset = 0;      // days into its cycle on day 0 (when it isn't anchored)
+    MoonAnchor anchor;
 };
 
 struct Season {
@@ -111,7 +124,11 @@ std::optional<Date> parseDate(const Calendar& c, const std::string& s);
 
 int ageAt(const Calendar& c, const Date& born, const Date& at);   // whole years; negative before birth
 
-double moonPhase(const Moon& m, std::int64_t day);   // 0 new, 0.5 full, towards 1 waning
+double moonPhase(const Moon& m, std::int64_t day);   // 0 new, 0.5 full, towards 1 waning (running freely)
+// The phase with the moon's anchor, if it has one (0.78); the day its cycle last snapped back to the anchor in `anchorDay`.
+double moonPhase(const Calendar& c, const Moon& m, std::int64_t day, std::int64_t* anchorDay = nullptr);
+std::string anchorText(const Calendar& c, const Moon& m);                  // "full on 15 of every month except Yearsend", "" free
+bool parseAnchor(const Calendar& c, const std::string& text, Moon& m);    // the reverse; false if not understood
 std::string phaseName(double phase);                 // "New moon", "Waxing crescent", ... "Full moon" ...
 const Season* seasonOn(const Calendar& c, const Date& d);
 std::vector<const Holiday*> holidaysOn(const Calendar& c, const Date& d);

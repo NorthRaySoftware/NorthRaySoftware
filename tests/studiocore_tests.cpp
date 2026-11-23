@@ -289,6 +289,48 @@ static void testCalendar() {
         lib2.reset();
         fs::remove_all(folder);
     }
+    // Moons anchored to the calendar (0.78).
+    {
+        const std::string txt =
+            "Calendar: Anchored\nMonth zero: extra month 0 before month 1\nMonths:\n- Yearsend: 5\n- Frostmoon: 30\n- Thaw: 30\n- Greening: 31\n"
+            "Moon: Selene, 29.5 days, full on 15 of every month except Yearsend\n"
+            "Moon: Kett, 33.5 days, new on 1 Frostmoon every year\n"
+            "Moon: Ash, 20 days, 3 days in on 2nd Thaw every year\n"
+            "Moon: Old, 29.5 days, 4 days into its cycle on day 0\n"
+            "Moon: Bad, 10 days, full on 3 Nowhere every year\n";
+        std::vector<std::string> warn;
+        const Calendar m = fromText(txt, &warn);
+        CHECK(warn.size() == 1 && m.moons.size() == 5);
+        CHECK(m.moons[0].anchor.repeat == MoonAnchor::Month && m.moons[0].anchor.day == 15 && m.moons[0].anchor.except == std::vector<int>{0});
+        CHECK(m.moons[0].anchor.days == 29.5 / 2);
+        CHECK(m.moons[1].anchor.repeat == MoonAnchor::Year && m.moons[1].anchor.month == 1 && m.moons[1].anchor.days == 0);
+        CHECK(m.moons[2].anchor.month == 2 && m.moons[2].anchor.day == 2 && m.moons[2].anchor.days == 3);
+        CHECK(m.moons[3].anchor.repeat == MoonAnchor::None && m.moons[3].offset == 4);
+        CHECK(problems(m).empty());
+        // Full on the 15th of every month, whatever the year; Yearsend carries the cycle on from the month before.
+        for (std::int64_t y : {1LL, 7LL, 1204LL})
+            for (int mo = 1; mo < 4; ++mo) CHECK(phaseName(moonPhase(m, m.moons[0], toDay(m, {y, mo, 15}))) == "Full moon");
+        std::int64_t from = 0;
+        moonPhase(m, m.moons[0], toDay(m, {9, 0, 3}), &from);
+        CHECK(from == toDay(m, {8, 3, 15}));
+        // Snaps back each year: new on 1 Frostmoon even though 33.5 doesn't divide the year.
+        for (std::int64_t y : {1LL, 2LL, 50LL, -3LL}) CHECK(moonPhase(m, m.moons[1], toDay(m, {y, 1, 1})) == 0);
+        CHECK(moonPhase(m, m.moons[1], toDay(m, {5, 0, 4})) > 0.5);   // late in its cycle just before the anchor comes round
+        // Written back the same way, through text and JSON.
+        CHECK(anchorText(m, m.moons[0]) == "full on 15 of every month except Yearsend");
+        CHECK(anchorText(m, m.moons[2]) == "3 days in on 2 Thaw every year");
+        const Calendar again = fromText(toText(m));
+        CHECK(toJson(again) == toJson(m));
+        CHECK(toJson(fromJson(toJson(m))) == toJson(m));
+        // A month too short for the day uses its last day; two months skipped.
+        Calendar s2 = m;
+        CHECK(parseAnchor(s2, "first quarter on 31 of every month except Yearsend and Thaw", s2.moons[0]));
+        CHECK(s2.moons[0].anchor.except.size() == 2 && s2.moons[0].anchor.days == 29.5 / 4);
+        std::int64_t at = 0;
+        moonPhase(s2, s2.moons[0], toDay(s2, {3, 1, 30}), &at);
+        CHECK(at == toDay(s2, {3, 1, 30}));
+        CHECK(!parseAnchor(s2, "full on the moon", s2.moons[0]));
+    }
     // Kept per world, overridden by a book.
     const std::string dir = tempLibrary("calendar");
     auto lib = openOk(dir);

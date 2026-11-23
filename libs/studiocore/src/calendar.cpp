@@ -363,6 +363,121 @@ double moonPhase(const Moon& m, std::int64_t day) {
     return p;
 }
 
+double moonPhase(const Calendar& c, const Moon& m, std::int64_t day, std::int64_t* anchorDay) {
+    const MoonAnchor& a = m.anchor;
+    if (a.repeat == MoonAnchor::None || c.months.empty() || m.cycle <= 0) return moonPhase(m, day);
+    const Date d = fromDay(c, day);
+    auto at = [&](std::int64_t year, int month) {
+        return toDay(c, {year, month, std::clamp(a.day, 1, std::max(1, monthLength(c, year, month)))});
+    };
+    std::int64_t last = std::numeric_limits<std::int64_t>::min();
+    if (a.repeat == MoonAnchor::Year) {
+        const int month = std::clamp(a.month, 0, (int)c.months.size() - 1);
+        last = at(d.year, month);
+        if (last > day) last = at(d.year - 1, month);
+    } else {
+        // This month's anchor if it has come, else the last month before it that has one.
+        std::int64_t y = d.year;
+        int mo = d.month;
+        for (int guard = 0; guard <= (int)c.months.size() * 2 + 1; ++guard) {
+            if (std::find(a.except.begin(), a.except.end(), mo) == a.except.end()) {
+                const std::int64_t t = at(y, mo);
+                if (t <= day) { last = t; break; }
+            }
+            if (--mo < 0) { mo = (int)c.months.size() - 1; --y; }
+        }
+        if (last == std::numeric_limits<std::int64_t>::min()) return moonPhase(m, day);   // every month excepted
+    }
+    if (anchorDay) *anchorDay = last;
+    double p = std::fmod(((double)(day - last) + a.days) / m.cycle, 1.0);
+    if (p < 0) p += 1;
+    return p;
+}
+
+namespace {
+std::string phaseWords(const Moon& m) {
+    const double c = m.cycle, d = m.anchor.days;
+    auto near = [&](double x) { return std::fabs(d - x) < 1e-6; };
+    if (near(0)) return "new";
+    if (near(c / 2)) return "full";
+    if (near(c / 4)) return "first quarter";
+    if (near(c * 3 / 4)) return "last quarter";
+    char buf[48];
+    std::snprintf(buf, sizeof buf, "%g days in", d);
+    return buf;
+}
+}  // namespace
+
+std::string anchorText(const Calendar& c, const Moon& m) {
+    const MoonAnchor& a = m.anchor;
+    if (a.repeat == MoonAnchor::None) return {};
+    std::string s = phaseWords(m) + " on ";
+    if (a.repeat == MoonAnchor::Year) return s + std::to_string(a.day) + " " + monthLabel(c, a.month) + " every year";
+    s += std::to_string(a.day) + " of every month";
+    for (size_t i = 0; i < a.except.size(); ++i)
+        s += (i == 0 ? " except " : i + 1 == a.except.size() ? " and " : ", ") + monthLabel(c, a.except[i]);
+    return s;
+}
+
+bool parseAnchor(const Calendar& c, const std::string& text, Moon& m) {
+    std::string t = lower(trim(text));
+    MoonAnchor a;
+    // The phase: new, full, first quarter, last quarter, or "N days in".
+    auto take = [&](const std::string& w) { if (t.rfind(w, 0) == 0) { t = trim(t.substr(w.size())); return true; } return false; };
+    if (take("new moon") || take("new")) a.days = 0;
+    else if (take("full moon") || take("full")) a.days = m.cycle / 2;
+    else if (take("first quarter")) a.days = m.cycle / 4;
+    else if (take("last quarter") || take("third quarter")) a.days = m.cycle * 3 / 4;
+    else {
+        char* end = nullptr;
+        const double n = std::strtod(t.c_str(), &end);
+        if (end == t.c_str()) return false;
+        t = trim(std::string(end));
+        if (!(take("days in") || take("day in") || take("days into its cycle") || take("days into the cycle"))) return false;
+        a.days = n;
+    }
+    if (!take("on")) return false;
+    if (!t.empty() && !std::isdigit((unsigned char)t[0])) return false;
+    a.day = std::atoi(t.c_str());
+    size_t k = 0;
+    while (k < t.size() && std::isdigit((unsigned char)t[k])) ++k;
+    t = trim(t.substr(k));
+    for (const char* suf : {"st", "nd", "rd", "th"}) if (t.rfind(suf, 0) == 0 && (t.size() == 2 || t[2] == ' ')) { t = trim(t.substr(2)); break; }
+    auto monthOf = [&](const std::string& name) -> int {
+        const std::string n = trim(name);
+        for (int i = 0; i < (int)c.months.size(); ++i) if (lower(c.months[i].name) == n || lower(monthLabel(c, i)) == n) return i;
+        return -1;
+    };
+    if (take("of every month") || take("every month") || take("of each month") || take("each month")) {
+        a.repeat = MoonAnchor::Month;
+        if (take("except") || take("but not") || take("skipping")) {
+            std::string rest = t;
+            for (std::string sep : {" and ", ", "}) {
+                size_t at;
+                while ((at = rest.find(sep)) != std::string::npos) rest.replace(at, sep.size(), "|");
+            }
+            std::stringstream ss(rest);
+            std::string part;
+            while (std::getline(ss, part, '|')) {
+                const int mo = monthOf(part);
+                if (mo < 0) return false;
+                a.except.push_back(mo);
+            }
+        } else if (!t.empty()) return false;
+    } else {
+        const size_t every = t.rfind(" every year");
+        const size_t each = t.rfind(" each year");
+        const size_t cut = every != std::string::npos ? every : each;
+        if (cut == std::string::npos || trim(t.substr(cut)).size() != std::string("every year").size()) return false;
+        a.month = monthOf(t.substr(0, cut));
+        if (a.month < 0) return false;
+        a.repeat = MoonAnchor::Year;
+    }
+    if (a.day < 1) return false;
+    m.anchor = a;
+    return true;
+}
+
 std::string phaseName(double p) {
     if (p < 0.0339 || p >= 0.9661) return "New moon";
     if (p < 0.2161) return "Waxing crescent";
@@ -414,6 +529,12 @@ std::vector<std::string> problems(const Calendar& c) {
         if (r.every <= 0) out.push_back("A leap rule needs a number of years (every 4, every 100...).");
         if (r.month < 0 || r.month >= (int)c.months.size()) out.push_back("A leap rule names a month the calendar doesn't have.");
     }
+    for (auto& m : c.moons) {
+        if (m.anchor.repeat == MoonAnchor::Year && (m.anchor.month < 0 || m.anchor.month >= (int)c.months.size()))
+            out.push_back("The moon " + m.name + " is anchored to a month the calendar doesn't have.");
+        if (m.anchor.repeat == MoonAnchor::Month && (int)m.anchor.except.size() >= (int)c.months.size())
+            out.push_back("The moon " + m.name + " is anchored every month but skips them all.");
+    }
     for (auto& s : c.seasons)
         if (s.month < 0 || s.month >= (int)c.months.size() || s.day < 1 || s.day > c.months[s.month].days + 1)
             out.push_back("The season " + s.name + " starts on a day the calendar doesn't have.");
@@ -440,7 +561,13 @@ std::string toJson(const Calendar& c) {
     for (auto& e : c.eras) j["eras"].push_back({{"name", e.name}, {"abbr", e.abbr}, {"start", e.start}});
     j["before"] = {{"name", c.beforeName}, {"abbr", c.beforeAbbr}};
     j["moons"] = json::array();
-    for (auto& m : c.moons) j["moons"].push_back({{"name", m.name}, {"cycle", m.cycle}, {"offset", m.offset}});
+    for (auto& m : c.moons) {
+        json mj{{"name", m.name}, {"cycle", m.cycle}, {"offset", m.offset}};
+        if (m.anchor.repeat != MoonAnchor::None)
+            mj["anchor"] = {{"repeat", m.anchor.repeat == MoonAnchor::Year ? "year" : "month"}, {"month", m.anchor.month},
+                            {"day", m.anchor.day}, {"days", m.anchor.days}, {"except", m.anchor.except}};
+        j["moons"].push_back(mj);
+    }
     j["seasons"] = json::array();
     for (auto& s : c.seasons) j["seasons"].push_back({{"name", s.name}, {"month", s.month}, {"day", s.day}});
     j["holidays"] = json::array();
@@ -472,7 +599,21 @@ Calendar fromJson(const std::string& text) {
         for (auto& e : j["eras"]) if (e.is_object()) c.eras.push_back({str(e, "name"), str(e, "abbr"), (std::int64_t)num(e, "start", 1)});
     if (j.contains("before") && j["before"].is_object()) { c.beforeName = str(j["before"], "name"); c.beforeAbbr = str(j["before"], "abbr"); }
     if (j.contains("moons") && j["moons"].is_array())
-        for (auto& m : j["moons"]) if (m.is_object()) c.moons.push_back({str(m, "name"), num(m, "cycle", 29.53), num(m, "offset", 0)});
+        for (auto& m : j["moons"]) {
+            if (!m.is_object()) continue;
+            Moon mo{str(m, "name"), num(m, "cycle", 29.53), num(m, "offset", 0), {}};
+            if (m.contains("anchor") && m["anchor"].is_object()) {
+                const json& a = m["anchor"];
+                const std::string r = str(a, "repeat");
+                mo.anchor.repeat = r == "year" ? MoonAnchor::Year : r == "month" ? MoonAnchor::Month : MoonAnchor::None;
+                mo.anchor.month = (int)num(a, "month", 0);
+                mo.anchor.day = std::max(1, (int)num(a, "day", 1));
+                mo.anchor.days = num(a, "days", 0);
+                if (a.contains("except") && a["except"].is_array())
+                    for (auto& x : a["except"]) if (x.is_number_integer()) mo.anchor.except.push_back(x.get<int>());
+            }
+            c.moons.push_back(mo);
+        }
     if (j.contains("seasons") && j["seasons"].is_array())
         for (auto& s : j["seasons"]) if (s.is_object()) c.seasons.push_back({str(s, "name"), (int)num(s, "month", 0), (int)num(s, "day", 1)});
     if (j.contains("holidays") && j["holidays"].is_array())
@@ -526,8 +667,13 @@ std::string toText(const Calendar& c) {
         o << "Before the first era: " << c.beforeName << (c.beforeAbbr.empty() ? "" : " (" + c.beforeAbbr + ")") << "\n";
     for (auto& m : c.moons) {
         char buf[96];
-        std::snprintf(buf, sizeof buf, "%g days, %g days into its cycle on day 0", m.cycle, m.offset);
-        o << "Moon: " << m.name << ", " << buf << "\n";
+        if (m.anchor.repeat != MoonAnchor::None) {
+            std::snprintf(buf, sizeof buf, "%g days", m.cycle);
+            o << "Moon: " << m.name << ", " << buf << ", " << anchorText(c, m) << "\n";
+        } else {
+            std::snprintf(buf, sizeof buf, "%g days, %g days into its cycle on day 0", m.cycle, m.offset);
+            o << "Moon: " << m.name << ", " << buf << "\n";
+        }
     }
     for (auto& s : c.seasons) o << "Season: " << s.name << " from " << dayMonth(s.month, s.day) << "\n";
     for (auto& h : c.holidays) o << "Holiday: " << h.name << " on " << dayMonth(h.month, h.day) << (h.notes.empty() ? "" : " | " + h.notes) << "\n";
@@ -602,8 +748,20 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
             while (std::getline(ss, p, ',')) parts.push_back(trim(p));
             if (!parts.empty()) m.name = parts[0];
             if (parts.size() > 1) m.cycle = std::atof(parts[1].c_str());
-            if (parts.size() > 2) m.offset = std::atof(parts[2].c_str());
             if (m.cycle <= 0) { warn("A moon needs its cycle in days: " + t); m.cycle = 29.53; }
+            // The third part: days into its cycle on day 0, or an anchor to the calendar (0.78), read once the months
+            // are known: "full on 15 of every month except Yearsend", "new on 1 Frostmoon every year".
+            for (size_t k = 2; k < parts.size(); ++k) {
+                const std::string pl = lower(parts[k]);
+                if (pl.find(" on ") != std::string::npos && pl.find("day 0") == std::string::npos) {
+                    // "except A, B and C" was split at the commas: join the rest back.
+                    std::string anchor = parts[k];
+                    for (size_t r = k + 1; r < parts.size(); ++r) anchor += ", " + parts[r];
+                    later.push_back({"moon anchor", std::to_string(c.moons.size()) + "|" + anchor});
+                    break;
+                }
+                m.offset = std::atof(parts[k].c_str());
+            }
             c.moons.push_back(m);
         } else if (key == "day 0 falls on" || key == "leap" || key == "season" || key == "holiday") {
             later.push_back({key, val});
@@ -628,6 +786,13 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
         return m >= 0;
     };
     for (auto& [key, val] : later) {
+        if (key == "moon anchor") {
+            const size_t bar = val.find('|');
+            const size_t i = (size_t)std::atoi(val.substr(0, bar).c_str());
+            if (i < c.moons.size() && !parseAnchor(c, val.substr(bar + 1), c.moons[i]))
+                warn("A moon's anchor wasn't understood (like \"full on 15 of every month\" or \"new on 1 Frostmoon every year\"): " + val.substr(bar + 1));
+            continue;
+        }
         if (key == "day 0 falls on") {
             const std::string l = lower(val);
             bool ok = false;

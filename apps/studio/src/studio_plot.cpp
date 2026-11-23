@@ -430,7 +430,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
                 const std::int64_t abs = cStart + (std::int64_t)d;
                 float mx = xOf(d) + (float)px / 2;
                 for (size_t mi = 0; mi < cc.moons.size() && mi < 3; ++mi) {
-                    const double ph = cal::moonPhase(cc.moons[mi], abs), prev = cal::moonPhase(cc.moons[mi], abs - 1);
+                    const double ph = cal::moonPhase(cc, cc.moons[mi], abs), prev = cal::moonPhase(cc, cc.moons[mi], abs - 1);
                     const bool full = prev < 0.5 && ph >= 0.5, fresh = ph < prev;   // the day it turns full, or new
                     if (!full && !fresh) continue;
                     const float my = laneTop + 7 + 12 * mi;

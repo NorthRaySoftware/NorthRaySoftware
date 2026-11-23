@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.78.0: moons anchored to the calendar (23 Nov 2026)
+
+CJ: let a moon's cycle be anchored to the calendar (a date and the phase it's in then, every year or every month) instead of running freely, for moons that reset each year, fall full on the same date every month, or skip or repeat a phase at an intercalary month.
+
+- `cal::MoonAnchor` {repeat None/Year/Month, month (Year), day, days into the cycle then, except (Month: months with no anchor of their own)} on `Moon`. `moonPhase(c, moon, day, &anchorDay)`: with an anchor, the last time the anchor came round (Year: this year's anchor day, else last year's; Month: this month's, else the nearest earlier month not excepted), then (day − that + days) / cycle. A day past a short month's end uses its last day. Free moons use the old `moonPhase(moon, day)`. Between anchors the cycle runs on, so where the year or a month doesn't fit it a phase comes again (a 5-day month 0 skipped by a monthly anchor gives a second full moon before the 15th) or is cut short.
+- Text: a moon line's third part may be an anchor instead of "N days into its cycle on day 0": `full on 15 of every month except Yearsend`, `new on 1 Frostmoon every year`, `3 days in on 2nd Thaw every year`, `first quarter` / `last quarter`; `except A, B and C`. Read after the months (`later`), with a warning when not understood. `anchorText` writes it; JSON `anchor` {repeat, month, day, days, except}. `problems`: an anchor month that doesn't exist, or a monthly anchor skipping every month.
+- App (`studio_calendar.cpp`): under each moon, Runs freely / Set every year / Set every month; anchored: the phase (New, First quarter, Full, Last quarter, or a number of days in, `moon:i:adays`), the day (`moon:i:aday`), the month (yearly) or the months it skips (a menu of ticks, monthly). Changing a moon's cycle keeps a named phase at that phase. Inserting month 0, moving and removing months keep anchors on their months (an anchor on a removed month goes back to running freely). The month grids and the timeline use the anchored phase.
+- Tested: studiocore 1991 checks (each form read from text, one not understood warned; full on the 15th of every month across years with the excepted month carrying the cycle on from the month before; new on 1 Frostmoon every year through negative years; text and JSON round trips; a day past a month's end; two months skipped). In Wine: a moon set every month, full on the 15th, skipping Month zero, the preview showing the repeated full moon after the short month.
+
 ## 0.77.0: Settings without the sidebar; the wheel over full boxes (23 Nov 2026)
 
 - `libLayout` now includes the Settings page (no sidebar; `libCard` leaves Settings out, so a world chosen earlier doesn't put its card there).

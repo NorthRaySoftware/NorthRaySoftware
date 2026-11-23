@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.78.0",
+      "date": "2026-11-23",
+      "notes": [
+        "A moon can be set to the calendar instead of running freely: on a date it's new, full, at a quarter or a number of days into its cycle, every year or every month, and its cycle snaps back there each time that date comes round.",
+        "A moon set every month can skip months (an intercalary month, a festival month 0); its cycle runs on through them, so a phase can come round twice or be cut short, as some worlds' moons do.",
+        "Calendars written as text take the same: Moon: Selene, 29.5 days, full on 15 of every month except Yearsend, or new on 1 Frostmoon every year."
+      ]
+    },
+    {
       "version": "0.77.0",
       "date": "2026-11-23",
       "notes": [

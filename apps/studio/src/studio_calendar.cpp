@@ -76,7 +76,9 @@ std::string calGet(const cal::Calendar& c, const std::string& t) {
     if (p[0] == "leap" && at(c.leap.size()))
         return std::to_string(f == "every" ? c.leap[i].every : f == "add" ? c.leap[i].add : c.leap[i].offset);
     if (p[0] == "era" && at(c.eras.size())) return f == "abbr" ? c.eras[i].abbr : f == "start" ? std::to_string(c.eras[i].start) : c.eras[i].name;
-    if (p[0] == "moon" && at(c.moons.size())) return f == "cycle" ? numText(c.moons[i].cycle) : f == "offset" ? numText(c.moons[i].offset) : c.moons[i].name;
+    if (p[0] == "moon" && at(c.moons.size()))
+        return f == "cycle" ? numText(c.moons[i].cycle) : f == "offset" ? numText(c.moons[i].offset)
+             : f == "aday" ? std::to_string(c.moons[i].anchor.day) : f == "adays" ? numText(c.moons[i].anchor.days) : c.moons[i].name;
     if (p[0] == "season" && at(c.seasons.size())) return f == "day" ? std::to_string(c.seasons[i].day) : c.seasons[i].name;
     if (p[0] == "hol" && at(c.holidays.size()))
         return f == "day" ? std::to_string(c.holidays[i].day) : f == "notes" ? c.holidays[i].notes : c.holidays[i].name;
@@ -129,7 +131,16 @@ bool calSet(cal::Calendar& c, const std::string& t, const std::string& v0) {
         return true;
     }
     if (p[0] == "moon" && i < c.moons.size()) {
-        if (f == "cycle") { if (!real(d) || d <= 0) return false; c.moons[i].cycle = d; }
+        if (f == "cycle") {
+            if (!real(d) || d <= 0) return false;
+            // An anchor at a named phase stays at it when the cycle changes.
+            auto& a = c.moons[i].anchor;
+            const double old = c.moons[i].cycle;
+            for (double q : {0.25, 0.5, 0.75}) if (std::fabs(a.days - old * q) < 1e-6) a.days = d * q;
+            c.moons[i].cycle = d;
+        }
+        else if (f == "aday") { long long n2 = 0; if (!number(n2) || n2 < 1) return false; c.moons[i].anchor.day = (int)n2; }
+        else if (f == "adays") { if (!real(d) || d < 0) return false; c.moons[i].anchor.days = d; }
         else if (f == "offset") { if (!real(d)) return false; c.moons[i].offset = d; }
         else c.moons[i].name = v;
         return true;
@@ -270,7 +281,7 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
         const std::int64_t dn = first + dayNo - 1;
         float mx = cell.right() - (big ? 16 : 8);
         for (size_t mi = 0; mi < c.moons.size() && mi < 3; ++mi) {
-            const double ph = cal::moonPhase(c.moons[mi], dn);
+            const double ph = cal::moonPhase(c, c.moons[mi], dn);
             const std::string name = cal::phaseName(ph);
             if (!big && name != "Full moon" && name != "New moon") continue;
             const float rad = big ? 7.5f : 3.5f;
@@ -512,6 +523,7 @@ void StudioApp::drawCalendar(const Rect& r) {
                     for (auto& r : x.leap) ++r.month;
                     for (auto& s : x.seasons) ++s.month;
                     for (auto& h : x.holidays) ++h.month;
+                    for (auto& mo : x.moons) { ++mo.anchor.month; for (auto& e : mo.anchor.except) ++e; }
                 }
             });
         });
@@ -552,6 +564,7 @@ void StudioApp::drawCalendar(const Rect& r) {
                     for (auto& r : x.leap) fix(r.month);
                     for (auto& s : x.seasons) fix(s.month);
                     for (auto& h : x.holidays) fix(h.month);
+                    for (auto& mo : x.moons) { fix(mo.anchor.month); for (auto& e : mo.anchor.except) fix(e); std::sort(mo.anchor.except.begin(), mo.anchor.except.end()); }
                 });
                 wb_.calMonth = i - 1;
             });
@@ -566,6 +579,13 @@ void StudioApp::drawCalendar(const Rect& r) {
                     for (auto& r : x.leap) fix(r.month);
                     for (auto& s : x.seasons) fix(s.month);
                     for (auto& h : x.holidays) fix(h.month);
+                    for (auto& mo : x.moons) {
+                        auto& e = mo.anchor.except;
+                        e.erase(std::remove(e.begin(), e.end(), i), e.end());
+                        for (auto& v : e) fix(v);
+                        if (mo.anchor.month == i) mo.anchor.repeat = cal::MoonAnchor::None;
+                        else fix(mo.anchor.month);
+                    }
                 });
             y += 42;
         }
@@ -692,16 +712,108 @@ void StudioApp::drawCalendar(const Rect& r) {
         heading(L"MOONS");
         for (int i = 0; i < (int)c.moons.size(); ++i) {
             const std::string p = "moon:" + std::to_string(i);
-            cell(p + ":name", {m.x, y, m.w * 0.36f, 34}, w(c.moons[i].name), L"Moon's name");
+            const cal::Moon& mo = c.moons[i];
+            const bool anchored = mo.anchor.repeat != cal::MoonAnchor::None;
+            cell(p + ":name", {m.x, y, m.w * 0.36f, 34}, w(mo.name), L"Moon's name");
             float x = m.x + m.w * 0.36f + 8;
-            cell(p + ":cycle", {x, y, 80, 34}, w(numText(c.moons[i].cycle))); x += 86;
-            gfx_.text(L"days a cycle;", {x, y, 96, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 96;
-            cell(p + ":offset", {x, y, 70, 34}, w(numText(c.moons[i].offset))); x += 76;
-            gfx_.text(L"days in at the start", {x, y, 140, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 140;
-            removeX("cal:mox:" + std::to_string(i), x, y + 6, [i](cal::Calendar& cc) { cc.moons.erase(cc.moons.begin() + i); });
+            cell(p + ":cycle", {x, y, 80, 34}, w(numText(mo.cycle))); x += 86;
+            gfx_.text(L"days a cycle", {x, y, 96, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 96;
+            removeX("cal:mox:" + std::to_string(i), m.right() - gfx_.measureWidth(L"Remove", Font::Small) - 14, y + 6,
+                    [i](cal::Calendar& cc) { cc.moons.erase(cc.moons.begin() + i); });
             y += 42;
+            // Running freely from day 0, or anchored to the calendar every year or every month (0.78).
+            float ax = m.x + 20;
+            chooserBox("cal:moanr:" + std::to_string(i), {ax, y, 190, 32},
+                       !anchored ? L"Runs freely" : mo.anchor.repeat == cal::MoonAnchor::Year ? L"Set every year" : L"Set every month", [this, i] {
+                const cal::Calendar c2 = scopeCalendar();
+                const auto cur = c2.moons[i].anchor.repeat;
+                auto set = [this, i](cal::MoonAnchor::Repeat r) {
+                    changeCalendar([i, r](cal::Calendar& x) {
+                        auto& a = x.moons[i].anchor;
+                        if (a.repeat == cal::MoonAnchor::None && r != cal::MoonAnchor::None) a.days = x.moons[i].cycle / 2;   // full, to start with
+                        a.repeat = r;
+                    });
+                };
+                std::vector<ToolItem> t;
+                t.push_back(ToolItem::item(L"Runs freely (a fixed count of days)", [set] { set(cal::MoonAnchor::None); }, cur == cal::MoonAnchor::None));
+                t.push_back(ToolItem::item(L"Set to the calendar every year", [set] { set(cal::MoonAnchor::Year); }, cur == cal::MoonAnchor::Year));
+                t.push_back(ToolItem::item(L"Set to the calendar every month", [set] { set(cal::MoonAnchor::Month); }, cur == cal::MoonAnchor::Month));
+                showTools(t, mouseX(), mouseY());
+            });
+            ax += 198;
+            if (!anchored) {
+                cell(p + ":offset", {ax, y, 70, 32}, w(numText(mo.offset))); ax += 76;
+                gfx_.text(L"days into its cycle when year 1 begins", {ax, y, m.right() - ax, 32}, Font::Small, pal_.inkMuted,
+                          {Align::Left, false, true, true});
+                y += 44;
+                continue;
+            }
+            // Where it is in its cycle on the anchor's day.
+            const double cyc = mo.cycle, dd = mo.anchor.days;
+            auto at = [&](double v) { return std::fabs(dd - v) < 1e-6; };
+            const std::wstring ph = at(0) ? L"New" : at(cyc / 4) ? L"First quarter" : at(cyc / 2) ? L"Full" : at(cyc * 3 / 4) ? L"Last quarter" : L"Days in";
+            chooserBox("cal:moph:" + std::to_string(i), {ax, y, 150, 32}, ph, [this, i] {
+                auto set = [this, i](int which) {
+                    changeCalendar([i, which](cal::Calendar& x) {
+                        const double cc = x.moons[i].cycle;
+                        x.moons[i].anchor.days = which == 0 ? 0 : which == 1 ? cc / 4 : which == 2 ? cc / 2 : which == 3 ? cc * 3 / 4 : 1;
+                    });
+                    if (which == 4) {
+                        setFocus({Focus::Calendar, calendarKey(), "moon:" + std::to_string(i) + ":adays"});
+                        loadFields();
+                        focusFieldSoon_ = FWhen;
+                    }
+                };
+                std::vector<ToolItem> t;
+                const wchar_t* names[] = {L"New", L"First quarter", L"Full", L"Last quarter", L"A number of days into its cycle…"};
+                for (int k = 0; k < 5; ++k) t.push_back(ToolItem::item(names[k], [set, k] { set(k); }));
+                showTools(t, mouseX(), mouseY());
+            });
+            ax += 156;
+            if (ph == L"Days in") {
+                cell(p + ":adays", {ax, y, 60, 32}, w(numText(dd))); ax += 66;
+                gfx_.text(L"days in", {ax, y, 56, 32}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); ax += 56;
+            }
+            gfx_.text(L"on", {ax, y, 24, 32}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); ax += 24;
+            cell(p + ":aday", {ax, y, 54, 32}, std::to_wstring(mo.anchor.day)); ax += 60;
+            if (mo.anchor.repeat == cal::MoonAnchor::Year) {
+                chooserBox("cal:moam:" + std::to_string(i), {ax, y, 160, 32}, w(cal::monthLabel(c, mo.anchor.month)), [this, i, monthMenu] {
+                    monthMenu(scopeCalendar().moons[i].anchor.month,
+                              [this, i](int mon) { changeCalendar([i, mon](cal::Calendar& x) { x.moons[i].anchor.month = mon; }); });
+                });
+                ax += 166;
+                gfx_.text(L"every year", {ax, y, 90, 32}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+            } else {
+                gfx_.text(L"of every month", {ax, y, 110, 32}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); ax += 112;
+                std::wstring ex = L"No months skipped";
+                if (!mo.anchor.except.empty()) {
+                    ex = L"Except ";
+                    for (size_t k = 0; k < mo.anchor.except.size(); ++k) ex += (k ? L", " : L"") + w(cal::monthLabel(c, mo.anchor.except[k]));
+                }
+                chooserBox("cal:moex:" + std::to_string(i), {ax, y, std::max(120.0f, m.right() - ax), 32}, ex, [this, i] {
+                    const cal::Calendar c2 = scopeCalendar();
+                    std::vector<ToolItem> t;
+                    t.push_back(ToolItem::heading(L"Months it skips"));
+                    for (int k = 0; k < (int)c2.months.size(); ++k) {
+                        const auto& exc = c2.moons[i].anchor.except;
+                        const bool on = std::find(exc.begin(), exc.end(), k) != exc.end();
+                        t.push_back(ToolItem::item(w(cal::monthLabel(c2, k)), [this, i, k] {
+                            changeCalendar([i, k](cal::Calendar& x) {
+                                auto& e = x.moons[i].anchor.except;
+                                auto it = std::find(e.begin(), e.end(), k);
+                                if (it != e.end()) e.erase(it);
+                                else { e.push_back(k); std::sort(e.begin(), e.end()); }
+                            });
+                        }, on));
+                    }
+                    showTools(t, mouseX(), mouseY());
+                });
+            }
+            y += 40;
+            y += gfx_.text(L"Its cycle runs on from this day and snaps back to it each time the day comes round.", {m.x + 20, y, m.w - 20, 20},
+                           Font::Small, pal_.inkFaint) + 12;
         }
-        smallButton("cal:mo:add", m.x, y + 2, L"+ Add a moon", [this] { changeCalendar([](cal::Calendar& x) { x.moons.push_back({"New moon", 29.5, 0}); }); });
+        smallButton("cal:mo:add", m.x, y + 2, L"+ Add a moon", [this] { changeCalendar([](cal::Calendar& x) { x.moons.push_back({"New moon", 29.5, 0, {}}); }); });
         y += 48;
 
         heading(L"SEASONS");
