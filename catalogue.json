@@ -1,25 +1,25 @@
 {
   "format": "northray-catalogue",
   "formatVersion": 1,
-  "generatedUtc": "2026-11-23T20:06:34Z",
+  "generatedUtc": "2026-11-23T21:08:30Z",
   "apps": [
     {
       "id": "launcher",
       "name": "NorthRay Launcher",
-      "version": "0.154.0",
-      "file": "NorthRayLauncher-Setup-0.154.0.exe",
-      "url": "downloads/NorthRayLauncher-Setup-0.154.0.exe",
-      "size": 1874078,
-      "sha256": "0b6b32e260b2e83bc5d22622561416ef866ec44fa8280fe7bc0d1eba12a8bc29"
+      "version": "0.155.0",
+      "file": "NorthRayLauncher-Setup-0.155.0.exe",
+      "url": "downloads/NorthRayLauncher-Setup-0.155.0.exe",
+      "size": 1874349,
+      "sha256": "76a103882ead67575eeeac65002daa6ae3dc375e3cff8f1952b642849518ad6c"
     },
     {
       "id": "writing-studio",
       "name": "NorthRay Writing Studio",
-      "version": "0.154.0",
-      "file": "WritingStudio-Setup-0.154.0.exe",
-      "url": "downloads/WritingStudio-Setup-0.154.0.exe",
-      "size": 14682385,
-      "sha256": "3378c2b9af71882a9e0be34ebcc73fa539090612ac4efab43c9c0566898aaaca"
+      "version": "0.155.0",
+      "file": "WritingStudio-Setup-0.155.0.exe",
+      "url": "downloads/WritingStudio-Setup-0.155.0.exe",
+      "size": 14716988,
+      "sha256": "f84e2cac3fd54e67c66b3998730dfffea05ce5dce79afa44f9c2d9503a1fb0f3"
     },
     {
       "id": "browser",
@@ -27,8 +27,8 @@
       "version": "0.9.2",
       "file": "NorthRayBrowser-Setup-0.9.2.exe",
       "url": "downloads/NorthRayBrowser-Setup-0.9.2.exe",
-      "size": 2314148,
-      "sha256": "4635457077ce4acc011ff5dd62c4e03774e96ce71e6ff2989bf5bccaf6409a97"
+      "size": 2314144,
+      "sha256": "4f8cb001a7779c2bed7cfb84d0784fdd02291da55c9f556c2f0249e9514586d9"
     },
     {
       "id": "files",
@@ -36,8 +36,8 @@
       "version": "0.9.2",
       "file": "NorthRayFiles-Setup-0.9.2.exe",
       "url": "downloads/NorthRayFiles-Setup-0.9.2.exe",
-      "size": 1569209,
-      "sha256": "55a039a9cb4e984303c8eab08c2aaf109ced49fb534082ca8fedbe443e52bf84"
+      "size": 1570306,
+      "sha256": "96741579a6efa265453786ce8d0274fdf90b758804e4b1100fd4be735ef390a3"
     },
     {
       "id": "capture",
@@ -45,8 +45,8 @@
       "version": "0.21.2",
       "file": "NorthRayCapture-Setup-0.21.2.exe",
       "url": "downloads/NorthRayCapture-Setup-0.21.2.exe",
-      "size": 3123466,
-      "sha256": "9571be996eaba560c3b6bc073c8de8f224c6f2ee1861e2818ecc40fb3831a4db"
+      "size": 3123562,
+      "sha256": "ab9ca2de173a69bff544cfdc391462c52cbcc870d88473a879cb52726c756302"
     }
   ]
 }
