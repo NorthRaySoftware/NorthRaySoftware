@@ -193,6 +193,7 @@ Icon iconFor(const std::wstring& label) {
     auto has = [&](const wchar_t* k) { return t.find(k) != std::wstring::npos; };
     auto starts = [&](const wchar_t* k) { return t.rfind(k, 0) == 0; };
     if (starts(L"‹") || starts(L"back")) return Icon::Back;
+    if (has(L"website")) return Icon::Link;
     if (starts(L"+") || starts(L"new ") || starts(L"add ") || t == L"new" || t == L"add" || starts(L"make a ") || starts(L"make my own")) return Icon::Plus;
     if (has(L"trash") || starts(L"delete") || starts(L"remove")) return Icon::Trash;
     if (starts(L"restore") || starts(L"undo")) return Icon::Undo;

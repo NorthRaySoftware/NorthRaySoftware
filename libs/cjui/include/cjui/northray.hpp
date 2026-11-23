@@ -29,4 +29,9 @@ void nightSky(Gfx& g, const Rect& r, float radius, float intensity, unsigned see
 // top of a night surface).
 void auroraBand(Gfx& g, const Rect& r, bool dark);
 
+// NorthRay Software's website (2026-11-23), and opening it (or one of its pages, such as L"capture/") in the browser
+// Windows uses for web links.
+inline constexpr const wchar_t* kWebsite = L"https://northraysoftware.github.io/NorthRaySoftware/";
+void openWebsite(const wchar_t* page = L"");
+
 }  // namespace cjui::northray

@@ -48,6 +48,7 @@ enum : UINT {
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers, CmdTabCloseRight, CmdTabMute,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
+    CmdWebsite = 590,
     CmdHistory = 600, CmdBackup, CmdRestore, CmdSideTabs, CmdDownloads, CmdBlock, CmdReferences, CmdPickColour, CmdDefault, CmdPopout,
 };
 
@@ -1443,6 +1444,7 @@ void BrowserWindow::showMenu() {
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
         MenuItem::sep(),
         MenuItem::item(L"Make it the default browser\u2026", CmdDefault, {}, !isDefaultBrowser()),
+        MenuItem::item(L"NorthRay Software's website", CmdWebsite),
         MenuItem::item(L"About NorthRay Browser", CmdAbout),
     };
 
@@ -1484,6 +1486,7 @@ void BrowserWindow::showMenu() {
     else if (cmd == CmdFullscreen) setFullscreen(!fullscreen_, false);
     else if (cmd == CmdPopout) { if (popTab_) popBackIn(); else if (v) popOutVideo(v->id); }
     else if (cmd == CmdAbout) showAbout();
+    else if (cmd == CmdWebsite) newTab(std::wstring(cjui::northray::kWebsite) + L"browser/", true, true);   // in a tab of its own
     else if (cmd >= CmdThemeSystem && cmd <= CmdThemeDark) {
         settings_.theme = (Theme)(cmd - CmdThemeSystem);
         settings_.save(settingsPath);

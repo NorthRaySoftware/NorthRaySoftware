@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.141.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Website at the foot of the side menu opens NorthRay Software's website in your browser, and Settings › About has Visit the website too."
+      ]
+    },
+    {
       "version": "0.140.0",
       "date": "2026-11-23",
       "notes": [

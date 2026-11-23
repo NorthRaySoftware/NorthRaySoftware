@@ -2,6 +2,7 @@
 #include "cjui/dialog.hpp"
 
 #include "cjui/http.hpp"
+#include "cjui/icons.hpp"
 #include "cjui/menu.hpp"
 #include "cjui/northray.hpp"
 #include "cjui/packages.hpp"
@@ -635,6 +636,25 @@ void Launcher::drawNav(const Rect& r) {
         }
         if (focused(id)) focusRing(row);
         y += 40;
+    }
+    // The website, at the foot of the menu (2026-11-23): opens in the browser, so it's marked as going out.
+    {
+        const std::string id = "nav:website";
+        const Rect row{r.x + 12, r.bottom() - 100, r.w - 24, 36};
+        addHit(id, row, [] { cjui::northray::openWebsite(); });
+        const float hv = hoverAmount(id);
+        if (hv > 0.01f) gfx_.fillRounded(row, 8, kNightInk.withAlpha(0.05f * hv));
+        const Color ink = kNightMuted.mix(kNightInk, hv * 0.5f);
+        cjui::drawIcon(gfx_, cjui::Icon::Link, {row.x + 16, row.y + 10, 16, 16}, ink, 1.4f);
+        gfx_.text(L"Website", {row.x + 40, row.y, row.w - 70, row.h}, Font::Body, ink, {Align::Left, false, true, true});
+        {   // a small arrow out of the window: it opens in the browser
+            const float ax = row.right() - 24, ay = row.y + 13, d = 9;
+            gfx_.line(ax, ay + d, ax + d, ay, ink.withAlpha(0.8f), 1.3f);
+            gfx_.line(ax + 3, ay, ax + d, ay, ink.withAlpha(0.8f), 1.3f);
+            gfx_.line(ax + d, ay, ax + d, ay + d - 3, ink.withAlpha(0.8f), 1.3f);
+        }
+        tooltip(id, L"NorthRay Software's website, in your browser");
+        if (focused(id)) focusRing(row);
     }
     gfx_.text(L"Developed by the " CJ_DEVELOPER_WSTR L" project", {r.x + 20, r.bottom() - 52, r.w - 30, 36}, Font::Small,
               kNightMuted.withAlpha(0.8f));
@@ -1532,6 +1552,12 @@ float Launcher::pageSettings(const Rect& r) {
     y += sectionLabel(r.x, y, w2, L"About");
     y += gfx_.text(L"NorthRay Launcher " CJ_VERSION_WSTR L". Developed by the " CJ_DEVELOPER_WSTR L" project.", {r.x, y, w2, 40},
                    Font::Body, pal_.ink) + 8;
+    {
+        const std::wstring lbl = L"Visit the website";
+        const float bw = gfx_.measureWidth(lbl, Font::Body) + 26 + 21;
+        button("set:website", {r.x, y, bw, 32}, lbl, [] { cjui::northray::openWebsite(); });
+        y += 44;
+    }
     // The launcher's own changes (0.97): its newest releases, with what each brought.
     if (!model_.launcherNotes.empty()) {
         y += 6;

@@ -1868,7 +1868,11 @@ void CaptureWindow::drawSettings(const Rect& area) {
     {
         const std::wstring t = L"NorthRay Capture " CJ_VERSION_WSTR L", in development. "
                                L"Developed by " CJ_DEVELOPER_WSTR L" · NorthRaySoftware@protonmail.com";
-        y += gfx_.text(t, {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 30;
+        y += gfx_.text(t, {x, y, colW, 60}, Font::Small, pal_.inkMuted) + 12;
+        const std::wstring lbl = L"Visit the website";
+        button("set:website", {x, y, gfx_.measureWidth(lbl, Font::Body) + 26 + 21, 34}, lbl,
+               [] { cjui::northray::openWebsite(L"capture/"); });
+        y += 50;
     }
     endScroll(y - top + 20);
 }

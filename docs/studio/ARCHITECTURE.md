@@ -415,6 +415,11 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.67.1: the website from every app (23 Nov 2026)
+
+- cjui `northray::kWebsite` (https://northraysoftware.github.io/NorthRaySoftware/) and `openWebsite(page)` (ShellExecute "open" on the site plus a page path). Settings › About has Visit the website (`set:website`, opening `writing-studio/`). The Launcher's side menu has Website at its foot (`nav:website`, a link icon and an outward arrow) and its Settings › About a button; Capture's Settings › About opens `capture/`; Files' menu opens `files/`; the Browser's menu opens `browser/` in a new tab of its own. `iconFor` gives "website" the Link icon.
+- Tested in Wine: each one handed the right address to the system's browser (the Browser opened its tab).
+
 ## 0.67.0: UI pass, part 4: Review and Publishing (23 Nov 2026)
 
 - `chooserBox(id, rect, value, act)` (studio_pages.cpp): radius 7, surface fill, the value left-aligned, a drawn chevron. `panelChoice` draws through it; Review's chapter and version boxes, Typesetting's trim and typeface, the series' kind and Share's `chooser` call it in place of `button` plus a filled triangle.

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.21.2",
+      "date": "2026-11-23",
+      "notes": [
+        "Settings › About has Visit the website, which opens Capture's page on NorthRay Software's website in your browser."
+      ]
+    },
+    {
       "version": "0.21.1",
       "date": "2026-11-23",
       "notes": [

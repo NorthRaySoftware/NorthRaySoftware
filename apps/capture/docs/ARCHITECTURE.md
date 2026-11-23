@@ -1831,3 +1831,7 @@ different design per theme. Radio and Steampunk were added on request during the
 - cjui `Gfx::arc` is drawn with Béziers (Wine's Direct2D drew nothing for `AddArc`).
 - Tested in Wine: the main window, Settings and Library; Launcher, Files and Browser looked over too.
 
+## 69. 0.21.2: the website (23 Nov 2026)
+
+- Settings › About has Visit the website: cjui `northray::openWebsite(L"capture/")`, the Capture page of https://northraysoftware.github.io/NorthRaySoftware/. The other NorthRay apps link to their own pages the same way. Tested in Wine (the address reached the system's browser).
+

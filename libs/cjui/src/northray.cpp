@@ -1,5 +1,10 @@
 #include "cjui/northray.hpp"
 
+#include <windows.h>
+#include <shellapi.h>
+
+#include <string>
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -71,6 +76,11 @@ void auroraBand(Gfx& g, const Rect& r, bool dark) {
         const Color c = stops[k].mix(stops[k + 1], t - k);
         g.fill({r.x + r.w * i / n, r.y, r.w / n + 1, r.h}, c.withAlpha(dark ? 0.85f : 0.95f));
     }
+}
+
+void openWebsite(const wchar_t* page) {
+    const std::wstring url = std::wstring(kWebsite) + (page ? page : L"");
+    ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 }  // namespace cjui::northray

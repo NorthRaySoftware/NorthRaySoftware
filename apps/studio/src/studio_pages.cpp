@@ -1942,6 +1942,8 @@ float StudioApp::pageSettings(const Rect& r0) {
                    L"Font License) and Microsoft Edge WebView2. "
                    L"Licences are in the licenses folder next to the program.",
                    {r.x, y, r.w, 60}, Font::Small, pal_.inkFaint) + 10;
+    smallButton("set:website", r.x, y + 4, L"Visit the website", [] { cjui::northray::openWebsite(L"writing-studio/"); });
+    y += 44;
     return y - r.y + 20;
 }
 

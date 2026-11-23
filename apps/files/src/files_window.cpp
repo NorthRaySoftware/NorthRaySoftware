@@ -73,7 +73,7 @@ enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
     CmdCut, CmdCopy, CmdPaste, CmdPasteInto, CmdRename, CmdBatchRename, CmdDelete, CmdDeleteForever, CmdNewFolder, CmdMore, CmdBinOpen, CmdBinEmpty,
-    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab, CmdViewForAll, CmdClearThumbs,
+    CmdNewTab, CmdNewTabHere, CmdTwoPanes, CmdPreview, CmdViewGallery, CmdBinRestore, CmdBinDelete, CmdNewTag, CmdNewCollection, CmdCollRemove, CmdCollRename, CmdCollDelete, CmdCollOpen, CmdCollTab, CmdPin, CmdUnpin, CmdCopyOther, CmdMoveOther, CmdPinnedOpen, CmdPinnedTab, CmdViewForAll, CmdClearThumbs, CmdWebsite,
 };
 
 constexpr UINT CmdColour0 = 1000;   // + labels::Colour
@@ -1220,6 +1220,7 @@ void FilesWindow::showMenu() {
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
+        MenuItem::item(L"NorthRay Software's website", CmdWebsite),
         MenuItem::item(L"About NorthRay Files", CmdAbout),
     };
     const float s = gfx_.dpiScale();
@@ -1258,6 +1259,7 @@ void FilesWindow::showMenu() {
             settings_.save(settingsPath_);
             applyTheme();
             break;
+        case CmdWebsite: cjui::northray::openWebsite(L"files/"); break;
         case CmdAbout:
             cjui::messageBox(hwnd(),
                         L"NorthRay Files " CJ_VERSION_WSTR L" (preview)\n\nDeveloped by the " CJ_DEVELOPER_WSTR

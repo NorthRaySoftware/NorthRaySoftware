@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.9.2",
+      "date": "2026-11-23",
+      "notes": [
+        "The menu (⋯) has NorthRay Software's website, which opens Files' page on the website in your browser."
+      ]
+    },
+    {
       "version": "0.9.1",
       "date": "2026-11-23",
       "notes": [

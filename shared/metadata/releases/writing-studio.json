@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.67.1",
+      "date": "2026-11-23",
+      "notes": [
+        "Settings › About has Visit the website, which opens Writing Studio's page on NorthRay Software's website in your browser."
+      ]
+    },
+    {
       "version": "0.67.0",
       "date": "2026-11-23",
       "notes": [
