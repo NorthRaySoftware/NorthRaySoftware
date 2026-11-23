@@ -122,8 +122,8 @@ void StudioApp::drawFrame(float W, float H) {
         if (panel) drawPreviewPanel(panelRect_);
         if (headRect.w > 0) drawPreviewHead(headRect);
         if (bookCard) rightCard([this](const Rect& rr) { drawPreviewSidebar(rr); });
-        drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
+        { StudioTimer t_("drawRail"); drawRail(railRect_); }
+        { StudioTimer t_("drawTopBar"); drawTopBar({0, 0, W, kTopH}); }
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
@@ -138,7 +138,7 @@ void StudioApp::drawFrame(float W, float H) {
             pageRect_.y += kViewerHeadH;
             pageRect_.h -= kViewerHeadH;
         }
-        drawTypesetPages(pageRect_);
+        { StudioTimer t_("drawTypesetPages"); drawTypesetPages(pageRect_); }
         if (sideRect_.w > 0) drawTypesetSidebar(sideRect_);
         if (panel) drawTypesetPanel(panelRect_);
         if (headRect.w > 0) drawTypesetHead(headRect);
@@ -161,7 +161,7 @@ void StudioApp::drawFrame(float W, float H) {
         }
         const bool designing = cv_.open;
         if (designing) drawCoverDesigner(pageRect_);
-        else drawPublishPage(pageRect_);
+        else { StudioTimer t_("drawPublishPage"); drawPublishPage(pageRect_); }
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
         if (panel) { if (designing) drawCoverPanel(panelRect_); else drawPublishPanel(panelRect_); }
         if (bookCard) rightCard([this, designing](const Rect& rr) { if (designing) drawCoverPanel(rr); else drawPublishPanel(rr); });
@@ -182,7 +182,7 @@ void StudioApp::drawFrame(float W, float H) {
             // One of the bible's tools: a strip along its top back to the bible, and any details as a card at the right.
             const float cardW = worldCard ? std::min(kPanelW + 10, pageRect_.w * 0.4f) : 0;
             const Rect page{pageRect_.x, pageRect_.y + 44, pageRect_.w - (worldCard ? cardW + 24 : 0), pageRect_.h - 44};
-            drawWorldPage(page);
+            { StudioTimer t_("drawWorldPage"); drawWorldPage(page); }
             drawWorldStrip({pageRect_.x, pageRect_.y, page.w, 44});
             if (worldCard) {
                 panelRect_ = {pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
@@ -192,7 +192,7 @@ void StudioApp::drawFrame(float W, float H) {
                 gfx_.popClip();
             }
         } else {
-            drawWorldPage(pageRect_);
+            { StudioTimer t_("drawWorldPage"); drawWorldPage(pageRect_); }
         }
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
@@ -220,10 +220,10 @@ void StudioApp::drawFrame(float W, float H) {
                                                        focus_.kind == Focus::Structure || pl_.targetOpen);
         const float cardW = std::min(kPanelW + 10, pageRect_.w * 0.4f);
         const Rect page{pageRect_.x, pageRect_.y, pageRect_.w - (details ? cardW + 24 : 0), pageRect_.h};
-        if (pl_.view == 1) drawPlanTimeline(page);
-        else if (pl_.view == 2) drawPlanStructure(page);
-        else if (pl_.view == 3) drawPlanThreads(page);
-        else drawPlanBoard(page);
+        if (pl_.view == 1) { StudioTimer t_("drawPlanTimeline"); drawPlanTimeline(page); }
+        else if (pl_.view == 2) { StudioTimer t_("drawPlanStructure"); drawPlanStructure(page); }
+        else if (pl_.view == 3) { StudioTimer t_("drawPlanThreads"); drawPlanThreads(page); }
+        else { StudioTimer t_("drawPlanBoard"); drawPlanBoard(page); }
         if (drag_.active && pl_.view == 0) {
             // Where a dragged card would go: a bar beside the card it's over, or a frame round a chapter it would join.
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
@@ -286,7 +286,7 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Review && lib_ && lib_->book(rv_.book) && !lib_->book(rv_.book)->deleted) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        drawReviewPage(pageRect_);
+        { StudioTimer t_("drawReviewPage"); drawReviewPage(pageRect_); }
         if (sideRect_.w > 0) drawReviewSidebar(sideRect_);
         if (panel) drawReviewPanel(panelRect_);
         if (bookCard) rightCard([this](const Rect& rr) { drawReviewPanel(rr); });

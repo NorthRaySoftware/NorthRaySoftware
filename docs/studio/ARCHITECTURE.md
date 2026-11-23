@@ -415,6 +415,17 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.72.0: speed (23 Nov 2026)
+
+Measured with `studio_bench_seed <library> --book` (600 entries, and an 80-chapter "Bench book" of about 220,000 words naming them) and `--time` (the library calls, timed); in the app with `NORTHRAY_FRAME_LOG` and the new `NORTHRAY_TIMING` (`StudioTimer`, scoped: a named part's milliseconds appended when over 2). The debug build has the sanitisers, so library timings come from a release build (`build/native-rel`).
+
+- `tidyBible` (every open): entries grouped by `nameKey` first, so only same-named entries are compared (600 entries: 1.4 s in the debug build, now under 10 ms).
+- `kindSuggestions` (the bible's first frame and every change): the "Race:" values read once into a map (221 ms to 0.7 ms in release).
+- `appearancesIn`: a chapter's ASCII words are collected once (`asciiWords`) and an entry is counted only if every ASCII run of one of its names is among them (`mayAppear`, a safe filter); the per-chapter cache is kept between sessions in `<library>/cache/appearances-<book>.json` (names signature, and per node length, words, modified and the counts), read once per book per session and written when anything was worked out again. Not in the database, so never synced or backed up. The bible's first frame with the bench library: 939 ms the first time, 157 ms after.
+- Corkboard: the cork and grain are a 256 px tile (`drawPixels`, per theme, wrapping), not 900 circles a frame; `drawCard` returns early for cards off screen (recording the selected card's rect first, for its pop-over). The 80-card board: 540 ms a frame in Wine to 94.
+- cjui: the stars' ambient frame is every 200 ms (was 83) and only while the window is active.
+- Tested: studiocore 1814 checks (the cache file written, read in a second session, and ignored when the names change); the tour in Wine twice.
+
 ## 0.71.0: the redesign, part 4: Review, Typesetting, Preview and Publishing (23 Nov 2026)
 
 - `bookWs` (those four, not focus mode): no sidebar, no panel. `bookCard`: Review on Snapshots with one chosen or on Goals; Typesetting while `settings_.typesetDesign`; Preview while `settings_.previewChoices` (both kept in settings.json, default on); Publishing always. `rightCard(fn)` in `drawFrame` draws any of them at the right edge with `panelAsCard_` set (the old panels and the two sidebars skip their own background then; the sidebars skip their title, and Preview's its chapter list).

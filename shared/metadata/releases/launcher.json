@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.147.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.72.0, quicker with big bibles and long books. Every NorthRay app's top bar now rests its stars while another window is in front."
+      ]
+    },
+    {
       "version": "0.146.0",
       "date": "2026-11-23",
       "notes": [

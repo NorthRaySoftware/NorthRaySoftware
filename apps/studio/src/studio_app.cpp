@@ -1826,6 +1826,34 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     return false;
 }
 
+// ------------------------------------------------- timing (0.72, NORTHRAY_TIMING)
+
+static const std::wstring& timingLog() {
+    static const std::wstring path = [] {
+        wchar_t buf[MAX_PATH] = {};
+        const DWORD n = GetEnvironmentVariableW(L"NORTHRAY_TIMING", buf, MAX_PATH);
+        return n > 0 && n < MAX_PATH ? std::wstring(buf) : std::wstring();
+    }();
+    return path;
+}
+
+StudioTimer::StudioTimer(const char* w) : what(w), start(0) {
+    if (timingLog().empty()) return;
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    start = c.QuadPart;
+}
+
+StudioTimer::~StudioTimer() {
+    if (!start) return;
+    LARGE_INTEGER c, f;
+    QueryPerformanceCounter(&c);
+    QueryPerformanceFrequency(&f);
+    const double ms = double(c.QuadPart - start) * 1000.0 / double(f.QuadPart);
+    if (ms < 2) return;
+    if (FILE* fl = _wfopen(timingLog().c_str(), L"a")) { std::fprintf(fl, "%s %.1f\n", what, ms); std::fclose(fl); }
+}
+
 // ------------------------------------------------- editing in place (0.68)
 
 void StudioApp::endInline(bool keep) {

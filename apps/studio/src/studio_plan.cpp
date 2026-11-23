@@ -482,17 +482,46 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     pl_.selCard = {};
     gfx_.pushClip(r);
     setHitClip(r);
-    // Cork: a warm board with a faint grain, quiet enough to read the cards on.
+    // Cork: a warm board with a faint grain. The grain is a tile made once and laid across the board (0.72: 900 dots
+    // drawn each frame were most of the corkboard's time).
     const Color cork = pal_.dark ? cjui::hexColor("#2E2822") : pal_.paper.mix(cjui::hexColor("#C8A97E"), 0.32f);
-    gfx_.fill(r, cork);
     {
-        unsigned seed = 2166136261u;
-        auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0f; };
-        const Color grain = pal_.dark ? cjui::hexColor("#000000").withAlpha(0.18f) : cjui::hexColor("#8A6A42").withAlpha(0.10f);
-        for (int i = 0; i < 900; ++i) {
-            const float gx = r.x + rnd() * r.w, gy = r.y + rnd() * std::max(r.h, 1.0f);
-            gfx_.circle(gx, gy, 0.6f + rnd() * 1.1f, grain, true);
+        constexpr int T = 256;
+        static std::vector<std::uint8_t> tiles[2];
+        static Color madeFor[2];
+        const int k = pal_.dark ? 1 : 0;
+        std::vector<std::uint8_t>& tile = tiles[k];
+        const std::wstring key = std::wstring(L"#cork:") + (pal_.dark ? L"dark" : L"light");
+        if (tile.empty() || madeFor[k].r != cork.r || madeFor[k].g != cork.g || madeFor[k].b != cork.b) {
+            if (!tile.empty()) gfx_.forgetImage(key);
+            madeFor[k] = cork;
+            tile.assign((size_t)T * T * 4, 255);
+            std::vector<float> px((size_t)T * T * 3);
+            for (int i = 0; i < T * T; ++i) { px[i * 3] = cork.r; px[i * 3 + 1] = cork.g; px[i * 3 + 2] = cork.b; }
+            const Color grain = pal_.dark ? cjui::hexColor("#000000") : cjui::hexColor("#8A6A42");
+            const float ga = pal_.dark ? 0.18f : 0.10f;
+            unsigned seed = 2166136261u;
+            auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0f; };
+            for (int d = 0; d < 70; ++d) {   // about the old density
+                const float cx = rnd() * T, cy = rnd() * T, rad = 0.6f + rnd() * 1.1f;
+                for (int yy = (int)(cy - rad - 1); yy <= (int)(cy + rad + 1); ++yy)
+                    for (int xx = (int)(cx - rad - 1); xx <= (int)(cx + rad + 1); ++xx) {
+                        const float dist = std::hypot(xx + 0.5f - cx, yy + 0.5f - cy);
+                        const float cover = std::clamp(rad + 0.5f - dist, 0.0f, 1.0f) * ga;
+                        if (cover <= 0) continue;
+                        const int wx = (xx % T + T) % T, wy = (yy % T + T) % T;   // wraps, so the tiles meet without seams
+                        float* p = &px[(wy * T + wx) * 3];
+                        p[0] += (grain.r - p[0]) * cover;
+                        p[1] += (grain.g - p[1]) * cover;
+                        p[2] += (grain.b - p[2]) * cover;
+                    }
+            }
+            for (int i = 0; i < T * T; ++i)
+                for (int c = 0; c < 3; ++c) tile[(size_t)i * 4 + c] = (std::uint8_t)std::lround(std::clamp(px[i * 3 + c], 0.0f, 1.0f) * 255);
         }
+        gfx_.fill(r, cork);
+        for (float ty = r.y; ty < r.bottom(); ty += T)
+            for (float tx = r.x; tx < r.right(); tx += T) gfx_.drawPixels(key, T, T, tile.data(), {tx, ty, (float)T, (float)T});
     }
     const float pad = r.w > 900 ? 36 : 24;
     const float cw = r.w - pad * 2;
@@ -565,6 +594,9 @@ void StudioApp::drawPlanBoard(const Rect& r) {
 
     // One card, drawn and made live at `cr`.
     auto drawCard = [&](const ManuscriptNode* n, const Rect& cr, int chapterNo, int sceneNo) {
+        if (pl_.node == n->id) pl_.selCard = cr;
+        // Only the cards on screen are drawn (0.72): a long book's board was drawn whole every frame.
+        if (cr.bottom() < r.y - 40 || cr.y > r.bottom() + 40 || cr.right() < r.x - 40 || cr.x > r.right() + 40) return;
         const std::string id = "pl:card:" + n->id;
         addHit(id, cr, [this, nid = n->id] { selectCard(nid); });
         {

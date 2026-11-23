@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.72.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Faster with big bibles: opening a library no longer compares every bible entry with every other (with 600 entries that took over a second each time), and the note about entries filed under the wrong kind is worked out in a moment instead of a fifth of a second after every change.",
+        "Where each entry appears in the books is kept between sessions, so the bible and Planning open straight away after the first time instead of reading every chapter again.",
+        "The corkboard is several times quicker to draw: its cork is drawn from one tile, and only the cards on screen are drawn.",
+        "The stars in the top bar twinkle more gently and rest while another window is in front, so the Studio uses next to nothing while it waits."
+      ]
+    },
+    {
       "version": "0.71.0",
       "date": "2026-11-23",
       "notes": [

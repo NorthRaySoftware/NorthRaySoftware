@@ -732,6 +732,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
 
     if (!e) {
         // ---- All entries (or one kind), as cards.
+        StudioTimer tm_cards("world:cards");
         std::wstring scopeName;
         if (const World* wo = lib_->world(wb_.world)) scopeName = w(wo->name);
         else if (const studio::Book* b = lib_->book(wb_.book)) scopeName = w(b->title);
@@ -816,6 +817,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += 26;
         }
         // The kinds as tabs (the empty ones under More), and the find box at the end of the row.
+        StudioTimer tm_tabs("world:tabs");
         const float findW = std::min(280.0f, cw * 0.32f);
         {
             std::vector<PageTab> tabs, more;
@@ -876,6 +878,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             }
         {
             // Under the tabs (0.68): a kind's entries by gender, race, realm or type as chips; and how they're shown.
+        StudioTimer tm_chips("world:chips");
             const bool listable = !list.empty() && !(wb_.kind == "place" && wb_.placesOutline && findWords.empty() && wb_.facet.empty()) &&
                                   !(wb_.kind == "creature" && findWords.empty() && (wb_.facet.empty() || wb_.facet.rfind("under=", 0) == 0));
             const bool grouping = wb_.kind == "character" && !list.empty();
@@ -995,7 +998,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 });
             if (anyChip || ctrlW > 0) y = cy + 28 + 22;
         }
-        if (findWords.empty()) y = drawKindSuggestions(m, y);
+        { StudioTimer ts_("world:suggest"); if (findWords.empty()) y = drawKindSuggestions(m, y); }
         if ((wb_.kind == "character" || wb_.kind == "creature") && wb_.facet.empty() && findWords.empty()) {
             // The families in the bible (of this kind), each opening its tree; worked out again only when the library
             // changes (0.59). With many, the biggest eight and a link to the rest.
@@ -1095,6 +1098,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
             // Each entry's first book, worked out again when the library has changed.
             const std::string key = wb_.world + "|" + wb_.book + "|" + std::to_string(lib_->changesMade());
             if (key != wb_.firstBookKey) {
+                StudioTimer tfb_("world:firstBook");
                 wb_.firstBookKey = key;
                 wb_.bookOrder = booksInReadingOrder(*lib_, wb_.world, wb_.book);
                 wb_.firstBook.clear();

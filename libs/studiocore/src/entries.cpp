@@ -10,6 +10,9 @@
 #include <cstring>
 #include <sstream>
 #include <set>
+#include <filesystem>
+#include <fstream>
+#include <unordered_set>
 #include <cctype>
 #include <nlohmann/json.hpp>
 
@@ -979,12 +982,18 @@ Library::TidyReport Library::tidyBible(const Id& worldId) {
     // the character keeps the creature's "Kind of", so it's listed under its breed).
     for (bool again = true; again;) {
         again = false;
-        const auto all = entriesOf(worldId);
-        for (size_t i = 0; i < all.size() && !again; ++i)
+        // Only entries whose names match can be copies: grouped by name first (0.72), so a big bible isn't compared
+        // pair by pair (600 entries took 1.4 s every time a library opened).
+        std::map<std::string, std::vector<const Entry*>> byName;
+        for (const Entry* e : entriesOf(worldId))
+            if (std::string k = nameKey(e->name); !k.empty()) byName[k].push_back(e);
+        for (auto it = byName.begin(); it != byName.end() && !again; ++it) {
+          const auto& all = it->second;
+          if (all.size() < 2) continue;
+          for (size_t i = 0; i < all.size() && !again; ++i)
             for (size_t j = i + 1; j < all.size() && !again; ++j) {
                 const Entry* a = all[i];
                 const Entry* b = all[j];
-                if (nameKey(a->name) != nameKey(b->name) || nameKey(a->name).empty()) continue;
                 const bool sameKind = a->kind == b->kind;
                 const bool charCreature = (a->kind == "character" && b->kind == "creature") || (a->kind == "creature" && b->kind == "character");
                 if (!sameKind && !charCreature) continue;
@@ -1003,6 +1012,7 @@ Library::TidyReport Library::tidyBible(const Id& worldId) {
                     again = true;   // the list changed
                 }
             }
+        }
     }
     return r;
 }
@@ -1015,19 +1025,24 @@ std::vector<Library::KindSuggestion> Library::kindSuggestions(const Id& worldId,
         for (auto& s : out) if (s.entry == e->id) return;
         out.push_back({e->id, kind, why});
     };
+    // Every "Race:" value in use, by its name key, with the entries giving it in the bible's order (read once, 0.72:
+    // comparing every entry with every other took a fifth of a second on each change in a big bible).
+    std::map<std::string, std::vector<const Entry*>> raceOf;
+    for (const Entry* o : all) {
+        std::istringstream in(o->details);
+        for (std::string l; std::getline(in, l);)
+            if (facetLabel(l) == "race") {
+                std::string v = l.substr(l.find(':') + 1);
+                while (!v.empty() && v.front() == ' ') v.erase(0, 1);
+                raceOf[nameKey(v)].push_back(o);
+            }
+    }
     for (const Entry* e : all) {
         // Used as another entry's race ("Race: Demon").
-        for (const Entry* o : all) {
-            if (o == e) continue;
-            std::istringstream in(o->details);
-            for (std::string l; std::getline(in, l);)
-                if (facetLabel(l) == "race") {
-                    std::string v = l.substr(l.find(':') + 1);
-                    while (!v.empty() && v.front() == ' ') v.erase(0, 1);
-                    if (nameKey(v) == nameKey(e->name) && e->kind != "race")
-                        suggest(e, "race", o->name + "'s race is " + e->name + ", so it reads like a race (a people).");
-                }
-        }
+        if (e->kind != "race")
+            if (auto it = raceOf.find(nameKey(e->name)); it != raceOf.end())
+                for (const Entry* o : it->second)
+                    if (o != e) { suggest(e, "race", o->name + "'s race is " + e->name + ", so it reads like a race (a people)."); break; }
         // Something is "a kind of" it: a species or breed.
         if (e->kind == "character")
             for (const auto& l : links_)
@@ -1209,6 +1224,36 @@ std::vector<NameSpan> findNames(const std::string& text, const std::vector<const
     return out;
 }
 
+// The runs of ASCII letters and digits in a text, in lower case: a quick test of which names could be in it. Anything
+// else (spaces, punctuation, any byte of a non-ASCII character) separates them, the same way for names and text, so a
+// name found by countNames always has its first such run among them.
+static std::unordered_set<std::string> asciiWords(const std::string& text) {
+    std::unordered_set<std::string> out;
+    std::string cur;
+    for (unsigned char ch : text) {
+        if (ch < 0x80 && std::isalnum(ch)) cur += (char)std::tolower(ch);
+        else if (!cur.empty()) { out.insert(cur); cur.clear(); }
+    }
+    if (!cur.empty()) out.insert(cur);
+    return out;
+}
+
+// Could one of these names be in a text with these words? Only "no" for certain: every ASCII run of a name that's
+// there is among the text's; a name with none is always checked.
+static bool mayAppear(const std::vector<std::string>& names, const std::unordered_set<std::string>& present) {
+    for (const std::string& nm : names) {
+        bool all = true;
+        std::string cur;
+        for (size_t i = 0; i <= nm.size() && all; ++i) {
+            const unsigned char ch = i < nm.size() ? (unsigned char)nm[i] : ' ';
+            if (ch < 0x80 && std::isalnum(ch)) cur += (char)std::tolower(ch);
+            else if (!cur.empty()) { all = present.count(cur) > 0; cur.clear(); }
+        }
+        if (all) return true;
+    }
+    return false;
+}
+
 std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
     std::map<Id, std::vector<Id>> out;
     const Book* b = book(bookId);
@@ -1220,6 +1265,25 @@ std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
     std::uint64_t sig = 1469598103934665603ull;
     auto mix = [&](const std::string& s) { for (unsigned char c : s) sig = (sig ^ c) * 1099511628211ull; sig = (sig ^ 0xff) * 1099511628211ull; };
     for (size_t i = 0; i < entries.size(); ++i) { mix(entries[i]->id); for (const auto& nm : names[i]) mix(nm); }
+    // What was found in earlier sessions (0.72), kept in the library's cache folder (not the database, so it's never
+    // synced or backed up): a long book's Planning and the bible open without reading every chapter again.
+    const std::filesystem::path cacheFile = u8path(folder_) / "cache" / ("appearances-" + bookId + ".json");
+    if (appearanceLoaded_.insert(bookId).second) {
+        std::ifstream in(cacheFile, std::ios::binary);
+        const json j = in ? json::parse(in, nullptr, false) : json();
+        if (j.is_object() && j.value("names", "") == std::to_string(sig) && j.contains("nodes") && j["nodes"].is_object())
+            for (auto& [nid, v] : j["nodes"].items()) {
+                if (!v.is_array() || v.size() != 4 || appearanceCache_.count(nid)) continue;
+                AppearanceCache c;
+                c.length = v[0].get<std::int64_t>();
+                c.words = v[1].get<std::int64_t>();
+                c.modified = v[2].get<Time>();
+                c.names = sig;
+                for (auto& f : v[3]) if (f.is_array() && f.size() == 2) c.found.push_back({f[0].get<int>(), f[1].get<std::string>()});
+                appearanceCache_[nid] = std::move(c);
+            }
+    }
+    bool changed = false;
     for (const ManuscriptNode* n : manuscriptOf(bookId)) {
         std::int64_t length = 0, words = 0;
         Time modified = 0;
@@ -1231,14 +1295,37 @@ std::map<Id, std::vector<Id>> Library::appearancesIn(const Id& bookId) const {
         AppearanceCache& c = appearanceCache_[n->id];
         if (c.length != length || c.words != words || c.modified != modified || c.names != sig) {
             const std::string text = doc::plainText(nodeContent(n->id));
+            // The text's words once (0.72), so only entries one of whose names starts with a word that's there are
+            // counted: a chapter isn't read again for each of hundreds of entries.
+            const std::unordered_set<std::string> present = asciiWords(text);
             std::vector<std::pair<int, Id>> found;
             for (size_t i = 0; i < entries.size(); ++i)
-                if (!names[i].empty())
+                if (!names[i].empty() && mayAppear(names[i], present))
                     if (const int k = countNames(text, names[i]); k > 0) found.push_back({k, entries[i]->id});
             std::stable_sort(found.begin(), found.end(), [](auto& x, auto& y) { return x.first > y.first; });
             c = {length, words, modified, sig, std::move(found)};
+            changed = true;
         }
         for (auto& f : c.found) out[n->id].push_back(f.second);
+    }
+    if (changed) {   // kept for next time; a write that fails only costs the next session a re-read
+        json j{{"names", std::to_string(sig)}, {"nodes", json::object()}};
+        for (const ManuscriptNode* n : manuscriptOf(bookId))
+            if (auto it = appearanceCache_.find(n->id); it != appearanceCache_.end()) {
+                json f = json::array();
+                for (auto& [k, id] : it->second.found) f.push_back({k, id});
+                j["nodes"][n->id] = {it->second.length, it->second.words, it->second.modified, f};
+            }
+        std::error_code ec;
+        std::filesystem::create_directories(cacheFile.parent_path(), ec);
+        std::filesystem::path tmp = cacheFile;
+        tmp += ".tmp";
+        {
+            std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+            if (o) o << j.dump();
+        }
+        std::filesystem::rename(tmp, cacheFile, ec);
+        if (ec) std::filesystem::remove(tmp, ec);
     }
     return out;
 }

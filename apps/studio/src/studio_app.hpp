@@ -113,6 +113,14 @@ using ShortcutGroup = std::pair<std::wstring, std::vector<std::pair<std::wstring
 // WM_COPYDATA's dwData for "open this book" from a second launch (NorthRay Launcher's Jump back in, 0.58).
 inline constexpr ULONG_PTR kOpenBookMessage = 0x4E52424B;   // "NRBK"
 
+// NORTHRAY_TIMING=<file> (a developer's tool, 0.72): how long the named parts of drawing take, appended when over 2 ms.
+struct StudioTimer {
+    explicit StudioTimer(const char* what);
+    ~StudioTimer();
+    const char* what;
+    long long start;
+};
+
 class StudioApp : public AppWindow {
 public:
     struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; bool hasDot = false; };

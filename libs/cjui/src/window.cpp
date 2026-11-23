@@ -508,7 +508,9 @@ void AppWindow::paint() {
     }
     EndPaint(hwnd_, &ps);
     if (animating_) SetTimer(hwnd_, kAnimTimer, 15, nullptr);
-    if (ambient_ && IsWindowVisible(hwnd_) && !IsIconic(hwnd_)) SetTimer(hwnd_, kAmbientTimer, 83, nullptr);
+    // The stars' slow twinkle (0.72): five frames a second is enough for a breath of 3-10 s, and none while another
+    // window is in front, so an idle window costs next to nothing.
+    if (ambient_ && windowActive_ && IsWindowVisible(hwnd_) && !IsIconic(hwnd_)) SetTimer(hwnd_, kAmbientTimer, 200, nullptr);
 }
 
 void AppWindow::updateHover() {

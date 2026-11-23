@@ -2259,7 +2259,27 @@ static void testWorldbuilding() {
             t.name = "Highcliff";
             CHECK(lib->updateEntry(t));
         }
+        ap = lib->appearancesIn(book);
+        CHECK(ap.count(ch) && ap[ch].size() == 1 && ap[ch][0] == town);
+        // Kept between sessions in the cache folder (0.72), and read again when the names change.
+        CHECK(std::filesystem::exists(std::filesystem::path(dir) / "cache" / ("appearances-" + book + ".json")));
         CHECK(lib->schemaVersion() == studio::Library::kSchemaVersion);
+    }
+    {
+        auto lib = openOk(dir);
+        Id book2, ch2;
+        for (auto* b : lib->liveBooks()) for (auto* n : lib->manuscriptOf(b->id)) if (n->wordCount == 3) { book2 = b->id; ch2 = n->id; }
+        CHECK(!ch2.empty());
+        auto ap2 = lib->appearancesIn(book2);   // from the file
+        CHECK(ap2.count(ch2) && ap2[ch2].size() == 1 && lib->entry(ap2[ch2][0]) && lib->entry(ap2[ch2][0])->name == "Highcliff");
+        // A cache file from another bible's names is ignored.
+        Entry t = *lib->entry(ap2[ch2][0]);
+        t.name = "Lowcliff";
+        CHECK(lib->updateEntry(t));
+        ap2 = lib->appearancesIn(book2);
+        CHECK(!ap2.count(ch2) || ap2[ch2].empty());
+        t.name = "Highcliff";
+        CHECK(lib->updateEntry(t));
     }
     {
         auto lib = openOk(dir);   // kept
