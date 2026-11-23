@@ -413,7 +413,8 @@ private:
     void drawPlanTimeline(const Rect& r);
     void drawPlanStructure(const Rect& r);
     void planPanelExtras(const Rect& c, float& y);     // the timeline/structure parts of the panel
-    struct StoryTime { bool placed = false; double day = 0; std::string when; int minutes = -1; };   // minutes: time of day (0.75)
+    // minutes: time of day (0.75); part: a named time of day instead (0.80)
+    struct StoryTime { bool placed = false; double day = 0; std::string when; int minutes = -1; std::string part; };
     // A story day as the book's timeline writes it: its calendar date when it's in calendar dates (0.75), else Day 12.
     std::wstring storyDayText(const Id& bookId, double day) const;
     bool timelineInCalendar(const Id& bookId) const;   // the book has a calendar and its timeline uses it

@@ -84,6 +84,7 @@ std::string calGet(const cal::Calendar& c, const std::string& t) {
         }
         if (p[2] == "ecl" && k < c.moons[i].eclipses.size()) {
             const auto& e = c.moons[i].eclipses[k];
+            if (p[4] == "time") return cal::timeOfDayText(c, e.time);
             return p[4] == "day" ? std::to_string(e.day) : cal::formatYear(c, e.year);
         }
         return {};
@@ -93,7 +94,9 @@ std::string calGet(const cal::Calendar& c, const std::string& t) {
              : f == "aday" ? std::to_string(c.moons[i].anchor.day) : f == "adays" ? numText(c.moons[i].anchor.days) : c.moons[i].name;
     if (p[0] == "season" && at(c.seasons.size())) return f == "day" ? std::to_string(c.seasons[i].day) : c.seasons[i].name;
     if (p[0] == "hol" && at(c.holidays.size()))
-        return f == "day" ? std::to_string(c.holidays[i].day) : f == "notes" ? c.holidays[i].notes : c.holidays[i].name;
+        return f == "day" ? std::to_string(c.holidays[i].day) : f == "notes" ? c.holidays[i].notes
+             : f == "time" ? cal::timeOfDayText(c, c.holidays[i].time) : c.holidays[i].name;
+    if (p[0] == "dp" && at(c.dayParts.size())) return f == "start" ? cal::formatTime(c, c.dayParts[i].start) : c.dayParts[i].name;
     return {};
 }
 
@@ -154,6 +157,13 @@ bool calSet(cal::Calendar& c, const std::string& t, const std::string& v0) {
         if (p[2] == "ecl" && k < c.moons[i].eclipses.size()) {
             auto& e = c.moons[i].eclipses[k];
             if (p[4] == "day") { if (!number(n) || n < 1) return false; e.day = (int)n; return true; }
+            if (p[4] == "time") {
+                if (v.empty()) { e.time = {}; return true; }
+                const auto t = cal::parseTimeOfDay(c, v);
+                if (!t) return false;
+                e.time = *t;
+                return true;
+            }
             // A year, with its era if given.
             const size_t sp = v.find(' ');
             const std::string num = v.substr(0, sp);
@@ -186,7 +196,28 @@ bool calSet(cal::Calendar& c, const std::string& t, const std::string& v0) {
     if (p[0] == "hol" && i < c.holidays.size()) {
         if (f == "day") { if (!number(n) || n < 1) return false; c.holidays[i].day = (int)n; }
         else if (f == "notes") c.holidays[i].notes = v;
+        else if (f == "time") {
+            if (v.empty()) c.holidays[i].time = {};
+            else if (const auto t = cal::parseTimeOfDay(c, v)) c.holidays[i].time = *t;
+            else return false;
+        }
         else c.holidays[i].name = v;
+        return true;
+    }
+    if (p[0] == "dp" && i < c.dayParts.size()) {
+        if (f == "start") {
+            const auto m = cal::parseTime(c, v);
+            if (!m) return false;
+            c.dayParts[i].start = *m;
+            std::stable_sort(c.dayParts.begin(), c.dayParts.end(), [](const cal::DayPart& a, const cal::DayPart& b) { return a.start < b.start; });
+            return true;
+        }
+        if (v.empty()) return false;
+        // A name a holiday, an eclipse or a plan uses is renamed there too.
+        const std::string old = c.dayParts[i].name;
+        for (auto& h : c.holidays) if (h.time.part == old) h.time.part = v;
+        for (auto& mo : c.moons) for (auto& e : mo.eclipses) if (e.time.part == old) e.time.part = v;
+        c.dayParts[i].name = v;
         return true;
     }
     return false;
@@ -259,7 +290,12 @@ void StudioApp::commitCalendarFields(const Focus& f) {
     }
     cal::Calendar c = scopeCalendar();
     if (calSet(c, f.contextSeries, v)) saveScopeCalendar(c);
-    else if (!v.empty()) flash(L"That doesn't fit there: a number was expected.", 4);
+    else if (!v.empty()) {
+        const std::string& t = f.contextSeries;
+        const bool timeField = t.size() > 5 && (t.compare(t.size() - 5, 5, ":time") == 0 || t.compare(t.size() - 6, 6, ":start") == 0) && t.rfind("era", 0) != 0;
+        flash(timeField ? L"That isn't a time of day here: try 14:30, 2:30 pm, or one of the calendar's times (dawn, evening…)."
+                        : L"That doesn't fit there: a number was expected.", 5);
+    }
 }
 
 // A month as a grid of days, with its holidays, the seasons that begin in it, and each moon's phase. `big` for the
@@ -348,13 +384,15 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
             float ty = cell.y + 28;
             for (const auto& e : eclipses) {
                 gfx_.text((e.kind == cal::Eclipse::Solar ? L"Solar eclipse" : L"Lunar eclipse") +
-                              (c.moons.size() > 1 ? L" \u00B7 " + w(e.moon->name) : std::wstring()),
+                              (c.moons.size() > 1 ? L" \u00B7 " + w(e.moon->name) : std::wstring()) +
+                              (e.time.empty() ? std::wstring() : L" \u00B7 " + w(cal::timeOfDayText(c, e.time))),
                           {cell.x + 8, ty, cell.w - 16, 18}, Font::Small, eclipseInk, {Align::Left, false, true, true});
                 ty += 18;
             }
             for (const cal::Holiday* h : hols) {
                 const Rect chip{cell.x + 8, ty, cell.w - 16, 20};
-                gfx_.text(w(h->name), chip, Font::Small, gold_, {Align::Left, false, true, true});
+                gfx_.text(w(h->name) + (h->time.empty() ? std::wstring() : L" \u00B7 " + w(cal::timeOfDayText(c, h->time))), chip, Font::Small, gold_,
+                          {Align::Left, false, true, true});
                 if (!h->entry.empty())
                     addHit("calhol:" + std::to_string(dn) + h->name, chip, [this, id = h->entry] { if (lib_->entry(id)) openEntry(id); });
                 if (!h->notes.empty()) tooltip("calhol:" + std::to_string(dn) + h->name, w(h->notes));
@@ -375,11 +413,12 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
                                      : f.kind == cal::DatedFact::Death ? w(en->name) + L" dies"
                                      : f.kind == cal::DatedFact::EventDate ? w(en->name)
                                                                            : w(en->name) + L": " + w(f.label);
+                const std::wstring t2 = f.time.empty() ? t : t + L" \u00B7 " + w(cal::timeOfDayText(c, f.time));
                 const Rect fr{cell.x + 8, ty, cell.w - 16, 18};
                 const std::string fid = "calfact:" + std::to_string(dn) + ":" + f.entry + f.label;
                 addHit(fid, fr, [this, id = f.entry] { openEntry(id); });
-                tooltip(fid, t);
-                gfx_.text(t, fr, Font::Small, hoverAmount(fid) > 0.3f ? pal_.ribbon : pal_.ink, {Align::Left, false, true, true});
+                tooltip(fid, t2);
+                gfx_.text(t2, fr, Font::Small, hoverAmount(fid) > 0.3f ? pal_.ribbon : pal_.ink, {Align::Left, false, true, true});
                 ty += 18;
             }
         } else if (seasonStarts) {
@@ -544,7 +583,8 @@ void StudioApp::drawCalendar(const Rect& r) {
             for (auto& h : c.holidays) hs.push_back(&h);
             std::stable_sort(hs.begin(), hs.end(), [](auto* a, auto* b) { return a->month * 1000 + a->day < b->month * 1000 + b->day; });
             for (const cal::Holiday* h : hs) {
-                const std::wstring when = std::to_wstring(h->day) + L" " + w(cal::monthLabel(c, h->month));
+                const std::wstring when = std::to_wstring(h->day) + L" " + w(cal::monthLabel(c, h->month)) +
+                                          (h->time.empty() ? std::wstring() : L", " + w(cal::timeOfDayText(c, h->time)));
                 const std::string hid = "cal:holrow:" + std::to_string(h->month) + ":" + std::to_string(h->day) + h->name;
                 addHit(hid, {m.x, y, m.w, 26}, [this, mo = h->month] { wb_.calMonth = mo; invalidate(); });
                 gfx_.text(when, {m.x, y, 180, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
@@ -590,11 +630,41 @@ void StudioApp::drawCalendar(const Rect& r) {
                                                                  : L"Month 0 is a month of its own before month 1 (a few days of the year's turning, say).",
                            {cxL, y, cwL, 40}, Font::Small, pal_.inkFaint) + 8;
         gfx_.text(L"Dates are written", {m.x, y, 220, 28}, Font::Body, pal_.ink, {Align::Left, false, true, true});
-        segmented("cal:order", {cxL, y, cwL, 28}, {L"3 Frostmoon 1204", L"Frostmoon 3, 1204", L"1204, 3 Frostmoon"},
-                  c.order == "mdy" ? 1 : c.order == "ymd" ? 2 : 0, [this](int i) {
-                      changeCalendar([i](cal::Calendar& x) { x.order = i == 1 ? "mdy" : i == 2 ? "ymd" : "dmy"; });
+        {
+            // Each order shown as this calendar would write it (0.80: in words or as numbers).
+            std::vector<std::wstring> orders;
+            cal::Calendar ex = c;
+            ex.eraStyle = "none";
+            const cal::Date sample{std::max<std::int64_t>(1, wb_.calYear), std::min(1, (int)c.months.size() - 1), 3};
+            for (const char* o : {"dmy", "mdy", "ymd"}) { ex.order = o; orders.push_back(w(cal::formatDate(ex, sample, false))); }
+            segmented("cal:order", {cxL, y, cwL, 28}, orders, c.order == "mdy" ? 1 : c.order == "ymd" ? 2 : 0, [this](int i) {
+                changeCalendar([i](cal::Calendar& x) { x.order = i == 1 ? "mdy" : i == 2 ? "ymd" : "dmy"; });
+            });
+        }
+        y += 36;
+        gfx_.text(L"In", {m.x, y, 220, 28}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+        segmented("cal:numeric", {cxL, y, cwL, 28}, {L"Words", L"01/00/01", L"01-00-01", L"01.00.01"},
+                  !c.numeric ? 0 : c.separator == '-' ? 2 : c.separator == '.' ? 3 : 1, [this](int i) {
+                      changeCalendar([i](cal::Calendar& x) {
+                          x.numeric = i > 0;
+                          if (i > 0) x.separator = i == 2 ? '-' : i == 3 ? '.' : '/';
+                      });
                   });
-        y += 40;
+        y += 36;
+        if (!c.eras.empty()) {
+            gfx_.text(L"The era after a date", {m.x, y, 220, 28}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+            const cal::Era& last = c.eras.back();
+            segmented("cal:erastyle", {cxL, y, cwL, 28},
+                      {last.abbr.empty() ? L"Short" : w(last.abbr), L"Its name", L"None"},
+                      c.eraStyle == "name" ? 1 : c.eraStyle == "none" ? 2 : 0, [this](int i) {
+                          changeCalendar([i](cal::Calendar& x) { x.eraStyle = i == 1 ? "name" : i == 2 ? "none" : "abbr"; });
+                      });
+            y += 36;
+            if (c.eraStyle == "none")
+                y += gfx_.text(L"A date written with no era is a year of the latest era. A date can still be typed with its era: 3 Frostmoon 1204 | AE.",
+                               {cxL, y, cwL, 40}, Font::Small, pal_.inkFaint) + 6;
+        }
+        y += 4;
         {
             cal::Date ex = cal::fromDay(c, cal::toDay(c, {wb_.calYear, std::min(wb_.calMonth, (int)c.months.size() - 1), 3}));
             gfx_.text(L"For example: " + w(cal::formatDate(c, ex)), {cxL, y, cwL, 20}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
@@ -750,12 +820,31 @@ void StudioApp::drawCalendar(const Rect& r) {
         heading(L"YEARS AND ERAS");
         for (int i = 0; i < (int)c.eras.size(); ++i) {
             const std::string p = "era:" + std::to_string(i);
-            cell(p + ":name", {m.x, y, m.w * 0.42f, 34}, w(c.eras[i].name), L"Era's name");
-            cell(p + ":abbr", {m.x + m.w * 0.42f + 8, y, 80, 34}, w(c.eras[i].abbr), L"AL");
-            gfx_.text(L"from year", {m.x + m.w * 0.42f + 96, y, 74, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
-            cell(p + ":start", {m.x + m.w * 0.42f + 170, y, 90, 34}, std::to_wstring(c.eras[i].start));
-            removeX("cal:ex:" + std::to_string(i), m.x + m.w * 0.42f + 270, y + 6, [i](cal::Calendar& cc) { cc.eras.erase(cc.eras.begin() + i); });
+            const float nw = m.w * 0.32f;
+            cell(p + ":name", {m.x, y, nw, 34}, w(c.eras[i].name), L"Era's name");
+            cell(p + ":abbr", {m.x + nw + 8, y, 80, 34}, w(c.eras[i].abbr), L"AL");
+            gfx_.text(L"from year", {m.x + nw + 96, y, 74, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+            cell(p + ":start", {m.x + nw + 170, y, 80, 34}, std::to_wstring(c.eras[i].start));
+            // Counting up from 1, or down to the next era (0.80).
+            chooserBox("cal:ecount:" + std::to_string(i), {m.x + nw + 258, y, 150, 34}, c.eras[i].countDown ? L"Counts down" : L"Counts up", [this, i] {
+                std::vector<ToolItem> t;
+                t.push_back(ToolItem::item(L"Counts up from 1", [this, i] { changeCalendar([i](cal::Calendar& x) { x.eras[i].countDown = false; }); },
+                                           !scopeCalendar().eras[i].countDown));
+                t.push_back(ToolItem::item(L"Counts down to the next era (its last year is 1)", [this, i] {
+                    changeCalendar([i](cal::Calendar& x) { x.eras[i].countDown = true; });
+                }, scopeCalendar().eras[i].countDown));
+                showTools(t, mouseX(), mouseY());
+            });
+            removeX("cal:ex:" + std::to_string(i), m.x + nw + 418, y + 6, [i](cal::Calendar& cc) { cc.eras.erase(cc.eras.begin() + i); });
             y += 42;
+            if (c.eras[i].countDown) {
+                std::int64_t next = 0;
+                for (auto& e : c.eras) if (e.start > c.eras[i].start && (next == 0 || e.start < next)) next = e.start;
+                std::wstring note = next ? L"Its years count down: year " + std::to_wstring(next - 1) + L" is 1 " +
+                                               w(c.eras[i].abbr.empty() ? c.eras[i].name : c.eras[i].abbr) + L", the year before the next era."
+                                         : L"It counts down to the next era, but none comes after it, so its years count up.";
+                y += gfx_.text(note, {m.x + 20, y - 4, m.w - 20, 20}, Font::Small, pal_.inkFaint) + 8;
+            }
         }
         smallButton("cal:e:add", m.x, y + 2, L"+ Add an era", [this] {
             changeCalendar([](cal::Calendar& x) {
@@ -863,18 +952,18 @@ void StudioApp::drawCalendar(const Rect& r) {
                     const cal::Eclipse& ec = mo.eclipses[k];
                     const std::string q = p + ":ecl:" + std::to_string(k);
                     float x = px;
-                    chooserBox("cal:eck:" + q, {x, y, 150, 32}, ec.kind == cal::Eclipse::Solar ? L"Solar eclipse" : L"Lunar eclipse", [this, i, k] {
+                    chooserBox("cal:eck:" + q, {x, y, 132, 32}, ec.kind == cal::Eclipse::Solar ? L"Solar eclipse" : L"Lunar eclipse", [this, i, k] {
                         std::vector<ToolItem> t;
                         t.push_back(ToolItem::item(L"Solar eclipse", [this, i, k] { changeCalendar([i, k](cal::Calendar& xx) { xx.moons[i].eclipses[k].kind = cal::Eclipse::Solar; }); }));
                         t.push_back(ToolItem::item(L"Lunar eclipse", [this, i, k] { changeCalendar([i, k](cal::Calendar& xx) { xx.moons[i].eclipses[k].kind = cal::Eclipse::Lunar; }); }));
                         showTools(t, mouseX(), mouseY());
                     });
-                    x += 156;
+                    x += 138;
                     static const wchar_t* whens[] = {L"On a date every year", L"Once, on a date", L"At each full moon on a date",
                                                      L"At each new moon on a date", L"At each full moon in a month", L"At each new moon in a month"};
                     const int wi = ec.when == cal::Eclipse::EveryYear ? 0 : ec.when == cal::Eclipse::Once ? 1
                                  : ec.when == cal::Eclipse::AtPhaseOnDate ? (ec.full ? 2 : 3) : (ec.full ? 4 : 5);
-                    chooserBox("cal:ecw:" + q, {x, y, 210, 32}, whens[wi], [this, i, k, wi] {
+                    chooserBox("cal:ecw:" + q, {x, y, 200, 32}, whens[wi], [this, i, k, wi] {
                         std::vector<ToolItem> t;
                         for (int n = 0; n < 6; ++n)
                             t.push_back(ToolItem::item(whens[n], [this, i, k, n] {
@@ -886,16 +975,18 @@ void StudioApp::drawCalendar(const Rect& r) {
                             }, n == wi));
                         showTools(t, mouseX(), mouseY());
                     });
-                    x += 216;
+                    x += 206;
                     if (ec.when != cal::Eclipse::AtPhaseInMonth) { cell(q + ":day", {x, y, 48, 32}, std::to_wstring(ec.day)); x += 52; }
-                    chooserBox("cal:ecm:" + q, {x, y, 120, 32}, w(cal::monthLabel(c, ec.month)), [this, i, k, monthMenu] {
+                    chooserBox("cal:ecm:" + q, {x, y, 110, 32}, w(cal::monthLabel(c, ec.month)), [this, i, k, monthMenu] {
                         monthMenu(scopeCalendar().moons[i].eclipses[k].month,
                                   [this, i, k](int mon) { changeCalendar([i, k, mon](cal::Calendar& xx) { xx.moons[i].eclipses[k].month = mon; }); });
                     });
-                    x += 126;
+                    x += 116;
                     if (ec.when == cal::Eclipse::Once) {
                         cell(q + ":year", {x, y, 80, 32}, w(cal::formatYear(c, ec.year))); x += 86;
                     }
+                    gfx_.text(L"at", {x, y, 20, 32}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 20;
+                    cell(q + ":time", {x, y, 86, 32}, w(cal::timeOfDayText(c, ec.time)), L"any time"); x += 92;
                     removeX("cal:ecx:" + q, x, y + 6, [i, k](cal::Calendar& cc) { cc.moons[i].eclipses.erase(cc.moons[i].eclipses.begin() + k); });
                     y += 40;
                 }
@@ -1006,14 +1097,16 @@ void StudioApp::drawCalendar(const Rect& r) {
         heading(L"HOLIDAYS");
         for (int i = 0; i < (int)c.holidays.size(); ++i) {
             const std::string p = "hol:" + std::to_string(i);
-            cell(p + ":name", {m.x, y, m.w * 0.36f, 34}, w(c.holidays[i].name), L"Holiday's name");
-            float x = m.x + m.w * 0.36f + 8;
+            cell(p + ":name", {m.x, y, m.w * 0.3f, 34}, w(c.holidays[i].name), L"Holiday's name");
+            float x = m.x + m.w * 0.3f + 8;
             gfx_.text(L"on", {x, y, 26, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 26;
             cell(p + ":day", {x, y, 60, 34}, std::to_wstring(c.holidays[i].day)); x += 66;
             chooserBox("cal:holm:" + std::to_string(i), {x, y, 170, 34}, w(cal::monthLabel(c, c.holidays[i].month)), [this, i, monthMenu] {
                 monthMenu(scopeCalendar().holidays[i].month, [this, i](int mo) { changeCalendar([i, mo](cal::Calendar& x) { x.holidays[i].month = mo; }); });
             });
             x += 178;
+            gfx_.text(L"at", {x, y, 22, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 22;
+            cell(p + ":time", {x, y, 96, 34}, w(cal::timeOfDayText(c, c.holidays[i].time)), L"any time"); x += 104;
             removeX("cal:hx:" + std::to_string(i), x, y + 6, [i](cal::Calendar& cc) { cc.holidays.erase(cc.holidays.begin() + i); });
             y += 40;
             cell(p + ":notes", {m.x + 20, y, m.w * 0.6f, 30}, w(c.holidays[i].notes), L"What happens on it (optional)");
@@ -1045,6 +1138,38 @@ void StudioApp::drawCalendar(const Rect& r) {
             cell("minutes", {x, y, 70, 34}, std::to_wstring(c.minutesPerHour)); x += 78;
             gfx_.text(L"minutes. Scenes can be given a time of day in these.", {x, y, m.right() - x, 34}, Font::Small, pal_.inkMuted,
                       {Align::Left, false, true, true});
+            y += 48;
+        }
+        heading(L"TIMES OF DAY");
+        y += gfx_.text(L"Named times a scene, a story event, a holiday, an eclipse or a date in the bible can be given instead of a clock time. "
+                       L"Each runs until the next begins; the last runs on round midnight.",
+                       {m.x, y, m.w, 40}, Font::Small, pal_.inkFaint) + 10;
+        for (int i = 0; i < (int)c.dayParts.size(); ++i) {
+            const std::string p = "dp:" + std::to_string(i);
+            cell(p + ":name", {m.x, y, m.w * 0.36f, 34}, w(c.dayParts[i].name), L"Name");
+            float x = m.x + m.w * 0.36f + 8;
+            gfx_.text(L"from", {x, y, 40, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 40;
+            cell(p + ":start", {x, y, 90, 34}, w(cal::formatTime(c, c.dayParts[i].start))); x += 98;
+            removeX("cal:dpx:" + std::to_string(i), x, y + 6, [i](cal::Calendar& cc) { cc.dayParts.erase(cc.dayParts.begin() + i); });
+            y += 42;
+        }
+        {
+            float bx = m.x, bw = 0;
+            smallButton("cal:dp:add", bx, y + 2, L"+ Add a time of day", [this] {
+                changeCalendar([](cal::Calendar& x) {
+                    std::string name = "New time";
+                    for (int n = 2; cal::dayPartNamed(x, name) && n < 99; ++n) name = "New time " + std::to_string(n);
+                    const int perDay = std::max(1, x.hoursPerDay) * std::max(1, x.minutesPerHour);
+                    x.dayParts.push_back({name, x.dayParts.empty() ? 0 : std::min(perDay - 1, x.dayParts.back().start + x.minutesPerHour)});
+                    std::stable_sort(x.dayParts.begin(), x.dayParts.end(), [](const cal::DayPart& a, const cal::DayPart& b) { return a.start < b.start; });
+                });
+            }, &bw);
+            bx += bw + 10;
+            smallButton("cal:dp:std", bx, y + 2, L"Use the standard times", [this] {
+                const cal::Calendar before = scopeCalendar();
+                changeCalendar([](cal::Calendar& x) { x.dayParts = cal::defaultDayParts(x); });
+                flashUndo(L"The standard times of day are back.", [this, before] { saveScopeCalendar(before); });
+            }, &bw);
             y += 48;
         }
         (void)y0;
@@ -1192,7 +1317,7 @@ float StudioApp::drawEntryDates(const Entry& e, float x, float y, float wd) {
         if (!c.weekdays.empty() && f.kind != cal::DatedFact::Other) {
             const std::wstring wd2 = w(c.weekdays[cal::weekday(c, f.day)]);
             const std::wstring said = f.kind == cal::DatedFact::Birth ? L"Born on a " : f.kind == cal::DatedFact::Death ? L"Died on a " : L"On a ";
-            line += (line.empty() ? L"" : L"   ·   ") + said + wd2;
+            line += (line.empty() ? L"" : L"   ·   ") + said + wd2 + (f.time.empty() ? std::wstring() : L" at " + w(cal::timeOfDayText(c, f.time)));
         }
     }
     if (born && died) {

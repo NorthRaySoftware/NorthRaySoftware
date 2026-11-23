@@ -648,7 +648,11 @@ std::map<Id, double> timelineEvents(const Library& lib, const Id& book) {
 bool setTimelineEvent(Library& lib, const Id& book, const Id& entry, std::optional<double> day) {
     json j = parseObj(lib.setting("timeline:" + book));
     if (!j.contains("events") || !j["events"].is_object()) j["events"] = json::object();
-    if (day) j["events"][entry] = {{"day", *day}};
+    if (day) {
+        // Keep its time of day (0.80).
+        if (!j["events"].contains(entry) || !j["events"][entry].is_object()) j["events"][entry] = json::object();
+        j["events"][entry]["day"] = *day;
+    }
     else j["events"].erase(entry);
     return lib.setSetting("timeline:" + book, j.dump());
 }
@@ -809,10 +813,9 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             for (auto& x : splitList(v)) it.beats.push_back(x);
         } else if (field(l, {"when"}, v)) it.when = v;
         else if (field(l, {"time", "time of day"}, v)) {
-            // A clock time (0.75); anything else is still words for when it happens.
-            bool clock = !v.empty() && std::isdigit((unsigned char)v[0]) && v.find(':') != std::string::npos;
-            if (clock) it.time = v;
-            else it.when = it.when.empty() ? v : it.when + ", " + v;
+            // A clock time (0.75) or a named time of day (0.80), worked out against the book's calendar on import;
+            // anything else is still words for when it happens.
+            it.time = v;
         }
         else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
         else if (field(l, {"characters", "characters present", "present", "cast", "who", "who's there", "in it", "creatures"}, v)) {
@@ -910,6 +913,8 @@ std::string outlineText(const Library& lib, const Id& book) {
             if (!when.empty()) out += "When: " + when + "\n";
             if (v.contains("time") && v["time"].is_number_integer() && v["time"].get<int>() >= 0)
                 out += "Time: " + cal::formatTime(calendar, v["time"].get<int>()) + "\n";
+            else if (v.contains("part") && v["part"].is_string() && !v["part"].get<std::string>().empty())
+                out += "Time: " + lower(v["part"].get<std::string>()) + "\n";
         }
         if (!n->synopsis.empty()) out += n->synopsis + "\n";
     }
@@ -1131,8 +1136,12 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
                     }
                 }
             }
-            if (!it.time.empty())
-                if (const auto mins = cal::parseTime(calendar.empty() ? cal::gregorian() : calendar, it.time)) v["time"] = *mins;
+            if (!it.time.empty()) {
+                const auto t = cal::parseTimeOfDay(calendar.empty() ? cal::gregorian() : calendar, it.time);
+                if (t && t->minutes >= 0) v["time"] = t->minutes;
+                else if (t) v["part"] = t->part;
+                else rest = rest.empty() ? it.time : rest + ", " + it.time;   // not a time: words for when
+            }
             const std::string lw = lower(rest);
             for (const char* u : units) {
                 if (v.contains("day")) break;

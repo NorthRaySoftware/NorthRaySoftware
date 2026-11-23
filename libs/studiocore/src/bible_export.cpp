@@ -488,6 +488,8 @@ BookPlan planOf(const Library& lib, const Id& book) {
             }
             if (v.contains("time") && v["time"].is_number_integer() && v["time"].get<int>() >= 0)
                 r.when += (r.when.empty() ? "" : ", ") + cal::formatTime(calendar, v["time"].get<int>());
+            else if (v.contains("part") && v["part"].is_string() && !v["part"].get<std::string>().empty())
+                r.when += (r.when.empty() ? "" : ", ") + cal::timeOfDayText(calendar, {-1, v["part"].get<std::string>()});
             const std::string words = v.value("when", "");
             if (!words.empty()) r.when += (r.when.empty() ? "" : "; ") + words;
         }

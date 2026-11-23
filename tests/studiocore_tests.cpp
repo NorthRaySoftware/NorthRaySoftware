@@ -395,6 +395,124 @@ static void testCalendar() {
     fs::remove_all(dir);
 }
 
+// Times of day, count-down eras, dates as numbers and how the era follows a date (0.80).
+static void testCalendarTimes() {
+    using namespace studio::cal;
+    std::vector<std::string> warn;
+    const std::string txt =
+        "Calendar: Reckoning\nMonth zero: extra month 0 before month 1\nMonths:\n- Yearsend: 5\n- Frostmoon: 30\n- Thaw: 30\n"
+        "Era: Before the Sundering (BS) from year 1, counting down\nEra: Age of Embers (AE) from year 500\n"
+        "Moon: Kett, 10 days, solar eclipse on 3 Thaw every year at midnight\n"
+        "Holiday: Founding Day on 3 Frostmoon at dusk | Fireworks\n"
+        "Holiday: Quiet Day on 1 Thaw\n"
+        "Times of day: Midnight 0:00, Dawn 5:00, Morning 7:00, Midday 12:00, Afternoon 13:00, Dusk 18:00, Night 21:00\n"
+        "Dates: dd/mm/yy | era\n";
+    Calendar c = fromText(txt, &warn);
+    CHECK(warn.empty());
+    for (auto& x : warn) std::printf("  warning: %s\n", x.c_str());
+    CHECK(c.numeric && c.separator == '/' && c.order == "dmy" && c.eraStyle == "abbr");
+    CHECK(c.dayParts.size() == 7 && c.dayParts[1].name == "Dawn" && c.dayParts[1].start == 300);
+    CHECK(c.eras[0].countDown && !c.eras[1].countDown);
+    CHECK(c.holidays[0].time.part == "Dusk" && c.holidays[1].time.empty());
+    CHECK(c.moons[0].eclipses.size() == 1 && c.moons[0].eclipses[0].time.part == "Midnight");
+    // Counting down: plain year 499 is 1 BS, year 1 is 499 BS; then 1 AE.
+    CHECK(formatYear(c, 499) == "1 BS" && formatYear(c, 1) == "499 BS" && formatYear(c, 500) == "1 AE");
+    CHECK(plainYear(c, 1, "BS") == 499 && plainYear(c, 499, "BS") == 1 && plainYear(c, 3, "AE") == 502);
+    // Numbers: day, month (month zero is 00) and year.
+    CHECK(formatDate(c, {500, 0, 1}) == "01/00/01 AE");
+    CHECK(formatDate(c, {1703, 2, 15}) == "15/02/1204 AE");
+    CHECK(formatDate(c, {498, 1, 3}) == "03/01/02 BS");
+    auto same = [&](const std::string& s, Date d) { const auto r = parseDate(c, s); return r && *r == d; };
+    CHECK(same("01/00/01 AE", {500, 0, 1}));
+    CHECK(same("15/02/1204 AE", {1703, 2, 15}));
+    CHECK(same("03/01/02 BS", {498, 1, 3}));
+    CHECK(same("3 Frostmoon 1204 | AE", {1703, 1, 3}));
+    CHECK(same("3 Frostmoon 1204 | Age of Embers", {1703, 1, 3}));
+    CHECK(same("3 Frostmoon 2 Before the Sundering", {498, 1, 3}));
+    CHECK(same("15-02-1204 AE", {1703, 2, 15}));
+    // The other orders and separators, and the era by name or not at all.
+    c.order = "ymd"; c.separator = '-';
+    CHECK(formatDate(c, {500, 0, 1}) == "01-00-01 AE" && same("1204-02-15 AE", {1703, 2, 15}));
+    c.order = "mdy"; c.separator = '.';
+    CHECK(formatDate(c, {1703, 2, 15}) == "02.15.1204 AE" && same("02.15.1204 AE", {1703, 2, 15}));
+    c.eraStyle = "name";
+    CHECK(formatDate(c, {1703, 2, 15}) == "02.15.1204 Age of Embers" && same("02.15.1204 Age of Embers", {1703, 2, 15}));
+    c.numeric = false;
+    CHECK(formatDate(c, {1703, 1, 3}) == "Frostmoon 3, 1204 Age of Embers");
+    c.eraStyle = "none";
+    CHECK(formatDate(c, {1703, 1, 3}) == "Frostmoon 3, 1204" && same("Frostmoon 3, 1204", {1703, 1, 3}));   // the latest era's year
+    // Written as text and read back.
+    {
+        Calendar d = fromText(txt);
+        d.order = "ymd"; d.separator = '-'; d.eraStyle = "name";
+        const std::string out = toText(d);
+        CHECK(out.find("Dates: yy-mm-dd | era name\n") != std::string::npos);
+        CHECK(out.find("Era: Before the Sundering (BS) from year 1, counting down\n") != std::string::npos);
+        CHECK(out.find("Holiday: Founding Day on 3 Frostmoon at dusk | Fireworks\n") != std::string::npos);
+        CHECK(out.find("solar eclipse on 3 Thaw every year at midnight") != std::string::npos);
+        CHECK(out.find("Times of day: Midnight 0:00, Dawn 5:00,") != std::string::npos);
+        std::vector<std::string> w2;
+        CHECK(toText(fromText(out, &w2)) == out && w2.empty());
+        CHECK(toText(fromJson(toJson(d))) == out);
+        Calendar e = fromText("Calendar: X\nMonths:\n- A: 10\nDates: 01/00/01 (month day year)\n");
+        CHECK(e.numeric && e.order == "mdy" && e.dayParts.size() == 6);   // no Times of day line: the standard ones
+        CHECK(fromText("Calendar: X\nMonths:\n- A: 10\nTimes of day: none\n").dayParts.empty());
+        std::vector<std::string> w3;
+        fromText("Calendar: X\nMonths:\n- A: 10\nTimes of day: Dawn, Night 21:00\n", &w3);
+        CHECK(w3.size() == 1);
+        // A count-down era with nothing after it is a problem, and counts up.
+        Calendar f = fromText("Calendar: X\nMonths:\n- A: 10\nEra: Old (O) from year 1, counting down\n");
+        CHECK(!problems(f).empty() && formatYear(f, 3) == "3 O");
+    }
+    // Times of day.
+    c = fromText(txt);
+    CHECK(dayPartAt(c, 6 * 60)->name == "Dawn" && dayPartAt(c, 23 * 60)->name == "Night" && dayPartAt(c, 2 * 60)->name == "Midnight");
+    const auto t1 = parseTimeOfDay(c, "at dusk"), t2 = parseTimeOfDay(c, "14:30"), t3 = parseTimeOfDay(c, "in the morning"),
+               t4 = parseTimeOfDay(c, "2:30 pm"), t5 = parseTimeOfDay(c, "mid");   // "mid" is Midday and Midnight
+    CHECK(t1 && t1->part == "Dusk" && t2 && t2->minutes == 870 && t3 && t3->part == "Morning" && t4 && t4->minutes == 870 && !t5);
+    CHECK(!parseTimeOfDay(c, "12") && !parseTimeOfDay(c, "the storm"));
+    CHECK(timeOfDayText(c, *t2, true) == "14:30 (afternoon)" && timeOfDayText(c, *t1) == "dusk" && timeSortKey(c, *t1) == 18 * 60);
+    CHECK(defaultDayParts(gregorian())[0].name == "Dawn" && gregorian().dayParts.size() == 6);
+    // Twenty-hour days scale the standard times.
+    Calendar twenty = blank();
+    twenty.hoursPerDay = 20;
+    CHECK(defaultDayParts(twenty)[2].start == 600);   // midday at 10:00
+    // A date with a time.
+    const auto dt = parseDateTime(c, "03/01/1204 AE at dawn");
+    CHECK(dt && dt->date == (Date{1703, 1, 3}) && dt->time.part == "Dawn");
+    const auto dt2 = parseDateTime(c, "3 Frostmoon 1204 AE, 14:30");
+    CHECK(dt2 && dt2->time.minutes == 870);
+    const auto dt3 = parseDateTime(c, "3 Frostmoon 1204 AE");
+    CHECK(dt3 && dt3->time.empty());
+    CHECK(!parseDateTime(c, "3 Frostmoon 1204 AE at the storm"));
+    // On bible entries, and a story event's time on a timeline.
+    const std::string dir = tempLibrary("caltimes");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id b = lib->createBook("One", w);
+    Entry e;
+    e.kind = "character";
+    e.name = "Maren";
+    e.details = "Born: 3 Frostmoon 1204 AE at dawn\nDied: 01/02/1260 AE\n";
+    const auto facts = datedFactsOf(c, e);
+    CHECK(facts.size() == 2 && facts[0].kind == DatedFact::Birth && facts[0].time.part == "Dawn" && facts[1].time.empty());
+    const Id ev = lib->createEntry(w, {}, "event", "The Storm");
+    CHECK(!setEventTime(*lib, b, ev, *t1));   // not on the timeline yet
+    CHECK(plan::setTimelineEvent(*lib, b, ev, 4.0));
+    CHECK(setEventTime(*lib, b, ev, *t1) && eventTime(*lib, b, ev).part == "Dusk");
+    CHECK(plan::setTimelineEvent(*lib, b, ev, 6.0) && eventTime(*lib, b, ev).part == "Dusk" && plan::timelineEvents(*lib, b)[ev] == 6.0);
+    CHECK(setEventTime(*lib, b, ev, {}) && eventTime(*lib, b, ev).empty());
+    // A plan's named time.
+    CHECK(saveWorldCalendar(*lib, w, c));
+    plan::PlanningImport pi;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w, "Chapter: A\nWhen: 3 Frostmoon 1204 AE\nTime: in the morning\nChapter: B\nTime: the hour of wolves\n", pi));
+    const std::string back = plan::planningText(*lib, b, "world:" + w);
+    CHECK(back.find("When: 03/01/1204 AE\nTime: morning\n") != std::string::npos);
+    CHECK(back.find("When: the hour of wolves\n") != std::string::npos);
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 // Plans in calendar dates, with the book's type and place in its series (0.76).
 static void testPlanDates() {
     using namespace studio::cal;
@@ -4487,6 +4605,7 @@ int main() {
     testSubBooks();
     testCalendar();
     testPlanDates();
+    testCalendarTimes();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();

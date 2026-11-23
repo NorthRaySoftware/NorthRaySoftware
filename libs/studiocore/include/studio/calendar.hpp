@@ -29,11 +29,28 @@ struct LeapRule {
     int add = 1;
 };
 
-// An era counts its year 1 from the plain year `start`.
+// An era counts its year 1 from the plain year `start`. One that counts down (0.80) numbers its years down to the next
+// era instead, its last year being 1, like years before Christ.
 struct Era {
     std::string name;
     std::string abbr;
     std::int64_t start = 1;
+    bool countDown = false;
+};
+
+// A named time of day (0.80): it runs from `start` (minutes into the day) until the next one starts; the last runs on
+// round midnight until the first.
+struct DayPart {
+    std::string name;
+    int start = 0;
+};
+
+// A time of day: a clock time (minutes into the day) or one of the calendar's named times. Empty when neither.
+struct TimeOfDay {
+    int minutes = -1;
+    std::string part;
+    bool empty() const { return minutes < 0 && part.empty(); }
+    bool operator==(const TimeOfDay& o) const { return minutes == o.minutes && part == o.part; }
 };
 
 // A moon may be anchored to the calendar (0.78) instead of running freely: on a date it's at a set point of its cycle,
@@ -65,6 +82,7 @@ struct Eclipse {
     bool full = true;            // At…: at the full moon (else the new moon)
     int month = 0, day = 1;      // the date (AtPhaseInMonth: the month only)
     std::int64_t year = 1;       // Once: the plain year
+    TimeOfDay time;              // when in the day (0.80; optional)
 };
 
 struct Moon {
@@ -88,6 +106,7 @@ struct Holiday {
     int day = 1;
     Id entry;        // a bible entry it's about (optional)
     std::string notes;
+    TimeOfDay time;  // when in the day (0.80; optional)
 };
 
 enum class MonthZero { None, Count, Extra };   // months 1..n; months counted 0..n-1; an extra month 0 before month 1
@@ -106,6 +125,12 @@ struct Calendar {
     std::vector<Holiday> holidays;
     int hoursPerDay = 24, minutesPerHour = 60;
     std::string order = "dmy";                 // how dates are written: dmy, mdy or ymd
+    // 0.80: dates as numbers ("01/00/1204": day and month two digits, the month as numbered, the year at least two)
+    // with `separator` between, and how the era follows a date: "abbr" (1204 AE), "name" (1204 Age of Embers), "none".
+    bool numeric = false;
+    char separator = '/';
+    std::string eraStyle = "abbr";
+    std::vector<DayPart> dayParts;             // named times of day, by start (0.80)
     bool empty() const { return months.empty(); }
 };
 
@@ -139,6 +164,21 @@ std::string formatDate(const Calendar& c, const Date& d, bool withEra = true);  
 std::string formatYear(const Calendar& c, std::int64_t year);                    // "1204 AL"
 std::string formatTime(const Calendar& c, int minutes);                          // "14:05" (minutes into the day)
 std::optional<int> parseTime(const Calendar& c, const std::string& s);
+
+// Times of day (0.80).
+std::vector<DayPart> defaultDayParts(const Calendar& c);   // Dawn, Morning, Midday, Afternoon, Evening, Night
+const DayPart* dayPartAt(const Calendar& c, int minutes);  // the named time a clock time falls in (nullptr if none)
+const DayPart* dayPartNamed(const Calendar& c, const std::string& name);   // by name, or a unique start of 3+ letters
+// "14:30", "2:30 pm", "dawn", "at dusk", "in the morning"; nullopt when it's none of these.
+std::optional<TimeOfDay> parseTimeOfDay(const Calendar& c, const std::string& s);
+// "dawn", or "14:30" (with " (afternoon)" when `withPart` and a named time holds it). Empty for an empty time.
+std::string timeOfDayText(const Calendar& c, const TimeOfDay& t, bool withPart = false);
+int timeSortKey(const Calendar& c, const TimeOfDay& t);    // minutes into the day (a named time's start); -1 empty
+std::string dayPartsText(const Calendar& c);               // "Dawn 5:00, Morning 7:00, ..." (or "none")
+std::vector<DayPart> parseDayParts(const Calendar& c, const std::string& text, std::vector<std::string>* warnings = nullptr);
+// A date that may be followed by a time: "3 Frostmoon 1204 AE at dawn", "3 Frostmoon 1204, 14:30".
+struct DateTime { Date date; TimeOfDay time; };
+std::optional<DateTime> parseDateTime(const Calendar& c, const std::string& s);
 // Reads "3 Frostmoon 1204", "Frostmoon 3, 1204 AL", "1204-2-3", "3/2/1204" (in the calendar's order), month names by
 // any unique start of 3+ letters.
 std::optional<Date> parseDate(const Calendar& c, const std::string& s);
@@ -156,7 +196,7 @@ std::string eclipseText(const Calendar& c, const Eclipse& e);             // "lu
 bool parseEclipse(const Calendar& c, const std::string& text, Eclipse& out);
 bool pausedOn(const Calendar& c, const Moon& m, std::int64_t day);       // the moon is holding still that day
 // The eclipses on a day: each with the moon it belongs to.
-struct EclipseOn { const Moon* moon; Eclipse::Kind kind; };
+struct EclipseOn { const Moon* moon; Eclipse::Kind kind; TimeOfDay time; };
 std::vector<EclipseOn> eclipsesOn(const Calendar& c, std::int64_t day);
 std::string phaseName(double phase);                 // "New moon", "Waxing crescent", ... "Full moon" ...
 const Season* seasonOn(const Calendar& c, const Date& d);
@@ -178,6 +218,7 @@ struct DatedFact {
     Id entry;
     std::string label;   // the detail's label as written
     Date date;
+    TimeOfDay time;      // "Born: 3 Frostmoon 1204 at dawn" (0.80)
     std::int64_t day = 0;
 };
 std::vector<DatedFact> datedFacts(const Calendar& c, const std::vector<const Entry*>& entries);
@@ -188,6 +229,9 @@ std::vector<DatedFact> datedFactsOf(const Calendar& c, const Entry& e);
 struct StorySpan { bool on = false; std::int64_t start = 0; bool any = false; std::int64_t first = 0, last = 0; };
 StorySpan storySpan(const Library& lib, const Id& book);   // first/last: the calendar days of everything placed
 bool setTimelineCalendar(Library& lib, const Id& book, bool on, std::optional<std::int64_t> start = std::nullopt);
+// A story event's time of day on a book's timeline (0.80), kept beside its day.
+TimeOfDay eventTime(const Library& lib, const Id& book, const Id& entry);
+bool setEventTime(Library& lib, const Id& book, const Id& entry, const TimeOfDay& t);
 
 // How old someone born on `born` is through a book: at its first and last dates (when it has calendar dates).
 struct AgeInBook { Id book; int from = 0, to = 0; };

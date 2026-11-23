@@ -2059,8 +2059,10 @@ void StudioApp::loadFields() {
             setFieldText(FStoryDay, day);
             {
                 std::string tm;
-                if (it != times.end() && it->second.minutes >= 0)
-                    tm = studio::cal::formatTime(studio::cal::calendarOfBook(*lib_, n->bookId), it->second.minutes);
+                if (it != times.end() && (it->second.minutes >= 0 || !it->second.part.empty())) {
+                    const studio::cal::Calendar cc = studio::cal::calendarOfBook(*lib_, n->bookId);
+                    tm = studio::cal::timeOfDayText(cc.empty() ? studio::cal::gregorian() : cc, {it->second.minutes, it->second.part});
+                }
                 setFieldText(FTimeOfDay, tm);
             }
             setFieldText(FWhen, it != times.end() ? it->second.when : std::string());
@@ -2284,6 +2286,7 @@ void StudioApp::commitFields() {
                 t.placed = !d.empty() && end && *end == 0 && std::isfinite(v);
                 t.day = t.placed ? v : 0;
                 t.minutes = old.minutes;
+                t.part = old.part;
                 if (timelineInCalendar(n.bookId)) {
                     // A date in the world's calendar (0.75); a plain number is still a story day.
                     const studio::cal::Calendar c = studio::cal::calendarOfBook(*lib_, n.bookId);
@@ -2298,11 +2301,13 @@ void StudioApp::commitFields() {
                         }
                     }
                     const std::string tm = fieldText(FTimeOfDay);
-                    if (tm.empty()) t.minutes = -1;
-                    else if (const auto mins = studio::cal::parseTime(c, tm)) t.minutes = *mins;
+                    if (tm.empty()) { t.minutes = -1; t.part.clear(); }
+                    else if (const auto tt = studio::cal::parseTimeOfDay(c, tm)) { t.minutes = tt->minutes; t.part = tt->part; }
+                    else if (tm != studio::cal::timeOfDayText(c, {old.minutes, old.part}))
+                        flash(L"That isn't a time of day: try 14:30, 2:30 pm, or one of the calendar's times (dawn, evening…).", 5);
                 }
                 t.when = fieldText(FWhen);
-                if (old.placed != t.placed || old.day != t.day || old.when != t.when || old.minutes != t.minutes) setStoryTime(n.bookId, n.id, t);
+                if (old.placed != t.placed || old.day != t.day || old.when != t.when || old.minutes != t.minutes || old.part != t.part) setStoryTime(n.bookId, n.id, t);
             }
             if (ok && n.id == currentNode_ && editor_.ready())
                 editor_.send(json{{"type", "title"}, {"title", n.title}}.dump());

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.80.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Times of day: each calendar has its own list (Dawn, Morning, Midday, Afternoon, Evening, Night to start, yours to rename and add to). Planning's cards and story events, holidays, eclipses and dates in the bible can each be given one, or a clock time: Born: 3 Frostmoon 1204 AE at dawn.",
+        "Eras can count down to the next era, like years before Christ: the year before the next era is 1.",
+        "Dates can be written as numbers, like 01/00/1204 (00 is month zero), in day, month or year order with / - or . between, and the era after a date can be its abbreviation, its name or left off. A date can be typed with its era after a bar: 3 Frostmoon 1204 | AE.",
+        "Calendars written as text take all of these: Times of day:, Dates: dd/mm/yy | era, counting down, and at dusk on holidays and eclipses."
+      ]
+    },
+    {
       "version": "0.79.0",
       "date": "2026-11-23",
       "notes": [

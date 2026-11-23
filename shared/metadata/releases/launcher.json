@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.155.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.80.0: times of day, count-down eras and dates as numbers."
+      ]
+    },
+    {
       "version": "0.154.0",
       "date": "2026-11-23",
       "notes": [

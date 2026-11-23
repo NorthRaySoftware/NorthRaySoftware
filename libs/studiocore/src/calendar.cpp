@@ -84,6 +84,7 @@ Calendar gregorian() {
     c.moons = {{"Moon", cycle, cycle - std::fmod(at, cycle)}};
     c.seasons = {{"Winter", 0, 1}, {"Spring", 2, 20}, {"Summer", 5, 21}, {"Autumn", 8, 22}, {"Winter", 11, 21}};
     c.order = "dmy";
+    c.dayParts = defaultDayParts(c);
     return c;
 }
 
@@ -92,6 +93,7 @@ Calendar blank() {
     c.name = "New calendar";
     c.months = {{"First month", 30}};
     c.weekdays = {"First day", "Second day", "Third day", "Fourth day", "Fifth day", "Sixth day", "Seventh day"};
+    c.dayParts = defaultDayParts(c);
     return c;
 }
 
@@ -173,11 +175,26 @@ int weekday(const Calendar& c, std::int64_t day) {
     return (int)w;
 }
 
+namespace {
+// The start of the era after `e` (the next later start); false when it's the last.
+bool nextEraStart(const Calendar& c, const Era& e, std::int64_t& next) {
+    bool any = false;
+    for (auto& x : c.eras)
+        if (x.start > e.start && (!any || x.start < next)) { next = x.start; any = true; }
+    return any;
+}
+}  // namespace
+
 EraYear eraYear(const Calendar& c, std::int64_t year) {
     if (c.eras.empty()) return {year, "", "", false};
     const Era* e = nullptr;
     for (auto& x : c.eras) if (x.start <= year && (!e || x.start >= e->start)) e = &x;
-    if (e) return {year - e->start + 1, e->abbr, e->name, false};
+    if (e) {
+        std::int64_t next = 0;
+        // Counting down (0.80): its last year, the one before the next era, is 1.
+        if (e->countDown && nextEraStart(c, *e, next)) return {next - year, e->abbr, e->name, true};
+        return {year - e->start + 1, e->abbr, e->name, false};
+    }
     std::int64_t first = c.eras.front().start;
     for (auto& x : c.eras) first = std::min(first, x.start);
     return {first - year, c.beforeAbbr, c.beforeName, true};
@@ -187,7 +204,11 @@ std::int64_t plainYear(const Calendar& c, std::int64_t year, const std::string& 
     const std::string l = lower(trim(era));
     if (l.empty()) return year;
     for (auto& x : c.eras)
-        if (lower(x.abbr) == l || lower(x.name) == l) return x.start + year - 1;
+        if ((!x.abbr.empty() && lower(x.abbr) == l) || lower(x.name) == l) {
+            std::int64_t next = 0;
+            if (x.countDown && nextEraStart(c, x, next)) return next - year;
+            return x.start + year - 1;
+        }
     if (!c.eras.empty() && (lower(c.beforeAbbr) == l || lower(c.beforeName) == l)) {
         std::int64_t first = c.eras.front().start;
         for (auto& x : c.eras) first = std::min(first, x.start);
@@ -196,10 +217,30 @@ std::int64_t plainYear(const Calendar& c, std::int64_t year, const std::string& 
     return year;
 }
 
+namespace {
+// The era's name or abbreviation after a year, as the calendar writes it (0.80: abbreviation, name or none).
+std::string eraTag(const Calendar& c, const EraYear& e) {
+    if (c.eraStyle == "none") return {};
+    if (c.eraStyle == "name") return !e.name.empty() ? e.name : e.abbr;
+    return !e.abbr.empty() ? e.abbr : e.name;
+}
+// Always with the era (abbreviation first), so it reads back: for calendar text.
+std::string yearWithEra(const Calendar& c, std::int64_t year) {
+    const EraYear e = eraYear(c, year);
+    const std::string tag = !e.abbr.empty() ? e.abbr : e.name;
+    return std::to_string(e.year) + (tag.empty() ? "" : " " + tag);
+}
+std::string padded(std::int64_t n, int width) {
+    std::string d = std::to_string(n < 0 ? -n : n);
+    while ((int)d.size() < width) d = "0" + d;
+    return (n < 0 ? "-" : "") + d;
+}
+}  // namespace
+
 std::string formatYear(const Calendar& c, std::int64_t year) {
     const EraYear e = eraYear(c, year);
     std::string s = std::to_string(e.year);
-    const std::string tag = !e.abbr.empty() ? e.abbr : e.name;
+    const std::string tag = eraTag(c, e);
     if (!tag.empty()) s += " " + tag;
     return s;
 }
@@ -207,7 +248,16 @@ std::string formatYear(const Calendar& c, std::int64_t year) {
 std::string formatDate(const Calendar& c, const Date& d0, bool withEra) {
     if (c.months.empty()) return {};
     const Date d = clampDate(c, d0);
-    const std::string y = withEra ? formatYear(c, d.year) : std::to_string(eraYear(c, d.year).year);
+    const EraYear e = eraYear(c, d.year);
+    const std::string tag = withEra ? eraTag(c, e) : std::string();
+    if (c.numeric) {
+        // "01/00/1204 AE" (0.80): the day and month in two digits, the month as it's numbered, the year at least two.
+        const std::string sep(1, c.separator ? c.separator : '/');
+        const std::string dd = padded(d.day, 2), mm = padded(monthNumber(c, d.month), 2), yy = padded(e.year, 2);
+        std::string s = c.order == "mdy" ? mm + sep + dd + sep + yy : c.order == "ymd" ? yy + sep + mm + sep + dd : dd + sep + mm + sep + yy;
+        return tag.empty() ? s : s + " " + tag;
+    }
+    const std::string y = std::to_string(e.year) + (tag.empty() ? "" : " " + tag);
     const std::string m = monthLabel(c, d.month), dd = std::to_string(d.day);
     if (c.order == "mdy") return m + " " + dd + ", " + y;
     if (c.order == "ymd") return y + ", " + dd + " " + m;
@@ -242,16 +292,153 @@ std::optional<int> parseTime(const Calendar& c, const std::string& s0) {
     return h * std::max(1, c.minutesPerHour) + m;
 }
 
+// ------------------------------------------------------------------ times of day (0.80)
+
+std::vector<DayPart> defaultDayParts(const Calendar& c) {
+    const int perDay = std::max(1, c.hoursPerDay) * std::max(1, c.minutesPerHour);
+    auto at = [&](int hour24) { return (int)((long long)perDay * hour24 * 60 / (24 * 60)); };
+    return {{"Dawn", at(5)}, {"Morning", at(7)}, {"Midday", at(12)}, {"Afternoon", at(13)}, {"Evening", at(18)}, {"Night", at(21)}};
+}
+
+const DayPart* dayPartAt(const Calendar& c, int minutes) {
+    if (c.dayParts.empty() || minutes < 0) return nullptr;
+    const DayPart* best = nullptr;
+    const DayPart* latest = nullptr;
+    for (auto& p : c.dayParts) {
+        if (p.start <= minutes && (!best || p.start >= best->start)) best = &p;
+        if (!latest || p.start >= latest->start) latest = &p;
+    }
+    return best ? best : latest;   // before the first: the last, running on round midnight
+}
+
+const DayPart* dayPartNamed(const Calendar& c, const std::string& name) {
+    const std::string l = lower(trim(name));
+    if (l.empty()) return nullptr;
+    for (auto& p : c.dayParts) if (lower(trim(p.name)) == l) return &p;
+    if (l.size() < 3) return nullptr;
+    const DayPart* found = nullptr;
+    int hits = 0;
+    for (auto& p : c.dayParts) if (lower(trim(p.name)).rfind(l, 0) == 0) { found = &p; ++hits; }
+    return hits == 1 ? found : nullptr;
+}
+
+std::optional<TimeOfDay> parseTimeOfDay(const Calendar& c, const std::string& s0) {
+    std::string s = trim(s0);
+    for (const char* w : {"at ", "in the ", "during the ", "by ", "the "}) {
+        const std::string ws = w;
+        if (lower(s).rfind(ws, 0) == 0) s = trim(s.substr(ws.size()));
+    }
+    if (s.empty()) return std::nullopt;
+    TimeOfDay t;
+    if (std::isdigit((unsigned char)s[0])) {
+        // A clock time needs a colon or am/pm, so a lone number isn't taken for one.
+        const std::string l = lower(s);
+        if (l.find(':') == std::string::npos && l.find('.') == std::string::npos && l.find("am") == std::string::npos &&
+            l.find("pm") == std::string::npos)
+            return std::nullopt;
+        const auto m = parseTime(c, s);
+        if (!m) return std::nullopt;
+        t.minutes = *m;
+        return t;
+    }
+    if (const DayPart* p = dayPartNamed(c, s)) { t.part = p->name; return t; }
+    return std::nullopt;
+}
+
+std::string timeOfDayText(const Calendar& c, const TimeOfDay& t, bool withPart) {
+    if (!t.part.empty()) {
+        std::string n = t.part;
+        for (auto& ch : n) ch = (char)std::tolower((unsigned char)ch);
+        return n;
+    }
+    if (t.minutes < 0) return {};
+    std::string s = formatTime(c, t.minutes);
+    if (withPart)
+        if (const DayPart* p = dayPartAt(c, t.minutes)) s += " (" + lower(p->name) + ")";
+    return s;
+}
+
+int timeSortKey(const Calendar& c, const TimeOfDay& t) {
+    if (t.minutes >= 0) return t.minutes;
+    if (const DayPart* p = dayPartNamed(c, t.part)) return p->start;
+    return -1;
+}
+
+std::string dayPartsText(const Calendar& c) {
+    if (c.dayParts.empty()) return "none";
+    std::string s;
+    for (auto& p : c.dayParts) s += (s.empty() ? "" : ", ") + p.name + " " + formatTime(c, p.start);
+    return s;
+}
+
+std::vector<DayPart> parseDayParts(const Calendar& c, const std::string& text, std::vector<std::string>* warnings) {
+    std::vector<DayPart> out;
+    if (lower(trim(text)) == "none") return out;
+    std::stringstream ss(text);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        item = trim(item);
+        if (item.empty()) continue;
+        // "Witching hour 3:00": the time is the last word; "from" may come before it.
+        const size_t sp = item.rfind(' ');
+        std::string name = sp == std::string::npos ? std::string() : trim(item.substr(0, sp));
+        const auto m = sp == std::string::npos ? std::nullopt : parseTime(c, item.substr(sp + 1));
+        if (lower(name).size() > 5 && lower(name).compare(lower(name).size() - 5, 5, " from") == 0) name = trim(name.substr(0, name.size() - 5));
+        if (name.empty() || !m) { if (warnings) warnings->push_back("A time of day needs a name and the time it starts (Dawn 5:00): " + item); continue; }
+        out.push_back({name, *m});
+    }
+    std::stable_sort(out.begin(), out.end(), [](const DayPart& a, const DayPart& b) { return a.start < b.start; });
+    return out;
+}
+
+std::optional<DateTime> parseDateTime(const Calendar& c, const std::string& s0) {
+    const std::string s = trim(s0);
+    if (const auto d = parseDate(c, s)) return DateTime{*d, {}};
+    // The time after " at ", a comma, or as the last word(s).
+    const std::string l = lower(s);
+    std::vector<size_t> cuts;
+    for (size_t i = l.size(); i-- > 0;) if (l[i] == ',' || l[i] == ' ') cuts.push_back(i);
+    for (size_t cut : cuts) {
+        std::string datePart = trim(s.substr(0, cut)), timePart = trim(s.substr(cut + 1));
+        while (!datePart.empty() && datePart.back() == ',') datePart = trim(datePart.substr(0, datePart.size() - 1));
+        const auto t = parseTimeOfDay(c, timePart);
+        if (!t) continue;
+        if (const auto d = parseDate(c, datePart)) return DateTime{*d, *t};
+    }
+    return std::nullopt;
+}
+
 std::optional<Date> parseDate(const Calendar& c, const std::string& s0) {
     if (c.months.empty()) return std::nullopt;
     // Split into words and numbers; keep a sign on a number written "-12".
     std::vector<std::string> tok;
     std::string cur;
     auto flush = [&] { if (!cur.empty()) { tok.push_back(cur); cur.clear(); } };
-    const std::string s = trim(s0);
+    std::string s = trim(s0);
+    // An era at the end, by name (which may be several words) or abbreviation, after a space or a "|" (0.80:
+    // "3 Frostmoon 1204 | AE", "01/00/1204 Age of Embers"). The longest that fits is taken.
+    std::string era;
+    {
+        std::vector<std::string> names;
+        for (auto& e : c.eras) { names.push_back(e.name); names.push_back(e.abbr); }
+        names.push_back(c.beforeName);
+        names.push_back(c.beforeAbbr);
+        std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
+        const std::string ls = lower(s);
+        for (const std::string& n : names) {
+            const std::string ln = lower(trim(n));
+            if (ln.empty() || ls.size() <= ln.size() || ls.compare(ls.size() - ln.size(), ln.size(), ln) != 0) continue;
+            const char before = ls[ls.size() - ln.size() - 1];
+            if (!std::isspace((unsigned char)before) && before != '|' && !std::isdigit((unsigned char)before)) continue;
+            era = trim(n);
+            s = trim(s.substr(0, s.size() - ln.size()));
+            while (!s.empty() && (s.back() == '|' || s.back() == ',')) s = trim(s.substr(0, s.size() - 1));
+            break;
+        }
+    }
     for (size_t i = 0; i < s.size(); ++i) {
         const unsigned char ch = (unsigned char)s[i];
-        if (std::isspace(ch) || ch == ',' || ch == '/' || ch == '.') { flush(); continue; }
+        if (std::isspace(ch) || ch == ',' || ch == '/' || ch == '.' || ch == '|') { flush(); continue; }
         if (ch == '-') {
             // A minus starts a negative number only at the start or after a space; otherwise it separates.
             const bool sign = cur.empty() && (i == 0 || std::isspace((unsigned char)s[i - 1])) && i + 1 < s.size() &&
@@ -275,7 +462,6 @@ std::optional<Date> parseDate(const Calendar& c, const std::string& s0) {
         t.push_back(x);
     }
     int month = -1;
-    std::string era;
     std::vector<std::int64_t> nums;
     std::vector<size_t> numAt;
     size_t monthAt = std::string::npos;
@@ -292,7 +478,7 @@ std::optional<Date> parseDate(const Calendar& c, const std::string& s0) {
         }
         // An era?
         bool isEra = false;
-        for (auto& e : c.eras) if (lower(e.abbr) == l || lower(e.name) == l) isEra = true;
+        for (auto& e : c.eras) if ((!e.abbr.empty() && lower(e.abbr) == l) || lower(e.name) == l) isEra = true;
         if (!c.beforeAbbr.empty() && lower(c.beforeAbbr) == l) isEra = true;
         if (isEra) { era = t[i]; continue; }
         // A month by name: exact, else a unique start of 3+ letters. Names may be several words.
@@ -344,6 +530,12 @@ std::optional<Date> parseDate(const Calendar& c, const std::string& s0) {
         const std::int64_t idx = c.monthZero == MonthZero::None ? mo - 1 : mo;
         if (idx < 0 || idx >= (std::int64_t)c.months.size()) return std::nullopt;
         d.year = y; d.month = (int)idx; d.day = (int)dd;
+    }
+    if (era.empty() && c.eraStyle == "none" && !c.eras.empty()) {
+        // Dates written with no era (0.80) are years of the latest era.
+        const Era* last = &c.eras.front();
+        for (auto& x : c.eras) if (x.start >= last->start) last = &x;
+        era = !last->abbr.empty() ? last->abbr : last->name;
     }
     d.year = plainYear(c, d.year, era);
     if (d.day < 1 || d.day > monthLength(c, d.year, d.month)) return std::nullopt;
@@ -477,7 +669,7 @@ std::vector<EclipseOn> eclipsesOn(const Calendar& c, std::int64_t day) {
                     break;
                 }
             }
-            if (on) out.push_back({&m, e.kind});
+            if (on) out.push_back({&m, e.kind, e.time});
         }
     return out;
 }
@@ -626,15 +818,24 @@ std::string eclipseText(const Calendar& c, const Eclipse& e) {
     std::string s = std::string(e.kind == Eclipse::Solar ? "solar" : "lunar") + " eclipse ";
     const std::string date = std::to_string(e.day) + " " + monthLabel(c, e.month);
     switch (e.when) {
-        case Eclipse::EveryYear: return s + "on " + date + " every year";
-        case Eclipse::Once: return s + "on " + date + " " + formatYear(c, e.year);
-        case Eclipse::AtPhaseOnDate: return s + "at every " + (e.full ? "full" : "new") + " moon on " + date;
-        case Eclipse::AtPhaseInMonth: return s + "at every " + (e.full ? "full" : "new") + " moon in " + monthLabel(c, e.month);
+        case Eclipse::EveryYear: s += "on " + date + " every year"; break;
+        case Eclipse::Once: s += "on " + date + " " + yearWithEra(c, e.year); break;
+        case Eclipse::AtPhaseOnDate: s += std::string("at every ") + (e.full ? "full" : "new") + " moon on " + date; break;
+        case Eclipse::AtPhaseInMonth: s += std::string("at every ") + (e.full ? "full" : "new") + " moon in " + monthLabel(c, e.month); break;
     }
+    if (!e.time.empty()) s += " at " + timeOfDayText(c, e.time);
     return s;
 }
 
-bool parseEclipse(const Calendar& c, const std::string& text, Eclipse& out) {
+bool parseEclipse(const Calendar& c, const std::string& text0, Eclipse& out) {
+    // A time of day at the end (0.80): "... every year at midnight".
+    std::string text = trim(text0);
+    TimeOfDay when;
+    {
+        const size_t at = lower(text).rfind(" at ");
+        if (at != std::string::npos && lower(text).compare(at + 4, 5, "every") != 0 && lower(text).compare(at + 4, 4, "each") != 0)
+            if (const auto tt = parseTimeOfDay(c, text.substr(at + 4))) { when = *tt; text = trim(text.substr(0, at)); }
+    }
     std::string t = lower(trim(text));
     auto take = [&](const std::string& w) { if (t.rfind(w, 0) == 0) { t = trim(t.substr(w.size())); return true; } return false; };
     Eclipse e;
@@ -675,6 +876,7 @@ bool parseEclipse(const Calendar& c, const std::string& text, Eclipse& out) {
             e.when = Eclipse::Once;
         }
     } else return false;
+    e.time = when;
     out = e;
     return true;
 }
@@ -749,10 +951,31 @@ std::vector<std::string> problems(const Calendar& c) {
         if (h.month < 0 || h.month >= (int)c.months.size() || h.day < 1 || h.day > c.months[h.month].days + 1)
             out.push_back("The holiday " + h.name + " falls on a day the calendar doesn't have.");
     if (c.hoursPerDay < 1 || c.minutesPerHour < 1) out.push_back("A day needs at least one hour of at least one minute.");
+    for (auto& e : c.eras) {
+        std::int64_t next = 0;
+        if (e.countDown && !nextEraStart(c, e, next))
+            out.push_back("The era " + e.name + " counts down, but no era comes after it to count down to: its years count up.");
+    }
+    const int perDay = std::max(1, c.hoursPerDay) * std::max(1, c.minutesPerHour);
+    for (auto& p : c.dayParts)
+        if (p.start < 0 || p.start >= perDay) out.push_back("The time of day " + p.name + " starts at a time the day doesn't have.");
     return out;
 }
 
 // ------------------------------------------------------------------ JSON
+
+namespace {
+void timeTo(json& o, const TimeOfDay& t) {
+    if (t.minutes >= 0) o["time"] = t.minutes;
+    if (!t.part.empty()) o["part"] = t.part;
+}
+TimeOfDay timeFrom(const json& o) {
+    TimeOfDay t;
+    if (o.contains("time") && o["time"].is_number_integer()) t.minutes = std::max(-1, o["time"].get<int>());
+    if (o.contains("part") && o["part"].is_string()) t.part = o["part"].get<std::string>();
+    return t;
+}
+}  // namespace
 
 std::string toJson(const Calendar& c) {
     json j;
@@ -765,7 +988,11 @@ std::string toJson(const Calendar& c) {
     j["leap"] = json::array();
     for (auto& r : c.leap) j["leap"].push_back({{"every", r.every}, {"offset", r.offset}, {"month", r.month}, {"add", r.add}});
     j["eras"] = json::array();
-    for (auto& e : c.eras) j["eras"].push_back({{"name", e.name}, {"abbr", e.abbr}, {"start", e.start}});
+    for (auto& e : c.eras) {
+        json ej{{"name", e.name}, {"abbr", e.abbr}, {"start", e.start}};
+        if (e.countDown) ej["countDown"] = true;
+        j["eras"].push_back(ej);
+    }
     j["before"] = {{"name", c.beforeName}, {"abbr", c.beforeAbbr}};
     j["moons"] = json::array();
     for (auto& m : c.moons) {
@@ -782,20 +1009,31 @@ std::string toJson(const Calendar& c) {
         if (!m.eclipses.empty()) {
             mj["eclipses"] = json::array();
             static const char* whens[] = {"year", "once", "phase-on", "phase-in"};
-            for (auto& e : m.eclipses)
-                mj["eclipses"].push_back({{"kind", e.kind == Eclipse::Solar ? "solar" : "lunar"}, {"when", whens[e.when]}, {"full", e.full},
-                                          {"month", e.month}, {"day", e.day}, {"year", e.year}});
+            for (auto& e : m.eclipses) {
+                json ej{{"kind", e.kind == Eclipse::Solar ? "solar" : "lunar"}, {"when", whens[e.when]}, {"full", e.full},
+                        {"month", e.month}, {"day", e.day}, {"year", e.year}};
+                timeTo(ej, e.time);
+                mj["eclipses"].push_back(ej);
+            }
         }
         j["moons"].push_back(mj);
     }
     j["seasons"] = json::array();
     for (auto& s : c.seasons) j["seasons"].push_back({{"name", s.name}, {"month", s.month}, {"day", s.day}});
     j["holidays"] = json::array();
-    for (auto& h : c.holidays)
-        j["holidays"].push_back({{"name", h.name}, {"month", h.month}, {"day", h.day}, {"entry", h.entry}, {"notes", h.notes}});
+    for (auto& h : c.holidays) {
+        json hj{{"name", h.name}, {"month", h.month}, {"day", h.day}, {"entry", h.entry}, {"notes", h.notes}};
+        timeTo(hj, h.time);
+        j["holidays"].push_back(hj);
+    }
     j["hoursPerDay"] = c.hoursPerDay;
     j["minutesPerHour"] = c.minutesPerHour;
     j["order"] = c.order;
+    j["numeric"] = c.numeric;
+    j["separator"] = std::string(1, c.separator ? c.separator : '/');
+    j["eraStyle"] = c.eraStyle;
+    j["dayParts"] = json::array();
+    for (auto& p : c.dayParts) j["dayParts"].push_back({{"name", p.name}, {"start", p.start}});
     return j.dump();
 }
 
@@ -816,7 +1054,10 @@ Calendar fromJson(const std::string& text) {
         for (auto& r : j["leap"])
             if (r.is_object()) c.leap.push_back({(int)num(r, "every", 4), (int)num(r, "offset", 0), (int)num(r, "month", 0), (int)num(r, "add", 1)});
     if (j.contains("eras") && j["eras"].is_array())
-        for (auto& e : j["eras"]) if (e.is_object()) c.eras.push_back({str(e, "name"), str(e, "abbr"), (std::int64_t)num(e, "start", 1)});
+        for (auto& e : j["eras"])
+            if (e.is_object())
+                c.eras.push_back({str(e, "name"), str(e, "abbr"), (std::int64_t)num(e, "start", 1),
+                                  e.contains("countDown") && e["countDown"].is_boolean() && e["countDown"].get<bool>()});
     if (j.contains("before") && j["before"].is_object()) { c.beforeName = str(j["before"], "name"); c.beforeAbbr = str(j["before"], "abbr"); }
     if (j.contains("moons") && j["moons"].is_array())
         for (auto& m : j["moons"]) {
@@ -851,6 +1092,7 @@ Calendar fromJson(const std::string& text) {
                     e.when = wh == "once" ? Eclipse::Once : wh == "phase-on" ? Eclipse::AtPhaseOnDate : wh == "phase-in" ? Eclipse::AtPhaseInMonth : Eclipse::EveryYear;
                     e.full = !x.contains("full") || !x["full"].is_boolean() || x["full"].get<bool>();
                     e.month = (int)num(x, "month", 0); e.day = std::max(1, (int)num(x, "day", 1)); e.year = (std::int64_t)num(x, "year", 1);
+                    e.time = timeFrom(x);
                     mo.eclipses.push_back(e);
                 }
             c.moons.push_back(mo);
@@ -859,11 +1101,22 @@ Calendar fromJson(const std::string& text) {
         for (auto& s : j["seasons"]) if (s.is_object()) c.seasons.push_back({str(s, "name"), (int)num(s, "month", 0), (int)num(s, "day", 1)});
     if (j.contains("holidays") && j["holidays"].is_array())
         for (auto& h : j["holidays"])
-            if (h.is_object()) c.holidays.push_back({str(h, "name"), (int)num(h, "month", 0), (int)num(h, "day", 1), str(h, "entry"), str(h, "notes")});
+            if (h.is_object())
+                c.holidays.push_back({str(h, "name"), (int)num(h, "month", 0), (int)num(h, "day", 1), str(h, "entry"), str(h, "notes"), timeFrom(h)});
     c.hoursPerDay = std::max(1, (int)num(j, "hoursPerDay", 24));
     c.minutesPerHour = std::max(1, (int)num(j, "minutesPerHour", 60));
     c.order = str(j, "order");
     if (c.order != "mdy" && c.order != "ymd") c.order = "dmy";
+    c.numeric = j.contains("numeric") && j["numeric"].is_boolean() && j["numeric"].get<bool>();
+    const std::string sep = str(j, "separator");
+    c.separator = sep == "-" || sep == "." ? sep[0] : '/';
+    c.eraStyle = str(j, "eraStyle");
+    if (c.eraStyle != "name" && c.eraStyle != "none") c.eraStyle = "abbr";
+    if (j.contains("dayParts") && j["dayParts"].is_array()) {
+        for (auto& p : j["dayParts"])
+            if (p.is_object() && !str(p, "name").empty()) c.dayParts.push_back({str(p, "name"), std::max(0, (int)num(p, "start", 0))});
+        std::stable_sort(c.dayParts.begin(), c.dayParts.end(), [](const DayPart& a, const DayPart& b) { return a.start < b.start; });
+    } else if (!c.months.empty()) c.dayParts = defaultDayParts(c);   // calendars made before 0.80
     std::stable_sort(c.eras.begin(), c.eras.end(), [](const Era& a, const Era& b) { return a.start < b.start; });
     return c;
 }
@@ -903,7 +1156,8 @@ std::string toText(const Calendar& c) {
         if (r.offset) o << ", from year " << r.offset;
         o << "\n";
     }
-    for (auto& e : c.eras) o << "Era: " << e.name << (e.abbr.empty() ? "" : " (" + e.abbr + ")") << " from year " << e.start << "\n";
+    for (auto& e : c.eras)
+        o << "Era: " << e.name << (e.abbr.empty() ? "" : " (" + e.abbr + ")") << " from year " << e.start << (e.countDown ? ", counting down" : "") << "\n";
     if (!c.beforeName.empty() || !c.beforeAbbr.empty())
         o << "Before the first era: " << c.beforeName << (c.beforeAbbr.empty() ? "" : " (" + c.beforeAbbr + ")") << "\n";
     for (auto& m : c.moons) {
@@ -920,9 +1174,19 @@ std::string toText(const Calendar& c) {
         o << "\n";
     }
     for (auto& s : c.seasons) o << "Season: " << s.name << " from " << dayMonth(s.month, s.day) << "\n";
-    for (auto& h : c.holidays) o << "Holiday: " << h.name << " on " << dayMonth(h.month, h.day) << (h.notes.empty() ? "" : " | " + h.notes) << "\n";
+    for (auto& h : c.holidays)
+        o << "Holiday: " << h.name << " on " << dayMonth(h.month, h.day) << (h.time.empty() ? "" : " at " + timeOfDayText(c, h.time))
+          << (h.notes.empty() ? "" : " | " + h.notes) << "\n";
     o << "Day: " << c.hoursPerDay << " hours of " << c.minutesPerHour << " minutes\n";
-    o << "Dates: " << (c.order == "mdy" ? "month day year" : c.order == "ymd" ? "year month day" : "day month year") << "\n";
+    o << "Times of day: " << dayPartsText(c) << "\n";
+    std::string dates;
+    if (c.numeric) {
+        const std::string sp(1, c.separator ? c.separator : '/');
+        dates = c.order == "mdy" ? "mm" + sp + "dd" + sp + "yy" : c.order == "ymd" ? "yy" + sp + "mm" + sp + "dd" : "dd" + sp + "mm" + sp + "yy";
+    } else dates = c.order == "mdy" ? "month day year" : c.order == "ymd" ? "year month day" : "day month year";
+    if (c.eraStyle == "name") dates += " | era name";
+    else if (c.eraStyle == "none") dates += " | no era";
+    o << "Dates: " << dates << "\n";
     return o.str();
 }
 
@@ -931,7 +1195,7 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
     auto warn = [&](const std::string& s) { if (warnings) warnings->push_back(s); };
     std::istringstream in(text);
     std::string line;
-    bool inMonths = false;
+    bool inMonths = false, dayPartsGiven = false;
     std::vector<std::pair<std::string, std::string>> later;   // lines that name months, read once the months are known
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -964,8 +1228,24 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
             std::string d;
             while (std::getline(ss, d, ',')) if (!trim(d).empty()) c.weekdays.push_back(trim(d));
         } else if (key == "dates" || key == "order") {
-            const std::string l = lower(val);
-            c.order = l.rfind("month", 0) == 0 ? "mdy" : l.rfind("year", 0) == 0 ? "ymd" : "dmy";
+            // "day month year", or as numbers (0.80): "dd/mm/yy", "01/00/01 (day month year)", "yy-mm-dd"; then
+            // "| era", "| era name" or "| no era".
+            std::string l = lower(val), style;
+            const size_t bar = l.find('|');
+            if (bar != std::string::npos) { style = trim(l.substr(bar + 1)); l = trim(l.substr(0, bar)); }
+            c.eraStyle = style.find("no") == 0 || style == "none" ? "none" : style.find("name") != std::string::npos || style.find("full") != std::string::npos ? "name" : "abbr";
+            c.numeric = false;
+            for (char ch : l) if (ch == '/' || ch == '-' || ch == '.' || std::isdigit((unsigned char)ch)) { c.numeric = true; if (!std::isdigit((unsigned char)ch)) { c.separator = ch; break; } }
+            if (l.find("number") != std::string::npos) c.numeric = true;
+            // The order: the first of day/month/year words, else of the d/m/y letters.
+            size_t di = l.find("day"), mi = l.find("month"), yi = l.find("year");
+            if (di == std::string::npos && mi == std::string::npos && yi == std::string::npos) { di = l.find('d'); mi = l.find('m'); yi = l.find('y'); }
+            if (yi != std::string::npos && (di == std::string::npos || yi < di) && (mi == std::string::npos || yi < mi)) c.order = "ymd";
+            else if (mi != std::string::npos && (di == std::string::npos || mi < di)) c.order = "mdy";
+            else c.order = "dmy";
+        } else if (key == "times of day" || key == "times") {
+            c.dayParts = parseDayParts(c, val, warnings);
+            dayPartsGiven = true;
         } else if (key == "day") {
             int h = 24, m = 60;
             if (std::sscanf(val.c_str(), "%d hours of %d minutes", &h, &m) >= 1) { c.hoursPerDay = std::max(1, h); c.minutesPerHour = std::max(1, m); }
@@ -973,6 +1253,10 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
         } else if (key == "era") {
             Era e;
             std::string v = val;
+            for (const char* w : {", counting down", " counting down", ", counts down", " counts down"}) {
+                const std::string ws = w;
+                if (lower(v).size() > ws.size() && lower(v).compare(v.size() - ws.size(), ws.size(), ws) == 0) { e.countDown = true; v = trim(v.substr(0, v.size() - ws.size())); break; }
+            }
             const size_t from = lower(v).rfind(" from year ");
             if (from != std::string::npos) { e.start = std::strtoll(v.c_str() + from + 11, nullptr, 10); v = trim(v.substr(0, from)); }
             const size_t open = v.rfind('(');
@@ -1090,13 +1374,25 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
             if (bar != std::string::npos) { notes = trim(v.substr(bar + 1)); v = trim(v.substr(0, bar)); }
             const size_t on = lower(v).rfind(" on ");
             Holiday h;
-            if (on == std::string::npos || !dayMonth(v.substr(on + 4), h.month, h.day)) { warn("Not understood: Holiday: " + val); continue; }
+            std::string dm = on == std::string::npos ? std::string() : v.substr(on + 4);
+            if (const size_t at = lower(dm).find(" at "); at != std::string::npos) dm = dm.substr(0, at);
+            if (on == std::string::npos || !dayMonth(dm, h.month, h.day)) { warn("Not understood: Holiday: " + val); continue; }
+            std::string when = v.substr(on + 4);
+            {
+                // "3 Frostmoon at dusk" (0.80)
+                const size_t at = lower(when).find(" at ");
+                if (at != std::string::npos) {
+                    if (const auto tt = parseTimeOfDay(c, when.substr(at + 4))) h.time = *tt;
+                    else warn("A holiday's time of day wasn't understood: " + val);
+                }
+            }
             h.name = trim(v.substr(0, on));
             h.notes = notes;
             c.holidays.push_back(h);
         }
     }
     std::stable_sort(c.eras.begin(), c.eras.end(), [](const Era& a, const Era& b) { return a.start < b.start; });
+    if (!dayPartsGiven && !c.months.empty()) c.dayParts = defaultDayParts(c);
     if (c.months.empty()) warn("No months: list them under \"Months:\", one \"- Name: days\" a line.");
     return c;
 }
@@ -1113,9 +1409,11 @@ std::vector<DatedFact> datedFactsOf(const Calendar& c, const Entry& e) {
         if (colon == std::string::npos) continue;
         const std::string label = trim(line.substr(0, colon)), value = trim(line.substr(colon + 1));
         if (label.empty() || value.empty()) continue;
-        const auto d = parseDate(c, value);
-        if (!d) continue;
+        const auto dt = parseDateTime(c, value);
+        if (!dt) continue;
+        const auto d = std::optional<Date>(dt->date);
         DatedFact f;
+        f.time = dt->time;
         const std::string l = lower(label);
         if (l == "born" || l == "birth" || l == "date of birth" || l == "birth date" || l == "hatched") f.kind = DatedFact::Birth;
         else if (l == "died" || l == "death" || l == "date of death" || l == "death date" || l == "killed") f.kind = DatedFact::Death;
@@ -1164,6 +1462,26 @@ bool setTimelineCalendar(Library& lib, const Id& book, bool on, std::optional<st
     if (!j.is_object()) j = json::object();
     j["calendar"] = on;
     if (start) j["start"] = *start;
+    return lib.setSetting("timeline:" + book, j.dump());
+}
+
+TimeOfDay eventTime(const Library& lib, const Id& book, const Id& entry) {
+    json j = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    if (!j.is_object() || !j.contains("events") || !j["events"].is_object() || !j["events"].contains(entry) ||
+        !j["events"][entry].is_object())
+        return {};
+    return timeFrom(j["events"][entry]);
+}
+
+bool setEventTime(Library& lib, const Id& book, const Id& entry, const TimeOfDay& t) {
+    json j = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    if (!j.is_object() || !j.contains("events") || !j["events"].is_object() || !j["events"].contains(entry) ||
+        !j["events"][entry].is_object())
+        return false;   // only an event on the timeline has a time
+    json& v = j["events"][entry];
+    v.erase("time");
+    v.erase("part");
+    timeTo(v, t);
     return lib.setSetting("timeline:" + book, j.dump());
 }
 

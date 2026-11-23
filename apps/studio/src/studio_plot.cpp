@@ -49,6 +49,7 @@ std::map<Id, StudioApp::StoryTime> StudioApp::storyTimes(const Id& bookId) const
         if (v.contains("day") && v["day"].is_number()) { t.placed = true; t.day = v["day"].get<double>(); }
         if (v.contains("when") && v["when"].is_string()) t.when = v["when"].get<std::string>();
         if (v.contains("time") && v["time"].is_number_integer()) t.minutes = v["time"].get<int>();
+        if (v.contains("part") && v["part"].is_string()) t.part = v["part"].get<std::string>();
         out[id] = t;
     }
     return out;
@@ -62,6 +63,7 @@ void StudioApp::setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime
     if (t.placed) v["day"] = t.day;
     if (!t.when.empty()) v["when"] = t.when;
     if (t.minutes >= 0) v["time"] = t.minutes;
+    else if (!t.part.empty()) v["part"] = t.part;
     if (v.empty()) j["nodes"].erase(nodeId);
     else j["nodes"][nodeId] = v;
     lib_->setSetting("timeline:" + bookId, j.dump());
@@ -456,16 +458,31 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         const float fw = std::min(gfx_.measureWidth(nm, Font::Small) + 22, 200.0f);
         const Rect flag{ex - 6, eventTop + 4, fw, 24};
         const std::string id = "pl:tle:" + e->id;
-        addHit(id, flag, [this, eid = e->id] {
-            std::vector<MenuItem> items{MenuItem::item(L"Open it in the world's bible", 1), MenuItem::item(L"Take it off this timeline", 2)};
-            POINT pt;
-            GetCursorPos(&pt);
-            const UINT c = showMenu(hwnd(), items, pt, pal_);
-            if (c == 1) {
+        // Its time of day (0.80): one of the calendar's named times, from the menu.
+        const cal::TimeOfDay et = calOn ? cal::eventTime(*lib_, pl_.book, e->id) : cal::TimeOfDay{};
+        addHit(id, flag, [this, eid = e->id, calOn] {
+            std::vector<ToolItem> t;
+            t.push_back(ToolItem::item(L"Open it in the world's bible", [this, eid] {
                 if (const Entry* x = lib_->entry(eid)) { openWorldbuilding(x->worldId, x->bookId); openEntry(eid); }
-            } else if (c == 2) { plan::setTimelineEvent(*lib_, pl_.book, eid, std::nullopt); invalidate(); }
+            }));
+            if (calOn) {
+                const cal::Calendar c2 = cal::calendarOfBook(*lib_, pl_.book);
+                const cal::TimeOfDay now = cal::eventTime(*lib_, pl_.book, eid);
+                std::vector<ToolItem> times;
+                times.push_back(ToolItem::item(L"Any time", [this, eid] { cal::setEventTime(*lib_, pl_.book, eid, {}); invalidate(); }, now.empty()));
+                for (const cal::DayPart& dp : c2.dayParts) {
+                    cal::TimeOfDay tt;
+                    tt.part = dp.name;
+                    times.push_back(ToolItem::item(w(dp.name) + L"  (from " + w(cal::formatTime(c2, dp.start)) + L")",
+                                                   [this, eid, tt] { cal::setEventTime(*lib_, pl_.book, eid, tt); invalidate(); }, now.part == dp.name));
+                }
+                t.push_back(ToolItem::menu(L"Time of day", times));
+            }
+            t.push_back(ToolItem::line());
+            t.push_back(ToolItem::item(L"Take it off this timeline", [this, eid] { plan::setTimelineEvent(*lib_, pl_.book, eid, std::nullopt); invalidate(); }));
+            showTools(t, mouseX(), mouseY());
         });
-        tooltip(id, nm + L" · " + lab(d) + L". Drag it along to move it; click for more.");
+        tooltip(id, nm + L" · " + lab(d) + (et.empty() ? L"" : L", " + w(cal::timeOfDayText(cc, et))) + L". Drag it along to move it; click for more.");
         const float hv = hoverAmount(id);
         gfx_.fillRounded(flag, 4, evc.withAlpha(0.14f + 0.12f * hv));
         gfx_.fill({ex - 1, eventTop + 4, 2.5f, 24}, evc);
@@ -503,9 +520,11 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
             // On a card, the day and month (the ticks give the year); the whole date is in its tooltip.
             const cal::Date dt = cal::fromDay(cc, cStart + (std::int64_t)std::floor(p.it->day));
             when = std::to_wstring(dt.day) + L" " + w(cal::monthLabel(cc, dt.month));
-            tooltip(id, lab(p.it->day) + (t != times.end() && t->second.minutes >= 0 ? L", " + w(cal::formatTime(cc, t->second.minutes)) : L""));
+            tooltip(id, lab(p.it->day) + (t != times.end() && (t->second.minutes >= 0 || !t->second.part.empty())
+                                              ? L", " + w(cal::timeOfDayText(cc, {t->second.minutes, t->second.part}, true)) : L""));
         } else when = lab(p.it->day);
-        if (t != times.end() && t->second.minutes >= 0 && calOn) when += L" \u00B7 " + w(cal::formatTime(cc, t->second.minutes));
+        if (t != times.end() && (t->second.minutes >= 0 || !t->second.part.empty()) && calOn)
+            when += L" \u00B7 " + w(cal::timeOfDayText(cc, {t->second.minutes, t->second.part}));
         const float lw = gfx_.measureWidth(p.it->label, Font::Label) + 8;
         gfx_.text(when, {c.x + 12 + lw, c.y + 6, c.w - 20 - lw, 16}, Font::Label, pal_.ribbon, {Align::Right, false, true});
         gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {c.x + 12, c.y + 24, c.w - 20, 22}, Font::BodyStrong,
@@ -1003,8 +1022,14 @@ void StudioApp::planPanelExtras(const Rect& c, float& y) {
     if (n && !n->deleted && n->kind != NodeKind::Part) {
         panelHeading(c, y, L"WHEN IN THE STORY", false);
         if (timelineInCalendar(pl_.book)) {
-            y = panelField(c, y, L"Date (3 Frostmoon 1204; blank: not on the timeline)", FStoryDay);
-            y = panelField(c, y, L"Time of day (14:30; optional)", FTimeOfDay);
+            {
+                // An example in this calendar's own way of writing dates (0.80: words or numbers).
+                const cal::Calendar cc = cal::calendarOfBook(*lib_, pl_.book);
+                const std::int64_t y0 = cc.eras.empty() ? 1204 : cc.eras.back().start + 203;
+                const std::wstring ex = cc.empty() ? L"3 Frostmoon 1204" : w(cal::formatDate(cc, {y0, std::min(1, (int)cc.months.size() - 1), 3}));
+                y = panelField(c, y, L"Date (" + ex + L"; blank: not on the timeline)", FStoryDay);
+            }
+            y = panelField(c, y, L"Time of day (14:30, dawn, evening; optional)", FTimeOfDay);
         } else {
             const std::wstring unit = w(timelineUnit(pl_.book));
             y = panelField(c, y, std::wstring(L"Story ") + unit + L" (a number; blank: not on the timeline)", FStoryDay);
