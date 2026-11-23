@@ -237,6 +237,21 @@ static void testCalendar() {
     CHECK(problems(bad).size() == 2);
     CHECK(problems(Calendar{}).size() == 1);
 
+    // The manual's template reads without a warning.
+    {
+        const std::string manual =
+            "Calendar: The Alvoran Reckoning\nMonth zero: extra month 0 before month 1\nMonths:\n- Yearsend: 5\n- Frostmoon: 30\n- Thaw: 30\n"
+            "- Greening: 31\n- Highsun: 31\n- Harvest: 30\n- Leaffall: 30\nWeek: Sunday, Moonday, Starday, Emberday, Restday\n"
+            "Day 0 falls on: Starday\nLeap: every 4 years, 1 day to Yearsend\nLeap: every 100 years, -1 day to Yearsend, from year 50\n"
+            "Era: Age of Light (AL) from year 1\nEra: Age of Embers (AE) from year 500\nBefore the first era: Before Light (BL)\n"
+            "Moon: Selene, 29.5 days, 0 days into its cycle on day 0\nMoon: Kett, 33.5 days, 4 days into its cycle on day 0\n"
+            "Season: Winter from 1 Frostmoon\nSeason: Spring from 15 Thaw\nHoliday: Founding Day on 3 Frostmoon | Fireworks over Valona\n"
+            "Day: 24 hours of 60 minutes\nDates: day month year\n";
+        std::vector<std::string> warn;
+        const Calendar m = fromText(manual, &warn);
+        CHECK(warn.empty() && problems(m).empty() && m.months.size() == 7 && m.leap.size() == 2 && m.leap[1].offset == 50 &&
+              m.leap[1].add == -1 && m.moons[1].offset == 4 && m.seasons.size() == 2);
+    }
     // Kept per world, overridden by a book.
     const std::string dir = tempLibrary("calendar");
     auto lib = openOk(dir);
