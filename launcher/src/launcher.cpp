@@ -113,6 +113,7 @@ void Launcher::onDestroy() {
 void Launcher::applyTheme() {
     const bool dark = model_.settings.theme == ThemeChoice::Dark ||
                       (model_.settings.theme == ThemeChoice::System && systemPrefersDark());
+    setCalmControls(true);   // the calm controls (UI pass, 2026-11)
     applyPalette(northRayPalette(dark));
     BOOL d = dark;
     DwmSetWindowAttribute(hwnd(), 20, &d, sizeof d);

@@ -307,8 +307,10 @@ float CaptureWindow::drawStudioControls(float x, float y, float w, float bottom)
         });
         const float hv = hoverAmount("ctl:trans");
         if (hv > 0) gfx_.fillRounded(r, 6, pal_.ink.withAlpha(0.05f * hv));
-        gfx_.text(L"Transition", {r.x + 8, r.y, 100, r.h}, Font::Body, pal_.inkMuted, {Align::Left, false, true, true});
-        gfx_.text(transitionLabel() + L"  ›", {r.x, r.y, r.w - 8, r.h}, Font::Body, pal_.ink, {Align::Right, false, true, true});
+        // The word, then the choice in what room is left (cut short rather than drawn over the word).
+        const float lw = gfx_.measureWidth(L"Transition", Font::Body) + 16;
+        gfx_.text(L"Transition", {r.x + 8, r.y, lw, r.h}, Font::Body, pal_.inkMuted, {Align::Left, false, true, true});
+        gfx_.text(transitionLabel() + L"  ›", {r.x + 8 + lw, r.y, r.w - 16 - lw, r.h}, Font::Body, pal_.ink, {Align::Right, false, true, true});
         if (focused("ctl:trans")) focusRing(r);
         y += 34;
     }

@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.21.1",
+      "date": "2026-11-23",
+      "notes": [
+        "Buttons have Writing Studio's calm look: one style everywhere, a soft frame that lifts when you point at it, and a small icon beside the words where there's room.",
+        "Faint text is a little darker in the light theme and a little lighter in the dark one, so it reads easily (WCAG AA), and the light theme's green is deeper for the same reason.",
+        "The Profile and Scenes pickers in the top bar have a drawn arrow (some PCs showed a box in its place).",
+        "The Transition row in Controls no longer writes the chosen transition over the word Transition when the panel is narrow."
+      ]
+    },
+    {
       "version": "0.21.0",
       "date": "2026-11-23",
       "notes": [

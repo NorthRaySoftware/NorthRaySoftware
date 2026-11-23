@@ -299,6 +299,7 @@ void FilesWindow::onDestroy() {
 
 void FilesWindow::applyTheme() {
     const bool dark = settings_.theme == Theme::Dark || (settings_.theme == Theme::System && cjui::systemPrefersDark());
+    setCalmControls(true);   // the calm controls (UI pass, 2026-11)
     applyPalette(nr::palette(dark));
     if (addressBrush_) DeleteObject(addressBrush_);
     addressBrush_ = CreateSolidBrush(toColorRef(pal_.sunken));

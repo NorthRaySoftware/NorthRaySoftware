@@ -266,9 +266,7 @@ void StudioApp::applyTheme() {
     const bool dark = settings_.theme == 2 || (settings_.theme == 0 && systemPrefersDark());
     // The NorthRay look, like the Launcher, Browser and Files: cool neutrals and aurora green.
     Palette p = cjui::northray::palette(dark);
-    // The UI pass (0.64): quieter text that still reads (WCAG AA, 4.5:1 on the page) and an accent that does too.
-    if (dark) p.inkFaint = cjui::hexColor("#7D889E");
-    else p.inkFaint = cjui::hexColor("#677185"), p.ribbon = cjui::hexColor("#0B7A5E");
+    // (The UI pass's contrast, 0.64, is in the shared palette now: every app has it.)
     setCalmControls(true);
     applyPalette(p);
     if (fieldBrush_) DeleteObject(fieldBrush_);

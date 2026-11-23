@@ -10,11 +10,11 @@ Palette palette(bool dark) {
     Palette p = makePalette(dark);
     if (!dark) {
         p.paper = hexColor("#F3F5F9"); p.surface = hexColor("#FFFFFF"); p.sunken = hexColor("#E8ECF3");
-        p.ink = hexColor("#0E1526"); p.inkMuted = hexColor("#4E5A70"); p.inkFaint = hexColor("#8590A4");
-        p.rule = hexColor("#D9DEE7"); p.ribbon = hexColor("#0F8F6E"); p.focus = hexColor("#2D5BD8");
+        p.ink = hexColor("#0E1526"); p.inkMuted = hexColor("#4E5A70"); p.inkFaint = hexColor("#677185");   // AA on paper (UI pass)
+        p.rule = hexColor("#D9DEE7"); p.ribbon = hexColor("#0B7A5E"); p.focus = hexColor("#2D5BD8");
     } else {
         p.paper = hexColor("#0D1220"); p.surface = hexColor("#141B2C"); p.sunken = hexColor("#0A0F1A");
-        p.ink = hexColor("#E9EEF7"); p.inkMuted = hexColor("#A4AEC2"); p.inkFaint = hexColor("#6B768C");
+        p.ink = hexColor("#E9EEF7"); p.inkMuted = hexColor("#A4AEC2"); p.inkFaint = hexColor("#7D889E");
         p.rule = hexColor("#232C40"); p.ribbon = hexColor("#5BE3B4"); p.focus = hexColor("#8AB4FF");
     }
     return p;

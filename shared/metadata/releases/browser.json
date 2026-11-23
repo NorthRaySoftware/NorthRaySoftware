@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.9.1",
+      "date": "2026-11-23",
+      "notes": [
+        "Buttons have Writing Studio's calm look: one style everywhere, a soft frame that lifts when you point at it, and a small icon beside the words where there's room.",
+        "Faint text is a little darker in the light theme and a little lighter in the dark one, so it reads easily (WCAG AA), and the light theme's green is deeper for the same reason."
+      ]
+    },
+    {
       "version": "0.9.0",
       "date": "2026-11-18",
       "notes": [

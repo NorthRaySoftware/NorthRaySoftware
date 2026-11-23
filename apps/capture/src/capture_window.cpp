@@ -162,6 +162,7 @@ void CaptureWindow::onDestroy() {
 
 void CaptureWindow::applyTheme() {
     const bool dark = settings_.theme == Theme::Dark || (settings_.theme == Theme::System && cjui::systemPrefersDark());
+    setCalmControls(true);   // the calm controls (UI pass, 2026-11)
     applyPalette(nr::palette(dark));
     if (askBrush_) DeleteObject(askBrush_);
     askBrush_ = CreateSolidBrush(toColorRef(pal_.sunken));
@@ -1132,7 +1133,9 @@ void CaptureWindow::drawTopBar(const Rect& r) {
     x += 132;
     // The profile and the scene collection: each a menu to switch, make, rename or delete.
     auto pick = [&](const std::string& id, const std::wstring& label, std::function<void(POINT)> menu) {
-        const float w = std::min(220.0f, gfx_.measureWidth(label, Font::Small) + 18);
+        // The words and a drawn chevron (not every font has a triangle).
+        const float tw = std::min(196.0f, gfx_.measureWidth(label, Font::Small));
+        const float w = tw + 34;
         const Rect b{x, r.y + 13, w, 28};
         addHit(id, b, [menu] {
             POINT pt;
@@ -1141,12 +1144,16 @@ void CaptureWindow::drawTopBar(const Rect& r) {
         });
         const float hv = hoverAmount(id);
         if (hv > 0.01f) gfx_.fillRounded(b, 7, nr::kNightInk.withAlpha(0.08f * hv));
-        gfx_.text(label, b, Font::Small, nr::kNightMuted.mix(nr::kNightInk, hv), {Align::Center, false, true, true});
+        const cjui::Color ink = nr::kNightMuted.mix(nr::kNightInk, hv);
+        gfx_.text(label, {b.x + 9, b.y, tw + 2, b.h}, Font::Small, ink, {Align::Left, false, true, true});
+        const float cx = b.right() - 13, cy = b.y + b.h / 2;
+        gfx_.line(cx - 3.5f, cy - 1.5f, cx, cy + 2, ink, 1.3f);
+        gfx_.line(cx, cy + 2, cx + 3.5f, cy - 1.5f, ink, 1.3f);
         if (focused(id)) focusRing(b);
         x += w + 4;
     };
-    pick("top:profile", L"Profile: " + widen(settings_.profile) + L" \u25BE", [this](POINT pt) { profileMenu(pt); });
-    pick("top:scenes", L"Scenes: " + widen(settings_.sceneCollection) + L" \u25BE", [this](POINT pt) { collectionMenu(pt); });
+    pick("top:profile", L"Profile: " + widen(settings_.profile), [this](POINT pt) { profileMenu(pt); });
+    pick("top:scenes", L"Scenes: " + widen(settings_.sceneCollection), [this](POINT pt) { collectionMenu(pt); });
     // Commands on the right, before the window buttons.
     const float capW = drawCaptionButtons(r, true);
     float bx = r.right() - capW - 8;

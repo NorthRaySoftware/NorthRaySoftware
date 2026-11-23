@@ -1821,3 +1821,13 @@ different design per theme. Radio and Steampunk were added on request during the
   117 designs rendered by `capture_design_render_check`; the Theme page; switching to Dark fantasy and Steampunk
   reskinning Starting Soon, Now playing, the facecam frame, lower third and Writing cards and the aurora sky on the GPU
   (which found the atan2 problem); making an own theme and changing its main colour; a new text element in Steampunk's look.
+
+## 68. 0.21.1: the calm controls (23 Nov 2026)
+
+- `setCalmControls(true)` before `applyPalette` (as in Writing Studio, Launcher, Files and Browser): cjui's `button`, `disabledButton` and `linkText` draw `calmFace` (radius 7, hover lift, an icon from the words where it fits), focus rings radius 9, and notes in the bottom-right corner.
+- The shared palette (`cjui::northray::palette`) carries the UI pass's contrast: inkFaint #677185 light / #7D889E dark, light ribbon #0B7A5E.
+- Top bar pickers: the label left-aligned at its measured width (up to 196) and a drawn chevron in place of U+25BE.
+- Controls › Transition: the value is laid out after the word's measured width, right-aligned and cut short.
+- cjui `Gfx::arc` is drawn with Béziers (Wine's Direct2D drew nothing for `AddArc`).
+- Tested in Wine: the main window, Settings and Library; Launcher, Files and Browser looked over too.
+
