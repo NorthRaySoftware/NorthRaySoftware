@@ -142,8 +142,10 @@ void StudioApp::previewMessage(const std::string& text) {
 // ---------------------------------------------------------------- drawing
 
 void StudioApp::drawPreviewSidebar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.71), that's its background
+        gfx_.fill(r, pal_.sunken);
+        gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
+    }
     const studio::Book* b = lib_->book(pv_.book);
     if (!b) return;
     gfx_.pushClip(r);
@@ -151,9 +153,13 @@ void StudioApp::drawPreviewSidebar(const Rect& r) {
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
     float y = r.y + 14 - pv_.sideScroll;
     // (Back to the Library is on the rail, 0.66.)
-    gfx_.text(L"EBOOK PREVIEW", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 20;
-    y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 32;
+    if (!panelAsCard_) {   // (in a card, the head over the device has these, 0.71)
+        gfx_.text(L"EBOOK PREVIEW", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 20;
+        y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 32;
+    } else {
+        y += 6;
+    }
 
     // Devices.
     gfx_.text(L"DEVICE", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
@@ -207,7 +213,13 @@ void StudioApp::drawPreviewSidebar(const Rect& r) {
         sendPreviewSettings();
     });
     y += 44;
-    // Chapters.
+    // Chapters (in a card, they're under Contents in the head instead, 0.71).
+    if (panelAsCard_) {
+        pv_.sideContent = y + pv_.sideScroll - r.y + 20;
+        clearHitClip();
+        gfx_.popClip();
+        return;
+    }
     gfx_.text(L"CHAPTERS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 24;
     for (size_t i = 0; i < pv_.chapters.size(); ++i) {
@@ -271,6 +283,62 @@ void StudioApp::drawPreviewPanel(const Rect& r) {
     button("pv:refresh", {c.x, y + 10, c.w, 32}, L"Refresh from the text", [this] { sendPreview(); flash(L"The preview shows the latest text.", 3); });
     clearHitClip();
     gfx_.popClip();
+}
+
+
+// ------------------------------------------------------- the head (0.71)
+
+// Over the device: the book and where you are, then turning the page, the reader's settings, the contents and tools.
+void StudioApp::drawPreviewHead(const Rect& r) {
+    const studio::Book* b = lib_->book(pv_.book);
+    if (!b) return;
+    std::wstring note;
+    if (!pv_.chapters.empty()) {
+        const int ch = std::clamp(pv_.chapter, 0, (int)pv_.chapters.size() - 1);
+        note = w(pv_.chapters[ch].first) + L" · screen " + std::to_wstring(pv_.page + 1) + L" of " + std::to_wstring(std::max(1, pv_.pages));
+    }
+    viewerHead(r, L"EBOOK PREVIEW", w(b->title), note);
+    const float pad = r.w > 900 ? 28 : 18, by = r.y + (r.h - 32) / 2;
+    float right = r.right() - pad;
+    {
+        const float tw = gfx_.measureWidth(L"Preview tools", Font::Body) + 44;
+        right -= tw;
+        menuButton("pv:head:tools", right, by, L"Preview tools", [this] {
+            std::vector<ToolItem> t;
+            t.push_back(ToolItem::item(L"Refresh from the text", [this] { sendPreview(); flash(L"The preview shows the latest text.", 3); }));
+            t.push_back(ToolItem::item(L"Make the EPUB (Publishing)", [this] { openPublishing(pv_.book); }));
+            t.push_back(ToolItem::item(L"The book's page", [this] { ws_ = Workspace::Library; goTo(View::Book, pv_.book); }));
+            return t;
+        });
+        right -= 8;
+    }
+    if (!pv_.chapters.empty()) {
+        const float cwid = gfx_.measureWidth(L"Contents", Font::Body) + 44;
+        right -= cwid;
+        menuButton("pv:head:toc", right, by, L"Contents", [this] {
+            std::vector<ToolItem> t;
+            for (size_t i = 0; i < pv_.chapters.size(); ++i) {
+                std::wstring l = w(pv_.chapters[i].first);
+                if (!pv_.chapters[i].second) l = L"    " + l;   // chapters under their parts
+                t.push_back(ToolItem::item(l, [this, i] {
+                    pv_.chapter = (int)i;
+                    preview_.send(json{{"type", "goto"}, {"chapter", (int)i}}.dump());
+                }, (int)i == pv_.chapter));
+            }
+            return t;
+        });
+        right -= 8;
+    }
+    right -= toggleButton("pv:head:settings", right, by, L"Reader's settings", settings_.previewChoices, [this] {
+        settings_.previewChoices = !settings_.previewChoices;
+        saveSettings();
+        invalidate();
+    }, L"The device and the reader's settings beside it") + 16;
+    const float nw = gfx_.measureWidth(L"Next", Font::Body) + 48, bw = gfx_.measureWidth(L"Back", Font::Body) + 48;
+    right -= nw;
+    button("pv:head:next", {right, by, nw, 32}, L"Next ›", [this] { preview_.send(R"({"type":"turn","delta":1})"); });
+    right -= 8 + bw;
+    button("pv:head:prev", {right, by, bw, 32}, L"‹ Back", [this] { preview_.send(R"({"type":"turn","delta":-1})"); });
 }
 
 }  // namespace nrs

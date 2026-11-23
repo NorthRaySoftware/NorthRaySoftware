@@ -65,14 +65,30 @@ void StudioApp::drawFrame(float W, float H) {
     // there's something to show: a picture or comment chosen in the text, or the chapter's details asked for (F4).
     const bool writeLayout = ws_ == Workspace::Writing && !focusing && lib_ && lib_->book(writingBook_);
     const bool writeCard = writeLayout && (focus_.kind == Focus::Picture || focus_.kind == Focus::Comment || settings_.writingDetails);
-    const float sideW = focusing || worldLayout || planLayout || libLayout || (!settings_.showSide && !settingsPage) ? 0
+    // Review, Typesetting, Preview and Publishing (0.71): a header with the book, its parts as tabs where it has them and
+    // a tools menu; their choices or details as a card at the right (Typesetting's design and Preview's reader's
+    // settings can be put away).
+    const bool bookWs = !focusing && lib_ && (ws_ == Workspace::Review || ws_ == Workspace::Typesetting || ws_ == Workspace::Preview ||
+                                              ws_ == Workspace::Publishing);
+    const bool bookCard = bookWs && ((ws_ == Workspace::Review && ((rv_.section == 1 && !rv_.snapshot.empty()) || rv_.section == 3)) ||
+                                     (ws_ == Workspace::Typesetting && settings_.typesetDesign) ||
+                                     (ws_ == Workspace::Preview && settings_.previewChoices) || ws_ == Workspace::Publishing);
+    const float sideW = focusing || worldLayout || planLayout || libLayout || bookWs || (!settings_.showSide && !settingsPage) ? 0
                       : writeLayout ? kWriteSideW : kSideW;
-    const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && !writeLayout && settings_.showPanel && lib_ && !settingsPage;
-    panelAsCard_ = worldCard || planLayout || libCard || writeCard;
+    const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && !writeLayout && !bookWs && settings_.showPanel && lib_ && !settingsPage;
+    panelAsCard_ = worldCard || planLayout || libCard || writeCard || bookCard;
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
     const float railW = focusing ? 0 : kRailW;
     railRect_ = {0, kTopH, railW, H - kTopH};
-    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard || writeCard ? kPanelW + 34 : 0);
+    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard || writeCard || bookCard ? kPanelW + 34 : 0);
+    // Draws a details or choices card at the right edge.
+    auto rightCard = [&](const std::function<void(const Rect&)>& drawIt) {
+        panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+        card(panelRect_, 14);
+        gfx_.pushClip(panelRect_.inset(0, 6));
+        drawIt(panelRect_);
+        gfx_.popClip();
+    };
     sideRect_ = {railW, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
     pageRect_ = {railW + sideW, kTopH, centreW, H - kTopH};
@@ -82,9 +98,15 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ != Workspace::Preview) preview_.hide();
     if (ws_ == Workspace::Preview && lib_ && lib_->book(pv_.book)) {
         editor_.hide();
+        Rect headRect{};
+        if (bookWs) {   // the head over the device (0.71)
+            headRect = {pageRect_.x, pageRect_.y, pageRect_.w, kViewerHeadH};
+            pageRect_.y += kViewerHeadH;
+            pageRect_.h -= kViewerHeadH;
+        }
         gfx_.fill(pageRect_, pal_.dark ? hexColor("#121214") : hexColor("#DCD7CC"));
         if (!previewNote_.empty()) {
-            const Rect m{pageRect_.x + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+            const Rect m{pageRect_.x + pad, pageRect_.y + 26, std::min(centreW - pad * 2, 620.0f), 0};
             float y = m.y + pageHeader(m, L"PREVIEW", L"The ebook preview isn't available", previewNote_);
             linkText("pv:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
                      [] { cjui::openInBrowser("https://developer.microsoft.com/microsoft-edge/webview2/"); });
@@ -98,6 +120,8 @@ void StudioApp::drawFrame(float W, float H) {
         }
         if (sideRect_.w > 0) drawPreviewSidebar(sideRect_);
         if (panel) drawPreviewPanel(panelRect_);
+        if (headRect.w > 0) drawPreviewHead(headRect);
+        if (bookCard) rightCard([this](const Rect& rr) { drawPreviewSidebar(rr); });
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -108,9 +132,17 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Preview) ws_ = Workspace::Library;
     if (ws_ == Workspace::Typesetting && lib_ && lib_->book(ts_.book)) {
         editor_.hide();
+        Rect headRect{};
+        if (bookWs) {
+            headRect = {pageRect_.x, pageRect_.y, pageRect_.w, kViewerHeadH};
+            pageRect_.y += kViewerHeadH;
+            pageRect_.h -= kViewerHeadH;
+        }
         drawTypesetPages(pageRect_);
         if (sideRect_.w > 0) drawTypesetSidebar(sideRect_);
         if (panel) drawTypesetPanel(panelRect_);
+        if (headRect.w > 0) drawTypesetHead(headRect);
+        if (bookCard) rightCard([this](const Rect& rr) { drawTypesetSidebar(rr); });
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -132,6 +164,7 @@ void StudioApp::drawFrame(float W, float H) {
         else drawPublishPage(pageRect_);
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
         if (panel) { if (designing) drawCoverPanel(panelRect_); else drawPublishPanel(panelRect_); }
+        if (bookCard) rightCard([this, designing](const Rect& rr) { if (designing) drawCoverPanel(rr); else drawPublishPanel(rr); });
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -256,6 +289,8 @@ void StudioApp::drawFrame(float W, float H) {
         drawReviewPage(pageRect_);
         if (sideRect_.w > 0) drawReviewSidebar(sideRect_);
         if (panel) drawReviewPanel(panelRect_);
+        if (bookCard) rightCard([this](const Rect& rr) { drawReviewPanel(rr); });
+        else if (bookWs) panelRect_ = {};
         drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
@@ -647,7 +682,7 @@ void StudioApp::drawTopBar(const Rect& r) {
     // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
     // (Not in Worldbuilding, which has neither since 0.68.)
     if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings) && ws_ != Workspace::Worldbuilding &&
-        ws_ != Workspace::Planning && ws_ != Workspace::Library) {   // (nor Planning and the Library, 0.69)
+        ws_ != Workspace::Planning && ws_ != Workspace::Library && ws_ == Workspace::Writing) {   // only Writing has them now (0.71)
         auto layoutButton = [&](const std::string& bid, float bx, cjui::Icon icon, bool on, const wchar_t* tip, std::function<void()> act) {
             const Rect b{bx, (r.h - 30) / 2, 30, 30};
             addHit(bid, b, std::move(act), false);
@@ -834,8 +869,8 @@ std::vector<ShortcutGroup> StudioApp::shortcutGroups() {
         {L"Anywhere", {{L"Ctrl+K", L"Search: chapters, scenes, the bible, books, worlds and commands"}, {L"Ctrl+1 to Ctrl+8", L"The workspaces on the rail, top to bottom"}, {L"Ctrl+/", L"These shortcuts"}}},
         {L"Library", {{L"Ctrl+N", L"New book"}, {L"Ctrl+Shift+N", L"New series"}, {L"Ctrl+Shift+W", L"New world"},
                       {L"Ctrl+Shift+I", L"Import a book"}, {L"F2", L"Rename"}, {L"Del", L"Move to Trash"},
-                      {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+Shift+1 / Ctrl+Shift+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"},
-                      {L"F4", L"Show or hide the details panel"}, {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"},
+                      {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+Shift+1 / Ctrl+Shift+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline (Writing)"},
+                      {L"F4", L"Show or hide the chapter's details (Writing)"}, {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"},
                       {L"Ctrl+,", L"Settings"}}},
         {L"Writing", {{L"Ctrl+W", L"Open the current book in Writing (or double-click it)"},
                       {L"Ctrl+Up / Ctrl+Down", L"Previous / next chapter"}, {L"Up / Down", L"Move through the outline"},
@@ -902,6 +937,77 @@ float StudioApp::pageHeader(const Rect& r, const std::wstring& kicker, const std
 }
 
 // ------------------------------------------------------- the second redesign (0.68)
+
+// The head of a book's workspace (0.71): a gold kicker, the book's title, a tools menu at the right, its parts as tabs,
+// and a line about the part. Its height.
+float StudioApp::workspaceHeader(const Rect& m, const std::wstring& kicker, const std::wstring& title, const std::string& tabsId,
+                                 const std::vector<PageTab>& tabs, const std::wstring& toolsLabel,
+                                 std::function<std::vector<ToolItem>()> tools, const std::wstring& sub) {
+    float y = m.y;
+    gfx_.text(kicker, {m.x, y, m.w, 16}, Font::Label, gold_, {Align::Left, false, true});
+    float tbw = 0;
+    if (tools) {
+        tbw = gfx_.measureWidth(toolsLabel, Font::Body) + 44;
+        menuButton(tabsId + ":tools", m.right() - tbw, y + 10, toolsLabel, std::move(tools));
+    }
+    y += 20;
+    y += gfx_.text(title, {m.x, y, std::max(160.0f, m.w - tbw - 20), 90}, Font::SerifTitle, pal_.ink) + 8;
+    if (!tabs.empty()) y += pageTabs(tabsId, m.x, y, m.right(), tabs) + 14;
+    if (!sub.empty()) y += gfx_.text(sub, {m.x, y, std::min(m.w, 760.0f), 60}, Font::Small, pal_.inkMuted) + 14;
+    return y - m.y + 8;
+}
+
+// The head over a viewer (Typesetting's pages, Preview's device), 0.71: kicker, title and a note on the left. The
+// caller adds its buttons from the right.
+void StudioApp::viewerHead(const Rect& r, const std::wstring& kicker, const std::wstring& title, const std::wstring& note) {
+    gfx_.fill(r, pal_.paper);
+    gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
+    const float x = r.x + (r.w > 900 ? 28 : 18);
+    gfx_.text(kicker, {x, r.y + 10, 400, 14}, Font::Label, gold_, {Align::Left, false, true});
+    const float tw = std::min(gfx_.measureWidth(title, Font::Heading) + 4, r.w * 0.4f);
+    gfx_.text(title, {x, r.y + 26, tw, 26}, Font::Heading, pal_.ink, {Align::Left, false, true, true});
+    if (!note.empty()) gfx_.text(note, {x + tw + 16, r.y + 26, r.w * 0.3f, 26}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+}
+
+// A button that's on or off (Design, Reader's settings), 0.71. Its width.
+static float toggleWidth(cjui::Gfx& g, const std::wstring& label) { return g.measureWidth(label, cjui::Font::Body) + 28; }
+
+// Review's head (0.71): Changes, Snapshots, Names, Comments and Goals as tabs, and Review tools.
+float StudioApp::toggleButton(const std::string& id, float right, float y, const std::wstring& label, bool on, std::function<void()> flip,
+                              const std::wstring& tip) {
+    const float bw = toggleWidth(gfx_, label);
+    const Rect b{right - bw, y, bw, 32};
+    addHit(id, b, std::move(flip));
+    if (!tip.empty()) tooltip(id, tip);
+    const float hv = hoverAmount(id);
+    gfx_.fillRounded(b, 8, on ? pal_.ribbon.withAlpha(pal_.dark ? 0.22f : 0.14f) : pal_.surface.mix(pal_.sunken, 0.35f * hv));
+    gfx_.strokeRounded(b, 8, on ? pal_.ribbon.withAlpha(0.6f) : pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+    gfx_.text(label, b, Font::Body, on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Center, false, false, true});
+    if (focused(id)) focusRing(b);
+    return bw;
+}
+
+float StudioApp::reviewHeader(const Rect& m, const std::wstring& sub) {
+    const studio::Book* b = lib_->book(rv_.book);
+    std::vector<PageTab> tabs;
+    static const wchar_t* names[] = {L"Changes", L"Snapshots", L"Names", L"Goals", L"Comments"};
+    for (int i : {0, 1, 2, 4, 3}) {
+        PageTab t;
+        t.label = names[i];
+        t.on = rv_.section == i;
+        t.act = [this, i] { showReviewSection(i); };
+        tabs.push_back(t);
+    }
+    return workspaceHeader(m, L"REVIEW", b ? w(b->title) : std::wstring(), "rv:tabs", tabs, L"Review tools", [this] {
+        std::vector<ToolItem> t;
+        t.push_back(ToolItem::item(L"Make a review copy…", [this] { makeReviewCopy(); }));
+        t.push_back(ToolItem::item(L"Import a reader's comments…", [this] { importReaderComments(); }));
+        t.push_back(ToolItem::line());
+        t.push_back(ToolItem::item(L"Write this book", [this] { openWriting(rv_.book); }));
+        t.push_back(ToolItem::item(L"The book's page", [this] { ws_ = Workspace::Library; goTo(View::Book, rv_.book); }));
+        return t;
+    }, sub);
+}
 
 // The Library's places (0.69): what its sidebar listed, as tabs, with Library tools at the end of the row. Its height.
 float StudioApp::libraryTabs(const Rect& page) {
@@ -2516,9 +2622,9 @@ float StudioApp::pageSettings(const Rect& r0) {
         });
     }
     y += 40;
-    rowLabel(L"Details panel");
-    segmented("set:panel", {cx, y, cw, 28}, {L"Shown", L"Hidden"}, settings_.showPanel ? 0 : 1, [this](int i) {
-        settings_.showPanel = i == 0; saveSettings();
+    rowLabel(L"Chapter details in Writing");   // (the other workspaces show details where they're needed, 0.71)
+    segmented("set:panel", {cx, y, cw, 28}, {L"Shown", L"Hidden"}, settings_.writingDetails ? 0 : 1, [this](int i) {
+        settings_.writingDetails = i == 0; saveSettings();
     });
     y += 48;
 

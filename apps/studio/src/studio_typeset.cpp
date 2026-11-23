@@ -156,8 +156,10 @@ void StudioApp::exportPdf() {
 // ---------------------------------------------------------------- drawing
 
 void StudioApp::drawTypesetSidebar(const Rect& r) {
-    gfx_.fill(r, pal_.sunken);
-    gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.71), that's its background
+        gfx_.fill(r, pal_.sunken);
+        gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
+    }
     const studio::Book* b = lib_->book(ts_.book);
     if (!b) return;
     gfx_.pushClip(r);
@@ -165,15 +167,17 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
     float y = r.y + 14 - ts_.sideScroll;
     // (Back to the Library is on the rail, 0.66.)
-    gfx_.text(L"TYPESETTING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
-    y += 20;
-    y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 2;
-    {
+    if (!panelAsCard_) {   // (in a card, the page's head has these, 0.71)
+        gfx_.text(L"TYPESETTING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 20;
+        y += gfx_.text(w(b->title), {tx0, y, cw, 90}, Font::SerifTitle, pal_.ink) + 2;
         std::wstring sub;
         if (ts_.result && ts_.result->ok) sub = std::to_wstring(ts_.result->pages.size()) + L" pages";
         if (ts_.busy) sub = sub.empty() ? L"Setting the pages..." : sub + L" · updating...";
         gfx_.text(sub, {tx0, y, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
         y += 32;
+    } else {
+        y += 6;
     }
 
     // Designs.
@@ -537,6 +541,79 @@ void StudioApp::drawTypesetPanel(const Rect& r) {
     ts_.panelContent = y + ts_.panelScroll - r.y + 20;
     clearHitClip();
     gfx_.popClip();
+}
+
+
+// ------------------------------------------------------- the head (0.71)
+
+// Over the pages: the book and how many pages, then Export PDF, Design (the card of choices), Contents and the tools.
+void StudioApp::drawTypesetHead(const Rect& r) {
+    const studio::Book* b = lib_->book(ts_.book);
+    if (!b) return;
+    std::wstring note;
+    if (ts_.result && ts_.result->ok) note = std::to_wstring(ts_.result->pages.size()) + L" pages";
+    if (ts_.busy) note = note.empty() ? L"Setting the pages…" : note + L" · updating…";
+    viewerHead(r, L"TYPESETTING", w(b->title), note);
+    const float pad = r.w > 900 ? 28 : 18, by = r.y + (r.h - 32) / 2;
+    float right = r.right() - pad;
+    const bool ready = ts_.result && ts_.result->ok;
+    {
+        const float tw = gfx_.measureWidth(L"Typeset tools", Font::Body) + 44;
+        right -= tw;
+        menuButton("ts:head:tools", right, by, L"Typeset tools", [this] {
+            std::vector<ToolItem> t;
+            t.push_back(ToolItem::item(L"Print-ready PDF and EPUB (Publishing)", [this] { openPublishing(ts_.book); }));
+            t.push_back(ToolItem::item(L"Read it as an ebook", [this] { openPreview(ts_.book); }));
+            t.push_back(ToolItem::item(L"The book's page", [this] { ws_ = Workspace::Library; goTo(View::Book, ts_.book); }));
+            if (ts_.result && ts_.result->ok) {
+                const auto& bk = *ts_.result;
+                t.push_back(ToolItem::line());
+                t.push_back(ToolItem::heading(L"This setting"));
+                ToolItem a = ToolItem::item(L"Page size " + length(bk.width / 72) + L" × " + length(bk.height / 72), {});
+                a.enabled = false;
+                t.push_back(a);
+                ToolItem tw2 = ToolItem::item(L"Text width " + length(bk.width / 72 - bk.design.marginInside - bk.design.marginOutside), {});
+                tw2.enabled = false;
+                t.push_back(tw2);
+                if (!bk.warnings.empty()) {
+                    t.push_back(ToolItem::heading(L"Notes"));
+                    for (auto& wn : bk.warnings) { ToolItem n = ToolItem::item(w(wn), {}); n.enabled = false; t.push_back(n); }
+                }
+            }
+            return t;
+        });
+        right -= 8;
+    }
+    if (ready) {
+        const float cwid = gfx_.measureWidth(L"Contents", Font::Body) + 44;
+        right -= cwid;
+        menuButton("ts:head:toc", right, by, L"Contents", [this] {
+            std::vector<ToolItem> t;
+            if (!ts_.result || !ts_.result->ok) return t;
+            std::string last;
+            int shown = 0;
+            for (size_t i = 0; i < ts_.result->pages.size(); ++i) {
+                const auto& p = ts_.result->pages[i];
+                if (p.kind != ts::Page::ChapterOpening && p.kind != ts::Page::PartTitle) continue;
+                if (p.chapter == last && p.kind != ts::Page::PartTitle) continue;
+                last = p.chapter;
+                if (++shown > 200) break;
+                t.push_back(ToolItem::item(w(p.chapter) + L"  ·  " + std::to_wstring(i + 1), [this, i] { showPage((int)i); },
+                                           spreadOfPage((int)i) == ts_.spread));
+            }
+            return t;
+        });
+        right -= 8;
+    }
+    right -= toggleButton("ts:head:design", right, by, L"Design", settings_.typesetDesign, [this] {
+        settings_.typesetDesign = !settings_.typesetDesign;
+        saveSettings();
+        invalidate();
+    }, L"The design's choices beside the pages") + 8;
+    const float ew = gfx_.measureWidth(L"Export PDF…", Font::Body) + 26 + 21;
+    right -= ew;
+    if (ready) button("ts:head:pdf", {right, by, ew, 32}, L"Export PDF…", [this] { exportPdf(); }, true);
+    else disabledButton({right, by, ew, 32}, L"Export PDF…");
 }
 
 }  // namespace nrs

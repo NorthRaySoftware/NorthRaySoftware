@@ -358,11 +358,27 @@ void StudioApp::drawPublishPage(const Rect& r) {
     const float cw = std::min(r.w - pad * 2, 760.0f);
     const Rect m{r.x + pad, r.y + 26 - pb_.scroll, cw, 0};
     std::wstring title = w(b->title);
-    std::wstring kicker = L"PUBLISHING · " + w(ed->name.empty() ? std::string(editionKindLabel(ed->kind)) + " edition" : ed->name);
-    for (auto& ch : kicker) ch = (wchar_t)towupper(ch);
-    float y = m.y + pageHeader(m, kicker, title,
-                               print ? L"Check this edition, give your cover designer its measurements, then make the file for the printer."
-                                     : L"Check the ebook edition, then make the EPUB for ebook stores.");
+    // The head (0.71): the editions as tabs, and Publishing tools with what the sidebar's Also had.
+    std::vector<PageTab> tabs;
+    for (const Edition* e : lib_->editionsOf(pb_.book)) {
+        PageTab tb;
+        tb.label = w(e->name.empty() ? std::string(editionKindLabel(e->kind)) : e->name);
+        tb.on = e->id == pb_.edition;
+        tb.act = [this, eid = e->id] { if (eid != pb_.edition) chooseEdition(eid); };
+        tabs.push_back(tb);
+    }
+    float y = m.y + workspaceHeader(m, L"PUBLISHING", title, "pb:tabs", tabs, L"Publishing tools", [this] {
+        std::vector<ToolItem> t;
+        const Edition* cur = currentEdition();
+        t.push_back(ToolItem::item(L"Add an edition…", [this] { addEditionMenu(); }));
+        t.push_back(ToolItem::item(cur && cur->print() ? L"Design the print cover" : L"Design the ebook cover", [this] { openCoverDesigner(); }));
+        t.push_back(ToolItem::line());
+        t.push_back(ToolItem::item(L"Change the book's print design", [this] { openTypesetting(pb_.book); }));
+        t.push_back(ToolItem::item(L"Read it as an ebook", [this] { openPreview(pb_.book); }));
+        t.push_back(ToolItem::item(L"The book's page", [this] { ws_ = Workspace::Library; goTo(View::Book, pb_.book); }));
+        return t;
+    }, print ? L"Check this edition, give your cover designer its measurements, then make the file for the printer."
+             : L"Check the ebook edition, then make the EPUB for ebook stores.");
     const bool pagesReady = print && pb_.result && pb_.result->ok;
 
     // ---- 1. Checks.
@@ -617,8 +633,10 @@ void StudioApp::drawPublishPage(const Rect& r) {
 }
 
 void StudioApp::drawPublishPanel(const Rect& r) {
-    gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
-    gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.71), that's its background
+        gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
+        gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     gfx_.pushClip(r);
     setHitClip(r);
     if (!(focus_ == loadedFocus_)) loadFields();

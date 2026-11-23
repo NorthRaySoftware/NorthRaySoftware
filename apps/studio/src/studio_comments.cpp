@@ -249,7 +249,7 @@ void StudioApp::importReaderComments() {
 // Review: every comment in the book, chapter by chapter.
 float StudioApp::drawReviewComments(const Rect& m, float y) {
     const float cw = m.w;
-    y += pageHeader(m, L"REVIEW", L"Comments", L"Every comment in the book, in the order of the chapters. Choose one to go to its words.");
+    y += reviewHeader(m, L"Every comment in the book, in the order of the chapters. Choose one to go to its words.");
     const auto all = lib_->commentsInBook(rv_.book);
     int open = 0;
     for (const Comment* c : all) if (!c->resolved) ++open;

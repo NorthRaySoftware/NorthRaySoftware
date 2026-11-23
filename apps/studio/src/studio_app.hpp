@@ -44,7 +44,7 @@ enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Set
 // The workspace tabs along the top. Import is the preview shown before an import.
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
-inline constexpr float kWriteSideW = 230, kWriteBarH = 52;   // Writing's outline and chapter bar (0.70)
+inline constexpr float kWriteSideW = 230, kWriteBarH = 52, kViewerHeadH = 64;   // Writing's outline and chapter bar (0.70)
 inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28, kRailW = 76;
 inline constexpr UINT WM_APP_IMPORT = WM_APP + 20;  // an import file has been read (lParam: Plan*)
 inline constexpr UINT WM_APP_TYPESET = WM_APP + 21; // a book has been typeset (wParam: generation, lParam: typeset::Book*)
@@ -95,7 +95,9 @@ struct Settings {
     // Where you were: reopened on the next start.
     std::string lastBook, lastNode;
     bool lastInWriting = false;
-    bool writingDetails = false;   // Writing shows the chapter's details in a card (0.70; F4)
+    bool writingDetails = false;
+    bool typesetDesign = true;    // Typesetting's design choices shown in a card (0.71)
+    bool previewChoices = true;   // Preview's device and reader's settings shown in a card (0.71)   // Writing shows the chapter's details in a card (0.70; F4)
     bool entryList = false;   // Worldbuilding shows entries as a list of rows rather than cards (0.59)
     // Books written in lately, newest first, each with the chapter it was on (0.58): NorthRay Launcher's Jump back in.
     std::vector<std::pair<std::string, std::string>> recentBooks;
@@ -528,6 +530,15 @@ private:
     std::string ownFontsFolder(const Id& world, const Id& book) const;
     float pageBook(const Rect& r);
     float libraryTabs(const Rect& page);
+    float workspaceHeader(const Rect& m, const std::wstring& kicker, const std::wstring& title, const std::string& tabsId,
+                          const std::vector<PageTab>& tabs, const std::wstring& toolsLabel, std::function<std::vector<ToolItem>()> tools,
+                          const std::wstring& sub);
+    float reviewHeader(const Rect& m, const std::wstring& sub);
+    void drawTypesetHead(const Rect& r);
+    void drawPreviewHead(const Rect& r);
+    void viewerHead(const Rect& r, const std::wstring& kicker, const std::wstring& title, const std::wstring& note);
+    float toggleButton(const std::string& id, float right, float y, const std::wstring& label, bool on, std::function<void()> flip,
+                       const std::wstring& tip = {});   // its width; drawn leftwards from `right`
     int bookTab_ = 0;   // the book page's tab (0.69)
     float pageEmpty(const Rect& r);
     Id fallbackBook() const;

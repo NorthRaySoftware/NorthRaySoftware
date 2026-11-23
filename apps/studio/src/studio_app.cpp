@@ -121,6 +121,8 @@ void StudioApp::loadSettings() {
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
     settings_.entryList = cj::valueOr(j, "entryList", false);
     settings_.writingDetails = cj::valueOr(j, "writingDetails", false);
+    settings_.typesetDesign = cj::valueOr(j, "typesetDesign", true);
+    settings_.previewChoices = cj::valueOr(j, "previewChoices", true);
     if (j.contains("recentBooks") && j["recentBooks"].is_array())
         for (auto& r : j["recentBooks"])
             if (r.is_object() && settings_.recentBooks.size() < 8)
@@ -148,6 +150,8 @@ void StudioApp::saveSettings() {
     j["lastInWriting"] = settings_.lastInWriting;
     j["entryList"] = settings_.entryList;
     j["writingDetails"] = settings_.writingDetails;
+    j["typesetDesign"] = settings_.typesetDesign;
+    j["previewChoices"] = settings_.previewChoices;
     {
         json rb = json::array();
         for (auto& [b, c] : settings_.recentBooks) rb.push_back({{"book", b}, {"chapter", c}});

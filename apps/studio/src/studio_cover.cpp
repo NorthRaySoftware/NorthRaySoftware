@@ -443,8 +443,10 @@ void StudioApp::drawCoverDesigner(const Rect& r) {
 
 // The panel: the words on the cover.
 void StudioApp::drawCoverPanel(const Rect& r) {
-    gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
-    gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.71), that's its background
+        gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
+        gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     gfx_.pushClip(r);
     setHitClip(r);
     if (!(focus_ == loadedFocus_)) loadFields();

@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.71.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Review, Typesetting, Preview and Publishing have no sidebars and no details panel, so every workspace now has the same layout: a header with the book, its parts as tabs, one tools menu, and details in a card at the right when there's something to show.",
+        "Review: Changes, Snapshots, Names, Comments and Goals are tabs, and Review tools ▾ has Make a review copy… and Import a reader's comments…. A snapshot you click, and your daily goal on the Goals tab, show in a card beside the page.",
+        "Typesetting: a bar over the pages has Export PDF…, Design (the design's choices in a card beside the pages; click it to put them away for more room), Contents ▾ (each chapter with its page number) and Typeset tools ▾ (the page size, the text width, any notes about the setting, and Publishing).",
+        "Preview: a bar over the device has Back and Next, Reader's settings (the device, the page colour, text size and font in a card beside it), Contents ▾ for the chapters, and Preview tools ▾ with Refresh from the text.",
+        "Publishing: the editions are tabs along the top, the chosen edition's name, ISBN, kind, trim and design are in a card at the right, and Publishing tools ▾ has Add an edition…, the cover designer, the print design, reading it as an ebook and the book's page.",
+        "Settings › Appearance has Chapter details in Writing in place of the details panel, and F3 and F4 are now Writing's outline and chapter details."
+      ]
+    },
+    {
       "version": "0.70.0",
       "date": "2026-11-23",
       "notes": [

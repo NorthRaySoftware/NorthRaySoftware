@@ -334,7 +334,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
 
     if (rv_.section == 0) {
         // ---- Changes.
-        y += pageHeader(m, L"REVIEW", L"Changes", L"Compare a chapter or scene with a version saved while you wrote, or with a snapshot.");
+        y += reviewHeader(m, L"Compare a chapter or scene with a version saved while you wrote, or with a snapshot.");
         const ManuscriptNode* n = lib_->node(rv_.node);
         if (n && (n->deleted || n->bookId != rv_.book)) n = nullptr;
         if (!n) for (auto* x : nodes) if (x->kind != NodeKind::Part || x->wordCount) { n = x; rv_.node = x->id; break; }
@@ -486,8 +486,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
         }
     } else if (rv_.section == 1) {
         // ---- Snapshots.
-        y += pageHeader(m, L"REVIEW", L"Snapshots",
-                        L"A snapshot saves the whole book as it is now, to compare with later: before a revision, before sending it to an "
+        y += reviewHeader(m, L"A snapshot saves the whole book as it is now, to compare with later: before a revision, before sending it to an "
                         L"editor, at the end of a draft.");
         button("rv:take", {m.x, y, 190, 34}, L"Take a snapshot", [this] {
             commitFields();
@@ -584,8 +583,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
         }
     } else if (rv_.section == 2) {
         // ---- Names.
-        y += pageHeader(m, L"REVIEW", L"Names",
-                        L"Names in the manuscript checked against the world's bible: spellings close to a known name, and names used "
+        y += reviewHeader(m, L"Names in the manuscript checked against the world's bible: spellings close to a known name, and names used "
                         L"often that aren't in it yet.");
         if (!rv_.namesDone) {
             rv_.names = rv::nameChecks(*lib_, rv_.book);
@@ -720,7 +718,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
         y = drawReviewComments(m, y);
     } else {
         // ---- Goals.
-        y += pageHeader(m, L"REVIEW", L"Goals", L"Words you add while writing, day by day, across every book. Imported text doesn't count.");
+        y += reviewHeader(m, L"Words you add while writing, day by day, across every book. Imported text doesn't count.");
         const std::string today = Library::localDay(now());
         const std::string from = dayBefore(today, 27);
         const auto all = lib_->wordsWritten({}, from);
@@ -788,8 +786,10 @@ std::string StudioApp::row_is_new_guard(const Id& nodeId, const Id& snapshotId) 
 }
 
 void StudioApp::drawReviewPanel(const Rect& r) {
-    gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
-    gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    if (!panelAsCard_) {   // as a card (0.71), that's its background
+        gfx_.fill(r, pal_.paper.mix(pal_.surface, 0.5f));
+        gfx_.line(r.x + 0.5f, r.y, r.x + 0.5f, r.bottom(), pal_.rule);
+    }
     if (!(focus_ == loadedFocus_)) loadFields();
     gfx_.pushClip(r);
     setHitClip(r);
