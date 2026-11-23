@@ -17,6 +17,7 @@
 #include "studio/import.hpp"
 #include "studio/bible_export.hpp"
 #include "studio/library.hpp"
+#include "studio/calendar.hpp"
 #include "studio/entry_paste.hpp"
 #include "studio/fonts.hpp"
 #include "studio/typeset.hpp"
@@ -61,7 +62,8 @@ enum WCmd {
 
 // What the properties panel is editing.
 struct Focus {
-    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure, Sync, BookType } kind = None;
+    enum Kind { None, World, Series, Book, Node, Artwork, Picture, Edition, Entry, Plan, Snapshot, Goal, Comment, Board, BoardItem, Cover, Language, Share, Relation, Font, Thread, Beat, Structure, Sync, BookType, Calendar } kind = None;
+    // Calendar (0.74): the bible's calendar (id its setting key), contextSeries the value being edited ("m:2:name").
     // BookType (0.73): one of the author's own book types (id), edited on the Settings page.
     // Thread, Beat (0.50): a plot thread or a structure beat (id), of a book (contextSeries). Structure: one of the
     // author's own (id), of the book whose plan is open (contextSeries).
@@ -232,6 +234,21 @@ private:
     std::wstring seriesRoleText(const studio::Membership& m) const;      // "Main book", "Set between books", "Set during One"
     void chooseSeriesRole(const Id& seriesId, const Id& bookId);
     float drawBookTypeSettings(const Rect& r, float y);
+    // The calendar maker and month view (0.74, studio_calendar.cpp).
+    std::string calendarKey() const;                 // the bible's calendar setting ("" with no bible open)
+    studio::cal::Calendar scopeCalendar() const;
+    void saveScopeCalendar(const studio::cal::Calendar& c);
+    void changeCalendar(const std::function<void(studio::cal::Calendar&)>& f);
+    void startCalendar(const studio::cal::Calendar& c);
+    void openCalendar();
+    void drawCalendar(const Rect& r);
+    void drawCalendarPanel(const Rect& r);
+    float drawMonthGrid(const Rect& r, const studio::cal::Calendar& c, std::int64_t year, int month, bool big);
+    void loadCalendarFields();
+    void commitCalendarFields(const Focus& f);
+    void copyCalendarText();
+    void exportCalendarText();
+    void importCalendarText();
     void newBookType();
     void loadBookTypeFields();
     bool commitBookTypeFields(const Id& id);
@@ -920,6 +937,10 @@ private:
         bool checks = false;       // the Checks page
         bool glossary = false;     // the Glossary page
         bool languages = false;    // the Languages page (constructed languages)
+        bool calendarPage = false; // the Calendar page (0.74)
+        int calMode = 0;           // 0 month by month, 1 making it
+        int calMonth = 0;          // the month shown (index)
+        std::int64_t calYear = 1;  // the year shown (plain)
         std::string language;      // the language shown there
         studio::review::Continuity continuity;           // worked out for the Checks page
         std::vector<std::pair<Id, studio::review::NameIssue>> spellings;   // book, name spelt like a bible name

@@ -2081,6 +2081,8 @@ void StudioApp::loadFields() {
         loadFontFields();
     } else if (focus_.kind == Focus::BookType) {
         loadBookTypeFields();
+    } else if (focus_.kind == Focus::Calendar) {
+        loadCalendarFields();
     } else if (focus_.kind == Focus::Thread || focus_.kind == Focus::Beat || focus_.kind == Focus::Structure) {
         loadPlanFields();
     } else if (focus_.kind == Focus::Entry) {
@@ -2199,6 +2201,8 @@ void StudioApp::commitFields() {
         commitFontFields(f);
     } else if (f.kind == Focus::BookType) {
         ok = commitBookTypeFields(f.id);
+    } else if (f.kind == Focus::Calendar) {
+        commitCalendarFields(f);
     } else if (f.kind == Focus::Thread || f.kind == Focus::Beat || f.kind == Focus::Structure) {
         commitPlanFields(f);
     } else if (f.kind == Focus::Entry) {

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.149.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.74.0, with a calendar maker for your world."
+      ]
+    },
+    {
       "version": "0.148.0",
       "date": "2026-11-23",
       "notes": [

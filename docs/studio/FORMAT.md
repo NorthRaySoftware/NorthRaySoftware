@@ -55,7 +55,7 @@ Versions: when a chapter or scene is saved and its last kept version is more tha
 
 ## Coming in later versions
 
-Per-book settings are kept in `meta` under `setting:` keys: `setting:typeset:<book id>` (the print design, JSON) and `setting:plan:<book id>` (the book's word target, JSON), `setting:goal:daily` (words a day), `setting:names-ok:<book id>` (names marked as fine, JSON array), `setting:publish-edition:<book id>` (the edition last open in Publishing), `setting:publish:<book id>` (paper, bleed, colour pictures, JSON; from 0.13.0 these move to the book's paperback edition the first time Publishing opens it). Worldbuilding records will be added as new tables through migrations; nothing above changes meaning.
+Per-book settings are kept in `meta` under `setting:` keys: `setting:typeset:<book id>` (the print design, JSON) and `setting:plan:<book id>` (the book's word target, JSON), `setting:goal:daily` (words a day), `setting:names-ok:<book id>` (names marked as fine, JSON array), `setting:publish-edition:<book id>` (the edition last open in Publishing), `setting:publish:<book id>` (paper, bleed, colour pictures, JSON; from 0.13.0 these move to the book's paperback edition the first time Publishing opens it). `setting:book-types` (0.73: the author's own book types, `[{id, name, min, max}]`), `setting:calendar:world:<id>` and `setting:calendar:book:<id>` (0.74: a calendar as JSON, see `studio/calendar.hpp`). Worldbuilding records will be added as new tables through migrations; nothing above changes meaning.
 
 ## A world in a repository (0.61)
 

@@ -50,7 +50,7 @@ void StudioApp::drawFrame(float W, float H) {
     // The second redesign (0.68): Worldbuilding has no sidebar and no details panel. Its pages have tabs and a tools
     // menu, entries are edited where they're shown, and the few pages that keep a details column have it as a card.
     const bool worldLayout = ws_ == Workspace::Worldbuilding && !focusing;
-    const bool worldCard = worldLayout && (!wb_.board.empty() || wb_.languages || wb_.share || wb_.syncPage || wb_.relationsPage ||
+    const bool worldCard = worldLayout && (!wb_.board.empty() || wb_.languages || (wb_.calendarPage && wb_.calMode == 1) || wb_.share || wb_.syncPage || wb_.relationsPage ||
                                            wb_.fontsPage || (!wb_.familyRoot.empty() && wb_.entry.empty()));
     // Planning too (0.69): its views are tabs, and a card's details are a pop-over beside it on the corkboard, or a card at
     // the right of the other views.
@@ -177,7 +177,7 @@ void StudioApp::drawFrame(float W, float H) {
                                                                        : lib_->world(wb_.world) && !lib_->world(wb_.world)->deleted)) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.paper);
-        const bool worldSub = worldCard || !wb_.familyRoot.empty() || !wb_.mapView.empty() || wb_.checks || wb_.glossary;
+        const bool worldSub = worldCard || !wb_.familyRoot.empty() || !wb_.mapView.empty() || wb_.checks || wb_.glossary || wb_.calendarPage;
         if (worldSub) {
             // One of the bible's tools: a strip along its top back to the bible, and any details as a card at the right.
             const float cardW = worldCard ? std::min(kPanelW + 10, pageRect_.w * 0.4f) : 0;

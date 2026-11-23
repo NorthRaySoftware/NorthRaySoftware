@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.74.0",
+      "date": "2026-11-23",
+      "notes": [
+        "A calendar for your world: Bible tools › Calendar. Start from the Gregorian calendar, from a blank one, or from a text file, then make it your own: months and their days, the week, leap years, years and eras, moons, seasons, holidays and the hours in a day.",
+        "Months can be numbered from 1, from 0, or with a month 0 of its own before month 1.",
+        "Month by month shows the calendar as a page of the bible: each day with its holidays, the first day of each season and the moons' phases. Go to any date or year by typing it.",
+        "While you make the calendar, the month you're working on is drawn beside the form as it will look.",
+        "Copy or export the calendar as text, and import one written by hand (the manual has one to start from)."
+      ]
+    },
+    {
       "version": "0.73.0",
       "date": "2026-11-23",
       "notes": [

@@ -417,6 +417,7 @@ void StudioApp::openEntry(const Id& id) {
     wb_.checks = false;
     wb_.glossary = false;
     wb_.languages = false;
+    wb_.calendarPage = false;
     wb_.share = false;
     wb_.syncPage = false;
     wb_.relationsPage = false;
@@ -627,6 +628,11 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
         t.push_back(ToolItem::item(n ? L"Languages  (" + std::to_wstring(n) + L")" : L"Languages", [this] { openLanguages(); }, wb_.languages));
     }
     {
+        const studio::cal::Calendar cc = scopeCalendar();
+        t.push_back(ToolItem::item(cc.empty() ? L"Calendar" : L"Calendar  (" + w(cc.name.empty() ? std::string("made") : cc.name) + L")",
+                                   [this] { openCalendar(); }, wb_.calendarPage));
+    }
+    {
         const size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
         t.push_back(ToolItem::item(n ? L"Relationships  (" + std::to_wstring(n) + L")" : L"Relationships", [this] { openRelations({}); }, wb_.relationsPage));
     }
@@ -720,6 +726,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
     if (wb_.checks) { drawChecks(r); return; }
     if (wb_.glossary) { drawGlossary(r); return; }
     if (wb_.languages) { drawLanguages(r); return; }
+    if (wb_.calendarPage) { drawCalendar(r); return; }
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
@@ -2179,6 +2186,7 @@ void StudioApp::drawWorldPanel(const Rect& r) {
     }
     if (!wb_.board.empty()) { drawBoardPanel(r); return; }
     if (wb_.languages) { drawLanguagePanel(r); return; }
+    if (wb_.calendarPage) { drawCalendarPanel(r); return; }
     if (wb_.share) { drawSharePanel(r); return; }
     if (wb_.syncPage) { drawSyncPanel(r); return; }
     if (wb_.relationsPage) { drawRelationsPanel(r); return; }

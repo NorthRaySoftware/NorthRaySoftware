@@ -11,6 +11,7 @@
 #include "studio/family_tree.hpp"
 #include "studio/import.hpp"
 #include "studio/library.hpp"
+#include "studio/calendar.hpp"
 #include "studio/planning.hpp"
 #include "studio/sync.hpp"
 #include "studio/publish.hpp"
@@ -138,6 +139,118 @@ static void testOrdering() {
     CHECK(again->membership(s, a)->number.empty() && again->membership(s, a)->kind == Instalment::Companion);
     CHECK(again->membership(s, a)->role == SeriesRole::Between);
     again.reset();
+    fs::remove_all(dir);
+}
+
+// The calendar maker (0.74).
+static void testCalendar() {
+    using namespace studio::cal;
+    const Calendar g = gregorian();
+    CHECK(problems(g).empty());
+    CHECK(yearLength(g, 2023) == 365 && yearLength(g, 2024) == 366 && yearLength(g, 1900) == 365 && yearLength(g, 2000) == 366);
+    CHECK(yearLength(g, 0) == 366);                         // 1 BC
+    // Day numbers round-trip, and weekdays match the real calendar: 23 November 2026 is a Monday.
+    for (std::int64_t d : {-800000LL, -1LL, 0LL, 1LL, 59LL, 365LL, 730000LL, 739000LL})
+        CHECK(toDay(g, fromDay(g, d)) == d);
+    const std::int64_t today = toDay(g, {2026, 10, 23});
+    CHECK(g.weekdays[weekday(g, today)] == "Monday");
+    CHECK(g.weekdays[weekday(g, toDay(g, {2000, 0, 1}))] == "Saturday");
+    CHECK(toDay(g, {2024, 2, 1}) - toDay(g, {2024, 1, 1}) == 29);
+    CHECK(formatDate(g, {2026, 10, 23}) == "23 November 2026 AD");
+    CHECK(formatYear(g, 0) == "1 BC" && formatYear(g, -43) == "44 BC");
+    // Reading dates in several ways.
+    auto p = parseDate(g, "23 November 2026");
+    CHECK(p && *p == (Date{2026, 10, 23}));
+    p = parseDate(g, "Nov 23rd, 2026");
+    CHECK(p && *p == (Date{2026, 10, 23}));
+    p = parseDate(g, "23/11/2026");
+    CHECK(p && *p == (Date{2026, 10, 23}));
+    p = parseDate(g, "2026-11-23");
+    CHECK(p && *p == (Date{2026, 10, 23}));
+    p = parseDate(g, "15 March 44 BC");
+    CHECK(p && p->year == -43 && p->month == 2);
+    CHECK(!parseDate(g, "30 February 2023"));
+    CHECK(!parseDate(g, "3 Ju 2020"));                     // "Ju": too short (and June or July)
+    CHECK(!parseDate(g, "something"));
+    // Moons: the new moon of 6 January 2000, full about two weeks on.
+    CHECK(phaseName(moonPhase(g.moons[0], toDay(g, {2000, 0, 6}))) == "New moon");
+    CHECK(phaseName(moonPhase(g.moons[0], toDay(g, {2000, 0, 21}))) == "Full moon");
+    // Seasons wrap round the year.
+    CHECK(seasonOn(g, {2026, 0, 5})->name == "Winter" && seasonOn(g, {2026, 6, 1})->name == "Summer");
+    CHECK(ageAt(g, {1990, 5, 15}, {2026, 5, 14}) == 35 && ageAt(g, {1990, 5, 15}, {2026, 5, 15}) == 36);
+    CHECK(formatTime(g, 14 * 60 + 5) == "14:05" && parseTime(g, "2:30 pm") == 14 * 60 + 30 && !parseTime(g, "25:00"));
+
+    // A made-up calendar with an extra month 0, its own week, eras, two moons and a holiday, written as text.
+    const std::string text =
+        "Calendar: The Alvoran Reckoning\n"
+        "Month zero: extra month 0 before month 1\n"
+        "Months:\n"
+        "- Yearsend: 5\n"
+        "- Frostmoon: 30\n"
+        "- Thaw: 30\n"
+        "- Greening: 31\n"
+        "Week: Sunday, Moonday, Starday, Emberday, Restday\n"
+        "Day 0 falls on: Starday\n"
+        "Leap: every 3 years, 1 day to Yearsend\n"
+        "Era: Age of Light (AL) from year 1\n"
+        "Era: Age of Embers (AE) from year 500\n"
+        "Before the first era: Before Light (BL)\n"
+        "Moon: Selene, 20 days, 0 days into its cycle on day 0\n"
+        "Moon: Kett, 33.5, 4\n"
+        "Season: Winter from 1 Frostmoon\n"
+        "Holiday: Founding Day on 3 Frostmoon | Fireworks over Valona\n"
+        "Day: 20 hours of 50 minutes\n"
+        "Dates: day month year\n"
+        "Nonsense line\n";
+    std::vector<std::string> warnings;
+    Calendar a = fromText(text, &warnings);
+    CHECK(warnings.size() == 1);
+    CHECK(a.name == "The Alvoran Reckoning" && a.monthZero == MonthZero::Extra && a.months.size() == 4);
+    CHECK(monthNumber(a, 0) == 0 && monthNumber(a, 1) == 1);
+    CHECK(a.weekdays.size() == 5 && a.firstWeekday == 2 && a.leap.size() == 1 && a.leap[0].month == 0);
+    CHECK(a.eras.size() == 2 && a.eras[1].abbr == "AE" && a.beforeAbbr == "BL");
+    CHECK(a.moons.size() == 2 && a.moons[1].cycle == 33.5 && a.holidays.size() == 1 && a.holidays[0].notes == "Fireworks over Valona");
+    CHECK(a.hoursPerDay == 20 && a.minutesPerHour == 50 && problems(a).empty());
+    CHECK(yearLength(a, 1) == 96 && yearLength(a, 3) == 97 && yearLength(a, 0) == 97);
+    CHECK(formatDate(a, {1204, 1, 3}) == "3 Frostmoon 705 AE");
+    CHECK(formatYear(a, 499) == "499 AL" && formatYear(a, -10) == "11 BL");
+    p = parseDate(a, "3 Frostmoon 705 AE");
+    CHECK(p && *p == (Date{1204, 1, 3}));
+    p = parseDate(a, "Month 0 2, 12");
+    CHECK(p && p->month == 0 && p->day == 2 && p->year == 12);
+    CHECK(holidaysOn(a, {1204, 1, 3}).size() == 1);
+    CHECK(a.weekdays[weekday(a, 0)] == "Starday" && a.weekdays[weekday(a, 5)] == "Starday");
+    for (std::int64_t d : {-1000LL, -1LL, 0LL, 95LL, 96LL, 290LL, 100000LL}) CHECK(toDay(a, fromDay(a, d)) == d);
+    // Months counted from 0 read the same numbers; none: from 1.
+    Calendar n = a;
+    n.monthZero = MonthZero::None;
+    p = parseDate(n, "2/1/7");
+    CHECK(p && p->month == 0 && p->day == 2);
+    // JSON and text both round-trip.
+    CHECK(toJson(fromJson(toJson(a))) == toJson(a));
+    CHECK(toJson(fromText(toText(a))) == toJson(a));
+    CHECK(toJson(fromText(toText(g))) != "" && fromText(toText(g)).leap.size() == 3);
+    // Problems are named.
+    Calendar bad = blank();
+    bad.leap.push_back({2, 0, 0, -40});
+    bad.holidays.push_back({"Nowhere", 0, 45, "", ""});
+    CHECK(problems(bad).size() == 2);
+    CHECK(problems(Calendar{}).size() == 1);
+
+    // Kept per world, overridden by a book.
+    const std::string dir = tempLibrary("calendar");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id b1 = lib->createBook("One", w), b2 = lib->createBook("Two", w), ind = lib->createBook("Alone", {});
+    CHECK(calendarOfBook(*lib, b1).empty());
+    CHECK(saveWorldCalendar(*lib, w, a));
+    CHECK(calendarOfBook(*lib, b1).name == "The Alvoran Reckoning");
+    CHECK(saveBookCalendar(*lib, b2, g));
+    CHECK(calendarOfBook(*lib, b2).name == "Gregorian" && bookHasOwnCalendar(*lib, b2) && !bookHasOwnCalendar(*lib, b1));
+    CHECK(calendarOfBook(*lib, ind).empty());
+    CHECK(saveBookCalendar(*lib, b2, Calendar{}));
+    CHECK(calendarOfBook(*lib, b2).name == "The Alvoran Reckoning");
+    lib.reset();
     fs::remove_all(dir);
 }
 
@@ -4157,6 +4270,7 @@ int main() {
     testCreateAndReopen();
     testOrdering();
     testSubBooks();
+    testCalendar();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();
