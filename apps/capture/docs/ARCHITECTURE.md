@@ -1770,3 +1770,54 @@ CJ's answers in claude/capture-writing-overlay-themes-answers-2026-11-22.md: one
 - App: the designer's panel for a Writing card (a toggle per part, look, the cast's direction, the page size note). `Layout::Writing`, the Writing panel (a toggle per part; `Settings::writing.hiddenParts`, set at start with the brand). Hotkey action `WritingPart` ("writing-part", target the part's key), offered under Show or hide a Writing card part. The window reads the whole cast (at least six {castN}, up to 60).
 - Writing Studio 0.63: summary.json's `cast` is everyone chosen in Who's there (up to 60); the fallback from the text stays at six.
 - Tested: capturecore 2658 checks (nothing shown without Writing Studio; parts on, off in the design and off live; the card shrinking; sprint and celebration only while they last; the cast centred, then scrolling 40 px a second right to left and the other way, clipped; saved and read back; an old Cast list (bookish) turned into a card with only Cast, at 1200 × 340; a design of the same name showing other words left alone; the template twins compared as built). In Wine: `capture_design_render_check` drew both looks with every part and ten cast scrolling; Capture converted the old Writing progress source (only its part shown), the Writing panel hid and showed it live, the designer's toggles added Chapter and switched the look to Bookish.
+
+## 67. Themes (0.21.0, 23 Nov 2026)
+
+CJ's answers (claude/capture-writing-overlay-themes-answers-2026-11-22.md): themes apply to elements; one switch for the
+whole stream restyles everything, hand changes included; more themes, each a different set of designs (not recolours);
+the world colour as an optional accent per theme; your own themes made by copying one; Sky, Pulse and Wave get a
+different design per theme. Radio and Steampunk were added on request during the work.
+
+- core/design (`themes.cpp`, which now holds the templates and the Writing card too): `Theme` (id, name, `style`, 13
+  colours: page/page2, panel/panel2, edge, accent/accent2/accent3, title, body, muted, onAccent, sky; heading, body and
+  label fonts; corners 0-2; builtIn). Eight styles (`themeStyles`: aurora, bookish, fantasy, scifi, cosy, minimal, radio,
+  steampunk) and nine built-in themes (`builtInThemes`; minimal in charcoal and white). `themeById` (own first, unknown
+  and "aurora" give NorthRay), `copyTheme` ("own-N", "(mine)"), `themesToJson`/`themesFromJson` (built-in ids and unknown
+  styles refused, missing colours from the style's built-in theme, corners clamped), `withWorldAccent` (lightened on dark
+  panels, darkened on light ones), `recolourAccent`, `skyLook` (bookish skies take its bright gold).
+- A style is a set of pieces, each reading every colour and font from the theme (`Look`): `card`, `label` (capitals,
+  "// CAPITALS" for sci-fi, as written for bookish and cosy), `title`, `body`, `muted`, `rule`, `portrait` (circle,
+  arch, hexagon, polaroid, porthole with rivets, brass-ringed knob), `icon`, `badge`, `page`; plus `gear` and `rivet`
+  shapes. Layouts differ per style (sci-fi and minimal left-aligned; cosy and steampunk on a note or plate; radio with an
+  ON AIR badge and a tuning dial; fantasy between two blade rules). Sci-fi's page has a live clock readout (a Timer).
+- `themedTemplateList` (13 ids) and `themedTemplate(id, theme)` (sets `templateId`, `theme`, `followTheme`; NorthRay is
+  brand-linked as before). `templates()` keeps the old list (NorthRay ids and "-bookish") for scene templates and tests.
+- `retheme(doc, from, to)`: the template made in the new theme; elements are the template's when the old theme's version
+  has one of that name and kind (so designs from older template versions match); words, timer settings, picture files
+  and hidden state carried by name; hand-added elements kept and restyled by `styleElement`; the page's own size kept
+  (scaled); a Writing card only takes the theme. `recogniseTemplate` (called by `fromJson` when a design has no template)
+  marks designs made before themes by name and at least 70% of the template's element names and kinds.
+- Documents gain `templateId`, `theme`, `followTheme` (JSON "template", "theme", "followTheme"); `WritingCard::look` is a
+  theme id ("aurora" read as "northray"); `buildWritingCard(..., theme)`.
+- core/aurora_sky: `Settings::style` and `colour3`. Every style has its own sky, pulse and wave in `styled` (C++) and
+  `styledShader` (HLSL from a template with $-values), sharing `motes` (particles in drifting cells) and `gearAt`, and a
+  polynomial `atan2p` because Wine's shader compiler has no atan2. Tests check ranges, motion, loud music brightening
+  pulse and wave, three different pictures per style, the sci-fi grid, minimal bars and no reserved words or atan2.
+- The window (`capture_themes.cpp`): `settings.streamTheme`, `ownThemes` (JSON), `themeWorldAccent` (per theme; NorthRay
+  defaults to the old Writing Studio world colour setting), `themeApplied` (collection -> theme, caught up when a
+  collection loads: `catchUpTheme`). `setStreamTheme` reskins every following design (`rethemeCollection`, using each
+  design's own theme as `from`, or a theme's previous values when your own was edited) and every sky that follows
+  (`themeSky`: NorthRay keeps the brand kit's colours); one undo step. The Theme page (top bar): a card per theme with its
+  Starting Soon rendered, In use, the world colour switch, Make my own, and for your own: rename, 13 colours (typed),
+  three fonts (`pickFont`), corners, remove (its designs go to the built-in theme of the same style).
+- Rendering (`setDesignThemes`): Writing cards in their theme (own themes too); with the theme's world colour on,
+  designs in the stream's theme take it through `recolourAccent` (NorthRay through the kit's primary, as before).
+- Designer: Overlay design… lists the stream's theme's set and every other theme's ("kept in it"); a Theme section (Page
+  and the Writing card) with Follows the stream's theme and In <theme> ▾; new elements are styled by `styleElement`
+  (NorthRay keeps brand-linked defaults). Skies: Follows the stream's theme, and Design ▸ any style.
+- Tested: capturecore 45,641 checks (themes, JSON, copies, world colour, every template in every theme on its page with
+  at least NorthRay's details and the theme's fonts, the facecam opening, eight different Starting Soon designs, portrait
+  shapes, retheme both ways keeping words, hidden and added elements, page size, recognition; sky styles). In Wine: all
+  117 designs rendered by `capture_design_render_check`; the Theme page; switching to Dark fantasy and Steampunk
+  reskinning Starting Soon, Now playing, the facecam frame, lower third and Writing cards and the aurora sky on the GPU
+  (which found the atan2 problem); making an own theme and changing its main colour; a new text element in Steampunk's look.

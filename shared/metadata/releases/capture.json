@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.21.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Themes: one switch for the whole stream (Theme, at the top). NorthRay aurora, Bookish, Dark fantasy, Sci-fi, Cosy, Minimal in charcoal or white, Radio and Steampunk, each its own set of designs rather than the same ones recoloured: its own cards, frames, rules, portraits, page decorations and layouts for the holding screens, lower third, facecam frame, socials bar, chat box, now playing, show title, Twitch panel, offline banner and the Writing card.",
+        "Switching restyles every design made from a template, made again in the new theme with the words you changed and the things you added kept (added things take the theme's look). Ctrl+Z puts it back. Designs made before themes are recognised and follow too.",
+        "Aurora sky, pulse and wave follow the theme with their own designs: rising embers and mist with flames (Dark fantasy), a grid horizon with an equaliser and oscilloscope (Sci-fi), fireflies and bokeh (Cosy), gold dust with book spines and calligraphy (Bookish), soft bands with a mirrored bar row and a single line (Minimal), radio waves with a valve-glow grille and a tuning needle and an AM wave (Radio), and turning gears with copper pipes and steam (Steampunk). A sky can also keep a design of its own (right-click, Design).",
+        "Your own themes: Make my own from this theme copies one with its designs; change its thirteen colours, its heading, body and label fonts and its corners, rename or remove it, and everything in it follows.",
+        "Each theme has its own switch for the book's world colour from Writing Studio as its main colour.",
+        "The overlay designer lists the stream's theme's templates, with any template in another theme one menu away (kept in that theme), and each design has a Follows the stream's theme switch. New text, shapes, pictures and icons take the theme's look."
+      ]
+    },
+    {
       "version": "0.20.0",
       "date": "2026-11-22",
       "notes": [

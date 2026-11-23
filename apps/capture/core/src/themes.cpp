@@ -98,9 +98,11 @@ float rnd(int i, int salt) {
 
 // A gear: a disc with `teeth` teeth round it and a hole in the middle, turned by `turn` degrees.
 void gear(Document& d, const std::string& name, float cx, float cy, float r, int teeth, Fill f, Rgba hole, float turn, float opacity = 1) {
+    // The teeth in the colour of the gear's rim, so they read as one piece with it.
+    const Fill tf = f.type == Fill::Radial || f.type == Fill::Linear ? Fill::solid(colourAt(f, 0.9f)) : f;
     for (int i = 0; i < teeth; ++i) {
         const float a = (turn + 360.0f * i / teeth) * kPi / 180.0f;
-        Element tth = rectEl(name + " tooth", cx + std::cos(a) * r * 0.98f - r * 0.15f, cy + std::sin(a) * r * 0.98f - r * 0.17f, r * 0.3f, r * 0.34f, f, r * 0.04f);
+        Element tth = rectEl(name + " tooth", cx + std::cos(a) * r * 0.98f - r * 0.15f, cy + std::sin(a) * r * 0.98f - r * 0.17f, r * 0.3f, r * 0.34f, tf, r * 0.04f);
         tth.rotation = turn + 360.0f * i / teeth + 90;
         tth.opacity = opacity;
         if (tth.x + tth.w <= 0 || tth.y + tth.h <= 0 || tth.x >= d.width || tth.y >= d.height) continue;   // off the page

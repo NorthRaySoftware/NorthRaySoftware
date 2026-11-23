@@ -14,7 +14,8 @@
     "Optional audio-effect plugins (a documented C interface with an example): off until you switch each one on after seeing its SHA-256 and signature, and switched off again if the file changes",
     "Each stream destination can carry its own sound (the stream mix or any recording track), and a second output plays any mix on another device, for a two-PC setup",
     "A camera border maker: rounded corners or a circle, a plain or gradient ring and a glow or shadow on any source, edited live, and saved as a PNG overlay if you want",
-    "An overlay designer: text, shapes and pictures with gradients, outlines, shadows and entrance animations, snapping guides and layers, ready-made Starting Soon, Be Right Back, Ending, lower third, facecam frame and panel templates in the NorthRay look, and PNG export",
+    "An overlay designer: text, shapes and pictures with gradients, outlines, shadows and entrance animations, snapping guides and layers, ready-made Starting Soon, Be Right Back, Ending, lower third, facecam frame and panel templates, and PNG export",
+    "Themes, one switch for the whole stream: NorthRay aurora, Bookish, Dark fantasy, Sci-fi, Cosy, Minimal, Radio and Steampunk, each with its own designs and its own animated skies, plus themes of your own made from any of them",
     "Timers in designs (countdowns to a time or for a length, stopwatch, time live, clock) that can switch scenes at zero, QR codes from your links, and built-in icons",
     "A brand kit: your colours, heading and body fonts (including font files that aren't installed) and logo; designs and templates that use it change when it does",
     "Live Twitch chat in overlays and in a Chat panel: read-only and without signing in; deleted messages, timeouts and bans disappear too",
@@ -65,7 +66,7 @@
   ],
   "category": "Streaming and recording",
   "status": "in-development",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "accent": "#D84A5A",
   "artwork": {
     "fallbackStyle": "sketchbook",
