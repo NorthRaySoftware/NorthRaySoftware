@@ -170,7 +170,7 @@ void StudioApp::drawPreviewSidebar(const Rect& r) {
         const bool sel = settings_.ebookDevice == d.id;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(d.name, {tx0, rr.y + 5, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false});
         gfx_.text(d.note, {tx0, rr.y + 24, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         if (focused(id)) focusRing(rr);
@@ -221,8 +221,8 @@ void StudioApp::drawPreviewSidebar(const Rect& r) {
         });
         const bool sel = (int)i == pv_.chapter;
         const float hv = hoverAmount(id);
-        if (sel) gfx_.fillRounded(rr, 3, pal_.surface);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         std::wstring t = w(pv_.chapters[i].first);
         if (pv_.chapters[i].second) CharUpperBuffW(t.data(), (DWORD)t.size());
         gfx_.text(t, {tx0 + (pv_.chapters[i].second ? 0.0f : 10.0f), rr.y, cw - 10, rr.h},

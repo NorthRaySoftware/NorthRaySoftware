@@ -1146,7 +1146,7 @@ void StudioApp::cardThreads(const Rect& c, float& y) {
             invalidate();
         });
         const float hv = hoverAmount(id);
-        if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.7f * hv));
+        if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.7f * hv));
         const Rect box{rr.x + 2, rr.y + 6, 14, 14};
         gfx_.fillRounded(box, 3, on ? cjui::hexColor(t.colour.c_str()) : pal_.surface);
         gfx_.strokeRounded(box, 3, cjui::hexColor(t.colour.c_str()), 1.5f);

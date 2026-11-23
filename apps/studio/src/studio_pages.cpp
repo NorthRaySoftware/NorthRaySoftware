@@ -1001,6 +1001,17 @@ float StudioApp::pageEmpty(const Rect& r) {
     return emptyState(r, cjui::Icon::Library, L"No library is open yet.", L"Open or create a library...", [this] { chooseLibraryFolder(); });
 }
 
+// A small Edit (or Remove) beside a section, shown while the pointer is over the section or the keyboard is on it (0.65):
+// the page reads as writing, not as a row of buttons. It's always there to click and to Tab to.
+void StudioApp::quietEdit(const std::string& id, const Rect& section, float x, float y, const std::wstring& label, std::function<void()> act) {
+    const bool over = section.contains(mouseX(), mouseY()) || hovered(id) || focused(id);
+    if (over) {
+        linkText(id, x, y, label, std::move(act), Font::Small);
+    } else {
+        addHit(id, {x - 7, y - 4, gfx_.measureWidth(label, Font::Small) + 14, 24}, std::move(act));
+    }
+}
+
 // An empty page or pane (UI pass, 0.64): a quiet icon, one line and one button, centred a little above the middle.
 float StudioApp::emptyState(const Rect& area, cjui::Icon icon, const std::wstring& line, const std::wstring& label,
                             std::function<void()> act) {

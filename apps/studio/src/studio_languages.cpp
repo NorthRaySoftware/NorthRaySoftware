@@ -243,14 +243,20 @@ void StudioApp::removeLanguage(const std::string& id) {
     auto langs = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{});
     auto it = std::find_if(langs.begin(), langs.end(), [&](const conlang::Language& l) { return l.id == id; });
     if (it == langs.end()) return;
-    const std::wstring q = L"Remove " + w(it->name) + L" and its " + std::to_wstring(it->words.size()) +
-                           L" words? Its words will be marked as misspellings again. Export it first to keep a copy.";
-    if (cjui::messageBox(hwnd(), q.c_str(), L"Remove the language", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) return;
+    // At once, with Undo in the note (0.65).
+    const auto before = langs;
+    const std::wstring name = w(it->name);
     langs.erase(it);
     loadedFocus_ = focus_ = Focus{};   // what the panel showed is gone (nothing to save)
     saveConlangs(langs);
     wb_.language = langs.empty() ? std::string() : langs[0].id;
     if (!wb_.language.empty()) setFocus({Focus::Language, wb_.language, {}});
+    flashUndo(L"Removed " + name + L".", [this, before, id] {
+        saveConlangs(before);
+        wb_.language = id;
+        setFocus({Focus::Language, id, {}});
+        invalidate();
+    });
 }
 
 // --- the panel's fields ---

@@ -616,11 +616,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
     setHitClip(r);
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12, cw = wd - 24;
     float y = r.y + 14 - wb_.sideScroll;
-    linkText("side:wb:library", tx0, y, L"‹ Library", [this] {
-        ws_ = Workspace::Library;
-        if (!wb_.world.empty()) goTo(View::World, wb_.world); else goTo(View::Book, wb_.book);
-    });
-    y += 30;
+    // (Back to the Library is on the rail now, 0.65.)
     gfx_.text(L"WORLDBUILDING", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 20;
     std::wstring name;
@@ -646,10 +642,10 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             wb_.scroll = 0;
             openEntry({});
         });
-        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.syncPage && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
+        const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.syncPage && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         if (!kind.empty()) gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 3.5f, kindColor(kind, pal_.dark), true);
         const float lx = kind.empty() ? tx0 : tx0 + 16;
         // Kinds with nothing in them yet are quieter (0.43).
@@ -683,10 +679,10 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                     const std::string id = "side:wb:under:" + e->id;
                     const Rect rr{x + 14, y, wd - 14, 26};
                     addHit(id, rr, [this, filter] { wb_.kind = "creature"; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
-                    const bool sel = wb_.facet == filter && wb_.entry.empty() && wb_.board.empty();
+                    const bool sel = wb_.facet == filter && wb_.board.empty();
                     const float hv = hoverAmount(id);
-                    if (sel) gfx_.fillRounded(rr, 3, pal_.surface);
-                    else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                    if (sel) sideRowFrame({}, rr, true, 0, 0);
+                    else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
                     gfx_.text(w(e->name), {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
                               {Align::Left, false, true, true});
                     gfx_.text(std::to_wstring(cnt), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -710,10 +706,10 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
                     const std::string id = "side:wb:facet:" + k + ":" + filter;
                     const Rect rr{x + 14, y, wd - 14, 26};
                     addHit(id, rr, [this, k, filter] { wb_.kind = k; wb_.facet = wb_.facet == filter ? std::string() : filter; wb_.scroll = 0; openEntry({}); });
-                    const bool sel = wb_.facet == filter && wb_.entry.empty() && wb_.board.empty();
+                    const bool sel = wb_.facet == filter && wb_.board.empty();
                     const float hv = hoverAmount(id);
-                    if (sel) gfx_.fillRounded(rr, 3, pal_.surface);
-                    else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                    if (sel) sideRowFrame({}, rr, true, 0, 0);
+                    else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
                     gfx_.text(label, {rr.x + 12, rr.y, rr.w - 50, rr.h}, sel ? Font::SmallStrong : Font::Small, sel ? pal_.ink : pal_.inkMuted,
                               {Align::Left, false, true, true});
                     gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -762,7 +758,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.glossary;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Glossary", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
         y += 32;
@@ -774,7 +770,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.languages;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Languages", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
         if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -788,7 +784,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.relationsPage;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Relationships", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
         if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -802,7 +798,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.fontsPage;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Fonts", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
         if (n) gfx_.text(std::to_wstring(n), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -816,7 +812,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.share;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Share the bible", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
         y += 32;
@@ -828,7 +824,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.syncPage;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Sync with GitHub", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
         if (!ss.repo.empty()) {
@@ -846,7 +842,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         const bool sel = wb_.checks;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Checks", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
         y += 44;
@@ -877,7 +873,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             const bool sel = wb_.board == bid;
             const float hv = hoverAmount(id);
             if (sel) sideRowFrame({}, rr, true, 0, 0);
-            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
             gfx_.text(w(bd.value("name", "Board")), {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink,
                       {Align::Left, false, true, true});
             gfx_.text(std::to_wstring(bd["items"].size()), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
@@ -1567,7 +1563,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 if (const studio::Book* rb = lib_->book(e->revealedIn("section:" + title)))
                     gfx_.text(L"SPOILER \u00B7 " + upper(w(rb->title)), {m.x + gfx_.measureWidth(upper(w(title)), Font::Label) + 14, y, 300, 18}, Font::Label,
                               pal_.demo, {Align::Left, false, true});
-                linkText(id, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y - 2, L"Edit", [this, title] {
+                const float y0 = y;
+                y += 26;
+                y += drawLinkedText(text, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lsec" + title + ":") + 24;
+                quietEdit(id, {m.x, y0 - 6, cw, y - y0 - 12}, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y0 - 2, L"Edit", [this, title] {
                     commitFields();
                     wb_.section = title;
                     wb_.editTemplate = false;
@@ -1575,20 +1574,19 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     invalidate();
                     focusFieldSoon_ = FSection;
                 });
-                y += 26;
-                y += drawLinkedText(text, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lsec" + title + ":") + 24;
             }
             if (!empty.empty()) {
                 gfx_.text(L"STILL TO WRITE", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
                 y += 26;
                 float lx = m.x;
                 for (const std::string& t : empty) {
+                    // The same buttons as everywhere else (0.65), the one being written outlined in the accent.
                     const std::wstring nm = L"+ " + w(t);
-                    const float lw2 = gfx_.measureWidth(nm, Font::Small) + 26;
-                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 34; }
-                    const Rect chip{lx, y, lw2, 28};
+                    const float lw2 = gfx_.measureWidth(w(t), Font::Body) + 26 + 21;
+                    if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 38; }
+                    const Rect chip{lx, y, lw2, 30};
                     const std::string id = "wb:secnew:" + t;
-                    addHit(id, chip, [this, t] {
+                    button(id, chip, nm, [this, t] {
                         commitFields();
                         wb_.section = t;
                         wb_.editTemplate = false;
@@ -1596,12 +1594,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                         focusFieldSoon_ = FSection;
                         invalidate();
                     });
-                    const float hv = hoverAmount(id);
-                    const bool on = wb_.section == t;
-                    gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
-                    gfx_.strokeRounded(chip, 14, on ? pal_.ribbon : pal_.rule.mix(pal_.ribbon, hv));
-                    gfx_.text(nm, chip, Font::Small, on ? pal_.ink : pal_.inkMuted, {Align::Center, false, true, true});
-                    if (focused(id)) focusRing(chip);
+                    if (wb_.section == t) gfx_.strokeRounded(chip, 7, pal_.ribbon, 1.5f);
                     lx += lw2 + 8;
                 }
                 y += 50;
@@ -1616,15 +1609,16 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 const studio::Book* b = lib_->book(bid);
                 if (note.empty() || !b) continue;
                 gfx_.text(L"IN " + upper(w(b->title)), {m.x, y, cw - 60, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-                linkText("wb:bnedit:" + bid, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y - 2, L"Edit", [this, bid] {
+                const float y0 = y;
+                y += 26;
+                y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
+                quietEdit("wb:bnedit:" + bid, {m.x, y0 - 6, cw, y - y0 - 12}, m.right() - gfx_.measureWidth(L"Edit", Font::Small), y0 - 2, L"Edit", [this, bid] {
                     commitFields();
                     wb_.noteBook = bid;
                     loadedFocus_ = {Focus::None, "-", ""};
                     focusFieldSoon_ = FBookNote;
                     invalidate();
                 });
-                y += 26;
-                y += drawLinkedText(note, {m.x, y, std::min(cw, 680.0f), 0}, Font::Body, pal_.ink, e->id, "wb:lbn" + bid + ":") + 24;
             }
             // Notes for books that aren't in Writing Studio yet (0.56): kept until the book is added, then moved onto it.
             for (auto& [label, note] : studio::paste::laterBookNotes(*e)) {
@@ -1634,13 +1628,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 linkText("wb:bnlater:" + label, m.right() - gfx_.measureWidth(L"Remove", Font::Small), y - 2, L"Remove", [this, eid, k, label] {
                     const Entry* x = lib_->entry(eid);
                     if (!x) return;
-                    if (cjui::messageBox(hwnd(), (L"Remove the notes kept for " + w(label) + L"?").c_str(), L"Notes per book",
-                                         MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
-                        return;
+                    const Entry before = *x;
                     Entry u = *x;
                     u.setBookNote(k, "");
                     lib_->updateEntry(u);
                     invalidate();
+                    flashUndo(L"Removed the notes for " + w(label) + L".", [this, before] { lib_->updateEntry(before); invalidate(); });
                 });
                 y += 22;
                 y += gfx_.text(L"Not in Writing Studio yet: these notes move onto the book when a book of that title is added.",
@@ -2730,15 +2723,17 @@ float StudioApp::drawKindSuggestions(const Rect& m, float y) {
         const Rect note{m.x, y, m.w, 38};
         const std::string id = "wb:sug:open";
         addHit(id, note, [this] { wb_.kindsOpen = true; invalidate(); });
+        // Quiet (0.65): a plain line with a small dot, no coloured box.
         const float hv = hoverAmount(id);
-        gfx_.fillRounded(note, 6, pal_.surface.mix(pal_.demo, 0.06f + 0.06f * hv));
-        gfx_.strokeRounded(note, 6, pal_.demo.withAlpha(0.45f + 0.3f * hv), 1);
-        gfx_.circle(note.x + 18, note.y + note.h / 2, 4, pal_.demo, true);
+        if (hv > 0.01f) gfx_.fillRounded(note, 7, pal_.ink.withAlpha(0.035f * hv));
+        gfx_.circle(note.x + 12, note.y + note.h / 2, 3, pal_.demo, true);
         const std::wstring t = list.size() == 1 ? L"1 entry may be filed under the wrong kind." : std::to_wstring(list.size()) + L" entries may be filed under the wrong kind.";
-        gfx_.text(t, {note.x + 32, note.y, note.w - 140, note.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
-        gfx_.text(L"Check \u203A", {note.x, note.y, note.w - 16, note.h}, Font::SmallStrong, pal_.demo.mix(pal_.ink, 0.3f), {Align::Right, false, false, true});
+        const float tw = gfx_.measureWidth(t, Font::Small);
+        gfx_.text(t, {note.x + 24, note.y, note.w - 140, note.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+        gfx_.text(L"Check \u203A", {note.x + 24 + tw + 10, note.y, 120, note.h}, Font::SmallStrong, pal_.ink.mix(pal_.inkMuted, 0.4f - 0.4f * hv),
+                  {Align::Left, false, false, true});
         if (focused(id)) focusRing(note);
-        return note.bottom() + 20;
+        return note.bottom() + 12;
     }
     const float rowH = 44;
     const Rect card{m.x, y, m.w, 40 + rowH * std::min<size_t>(list.size(), 6) + 8};
@@ -3865,9 +3860,11 @@ float StudioApp::drawMapSection(const Rect& m, float y, const Entry& e) {
             lx -= 22;
         };
         act("wb:mapremove", L"Remove the map", [this, id = e.id] {
-            if (cjui::messageBox(hwnd(), L"Remove the map and its pins? The picture stays in Artwork.", L"Remove the map",
-                                 MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK) return;
-            if (const Entry* x = lib_->entry(id)) { Entry u = *x; u.mapBlob.clear(); u.pins.clear(); lib_->updateEntry(u); }
+            if (const Entry* x = lib_->entry(id)) {
+                const Entry before = *x;
+                Entry u = *x; u.mapBlob.clear(); u.pins.clear(); lib_->updateEntry(u);
+                flashUndo(L"Removed the map. The picture stays in Artwork.", [this, before] { lib_->updateEntry(before); invalidate(); });
+            }
             wb_.pinning.clear();
             invalidate();
         });

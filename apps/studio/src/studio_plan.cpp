@@ -326,7 +326,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
             const bool sel = pl_.view == v;
             const float hv = hoverAmount(id);
             if (sel) sideRowFrame({}, rr, true, 0, 0);
-            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
             gfx_.text(names[v], {tx0, rr.y, cw, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
             if (focused(id)) focusRing(rr);
             y += 32;
@@ -344,7 +344,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
         const bool sel = pl_.status == status;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         float lx = tx0;
         if (status >= 0) { gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 4, dot, true); lx += 16; }
         gfx_.text(label, {lx, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
@@ -376,7 +376,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
                 const bool sel = pl_.pov == key;
                 const float hv = hoverAmount(id);
                 if (sel) sideRowFrame({}, rr, true, 0, 0);
-                else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
                 float lx = tx0;
                 if (dot) { gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 4, c, true); lx += 16; }
                 gfx_.text(label, {lx, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
@@ -412,7 +412,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
             const bool sel = pl_.thread == t.id;
             const float hv = hoverAmount(id);
             if (sel) sideRowFrame({}, rr, true, 0, 0);
-            else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+            else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
             gfx_.fillRounded({tx0, rr.y + rr.h / 2 - 5, 10, 10}, 2, cjui::hexColor(t.colour.c_str()));
             gfx_.text(w(t.name), {tx0 + 16, rr.y, cw - 46, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
             gfx_.text(std::to_wstring(count), {tx0, rr.y, cw, rr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});

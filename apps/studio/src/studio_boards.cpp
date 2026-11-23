@@ -343,10 +343,9 @@ void StudioApp::drawBoardPanel(const Rect& r) {
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkMuted) + 14;
         panelHeading(c, y, L"MORE", false);
         linkText("wb:bdelete", c.x, y, L"Delete this board", [this] {
-            if (cjui::messageBox(hwnd(), L"Delete this board? The pictures stay in Artwork.", L"Delete board",
-                            MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2) != IDOK)
-                return;
             json jj = boardsData();
+            const json before = jj;
+            const std::string was = wb_.board;
             auto& boards = jj["boards"];
             for (size_t i = 0; i < boards.size(); ++i)
                 if (boards[i].value("id", "") == wb_.board) { boards.erase(boards.begin() + (long)i); break; }
@@ -354,6 +353,11 @@ void StudioApp::drawBoardPanel(const Rect& r) {
             wb_.board.clear();
             wb_.item.clear();
             setFocus({});
+            flashUndo(L"Deleted the board. Its pictures stay in Artwork.", [this, before, was] {
+                saveBoards(before);
+                wb_.board = was;
+                invalidate();
+            });
         });
         y += 30;
     }

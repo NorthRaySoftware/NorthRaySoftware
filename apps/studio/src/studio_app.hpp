@@ -498,6 +498,7 @@ private:
     std::string ownFontsFolder(const Id& world, const Id& book) const;
     float pageBook(const Rect& r);
     float pageEmpty(const Rect& r);
+    void quietEdit(const std::string& id, const Rect& section, float x, float y, const std::wstring& label, std::function<void()> act);
     float emptyState(const Rect& area, cjui::Icon icon, const std::wstring& line, const std::wstring& label, std::function<void()> act);
     float bookCollection(const Rect& r, const std::vector<const studio::Book*>& books, const std::string& listKey,
                          const Id& seriesId, bool chronological, bool reorderable);

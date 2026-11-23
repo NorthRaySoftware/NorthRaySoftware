@@ -284,7 +284,7 @@ void StudioApp::drawPublishSidebar(const Rect& r) {
         const bool sel = e->id == pb_.edition;
         const float hv = hoverAmount(id);
         if (sel) sideRowFrame({}, rr, true, 0, 0);
-        else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        else if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
         std::wstring name = w(e->name.empty() ? std::string(editionKindLabel(e->kind)) : e->name);
         gfx_.text(name, {tx0, rr.y + 5, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true});
         std::wstring sub = e->isbn.empty() ? L"No ISBN yet" : L"ISBN " + w(e->isbn);
@@ -321,7 +321,7 @@ void StudioApp::drawPublishSidebar(const Rect& r) {
             invalidate();
         });
         const float hv = hoverAmount(id);
-        if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.7f * hv));
+        if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.7f * hv));
         const Rect dot{tx0, rr.y + 9, 22, 22};
         gfx_.circle(dot.x + 11, dot.y + 11, 10.5f, pal_.inkMuted, false, 1.2f);
         gfx_.text(std::to_wstring(++n), dot, Font::SmallStrong, pal_.ink, {Align::Center, false, false, true});

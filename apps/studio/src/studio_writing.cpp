@@ -848,7 +848,7 @@ void StudioApp::drawBinder(const Rect& r) {
                     if (lib_->restore(nid)) selectNode(nid);
                 });
                 const float hv = hoverAmount(id);
-                if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+                if (hv > 0.01f) gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.6f * hv));
                 gfx_.text(nodeLabel(*n), {tx0 + 14, rr.y, rr.w - 120, rr.h}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
                 gfx_.text(L"Restore", {rr.right() - 70, rr.y, 66, rr.h}, Font::Small, pal_.ribbon.withAlpha(hv),
                           {Align::Right, false, false, true});
