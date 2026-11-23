@@ -322,16 +322,14 @@ void StudioApp::drawLanguages(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
     y += pageHeader(m, L"WORLDBUILDING", L"Languages",
-                    L"Your world's own languages. Their words aren't marked as misspellings in Writing; a word that's close to one of "
-                    L"them but not quite is marked, with the right word as the suggestion. Bring in a word list from a spreadsheet "
-                    L"(CSV), a lexicon tool (SFM) or a plain list, or start one here.");
+                    L"Your world's own languages: Writing knows their words, and suggests them for near misses.");
     float bx = m.x, bw = 0;
     smallButton("lang:import", bx, y, L"Import a language…", [this] { importLanguages(); }, &bw);
     bx += bw + 10;
     smallButton("lang:new", bx, y, L"New language", [this] { newLanguage(); }, &bw);
     y += 46;
     if (langs.empty()) {
-        y += gfx_.text(L"No languages yet.", {m.x, y, cw, 24}, Font::Body, pal_.inkFaint) + 20;
+        y += emptyState({m.x, y, cw, 260}, cjui::Icon::Comment, L"No languages yet.", L"+ New language", [this] { newLanguage(); });
     } else {
         // The languages, as a row of tabs (wrapping).
         float tx = m.x;

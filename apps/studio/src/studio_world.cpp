@@ -43,6 +43,10 @@ static std::wstring upper(std::wstring s) {
     for (auto& c : s) c = (wchar_t)towupper(c);
     return s;
 }
+static std::wstring lower(std::wstring s) {
+    for (auto& c : s) c = (wchar_t)towlower(c);
+    return s;
+}
 
 // `text` cut to at most `lines` lines at `width` (at a word, with an ellipsis), measured the way the screen will draw
 // it. Kept per text and width, since cards ask every frame.
@@ -1159,13 +1163,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += gfx_.text(L"Nothing in the bible matches \u201C" + w(find_) + L"\u201D" + (wb_.kind.empty() ? L"." : L" among the " + w(entryKindPlural(wb_.kind)) + L"."),
                            {m.x, y, std::min(cw, 640.0f), 60}, Font::Body, pal_.inkMuted) + 16;
         } else if (list.empty()) {
-            const std::wstring hint = wb_.kind.empty()
-                ? L"Keep track of who and what is in your books: characters, places, groups, things, lore and events. Each entry has "
-                  L"its details, notes and relationships, and lists the chapters it appears in."
-                : L"None yet.";
-            y += gfx_.text(hint, {m.x, y, std::min(cw, 640.0f), 80}, Font::Body, pal_.inkMuted) + 16;
-            button("wb:first", {m.x, y, 180, 34}, wb_.kind.empty() ? L"Add the first entry" : L"Add one", [this] { newEntry(wb_.kind); }, true);
-            y += 50;
+            // One line and one button (0.65).
+            const std::wstring line = wb_.kind.empty() ? L"The bible is empty. Start with a character, a place or anything else."
+                                                       : L"No " + lower(w(entryKindPlural(wb_.kind))) + L" yet.";
+            y += emptyState({m.x, y, std::min(cw, 640.0f), 300}, cjui::Icon::World, line, wb_.kind.empty() ? L"+ New entry" : L"+ New " + lower(w(entryKindLabel(wb_.kind))), [this] { newEntry(wb_.kind); });
         } else {
             // Each entry's first book, worked out again when the library has changed.
             const std::string key = wb_.world + "|" + wb_.book + "|" + std::to_string(lib_->changesMade());
@@ -4207,7 +4208,7 @@ void StudioApp::drawChecks(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
     y += pageHeader(m, L"WORLDBUILDING", L"Checks",
-                    L"The bible against itself and the manuscripts. Anything here can be fine as it is: mark it, and it isn't shown again.");
+                    L"The bible against itself and the books. Mark anything that's fine and it isn't shown again.");
     auto heading = [&](const std::wstring& t, int n) {
         gfx_.text(t + L"  ·  " + std::to_wstring(n), {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         y += 28;
@@ -4348,7 +4349,7 @@ void StudioApp::drawGlossary(const Rect& r) {
     for (auto& row : rows) if (row.alias.empty() && !row.e->pronunciation.empty()) ++said;
     y += pageHeader(m, L"WORLDBUILDING", L"Glossary",
                     std::to_wstring(rows.size()) + L" names, " + std::to_wstring(said) +
-                        L" with how they're said. Add how a name is said on its page (“How it's said”).");
+                        L" with how they're said.");
     std::wstring letter;
     for (const Row& row : rows) {
         const std::wstring name = w(row.alias.empty() ? row.e->name : row.alias);

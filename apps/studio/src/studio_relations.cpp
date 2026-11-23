@@ -54,8 +54,7 @@ void StudioApp::drawRelations(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
     y += pageHeader(m, L"WORLDBUILDING", L"Relationships",
-                    L"Your world's own kinds of relationship, beside the built-in ones. Each reads one way from the entry it's on and "
-                    L"another from the other side.");
+                    L"Your world's own kinds of relationship, each with the way it reads from the other side.");
     {
         float bw = 0;
         smallButton("rel:new", m.x, y, L"New kind of relationship", [this] { newRelation(); }, &bw);

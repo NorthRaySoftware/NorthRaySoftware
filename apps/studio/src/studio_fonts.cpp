@@ -115,8 +115,7 @@ void StudioApp::drawFonts(const Rect& r) {
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
     y += pageHeader(m, L"WORLDBUILDING", L"Fonts",
-                    L"Typefaces of this world's own. Every book in it can set its pages, its cover and its ebook in them, and the shared "
-                    L"bible can use them too. They're kept in the library folder, so they go wherever the library goes.");
+                    L"This world's own typefaces, for its books' pages, covers and ebooks, and the shared bible.");
     {
         float bw = 0;
         smallButton("fonts:import", m.x, y, L"Import fonts…", [this] { importFonts(); }, &bw);

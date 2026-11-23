@@ -198,16 +198,14 @@ void StudioApp::drawBoard(const Rect& r) {
     }
     y += 30;
     y += pageHeader({m.x, y, m.w, 0}, L"IMAGE BOARD", w(board->value("name", "Board")),
-                    L"Drag pictures to arrange them, and their corner to resize them. Click one to caption it or tie it to an entry.");
+                    L"Drag pictures to arrange them, and a corner to resize one.");
     button("wb:boardadd", {m.x, y - 6, 170, 32}, L"+ Add pictures…", [this] { addBoardPictures(); }, true);
     y += 44;
     const float ox = m.x, oy = y;
     wb_.boardOriginX = ox;
     wb_.boardOriginY = oy;
     const auto& items = (*board)["items"];
-    if (items.empty())
-        gfx_.text(L"No pictures yet. Add character art, maps, places, costumes, colour palettes: anything that helps you see the story.",
-                  {m.x, y, std::min(cw, 620.0f), 60}, Font::Body, pal_.inkMuted);
+    if (items.empty()) gfx_.text(L"No pictures yet.", {m.x, y, std::min(cw, 620.0f), 30}, Font::Body, pal_.inkMuted);
     float bottom = y + 60;
     for (auto& it : items) {
         const std::string iid = it.value("id", ""), blob = it.value("blob", "");
