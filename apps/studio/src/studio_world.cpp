@@ -1621,9 +1621,14 @@ void StudioApp::drawWorldPage(const Rect& r) {
         ty += 6;
         if (editingInline("details")) {
             gfx_.text(L"One per line, like Age: 34", {tx, ty, tmeasure, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
+            // A date from the world's calendar, picked from a little calendar (0.75).
+            if (!scopeCalendar().empty() && !wb_.datePick)
+                linkText("wb:pickdate", tx + tmeasure - gfx_.measureWidth(L"Insert a date…", Font::Small) - 14, ty - 4, L"Insert a date…",
+                         [this] { openDatePicker(FSynopsis); });
             const float h = inlineHeight(90);
             inlineBox({tx - 8, ty + 20, tmeasure + 8, h});
             ty += 20 + h + 26;
+            if (wb_.datePick) ty += drawDatePicker({tx - 8, ty + 2, tmeasure + 8, 0}, FSynopsis) + 22;
         } else if (!e->details.empty()) {
             ty += editable("details", FSynopsis, tx, ty, tmeasure, [&] {
                 float dy = ty;
@@ -1661,6 +1666,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
         } else {
             linkText("wb:adddetail", tx, ty, L"+ Detail", [this] { startEntryEdit("details", FSynopsis); });
             ty += 30;
+        }
+        if (!editingInline("details")) {
+            if (wb_.datePick) { wb_.datePick = false; ie_.hold = false; }
+            if (const float dh = drawEntryDates(*e, tx, ty + 6, tmeasure); dh > 0) ty += dh + 10;
         }
         y = std::max(y, ty) + 30;
         // A row to jump to the page's parts further down (where they started last time it was drawn) (0.48.4).

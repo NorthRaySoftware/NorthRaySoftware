@@ -252,6 +252,43 @@ static void testCalendar() {
         CHECK(warn.empty() && problems(m).empty() && m.months.size() == 7 && m.leap.size() == 2 && m.leap[1].offset == 50 &&
               m.leap[1].add == -1 && m.moons[1].offset == 4 && m.seasons.size() == 2);
     }
+    // Dates on entries and books in calendar dates (0.75).
+    {
+        auto lib2 = openOk(tempLibrary("calendar-dates"));
+        const Id w2 = lib2->createWorld("Alvora");
+        const Calendar g2 = gregorian();
+        CHECK(saveWorldCalendar(*lib2, w2, g2));
+        const Id maren = lib2->createEntry(w2, {}, "character", "Maren");
+        const Id war = lib2->createEntry(w2, {}, "event", "The Storm War");
+        Entry m = *lib2->entry(maren);
+        m.details = "Born: 3 March 1990\nEyes: grey\nDied: 10 June 2050\nMet Tom: 1 May 2020\nBirthday: 3 March";
+        CHECK(lib2->updateEntry(m));
+        Entry e = *lib2->entry(war);
+        e.details = "Date: 12 August 2024\nPlace: Valona";
+        CHECK(lib2->updateEntry(e));
+        auto facts = datedFactsOf(g2, *lib2->entry(maren));
+        CHECK(facts.size() == 3 && facts[0].kind == DatedFact::Birth && facts[1].kind == DatedFact::Death && facts[2].kind == DatedFact::Other);
+        auto all = datedFacts(g2, lib2->entriesOf(w2));
+        CHECK(all.size() == 4 && all[0].label == "Born" && all[2].kind == DatedFact::EventDate);
+        // A book's timeline in calendar dates: story day 0 is 1 January 2024, and things placed 0 and 400 days in.
+        const Id bk = lib2->createBook("Dragonfall", w2), bk2 = lib2->createBook("Before", w2);
+        CHECK(!storySpan(*lib2, bk).on);
+        CHECK(setTimelineCalendar(*lib2, bk, true, toDay(g2, {2024, 0, 1})));
+        lib2->setSetting("timeline:" + bk, R"({"calendar":true,"start":)" + std::to_string(toDay(g2, {2024, 0, 1})) +
+                                               R"(,"nodes":{"a":{"day":0},"b":{"day":400}},"events":{"x":{"day":10}}})");
+        const StorySpan sp = storySpan(*lib2, bk);
+        CHECK(sp.on && sp.any && fromDay(g2, sp.first) == (Date{2024, 0, 1}) && fromDay(g2, sp.last) == (Date{2025, 1, 4}));
+        auto ages = agesInBooks(*lib2, g2, {1990, 2, 3}, {bk, bk2});
+        CHECK(ages.size() == 1 && ages[0].book == bk && ages[0].from == 33 && ages[0].to == 34);
+        CHECK(agesInBooks(*lib2, g2, {1990, 2, 3}, {bk}, Date{2000, 0, 1}).empty());   // dead before it
+        CHECK(agesInBooks(*lib2, g2, {2030, 0, 1}, {bk}).empty());                     // not born yet
+        // Off again: the days stay.
+        CHECK(setTimelineCalendar(*lib2, bk, false));
+        CHECK(!storySpan(*lib2, bk).on && storySpan(*lib2, bk).start == toDay(g2, {2024, 0, 1}));
+        const std::string folder = lib2->folder();
+        lib2.reset();
+        fs::remove_all(folder);
+    }
     // Kept per world, overridden by a book.
     const std::string dir = tempLibrary("calendar");
     auto lib = openOk(dir);

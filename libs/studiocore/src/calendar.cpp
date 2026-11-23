@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -319,7 +320,12 @@ std::optional<Date> parseDate(const Calendar& c, const std::string& s0) {
     }
     Date d;
     if (month >= 0) {
-        if (nums.size() == 1) { d.year = nums[0]; d.day = 1; }
+        if (nums.size() == 1) {
+            // "March 1990" is a month of a year; "3 March" is a day with no year, which isn't a date.
+            if (numAt[0] < monthAt && c.order != "ymd") return std::nullopt;
+            d.year = nums[0];
+            d.day = 1;
+        }
         else if (nums.size() == 2) {
             // the day is the number next to the month (before it, or after it for "Frostmoon 3, 1204")
             if (numAt[0] < monthAt && numAt[1] > monthAt) { d.day = (int)nums[0]; d.year = nums[1]; }
@@ -662,6 +668,87 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
     std::stable_sort(c.eras.begin(), c.eras.end(), [](const Era& a, const Era& b) { return a.start < b.start; });
     if (c.months.empty()) warn("No months: list them under \"Months:\", one \"- Name: days\" a line.");
     return c;
+}
+
+// ------------------------------------------------------------------ dates on entries and timelines (0.75)
+
+std::vector<DatedFact> datedFactsOf(const Calendar& c, const Entry& e) {
+    std::vector<DatedFact> out;
+    if (c.empty()) return out;
+    std::istringstream in(e.details);
+    std::string line;
+    while (std::getline(in, line)) {
+        const size_t colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        const std::string label = trim(line.substr(0, colon)), value = trim(line.substr(colon + 1));
+        if (label.empty() || value.empty()) continue;
+        const auto d = parseDate(c, value);
+        if (!d) continue;
+        DatedFact f;
+        const std::string l = lower(label);
+        if (l == "born" || l == "birth" || l == "date of birth" || l == "birth date" || l == "hatched") f.kind = DatedFact::Birth;
+        else if (l == "died" || l == "death" || l == "date of death" || l == "death date" || l == "killed") f.kind = DatedFact::Death;
+        else if (e.kind == "event" && (l == "date" || l == "when" || l == "began" || l == "started" || l == "start")) f.kind = DatedFact::EventDate;
+        f.entry = e.id;
+        f.label = label;
+        f.date = *d;
+        f.day = toDay(c, *d);
+        out.push_back(f);
+    }
+    return out;
+}
+
+std::vector<DatedFact> datedFacts(const Calendar& c, const std::vector<const Entry*>& entries) {
+    std::vector<DatedFact> out;
+    for (const Entry* e : entries) {
+        if (!e || e->deleted) continue;
+        auto f = datedFactsOf(c, *e);
+        out.insert(out.end(), f.begin(), f.end());
+    }
+    std::stable_sort(out.begin(), out.end(), [](const DatedFact& a, const DatedFact& b) { return a.day < b.day; });
+    return out;
+}
+
+StorySpan storySpan(const Library& lib, const Id& book) {
+    StorySpan s;
+    json j = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    if (!j.is_object()) return s;
+    s.on = j.value("calendar", false);
+    if (j.contains("start") && j["start"].is_number()) s.start = (std::int64_t)std::floor(j["start"].get<double>());
+    if (!s.on) return s;
+    auto widen = [&](double d) {
+        const std::int64_t abs = s.start + (std::int64_t)std::floor(d);
+        if (!s.any) { s.first = s.last = abs; s.any = true; }
+        else { s.first = std::min(s.first, abs); s.last = std::max(s.last, abs); }
+    };
+    for (const char* k : {"nodes", "events"})
+        if (j.contains(k) && j[k].is_object())
+            for (auto& [id, v] : j[k].items())
+                if (v.is_object() && v.contains("day") && v["day"].is_number()) widen(v["day"].get<double>());
+    return s;
+}
+
+bool setTimelineCalendar(Library& lib, const Id& book, bool on, std::optional<std::int64_t> start) {
+    json j = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    if (!j.is_object()) j = json::object();
+    j["calendar"] = on;
+    if (start) j["start"] = *start;
+    return lib.setSetting("timeline:" + book, j.dump());
+}
+
+std::vector<AgeInBook> agesInBooks(const Library& lib, const Calendar& c, const Date& born, const std::vector<Id>& books,
+                                   std::optional<Date> died) {
+    std::vector<AgeInBook> out;
+    const std::int64_t bornDay = toDay(c, born);
+    const std::int64_t diedDay = died ? toDay(c, *died) : std::numeric_limits<std::int64_t>::max();
+    for (const Id& b : books) {
+        const StorySpan s = storySpan(lib, b);
+        if (!s.on || !s.any) continue;
+        if (s.last < bornDay || s.first > diedDay) continue;   // not alive during it
+        const std::int64_t a = std::max(s.first, bornDay), z = std::min(s.last, diedDay);
+        out.push_back({b, ageAt(c, born, fromDay(c, a)), ageAt(c, born, fromDay(c, z))});
+    }
+    return out;
 }
 
 // ------------------------------------------------------------------ where it's kept

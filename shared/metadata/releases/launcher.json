@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.150.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.75.0: your world's calendar dates in the bible and on Planning's timeline."
+      ]
+    },
+    {
       "version": "0.149.0",
       "date": "2026-11-23",
       "notes": [

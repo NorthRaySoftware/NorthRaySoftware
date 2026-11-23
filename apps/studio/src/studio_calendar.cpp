@@ -25,6 +25,7 @@ using cjui::Font;
 using cjui::Rect;
 
 static std::wstring w(const std::string& s) { return widen(s); }
+std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const Id& book);   // studio_world.cpp
 
 namespace {
 
@@ -219,7 +220,8 @@ void StudioApp::commitCalendarFields(const Focus& f) {
 
 // A month as a grid of days, with its holidays, the seasons that begin in it, and each moon's phase. `big` for the
 // month view (room for names); small for the maker's preview. Returns the height drawn.
-float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64_t year, int month, bool big) {
+float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64_t year, int month, bool big,
+                               std::function<void(int)> pick, const std::string& hitPrefix) {
     if (c.months.empty()) return 0;
     month = std::clamp(month, 0, (int)c.months.size() - 1);
     const int days = cal::monthLength(c, year, month);
@@ -248,6 +250,11 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
         }
         const cal::Date d{year, month, dayNo};
         const auto hols = cal::holidaysOn(c, d);
+        if (pick) {
+            const std::string hid = hitPrefix + std::to_string(dayNo);
+            addHit(hid, cell, [pick, dayNo] { pick(dayNo); });
+            if (const float hv = hoverAmount(hid); hv > 0.01f) gfx_.fillRounded(cell.inset(2), 5, pal_.ribbon.withAlpha(0.14f * hv));
+        }
         bool seasonStarts = false;
         std::wstring seasonName;
         for (auto& s : c.seasons) if (s.month == month && s.day == dayNo) { seasonStarts = true; seasonName = w(s.name); }
@@ -291,8 +298,27 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
                 ty += 20;
                 if (ty > cell.bottom() - 18) break;
             }
-            if (seasonStarts && ty <= cell.bottom() - 18)
+            if (seasonStarts && ty <= cell.bottom() - 18) {
                 gfx_.text(seasonName + L" begins", {cell.x + 8, ty, cell.w - 16, 18}, Font::Small, pal_.ribbon, {Align::Left, false, true, true});
+                ty += 18;
+            }
+            // The bible's dates that fall on it (this year): births, deaths, events, anything dated (0.75).
+            for (const cal::DatedFact& f : wb_.facts) {
+                if (f.day != dn) continue;
+                if (ty > cell.bottom() - 18) break;
+                const Entry* en = lib_->entry(f.entry);
+                if (!en) continue;
+                const std::wstring t = f.kind == cal::DatedFact::Birth ? w(en->name) + L" born"
+                                     : f.kind == cal::DatedFact::Death ? w(en->name) + L" dies"
+                                     : f.kind == cal::DatedFact::EventDate ? w(en->name)
+                                                                           : w(en->name) + L": " + w(f.label);
+                const Rect fr{cell.x + 8, ty, cell.w - 16, 18};
+                const std::string fid = "calfact:" + std::to_string(dn) + ":" + f.entry + f.label;
+                addHit(fid, fr, [this, id = f.entry] { openEntry(id); });
+                tooltip(fid, t);
+                gfx_.text(t, fr, Font::Small, hoverAmount(fid) > 0.3f ? pal_.ribbon : pal_.ink, {Align::Left, false, true, true});
+                ty += 18;
+            }
         } else if (seasonStarts) {
             gfx_.fill({cell.x + cell.w * 0.3f, cell.bottom() - 4, cell.w * 0.4f, 2}, pal_.ribbon);
         }
@@ -412,6 +438,10 @@ void StudioApp::drawCalendar(const Rect& r) {
 
     if (wb_.calMode == 0) {
         // ---- Month by month: the bible's calendar page.
+        if (const auto ch = lib_->changesMade(); ch != wb_.factsAt) {
+            wb_.factsAt = ch;
+            wb_.facts = cal::datedFacts(c, lib_->entriesOf(wb_.world, wb_.book));
+        }
         wb_.calMonth = std::clamp(wb_.calMonth, 0, (int)c.months.size() - 1);
         const cal::Date at{wb_.calYear, wb_.calMonth, 1};
         float bx = m.x;
@@ -785,6 +815,125 @@ void StudioApp::drawCalendarPanel(const Rect& r) {
               pal_.inkFaint);
     clearHitClip();
     gfx_.popClip();
+}
+
+// ------------------------------------------------------------------ picking a date (0.75)
+
+void StudioApp::openDatePicker(Field field) {
+    const cal::Calendar c = scopeCalendar();
+    if (c.empty()) { flash(L"Make the world's calendar first (Bible tools › Calendar).", 5); return; }
+    // Start at a date already on the caret's line, else the month last looked at in the calendar.
+    wb_.pickYear = wb_.calYear;
+    if (wb_.pickYear == 1 && !c.eras.empty()) wb_.pickYear = c.name == "Gregorian" ? 2026 : c.eras.back().start;
+    wb_.pickMonth = std::clamp(wb_.calMonth, 0, (int)c.months.size() - 1);
+    {
+        HWND h = fields_[field];
+        DWORD a = 0, b = 0;
+        SendMessageW(h, EM_GETSEL, (WPARAM)&a, (LPARAM)&b);
+        const int line = (int)SendMessageW(h, EM_LINEFROMCHAR, a, 0);
+        wchar_t buf[400] = {};
+        *(WORD*)buf = 390;
+        const int n = (int)SendMessageW(h, EM_GETLINE, line, (LPARAM)buf);
+        std::string text = narrow(std::wstring(buf, std::max(0, n)));
+        const size_t colon = text.find(':');
+        if (colon != std::string::npos)
+            if (const auto d = cal::parseDate(c, text.substr(colon + 1))) { wb_.pickYear = d->year; wb_.pickMonth = d->month; }
+    }
+    wb_.datePick = true;
+    ie_.hold = true;
+    invalidate();
+}
+
+float StudioApp::drawDatePicker(const Rect& r, Field field) {
+    const cal::Calendar c = scopeCalendar();
+    if (c.empty()) { wb_.datePick = false; ie_.hold = false; return 0; }
+    wb_.pickMonth = std::clamp(wb_.pickMonth, 0, (int)c.months.size() - 1);
+    const int cols = c.weekdays.empty() ? 7 : (int)c.weekdays.size();
+    const float gw = std::min(r.w, 340.0f) - 24;
+    const int lead = c.weekdays.empty() ? 0 : cal::weekday(c, cal::toDay(c, {wb_.pickYear, wb_.pickMonth, 1}));
+    const int rows = std::max(1, (lead + cal::monthLength(c, wb_.pickYear, wb_.pickMonth) + cols - 1) / cols);
+    const float cellH = std::max(30.0f, std::min(44.0f, gw / cols * 0.9f));
+    const float h = 12 + 36 + (c.weekdays.empty() ? 0 : 22) + rows * cellH + 6 + 40 + 34;
+    const Rect cr{r.x, r.y, std::min(r.w, 340.0f), h};
+    card(cr, 10, 1.5f);
+    float y = cr.y + 12;
+    auto step = [this](int dir) {
+        const cal::Calendar c2 = scopeCalendar();
+        wb_.pickMonth += dir;
+        if (wb_.pickMonth < 0) { wb_.pickMonth = (int)c2.months.size() - 1; --wb_.pickYear; }
+        if (wb_.pickMonth >= (int)c2.months.size()) { wb_.pickMonth = 0; ++wb_.pickYear; }
+        invalidate();
+    };
+    button("dp:prev", {cr.x + 12, y, 30, 28}, L"‹", [step] { step(-1); });
+    button("dp:next", {cr.right() - 42, y, 30, 28}, L"›", [step] { step(1); });
+    button("dp:prevy", {cr.x + 46, y, 30, 28}, L"«", [this] { --wb_.pickYear; invalidate(); });
+    button("dp:nexty", {cr.right() - 76, y, 30, 28}, L"»", [this] { ++wb_.pickYear; invalidate(); });
+    gfx_.text(w(cal::monthLabel(c, wb_.pickMonth)) + L" " + w(cal::formatYear(c, wb_.pickYear)), {cr.x + 80, y, cr.w - 160, 28},
+              Font::SmallStrong, pal_.ink, {Align::Center, false, true, true});
+    y += 36;
+    y += drawMonthGrid({cr.x + 12, y, cr.w - 24, 0}, c, wb_.pickYear, wb_.pickMonth, false, [this, field](int day) {
+        const cal::Calendar c2 = scopeCalendar();
+        const std::wstring t = w(cal::formatDate(c2, {wb_.pickYear, wb_.pickMonth, day}));
+        HWND h = fields_[field];
+        SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)t.c_str());
+        wb_.datePick = false;
+        ie_.hold = false;
+        SetFocus(h);
+        invalidate();
+    }, "dp:day:") + 6;
+    gfx_.text(L"Pick a day to put its date where the caret is. You can type dates too.", {cr.x + 14, y, cr.w - 28, 34}, Font::Small,
+              pal_.inkFaint);
+    linkText("dp:close", cr.right() - gfx_.measureWidth(L"Close", Font::Small) - 22, cr.bottom() - 30, L"Close", [this, field] {
+        wb_.datePick = false;
+        ie_.hold = false;
+        SetFocus(fields_[field]);
+        invalidate();
+    });
+    return h;
+}
+
+// Under an entry's details: how old they are through the books, and how long they lived (0.75).
+float StudioApp::drawEntryDates(const Entry& e, float x, float y, float wd) {
+    const cal::Calendar c = scopeCalendar();
+    if (c.empty()) return 0;
+    const auto facts = cal::datedFactsOf(c, e);
+    if (facts.empty()) return 0;
+    const cal::DatedFact* born = nullptr;
+    const cal::DatedFact* died = nullptr;
+    for (auto& f : facts) {
+        if (f.kind == cal::DatedFact::Birth && !born) born = &f;
+        if (f.kind == cal::DatedFact::Death && !died) died = &f;
+    }
+    float dy = y;
+    std::wstring line;
+    for (auto& f : facts) {
+        if (!c.weekdays.empty() && f.kind != cal::DatedFact::Other) {
+            const std::wstring wd2 = w(c.weekdays[cal::weekday(c, f.day)]);
+            const std::wstring said = f.kind == cal::DatedFact::Birth ? L"Born on a " : f.kind == cal::DatedFact::Death ? L"Died on a " : L"On a ";
+            line += (line.empty() ? L"" : L"   ·   ") + said + wd2;
+        }
+    }
+    if (born && died) {
+        const int a = cal::ageAt(c, born->date, died->date);
+        line += (line.empty() ? L"" : L"   ·   ") + std::wstring(L"lived ") + std::to_wstring(a) + (a == 1 ? L" year" : L" years");
+    }
+    if (!line.empty()) dy += gfx_.text(line, {x, dy, wd, 40}, Font::Small, pal_.inkMuted) + 4;
+    if (born) {
+        std::vector<Id> order;
+        for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) order.push_back(b);
+        const auto ages = cal::agesInBooks(*lib_, c, born->date, order, died ? std::optional<cal::Date>(died->date) : std::nullopt);
+        if (!ages.empty()) {
+            std::wstring a = L"Age";
+            for (size_t i = 0; i < ages.size(); ++i) {
+                const studio::Book* bk = lib_->book(ages[i].book);
+                if (!bk) continue;
+                a += (i ? L";  " : L" ") + std::wstring(L"in ") + w(bk->title) + L": " + std::to_wstring(ages[i].from) +
+                     (ages[i].to != ages[i].from ? L"\u2013" + std::to_wstring(ages[i].to) : L"");
+            }
+            dy += gfx_.text(a, {x, dy, wd, 60}, Font::Small, pal_.ribbon) + 4;
+        }
+    }
+    return dy - y;
 }
 
 void StudioApp::startCalendar(const cal::Calendar& c) {

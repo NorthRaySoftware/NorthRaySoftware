@@ -78,7 +78,7 @@ struct Focus {
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
     FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen,
-    FSection, FBookNote, FTemplate, FFind, FRepo, FToken, FTopSearch, FieldCount
+    FSection, FBookNote, FTemplate, FFind, FRepo, FToken, FTopSearch, FTimeOfDay, FieldCount
 };
 // The fields that take several lines.
 inline bool isMultiField(int f) { return f == FDescription || f == FNotes || f == FSynopsis || f == FSection || f == FBookNote || f == FTemplate; }
@@ -243,7 +243,13 @@ private:
     void openCalendar();
     void drawCalendar(const Rect& r);
     void drawCalendarPanel(const Rect& r);
-    float drawMonthGrid(const Rect& r, const studio::cal::Calendar& c, std::int64_t year, int month, bool big);
+    float drawMonthGrid(const Rect& r, const studio::cal::Calendar& c, std::int64_t year, int month, bool big,
+                        std::function<void(int)> pick = nullptr, const std::string& hitPrefix = "calday:");
+    // A little calendar under a field being edited in place, putting the date picked where the caret is (0.75).
+    float drawDatePicker(const Rect& r, Field field);
+    void openDatePicker(Field field);
+    // An entry's dates: births and deaths with ages, through each book with calendar dates (0.75).
+    float drawEntryDates(const studio::Entry& e, float x, float y, float w);
     void loadCalendarFields();
     void commitCalendarFields(const Focus& f);
     void copyCalendarText();
@@ -407,7 +413,10 @@ private:
     void drawPlanTimeline(const Rect& r);
     void drawPlanStructure(const Rect& r);
     void planPanelExtras(const Rect& c, float& y);     // the timeline/structure parts of the panel
-    struct StoryTime { bool placed = false; double day = 0; std::string when; };
+    struct StoryTime { bool placed = false; double day = 0; std::string when; int minutes = -1; };   // minutes: time of day (0.75)
+    // A story day as the book's timeline writes it: its calendar date when it's in calendar dates (0.75), else Day 12.
+    std::wstring storyDayText(const Id& bookId, double day) const;
+    bool timelineInCalendar(const Id& bookId) const;   // the book has a calendar and its timeline uses it
     std::map<Id, StoryTime> storyTimes(const Id& bookId) const;
     void setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime& t);
     std::string timelineUnit(const Id& bookId) const;
@@ -764,7 +773,7 @@ private:
     bool dirty_ = false;
     HFONT fieldFont_ = nullptr;
     HFONT titleFont_ = nullptr;   // a name being edited in place, in the page title's size (0.68)
-    struct InlineEdit { int field = -1; std::string key; bool placed = false, focused = false, big = false; std::function<void()> revert; };
+    struct InlineEdit { int field = -1; std::string key; bool placed = false, focused = false, big = false, hold = false; std::function<void()> revert; };   // hold: keep it while a date is picked (0.75)
     InlineEdit ie_;
     std::map<std::string, float> areaH_;   // how tall each editable piece of text was last drawn
     Color gold_{};   // the kicker labels' warm gold (0.68)
@@ -941,6 +950,11 @@ private:
         int calMode = 0;           // 0 month by month, 1 making it
         int calMonth = 0;          // the month shown (index)
         std::int64_t calYear = 1;  // the year shown (plain)
+        bool datePick = false;     // the little calendar under the field being edited (0.75)
+        int pickMonth = 0;
+        std::int64_t pickYear = 1;
+        std::int64_t factsAt = -1;                              // changesMade() when the dated facts were gathered
+        std::vector<studio::cal::DatedFact> facts;             // every entry's dates, for the month view
         std::string language;      // the language shown there
         studio::review::Continuity continuity;           // worked out for the Checks page
         std::vector<std::pair<Id, studio::review::NameIssue>> spellings;   // book, name spelt like a bible name

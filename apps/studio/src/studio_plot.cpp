@@ -34,6 +34,7 @@ using cjui::MenuItem;
 using cjui::showMenu;
 
 static std::wstring w(const std::string& s) { return widen(s); }
+namespace cal = studio::cal;
 
 // ------------------------------------------------------------- the data
 
@@ -47,6 +48,7 @@ std::map<Id, StudioApp::StoryTime> StudioApp::storyTimes(const Id& bookId) const
         StoryTime t;
         if (v.contains("day") && v["day"].is_number()) { t.placed = true; t.day = v["day"].get<double>(); }
         if (v.contains("when") && v["when"].is_string()) t.when = v["when"].get<std::string>();
+        if (v.contains("time") && v["time"].is_number_integer()) t.minutes = v["time"].get<int>();
         out[id] = t;
     }
     return out;
@@ -59,6 +61,7 @@ void StudioApp::setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime
     json v = json::object();
     if (t.placed) v["day"] = t.day;
     if (!t.when.empty()) v["when"] = t.when;
+    if (t.minutes >= 0) v["time"] = t.minutes;
     if (v.empty()) j["nodes"].erase(nodeId);
     else j["nodes"][nodeId] = v;
     lib_->setSetting("timeline:" + bookId, j.dump());
@@ -73,8 +76,39 @@ std::string StudioApp::timelineUnit(const Id& bookId) const {
 void StudioApp::setTimelineUnit(const Id& bookId, const std::string& unit) {
     json j = json::parse(lib_->setting("timeline:" + bookId), nullptr, false);
     if (!j.is_object()) j = json::object();
-    j["unit"] = unit;
+    if (unit == "calendar") {
+        // Calendar dates (0.75): story days count from `start`, a calendar day; the first time, the start of the
+        // latest era (or this year, in the Gregorian calendar).
+        const cal::Calendar c = cal::calendarOfBook(*lib_, bookId);
+        j["unit"] = "day";
+        j["calendar"] = true;
+        if (!j.contains("start") || !j["start"].is_number()) {
+            std::int64_t y = c.eras.empty() ? 1 : c.eras.back().start;
+            if (c.name == "Gregorian") y = 2026;
+            j["start"] = cal::toDay(c, {y, 0, 1});
+        }
+    } else {
+        j["unit"] = unit;
+        j["calendar"] = false;
+    }
     lib_->setSetting("timeline:" + bookId, j.dump());
+}
+
+bool StudioApp::timelineInCalendar(const Id& bookId) const {
+    if (!lib_) return false;
+    return cal::storySpan(*lib_, bookId).on && !cal::calendarOfBook(*lib_, bookId).empty();
+}
+
+std::wstring StudioApp::storyDayText(const Id& bookId, double day) const {
+    if (timelineInCalendar(bookId)) {
+        const cal::Calendar c = cal::calendarOfBook(*lib_, bookId);
+        return w(cal::formatDate(c, cal::fromDay(c, cal::storySpan(*lib_, bookId).start + (std::int64_t)std::floor(day))));
+    }
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%g", day);
+    const std::string unit = timelineUnit(bookId);
+    const std::wstring u = unit == "week" ? L"Week " : unit == "month" ? L"Month " : unit == "year" ? L"Year " : L"Day ";
+    return u + widen(buf);
 }
 
 // --------------------------------------------------------- helpers
@@ -127,12 +161,6 @@ std::string fileText(const std::string& bytes) {
     return bytes;
 }
 
-std::wstring dayLabel(const std::string& unit, double d) {
-    char buf[32];
-    std::snprintf(buf, sizeof buf, "%g", d);
-    const std::wstring u = unit == "week" ? L"Week " : unit == "month" ? L"Month " : unit == "year" ? L"Year " : L"Day ";
-    return u + widen(buf);
-}
 
 }  // namespace
 
@@ -146,8 +174,17 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const float pad = r.w > 900 ? 36 : 24;
     const float cw = r.w - pad * 2;
     const Rect m{r.x + pad, r.y + 26 - pl_.scroll, cw, 0};
-    const std::string unit = timelineUnit(pl_.book);
-    float y = m.y + planHeader(m, L"When things happen. The line joins them in reading order, so a flashback turns back.");
+    // In calendar dates (0.75): story day d is the calendar day start + d.
+    const bool calOn = timelineInCalendar(pl_.book);
+    const cal::Calendar cc = calOn ? cal::calendarOfBook(*lib_, pl_.book) : cal::Calendar{};
+    const std::int64_t cStart = calOn ? cal::storySpan(*lib_, pl_.book).start : 0;
+    auto lab = [&](double d) -> std::wstring {
+        if (!calOn) return storyDayText(pl_.book, d);
+        return w(cal::formatDate(cc, cal::fromDay(cc, cStart + (std::int64_t)std::floor(d))));
+    };
+    float y = m.y + planHeader(m, calOn ? L"When things happen, in " + w(cc.name.empty() ? std::string("the world's calendar") : cc.name) +
+                                              L". The line joins them in reading order, so a flashback turns back."
+                                        : L"When things happen. The line joins them in reading order, so a flashback turns back.");
     // Lanes by viewpoint, plot thread or place, or one lane (0.52); and the zoom.
     const std::string laneBy = planPref(pl_.book, "lanes", "viewpoint");
     {
@@ -160,6 +197,29 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
                       setPlanPref(pl_.book, "lanes", keys[i]);
                   });
         tx += 330 + 20;
+        // What the timeline counts in (0.75: here, beside the lanes, with the world's calendar dates as a choice).
+        {
+            static const char* units[] = {"day", "week", "month", "year", "calendar"};
+            static const wchar_t* names[] = {L"Days", L"Weeks", L"Months", L"Years", L"Calendar dates"};
+            const std::string unitNow = timelineUnit(pl_.book);
+            int cur = 0;
+            for (int i = 0; i < 4; ++i) if (unitNow == units[i]) cur = i;
+            if (calOn) cur = 4;
+            const bool hasCal = !cal::calendarOfBook(*lib_, pl_.book).empty();
+            std::wstring lbl = std::wstring(L"Counts in ") + names[cur];
+            for (size_t k = 10; k < lbl.size(); ++k) lbl[k] = (wchar_t)towlower(lbl[k]);
+            if (tx + gfx_.measureWidth(lbl, Font::Body) + 44 > m.x + cw) { tx = m.x; y += 36; }
+            tx += menuButton("pl:units", tx, y - 2, lbl, [this, cur, hasCal] {
+                std::vector<ToolItem> t;
+                for (int i = 0; i < 4; ++i)
+                    t.push_back(ToolItem::item(names[i], [this, i] { commitFields(); setTimelineUnit(pl_.book, units[i]); loadedFocus_ = {Focus::None, "-", ""}; invalidate(); }, i == cur));
+                ToolItem calItem = ToolItem::item(hasCal ? std::wstring(names[4]) : std::wstring(L"Calendar dates (make the world's calendar first)"),
+                                                  [this] { commitFields(); setTimelineUnit(pl_.book, "calendar"); loadedFocus_ = {Focus::None, "-", ""}; invalidate(); }, cur == 4);
+                calItem.enabled = hasCal;
+                t.push_back(calItem);
+                return t;
+            }) + 16;
+        }
         if (tx + 150 > m.x + cw) { tx = m.x; y += 36; }
         float bw = 0;
         smallButton("pl:tlzout", tx, y, L"−", [this] { zoomTimeline(0.8f, pl_.tlDropArea.x + pl_.tlDropArea.w / 2); }, &bw);
@@ -320,10 +380,68 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         gfx_.text(L"Story events", {m.x + 12, eventTop + 6, labelW - 20, 20}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
     // Ticks and day lines (clipped to the area right of the lane names).
     gfx_.pushClip({area.x, tickY, area.w, laneBottom - tickY});
-    for (double d = std::ceil(lo / step) * step; d <= hi; d += step) {
-        const float tx = xOf(d);
-        gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
-        gfx_.text(dayLabel(unit, d), {tx - 40, tickY, 80, 20}, Font::Small, pal_.inkFaint, {Align::Center, false});
+    if (!calOn) {
+        for (double d = std::ceil(lo / step) * step; d <= hi; d += step) {
+            const float tx = xOf(d);
+            gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
+            gfx_.text(lab(d), {tx - 40, tickY, 80, 20}, Font::Small, pal_.inkFaint, {Align::Center, false});
+        }
+    } else {
+        // Calendar ticks: days ("3 Frostmoon") when there's room, else the first days of months ("Frostmoon 1204"), or of years.
+        const double visLo = lo + (area.x - x0) / px - 1, visHi = lo + (area.right() - x0) / px + 1;
+        const double monthLen = std::max(1.0, cal::meanYear(cc) / std::max<size_t>(1, cc.months.size()));
+        double dstep = 1;   // room for "12 Frostmoon" under each
+        for (double s2 : {1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0}) { dstep = s2; if (s2 * px >= 120) break; }
+        if (dstep * px >= 120 && dstep < monthLen * 0.6) {
+            for (double d = std::ceil(std::max(lo, visLo) / dstep) * dstep; d <= std::min(hi, visHi); d += dstep) {
+                const float tx = xOf(d);
+                const cal::Date dt = cal::fromDay(cc, cStart + (std::int64_t)d);
+                gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
+                gfx_.text(std::to_wstring(dt.day) + L" " + w(cal::monthLabel(cc, dt.month)), {tx - 60, tickY, 120, 20}, Font::Small,
+                          pal_.inkFaint, {Align::Center, false, true});
+            }
+        } else {
+            const int every = std::max(1, (int)std::ceil(110.0 / (px * monthLen)));
+            const bool years = every >= (int)cc.months.size();
+            const int yearsEvery = years ? std::max(1, (int)std::ceil(110.0 / (px * cal::meanYear(cc)))) : 1;
+            cal::Date dt = cal::fromDay(cc, cStart + (std::int64_t)std::floor(std::max(lo, visLo)));
+            dt.day = 1;
+            if (years) dt.month = 0;
+            for (int guard = 0; guard < 2000; ++guard) {
+                const double d = (double)(cal::toDay(cc, dt) - cStart);
+                if (d > std::min(hi, visHi)) break;
+                if (d >= lo) {
+                    const float tx = xOf(d);
+                    gfx_.line(tx, laneTop, tx, laneBottom, pal_.rule.withAlpha(0.6f));
+                    const std::wstring t = years ? w(cal::formatYear(cc, dt.year))
+                                                 : w(cal::monthLabel(cc, dt.month)) + L" " + std::to_wstring(cal::eraYear(cc, dt.year).year);
+                    gfx_.text(t, {tx - 70, tickY, 140, 20}, Font::Small, pal_.inkFaint, {Align::Center, false, true});
+                }
+                if (years) dt.year += yearsEvery;
+                else {
+                    dt.month += every;
+                    while (dt.month >= (int)cc.months.size()) { dt.month -= (int)cc.months.size(); ++dt.year; }
+                }
+            }
+        }
+        // The moons: full and new moons along the top of the lanes, when the days are wide enough to show them.
+        if (px >= 4 && !cc.moons.empty()) {
+            for (double d = std::floor(std::max(lo, visLo)); d <= std::min(hi, visHi); d += 1) {
+                const std::int64_t abs = cStart + (std::int64_t)d;
+                float mx = xOf(d) + (float)px / 2;
+                for (size_t mi = 0; mi < cc.moons.size() && mi < 3; ++mi) {
+                    const double ph = cal::moonPhase(cc.moons[mi], abs), prev = cal::moonPhase(cc.moons[mi], abs - 1);
+                    const bool full = prev < 0.5 && ph >= 0.5, fresh = ph < prev;   // the day it turns full, or new
+                    if (!full && !fresh) continue;
+                    const float my = laneTop + 7 + 12 * mi;
+                    gfx_.circle(mx, my, 4.5f, full ? gold_.mix(pal_.surface, 0.3f) : pal_.ink.withAlpha(0.55f), true);
+                    gfx_.circle(mx, my, 4.5f, pal_.inkFaint, false, 1);
+                    const std::string tid = "pl:moon:" + std::to_string(abs) + ":" + std::to_string(mi);
+                    addHit(tid, {mx - 6, my - 6, 12, 12}, nullptr);
+                    tooltip(tid, w(cc.moons[mi].name) + (full ? L": full moon, " : L": new moon, ") + lab(d));
+                }
+            }
+        }
     }
     // Events: a dashed line through the lanes and a flag above them; drag one along, click it for more.
     const Color evc = pal_.dark ? cjui::hexColor("#E0A458") : cjui::hexColor("#B26B12");
@@ -343,7 +461,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
                 if (const Entry* x = lib_->entry(eid)) { openWorldbuilding(x->worldId, x->bookId); openEntry(eid); }
             } else if (c == 2) { plan::setTimelineEvent(*lib_, pl_.book, eid, std::nullopt); invalidate(); }
         });
-        tooltip(id, nm + L" · " + dayLabel(unit, d) + L". Drag it along to move it; click for more.");
+        tooltip(id, nm + L" · " + lab(d) + L". Drag it along to move it; click for more.");
         const float hv = hoverAmount(id);
         gfx_.fillRounded(flag, 4, evc.withAlpha(0.14f + 0.12f * hv));
         gfx_.fill({ex - 1, eventTop + 4, 2.5f, 24}, evc);
@@ -375,8 +493,17 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         gfx_.fill({c.x + 1, c.y + 8, 3, c.h - 16}, statusColour(n->status));
         gfx_.text(p.it->label, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
         const auto t = times.find(n->id);
-        const std::wstring when = t != times.end() && !t->second.when.empty() ? w(t->second.when) : dayLabel(unit, p.it->day);
-        gfx_.text(when, {c.x + 12, c.y + 6, c.w - 20, 16}, Font::Label, pal_.ribbon, {Align::Right, false, true});
+        std::wstring when;
+        if (t != times.end() && !t->second.when.empty()) when = w(t->second.when);
+        else if (calOn) {
+            // On a card, the day and month (the ticks give the year); the whole date is in its tooltip.
+            const cal::Date dt = cal::fromDay(cc, cStart + (std::int64_t)std::floor(p.it->day));
+            when = std::to_wstring(dt.day) + L" " + w(cal::monthLabel(cc, dt.month));
+            tooltip(id, lab(p.it->day) + (t != times.end() && t->second.minutes >= 0 ? L", " + w(cal::formatTime(cc, t->second.minutes)) : L""));
+        } else when = lab(p.it->day);
+        if (t != times.end() && t->second.minutes >= 0 && calOn) when += L" \u00B7 " + w(cal::formatTime(cc, t->second.minutes));
+        const float lw = gfx_.measureWidth(p.it->label, Font::Label) + 8;
+        gfx_.text(when, {c.x + 12 + lw, c.y + 6, c.w - 20 - lw, 16}, Font::Label, pal_.ribbon, {Align::Right, false, true});
         gfx_.text(w(n->title.empty() ? std::string(label(n->kind)) : n->title), {c.x + 12, c.y + 24, c.w - 20, 22}, Font::BodyStrong,
                   pal_.ink, {Align::Left, false, true});
         if (focused(id)) focusRing(c);
@@ -385,7 +512,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     if (pl_.tlDrag.active && (pl_.tlDrag.kind == 1 || pl_.tlDrag.kind == 3) && pl_.tlDropArea.contains(pl_.tlDrag.mx, pl_.tlDrag.my)) {
         const float gx = xOf(pl_.tlDrag.day);
         gfx_.line(gx, laneTop, gx, laneBottom, pal_.ribbon, 2.5f);
-        const std::wstring dl = dayLabel(unit, pl_.tlDrag.day);
+        const std::wstring dl = lab(pl_.tlDrag.day);
         const float dw = gfx_.measureWidth(dl, Font::Small) + 16;
         gfx_.fillRounded({gx - dw / 2, tickY - 2, dw, 22}, 11, pal_.ribbon);
         gfx_.text(dl, {gx - dw / 2, tickY - 2, dw, 22}, Font::Small, pal_.paper, {Align::Center, false, false, true});
@@ -539,7 +666,7 @@ bool StudioApp::planMouseUp(float x, float y) {
             selectCard(d.id);
             loadFields();
         } else plan::setTimelineEvent(*lib_, pl_.book, d.id, d.day);
-        flash((d.kind <= 1 ? L"Moved to " : L"The event is now at ") + dayLabel(timelineUnit(pl_.book), d.day) + L".", 3);
+        flash((d.kind <= 1 ? L"Moved to " : L"The event is now at ") + storyDayText(pl_.book, d.day) + L".", 3);
     }
     invalidate();
     return d.active;
@@ -871,26 +998,38 @@ void StudioApp::planPanelExtras(const Rect& c, float& y) {
     const ManuscriptNode* n = pl_.node.empty() ? nullptr : lib_->node(pl_.node);
     if (n && !n->deleted && n->kind != NodeKind::Part) {
         panelHeading(c, y, L"WHEN IN THE STORY", false);
-        const std::wstring unit = w(timelineUnit(pl_.book));
-        y = panelField(c, y, std::wstring(L"Story ") + unit + L" (a number; blank: not on the timeline)", FStoryDay);
+        if (timelineInCalendar(pl_.book)) {
+            y = panelField(c, y, L"Date (3 Frostmoon 1204; blank: not on the timeline)", FStoryDay);
+            y = panelField(c, y, L"Time of day (14:30; optional)", FTimeOfDay);
+        } else {
+            const std::wstring unit = w(timelineUnit(pl_.book));
+            y = panelField(c, y, std::wstring(L"Story ") + unit + L" (a number; blank: not on the timeline)", FStoryDay);
+        }
         y = panelField(c, y, L"When, in words (optional)", FWhen);
     } else if (!n && pl_.view == 1) {
         panelHeading(c, y, L"THE TIMELINE", false);
         const std::string unit = timelineUnit(pl_.book);
-        static const char* units[] = {"day", "week", "month", "year"};
-        static const wchar_t* names[] = {L"Days", L"Weeks", L"Months", L"Years"};
+        static const char* units[] = {"day", "week", "month", "year", "calendar"};
+        static const wchar_t* names[] = {L"Days", L"Weeks", L"Months", L"Years", L"Calendar dates"};
+        const bool hasCal = !cal::calendarOfBook(*lib_, pl_.book).empty();
         int cur = 0;
         for (int i = 0; i < 4; ++i) if (unit == units[i]) cur = i;
-        panelChoice("pl:unit", c, y, L"Counts in", names[cur], [this, cur] {
+        if (timelineInCalendar(pl_.book)) cur = 4;
+        panelChoice("pl:unit", c, y, L"Counts in", names[cur], [this, cur, hasCal] {
             std::vector<MenuItem> items;
             for (int i = 0; i < 4; ++i) items.push_back(MenuItem::item(names[i], (UINT)(i + 1), {}, true, i == cur));
+            items.push_back(MenuItem::item(hasCal ? names[4] : L"Calendar dates (make the world's calendar first)", 5, {}, hasCal, cur == 4));
             POINT pt;
             GetCursorPos(&pt);
             const UINT c2 = showMenu(hwnd(), items, pt, pal_);
-            if (c2) { setTimelineUnit(pl_.book, units[c2 - 1]); invalidate(); }
+            if (c2) { commitFields(); setTimelineUnit(pl_.book, units[c2 - 1]); loadedFocus_ = {Focus::None, "-", ""}; invalidate(); }
         });
-        y += gfx_.text(L"Start counting wherever you like; words such as \"Midsummer, 1204\" can show instead.",
-                       {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
+        if (cur == 4) {
+            y += gfx_.text(L"Story days are the world's calendar dates: give a card its date in its details, or drag it along a day at a "
+                           L"time. Full and new moons show along the top.", {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
+        } else
+            y += gfx_.text(L"Start counting wherever you like; words such as \"Midsummer, 1204\" can show instead.",
+                           {c.x, y, c.w, 120}, Font::Small, pal_.inkMuted) + 14;
     }
 }
 

@@ -125,6 +125,29 @@ Calendar fromJson(const std::string& json);
 std::string toText(const Calendar& c);
 Calendar fromText(const std::string& text, std::vector<std::string>* warnings = nullptr);
 
+// Dates written on bible entries (0.75): each detail line whose value reads as a date. Born / Birth / Date of birth
+// are births, Died / Death / Date of death deaths; an event's Date / When / Began / Started is its date.
+struct DatedFact {
+    enum Kind { Birth, Death, EventDate, Other } kind = Other;
+    Id entry;
+    std::string label;   // the detail's label as written
+    Date date;
+    std::int64_t day = 0;
+};
+std::vector<DatedFact> datedFacts(const Calendar& c, const std::vector<const Entry*>& entries);
+std::vector<DatedFact> datedFactsOf(const Calendar& c, const Entry& e);
+
+// A book's timeline in calendar dates (0.75): "timeline:<book>" holds "calendar": true and "start", the calendar day
+// of story day 0. Story days stay as they were, so switching back and forth loses nothing.
+struct StorySpan { bool on = false; std::int64_t start = 0; bool any = false; std::int64_t first = 0, last = 0; };
+StorySpan storySpan(const Library& lib, const Id& book);   // first/last: the calendar days of everything placed
+bool setTimelineCalendar(Library& lib, const Id& book, bool on, std::optional<std::int64_t> start = std::nullopt);
+
+// How old someone born on `born` is through a book: at its first and last dates (when it has calendar dates).
+struct AgeInBook { Id book; int from = 0, to = 0; };
+std::vector<AgeInBook> agesInBooks(const Library& lib, const Calendar& c, const Date& born, const std::vector<Id>& books,
+                                   std::optional<Date> died = std::nullopt);
+
 // Which calendar a book or world uses: the book's own, else its world's. Empty (no months) when there's none.
 std::string settingKeyForWorld(const Id& world);
 std::string settingKeyForBook(const Id& book);

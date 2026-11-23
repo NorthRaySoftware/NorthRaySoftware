@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.75.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Dates on bible entries: while you edit an entry's details, Insert a date… opens a little calendar of your world, and the day you pick goes where the caret is. Typing dates works too.",
+        "An entry with a date of birth says the day of the week it fell on, and its age in each book whose timeline is in calendar dates. With a date of death too, it says how long they lived.",
+        "Month by month in the calendar shows the bible's dates on their days: births, deaths, events and any other dated detail, each opening its entry.",
+        "Planning's timeline can count in your world's calendar dates (Counts in ▾, beside Lanes). Cards take a date and a time of day in their details, the scale shows days, months or years, and full and new moons appear along the top."
+      ]
+    },
+    {
       "version": "0.74.0",
       "date": "2026-11-23",
       "notes": [

@@ -1866,7 +1866,7 @@ void StudioApp::settleInline() {
         if (isMultiField(ie_.field)) SendMessageW(f, EM_SETSEL, (WPARAM)-1, -1);
         else SendMessageW(f, EM_SETSEL, 0, -1);
         ie_.focused = true;
-    } else if (GetFocus() != f) {
+    } else if (GetFocus() != f && !ie_.hold) {
         endInline(true);
     }
 }
@@ -2044,11 +2044,20 @@ void StudioApp::loadFields() {
             const auto it = times.find(n->id);
             std::string day;
             if (it != times.end() && it->second.placed) {
-                char buf[32];
-                std::snprintf(buf, sizeof buf, "%g", it->second.day);
-                day = buf;
+                if (timelineInCalendar(n->bookId)) day = narrow(storyDayText(n->bookId, it->second.day));
+                else {
+                    char buf[32];
+                    std::snprintf(buf, sizeof buf, "%g", it->second.day);
+                    day = buf;
+                }
             }
             setFieldText(FStoryDay, day);
+            {
+                std::string tm;
+                if (it != times.end() && it->second.minutes >= 0)
+                    tm = studio::cal::formatTime(studio::cal::calendarOfBook(*lib_, n->bookId), it->second.minutes);
+                setFieldText(FTimeOfDay, tm);
+            }
             setFieldText(FWhen, it != times.end() ? it->second.when : std::string());
         }
     } else if (focus_.kind == Focus::Comment) {
@@ -2262,15 +2271,33 @@ void StudioApp::commitFields() {
                 // When it happens in the story (the timeline).
                 StoryTime t;
                 const std::string d = fieldText(FStoryDay);
+                const auto times = storyTimes(n.bookId);
+                const auto it = times.find(n.id);
+                const StoryTime old = it != times.end() ? it->second : StoryTime{};
                 char* end = nullptr;
                 const double v = d.empty() ? 0 : std::strtod(d.c_str(), &end);
                 t.placed = !d.empty() && end && *end == 0 && std::isfinite(v);
                 t.day = t.placed ? v : 0;
+                t.minutes = old.minutes;
+                if (timelineInCalendar(n.bookId)) {
+                    // A date in the world's calendar (0.75); a plain number is still a story day.
+                    const studio::cal::Calendar c = studio::cal::calendarOfBook(*lib_, n.bookId);
+                    if (!t.placed && !d.empty()) {
+                        if (const auto dt = studio::cal::parseDate(c, d)) {
+                            t.placed = true;
+                            t.day = (double)(studio::cal::toDay(c, *dt) - studio::cal::storySpan(*lib_, n.bookId).start);
+                        } else {
+                            t = old;   // not a date: keep what it was
+                            if (d != narrow(old.placed ? storyDayText(n.bookId, old.day) : std::wstring()))
+                                flash(L"That isn't a date in the world's calendar (try 3 Frostmoon 1204).", 5);
+                        }
+                    }
+                    const std::string tm = fieldText(FTimeOfDay);
+                    if (tm.empty()) t.minutes = -1;
+                    else if (const auto mins = studio::cal::parseTime(c, tm)) t.minutes = *mins;
+                }
                 t.when = fieldText(FWhen);
-                const auto times = storyTimes(n.bookId);
-                const auto it = times.find(n.id);
-                const StoryTime old = it != times.end() ? it->second : StoryTime{};
-                if (old.placed != t.placed || old.day != t.day || old.when != t.when) setStoryTime(n.bookId, n.id, t);
+                if (old.placed != t.placed || old.day != t.day || old.when != t.when || old.minutes != t.minutes) setStoryTime(n.bookId, n.id, t);
             }
             if (ok && n.id == currentNode_ && editor_.ready())
                 editor_.send(json{{"type", "title"}, {"title", n.title}}.dump());
