@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.65.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Worldbuilding has the calm look too: no back link beside the rail, one plain line when entries may be filed under the wrong kind, and page introductions of one line.",
+        "On an entry's page, a section's Edit button shows when you point at that section (Tab still reaches it), so the page reads as writing.",
+        "The buttons for sections still to write look like every other button, and the one being written is outlined.",
+        "Removing a map, an image board, a language or notes kept for a book happens at once, with Undo in the note.",
+        "While an entry is open, the list you came from stays chosen in the sidebar; chosen and pointed-at rows look the same in every sidebar.",
+        "An empty kind or an empty list of languages says one thing and has one button (+ New character, + New language)."
+      ]
+    },
+    {
       "version": "0.64.0",
       "date": "2026-11-23",
       "notes": [

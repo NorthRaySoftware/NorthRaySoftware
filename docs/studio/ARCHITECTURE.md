@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.65.0: UI pass, part 2: Worldbuilding (23 Nov 2026)
+
+- `quietEdit(id, section, x, y, label, act)` (studio_pages.cpp): draws a small link only while the pointer is in `section`, the link is hovered, or it has keyboard focus; otherwise it only adds the hit, so it can be clicked and tabbed to. Entry sections and notes per book use it (drawn after the text so the section's height is known).
+- `emptyState` for an empty kind (`+ New <kind>`) and no languages; boards' empty note is one line. Page subtitles in Checks, Glossary, Languages, Relationships, Fonts and boards are one line.
+- The sidebar's `‹ Library` is gone (the rail). Kind rows stay selected while an entry is open (`wb_.entry` no longer clears `sel`); facet rows and Preview's chapter rows use `sideRowFrame`; every sidebar's hover fill is radius 8.
+- `drawKindSuggestions` closed: a 3 px dot, muted words and an ink "Check ›", a faint fill on hover, no box.
+- Sections still to write are `button`s (calm faces with the Plus icon), the chosen one stroked in the ribbon.
+- Undo in place of questions: language removal (`saveConlangs(before)`), board deletion (`saveBoards(before)`), map removal and kept book notes (`updateEntry(before)`), each through `flashUndo`. Font removal, Reset the bible and Import many pages still ask (files deleted, or many changes with their own backup and Ctrl+Z).
+- Tested in Wine: Alvora's list and cards, an entry page with Edit following the pointer, Things empty with + New thing, a language removed and brought back with Undo.
+
 ## 0.64.0: UI pass, part 1: Writing and the shared pieces (23 Nov 2026)
 
 CJ asked for a UI/UX pass: not too many things taking his attention, and everything consistent. His answers (project doc studio-uiux-answers-2026-11-23): keep panels but quieter, one button style with icons and words, neutral colours with one accent, a side rail, the details panel in one place, one sidebar style, a top-bar search, livelier motion, fewer notes, one-line empty pages, Undo instead of asking, comfortable density, light and dark equal, accessibility. Four releases, one per area; this is Writing plus what every area shares.
