@@ -431,14 +431,18 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
                 float mx = xOf(d) + (float)px / 2;
                 for (size_t mi = 0; mi < cc.moons.size() && mi < 3; ++mi) {
                     const double ph = cal::moonPhase(cc, cc.moons[mi], abs), prev = cal::moonPhase(cc, cc.moons[mi], abs - 1);
-                    const bool full = prev < 0.5 && ph >= 0.5, fresh = ph < prev;   // the day it turns full, or new
-                    if (!full && !fresh) continue;
+                    const bool full = (prev < 0.5 && ph >= 0.5) || (std::fabs(ph - 0.5) < 1e-9 && std::fabs(prev - 0.5) > 1e-9);
+                    const bool fresh = prev - ph > 0.5 || (ph < 1e-9 && prev > 1e-9);   // the day it turns full, or new
+                    bool eclipsed = false;
+                    for (const auto& e : cal::eclipsesOn(cc, abs)) if (e.moon == &cc.moons[mi]) eclipsed = true;
+                    if (!full && !fresh && !eclipsed) continue;
                     const float my = laneTop + 7 + 12 * mi;
                     gfx_.circle(mx, my, 4.5f, full ? gold_.mix(pal_.surface, 0.3f) : pal_.ink.withAlpha(0.55f), true);
                     gfx_.circle(mx, my, 4.5f, pal_.inkFaint, false, 1);
+                    if (eclipsed) gfx_.circle(mx, my, 7.0f, pal_.dark ? cjui::hexColor("#F08A6C") : cjui::hexColor("#B4442C"), false, 1.5f);
                     const std::string tid = "pl:moon:" + std::to_string(abs) + ":" + std::to_string(mi);
                     addHit(tid, {mx - 6, my - 6, 12, 12}, nullptr);
-                    tooltip(tid, w(cc.moons[mi].name) + (full ? L": full moon, " : L": new moon, ") + lab(d));
+                    tooltip(tid, w(cc.moons[mi].name) + (eclipsed ? L": eclipse, " : full ? L": full moon, " : L": new moon, ") + lab(d));
                 }
             }
         }

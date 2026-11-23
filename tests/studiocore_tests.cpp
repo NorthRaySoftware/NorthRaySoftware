@@ -331,6 +331,53 @@ static void testCalendar() {
         CHECK(at == toDay(s2, {3, 1, 30}));
         CHECK(!parseAnchor(s2, "full on the moon", s2.moons[0]));
     }
+    // Pauses and eclipses (0.79).
+    {
+        const std::string txt =
+            "Calendar: Paused\nMonths:\n- Rebirth: 20\n- Frostmoon: 30\n- Thaw: 30\n"
+            "Moon: Selene, 20 days, 0 days into its cycle on day 0, holds new from 1 Rebirth to 14 Rebirth, lunar eclipse at every full moon in Thaw\n"
+            "Moon: Kett, 10 days, full on 1 Frostmoon every year, holds from 5 Frostmoon to 9 Frostmoon, solar eclipse on 3 Thaw every year, "
+            "lunar eclipse on 2nd Rebirth 12, solar eclipse at every new moon on 11 Frostmoon\n"
+            "Moon: Wrap, 8 days, holds full from 18 Thaw to 2 Rebirth\n"
+            "Moon: Bad, 8 days, holds from 1 Nowhere to 2 Thaw, lunar eclipse whenever\n";
+        std::vector<std::string> warn;
+        const Calendar m = fromText(txt, &warn);
+        CHECK(warn.size() == 2);
+        CHECK(m.moons[0].pauses.size() == 1 && m.moons[0].pauses[0].setsPhase && m.moons[0].pauses[0].days == 0);
+        CHECK(m.moons[0].eclipses.size() == 1 && m.moons[0].eclipses[0].when == Eclipse::AtPhaseInMonth && m.moons[0].eclipses[0].month == 2);
+        CHECK(m.moons[1].pauses.size() == 1 && !m.moons[1].pauses[0].setsPhase && m.moons[1].eclipses.size() == 3);
+        CHECK(m.moons[1].eclipses[1].when == Eclipse::Once && m.moons[1].eclipses[1].year == 12 && m.moons[1].eclipses[1].day == 2);
+        // Holds new through 1-14 Rebirth, then runs on from new: on 15 Rebirth it's a day in.
+        for (std::int64_t y : {1LL, 3LL, 40LL}) {
+            CHECK(moonPhase(m, m.moons[0], toDay(m, {y, 0, 1})) == 0 && moonPhase(m, m.moons[0], toDay(m, {y, 0, 14})) == 0);
+            CHECK(std::fabs(moonPhase(m, m.moons[0], toDay(m, {y, 0, 15})) - 1.0 / 20) < 1e-9);
+            CHECK(std::fabs(moonPhase(m, m.moons[0], toDay(m, {y, 1, 5})) - 11.0 / 20) < 1e-9);   // 20 + 5 - 14 days on
+            CHECK(pausedOn(m, m.moons[0], toDay(m, {y, 0, 7})) && !pausedOn(m, m.moons[0], toDay(m, {y, 0, 15})));
+        }
+        // Kett: full on 1 Frostmoon, frozen 5-9 Frostmoon (at 4 days on), then carries on: 10 Frostmoon is 5 days on.
+        const double kf = moonPhase(m, m.moons[1], toDay(m, {7, 1, 4})), kp = moonPhase(m, m.moons[1], toDay(m, {7, 1, 7}));
+        CHECK(std::fabs(kp - kf - 0.1) < 1e-9);   // the 5th: one more day, then held
+        CHECK(std::fabs(moonPhase(m, m.moons[1], toDay(m, {7, 1, 9})) - kp) < 1e-9);
+        CHECK(std::fabs(moonPhase(m, m.moons[1], toDay(m, {7, 1, 10})) - std::fmod(kp + 0.1, 1.0)) < 1e-9);
+        // A pause running over the year's end.
+        CHECK(std::fabs(moonPhase(m, m.moons[2], toDay(m, {5, 0, 1})) - 0.5) < 1e-9 && std::fabs(moonPhase(m, m.moons[2], toDay(m, {4, 2, 25})) - 0.5) < 1e-9);
+        CHECK(std::fabs(moonPhase(m, m.moons[2], toDay(m, {5, 0, 3})) - (0.5 + 1.0 / 8)) < 1e-9);
+        // Eclipses.
+        auto kinds = [&](const Date& d) { std::string k; for (auto& e : eclipsesOn(m, toDay(m, d))) k += e.moon->name + (e.kind == Eclipse::Solar ? ":s " : ":l "); return k; };
+        CHECK(kinds({9, 2, 3}).find("Kett:s") != std::string::npos);        // every year
+        CHECK(kinds({12, 0, 2}).find("Kett:l") != std::string::npos && kinds({13, 0, 2}).find("Kett:l") == std::string::npos);   // once
+        int fulls = 0;
+        for (int dd = 1; dd <= 30; ++dd) if (kinds({3, 2, dd}).find("Selene:l") != std::string::npos) ++fulls;
+        CHECK(fulls >= 1 && fulls <= 2);                                    // each full moon of Thaw, and no other day
+        CHECK(kinds({3, 1, 15}).find("Selene") == std::string::npos);
+        // Written back and read again the same.
+        Calendar clean = m;
+        clean.moons.pop_back();
+        CHECK(toJson(fromText(toText(clean))) == toJson(clean));
+        CHECK(toJson(fromJson(toJson(clean))) == toJson(clean));
+        CHECK(pauseText(clean, clean.moons[0], clean.moons[0].pauses[0]) == "holds new from 1 Rebirth to 14 Rebirth");
+        CHECK(eclipseText(clean, clean.moons[1].eclipses[2]) == "solar eclipse at every new moon on 11 Frostmoon");
+    }
     // Kept per world, overridden by a book.
     const std::string dir = tempLibrary("calendar");
     auto lib = openOk(dir);

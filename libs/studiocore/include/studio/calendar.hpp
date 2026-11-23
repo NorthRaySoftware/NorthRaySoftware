@@ -48,11 +48,32 @@ struct MoonAnchor {
     std::vector<int> except;    // Month: months with no anchor of their own (the cycle runs on through them)
 };
 
+// A pause (0.79): every year from one day to another (inclusive; it may run on into the next year) the moon holds still.
+// With a phase it holds that phase and carries on from it afterwards ("holds new from 1 Rebirth to 14 Rebirth"); without
+// one it holds whatever phase it had when the pause began and carries on from there ("holds from 1 Rebirth to 14 Rebirth").
+struct MoonPause {
+    int fromMonth = 0, fromDay = 1, toMonth = 0, toDay = 1;
+    bool setsPhase = false;
+    double days = 0;   // with setsPhase: days into its cycle it holds
+};
+
+// An eclipse (0.79): solar or lunar, on a date every year, once on a date of one year, or at each new (or full) moon of
+// this moon that falls on a date or in a month.
+struct Eclipse {
+    enum Kind { Solar, Lunar } kind = Lunar;
+    enum When { EveryYear, Once, AtPhaseOnDate, AtPhaseInMonth } when = EveryYear;
+    bool full = true;            // At…: at the full moon (else the new moon)
+    int month = 0, day = 1;      // the date (AtPhaseInMonth: the month only)
+    std::int64_t year = 1;       // Once: the plain year
+};
+
 struct Moon {
     std::string name;
     double cycle = 29.53;   // days from new moon to new moon
     double offset = 0;      // days into its cycle on day 0 (when it isn't anchored)
     MoonAnchor anchor;
+    std::vector<MoonPause> pauses;
+    std::vector<Eclipse> eclipses;
 };
 
 struct Season {
@@ -129,6 +150,14 @@ double moonPhase(const Moon& m, std::int64_t day);   // 0 new, 0.5 full, towards
 double moonPhase(const Calendar& c, const Moon& m, std::int64_t day, std::int64_t* anchorDay = nullptr);
 std::string anchorText(const Calendar& c, const Moon& m);                  // "full on 15 of every month except Yearsend", "" free
 bool parseAnchor(const Calendar& c, const std::string& text, Moon& m);    // the reverse; false if not understood
+std::string pauseText(const Calendar& c, const Moon& m, const MoonPause& p);   // "holds new from 1 Rebirth to 14 Rebirth"
+bool parsePause(const Calendar& c, const std::string& text, const Moon& m, MoonPause& out);
+std::string eclipseText(const Calendar& c, const Eclipse& e);             // "lunar eclipse at every full moon in Thaw"
+bool parseEclipse(const Calendar& c, const std::string& text, Eclipse& out);
+bool pausedOn(const Calendar& c, const Moon& m, std::int64_t day);       // the moon is holding still that day
+// The eclipses on a day: each with the moon it belongs to.
+struct EclipseOn { const Moon* moon; Eclipse::Kind kind; };
+std::vector<EclipseOn> eclipsesOn(const Calendar& c, std::int64_t day);
 std::string phaseName(double phase);                 // "New moon", "Waxing crescent", ... "Full moon" ...
 const Season* seasonOn(const Calendar& c, const Date& d);
 std::vector<const Holiday*> holidaysOn(const Calendar& c, const Date& d);

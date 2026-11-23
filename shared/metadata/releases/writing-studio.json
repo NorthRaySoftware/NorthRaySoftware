@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.79.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Moons can pause: every year from one day to another a moon holds still, at whatever phase it had or at one you choose (holds new from 1 Rebirth to 14 Rebirth), then carries on from there. Good for moonless seasons and festival months.",
+        "Eclipses: mark a solar or lunar eclipse on a date every year, once in a given year, or at each new or full moon that falls on a date or in a month. They're ringed and named on the calendar's month view, in the maker's preview and along Planning's timeline.",
+        "Calendars written as text take both on a moon's line, after its anchor: holds new from 1 Rebirth to 14 Rebirth, lunar eclipse at every full moon in Thaw."
+      ]
+    },
+    {
       "version": "0.78.0",
       "date": "2026-11-23",
       "notes": [
