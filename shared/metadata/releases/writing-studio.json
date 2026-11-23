@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.67.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Every drop-down in the Studio looks the same: a box like a text field, the choice on the left and a small arrow on the right (Review's chapter and version choosers, Typesetting's trim size and typeface, Share the bible, a series' book kind).",
+        "Text fields have the same rounded corners as the buttons.",
+        "Typesetting's bar no longer overlaps: where you are sits between the view switch and the guides and zoom, and drops the “(1 of 7)” when there isn't room.",
+        "Typesetting lists its designs by name; only the chosen one shows its description (point at the others to read theirs).",
+        "Review, Preview and Publishing explain themselves in one line in the panel instead of several paragraphs."
+      ]
+    },
+    {
       "version": "0.66.0",
       "date": "2026-11-23",
       "notes": [

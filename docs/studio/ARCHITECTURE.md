@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.67.0: UI pass, part 4: Review and Publishing (23 Nov 2026)
+
+- `chooserBox(id, rect, value, act)` (studio_pages.cpp): radius 7, surface fill, the value left-aligned, a drawn chevron. `panelChoice` draws through it; Review's chapter and version boxes, Typesetting's trim and typeface, the series' kind and Share's `chooser` call it in place of `button` plus a filled triangle.
+- `panelField`, `pageField`: radius 7 frames; the membership number box too.
+- Typesetting's bar: `leftEnd` after the Spreads/Page switch and `rightStart` before Guides; the page label is centred between them and gets "(a of n)" only when it and the arrows fit.
+- Typesetting's designs: only the chosen preset (`ts_.presetId`) is tall with its description; the others are 32 px rows with the description as a tooltip.
+- Panel notes in one line: Review (Changes, Snapshots, Names, Comments), Preview (turning pages, about ebooks), Publishing (editions and ISBNs, before you upload; "Where the files go" is in the manual).
+- Removing a snapshot or an edition still asks: both are deleted for good.
+- Tested in Wine: Review with the new boxes, Typesetting's bar at 1280 × 800 and the design list, Publishing's panel.
+
 ## 0.66.0: UI pass, part 3: Library and Planning (23 Nov 2026)
 
 - `fallbackBook()`: a series view's first book (`booksInSeries`), a world view's first book, `settings_.lastBook`, else the latest `modified`. `openTab` uses it for Planning, Review and milestones 5-7 when the book in hand is missing or trashed; `worldbuildingScope` ends with it. The flashes now only say to make a book.
