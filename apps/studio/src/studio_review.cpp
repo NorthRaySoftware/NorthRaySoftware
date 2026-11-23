@@ -290,7 +290,7 @@ void StudioApp::drawReviewSidebar(const Rect& r) {
         addHit(id, rr, [this, i] { showReviewSection(i); });
         const bool sel = rv_.section == i;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 8, 3, rr.h - 16}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(sections[i].name, {tx0, rr.y + 6, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false});
         gfx_.text(sections[i].note, {tx0, rr.y + 26, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
@@ -522,7 +522,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
             });
             const bool sel = rv_.snapshot == s.id;
             const float hv = hoverAmount(id);
-            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 8, 3, rr.h - 16}, pal_.ribbon); }
+            if (sel) sideRowFrame({}, rr, true, 0, 0);
             else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.7f * hv));
             gfx_.text(w(s.name.empty() ? std::string("Snapshot") : s.name), {m.x + 6, y + 7, cw - 200, 20}, Font::BodyStrong, pal_.ink,
                       {Align::Left, false, true});

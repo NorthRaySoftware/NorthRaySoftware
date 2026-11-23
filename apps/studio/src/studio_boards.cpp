@@ -445,7 +445,7 @@ void StudioApp::addPictureToBoard(size_t index, const Id& boardId) {
         }
         bd["items"].push_back({{"id", newBoardId()}, {"blob", blob}, {"x", 0}, {"y", bottom}, {"w", 220}, {"caption", e->gallery[index].caption}, {"entry", ""}});
         saveBoards(j);
-        flash(L"Added to \u201C" + w(bd.value("name", "Board")) + L"\u201D.", 4);
+        // it's on the board: no note (0.64)
         invalidate();
         return;
     }

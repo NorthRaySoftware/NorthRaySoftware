@@ -325,7 +325,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
             addHit(id, rr, [this, v] { commitFields(); pl_.view = v; pl_.scroll = 0; invalidate(); });
             const bool sel = pl_.view == v;
             const float hv = hoverAmount(id);
-            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            if (sel) sideRowFrame({}, rr, true, 0, 0);
             else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
             gfx_.text(names[v], {tx0, rr.y, cw, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
             if (focused(id)) focusRing(rr);
@@ -343,7 +343,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
         addHit(id, rr, [this, status] { pl_.status = status; pl_.scroll = 0; invalidate(); });
         const bool sel = pl_.status == status;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         float lx = tx0;
         if (status >= 0) { gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 4, dot, true); lx += 16; }
@@ -375,7 +375,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
                 addHit(id, rr, [this, key] { pl_.pov = pl_.pov == key ? std::string() : key; pl_.scroll = 0; invalidate(); });
                 const bool sel = pl_.pov == key;
                 const float hv = hoverAmount(id);
-                if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+                if (sel) sideRowFrame({}, rr, true, 0, 0);
                 else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
                 float lx = tx0;
                 if (dot) { gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 4, c, true); lx += 16; }
@@ -411,7 +411,7 @@ void StudioApp::drawPlanSidebar(const Rect& r) {
             });
             const bool sel = pl_.thread == t.id;
             const float hv = hoverAmount(id);
-            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            if (sel) sideRowFrame({}, rr, true, 0, 0);
             else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
             gfx_.fillRounded({tx0, rr.y + rr.h / 2 - 5, 10, 10}, 2, cjui::hexColor(t.colour.c_str()));
             gfx_.text(w(t.name), {tx0 + 16, rr.y, cw - 46, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});

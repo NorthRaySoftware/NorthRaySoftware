@@ -6,7 +6,7 @@ add_executable(WritingStudio WIN32
   src/main.cpp
   src/studio_app.cpp
   src/studio_pages.cpp
-  src/studio_writing.cpp
+  src/studio_writing.cpp src/studio_search.cpp
   src/studio_artwork.cpp
   src/studio_typeset.cpp
   src/studio_preview.cpp

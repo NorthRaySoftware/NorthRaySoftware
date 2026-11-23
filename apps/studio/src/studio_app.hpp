@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "cjui/window.hpp"
+#include "cjui/icons.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -43,7 +44,7 @@ enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Set
 // The workspace tabs along the top. Import is the preview shown before an import.
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
-inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28;
+inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28, kRailW = 76;
 inline constexpr UINT WM_APP_IMPORT = WM_APP + 20;  // an import file has been read (lParam: Plan*)
 inline constexpr UINT WM_APP_TYPESET = WM_APP + 21; // a book has been typeset (wParam: generation, lParam: typeset::Book*)
 inline constexpr UINT WM_APP_EDITION = WM_APP + 22;
@@ -73,7 +74,7 @@ struct Focus {
 enum Field {
     FName, FSubtitle, FAuthor, FPenName, FGenre, FLanguage, FIsbn, FEdition, FTags, FAccent, FNumber,
     FCaption, FAlt, FDescription, FNotes, FSynopsis, FSearch, FTarget, FStoryDay, FWhen,
-    FSection, FBookNote, FTemplate, FFind, FRepo, FToken, FieldCount
+    FSection, FBookNote, FTemplate, FFind, FRepo, FToken, FTopSearch, FieldCount
 };
 // The fields that take several lines.
 inline bool isMultiField(int f) { return f == FDescription || f == FNotes || f == FSynopsis || f == FSection || f == FBookNote || f == FTemplate; }
@@ -161,6 +162,34 @@ private:
     void drawDropLine(float x, float y, float len, bool vertical);
     cjui::Color povColour(const Id& id) const;
     void quickJump();
+    // The workspaces' rail and the top bar's search (UI pass, 0.64; studio_pages.cpp, studio_search.cpp).
+    struct Action {
+        std::string id;
+        std::wstring label;
+        std::function<void()> act;
+    };
+    float actionRow(float x, float y, float maxW, const std::vector<Action>& actions);
+    void sideRowFrame(const std::string& key, const cjui::Rect& rr, bool selected, float hover, float scroll);
+    float sideSection(float x, float y, float w, const std::wstring& label, std::function<void()> add, const std::string& addId);
+    int tabCount() const;
+    bool tabActive(int i) const;
+    void openTab(int i);
+    void drawRail(const cjui::Rect& r);
+    struct SearchHit {
+        std::wstring label, right;
+        int kind = 0;            // 0 chapter or scene, 1 bible entry, 2 book, 3 command, 4 workspace, 5 world
+        studio::Id id;
+        int cmd = 0;
+        cjui::Icon icon = cjui::Icon::None;
+    };
+    std::vector<SearchHit> searchHits() const;
+    void runSearchHit(const SearchHit& h);
+    bool searchKey(WPARAM vk);
+    void drawSearchResults();
+    void focusTopSearch();
+    cjui::Rect railRect_, topSearchRect_;
+    int topSel_ = 0;
+    std::vector<SearchHit> lastSearchHits_;
     void showShortcuts();
     static std::vector<ShortcutGroup> shortcutGroups();
     void drawDropInto(const cjui::Rect& r);
@@ -469,6 +498,7 @@ private:
     std::string ownFontsFolder(const Id& world, const Id& book) const;
     float pageBook(const Rect& r);
     float pageEmpty(const Rect& r);
+    float emptyState(const Rect& area, cjui::Icon icon, const std::wstring& line, const std::wstring& label, std::function<void()> act);
     float bookCollection(const Rect& r, const std::vector<const studio::Book*>& books, const std::string& listKey,
                          const Id& seriesId, bool chronological, bool reorderable);
     void bookCard(const Rect& r, const studio::Book& b, const Id& seriesId, const std::string& hitId);

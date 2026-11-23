@@ -151,7 +151,7 @@ void StudioApp::drawNodeComments(const Rect& c, float& y, const ManuscriptNode& 
     for (const Comment* cm : all) if (!cm->resolved) ++open;
     panelHeading(c, y, open ? L"COMMENTS (" + std::to_wstring(open) + L")" : L"COMMENTS", false);
     if (all.empty()) {
-        y += gfx_.text(L"Select some words and choose Comment (✎) in the toolbar, or press Ctrl+Alt+M, to leave a comment on them.",
+        y += gfx_.text(L"None yet. Select some words and press Ctrl+Alt+M.",
                        {c.x, y, c.w, 60}, Font::Small, pal_.inkFaint) + 10;
         return;
     }

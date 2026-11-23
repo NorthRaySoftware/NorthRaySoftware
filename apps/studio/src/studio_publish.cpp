@@ -283,7 +283,7 @@ void StudioApp::drawPublishSidebar(const Rect& r) {
         addHit(id, rr, [this, eid = e->id] { if (eid != pb_.edition) chooseEdition(eid); });
         const bool sel = e->id == pb_.edition;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 7, 3, rr.h - 14}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         std::wstring name = w(e->name.empty() ? std::string(editionKindLabel(e->kind)) : e->name);
         gfx_.text(name, {tx0, rr.y + 5, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true});

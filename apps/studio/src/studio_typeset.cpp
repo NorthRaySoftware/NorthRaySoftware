@@ -193,7 +193,7 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
         });
         const bool sel = ts_.presetId == p.id;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 7, 3, rr.h - 14}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(w(p.label), {tx0, rr.y + 7, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false});
         gfx_.text(w(p.description), {tx0, rr.y + 27, cw - 6, th + 4}, Font::Small, pal_.inkMuted);

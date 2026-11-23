@@ -169,7 +169,7 @@ void StudioApp::drawPreviewSidebar(const Rect& r) {
         addHit(id, rr, [this, dev = std::string(d.id)] { settings_.ebookDevice = dev; sendPreviewSettings(); });
         const bool sel = settings_.ebookDevice == d.id;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 7, 3, rr.h - 14}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(d.name, {tx0, rr.y + 5, cw, 20}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false});
         gfx_.text(d.note, {tx0, rr.y + 24, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});

@@ -1,5 +1,6 @@
 // Drawing: workspace bar, library sidebar, pages, properties panel.
 #include "studio_app.hpp"
+#include "cjui/icons.hpp"
 #include "cjui/northray.hpp"
 #include "cjui/menu.hpp"
 
@@ -43,10 +44,13 @@ void StudioApp::drawFrame(float W, float H) {
     const bool settingsPage = ws_ == Workspace::Library && view_ == View::Settings;
     const float sideW = focusing || (!settings_.showSide && !settingsPage) ? 0 : kSideW;
     const bool panel = !focusing && settings_.showPanel && lib_ && !settingsPage;
-    const float centreW = W - sideW - (panel ? kPanelW : 0);
-    sideRect_ = {0, kTopH, sideW, H - kTopH};
+    // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
+    const float railW = focusing ? 0 : kRailW;
+    railRect_ = {0, kTopH, railW, H - kTopH};
+    const float centreW = W - railW - sideW - (panel ? kPanelW : 0);
+    sideRect_ = {railW, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
-    pageRect_ = {sideW, kTopH, centreW, H - kTopH};
+    pageRect_ = {railW + sideW, kTopH, centreW, H - kTopH};
 
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = centreW > 900 ? 40 : 28;
@@ -55,7 +59,7 @@ void StudioApp::drawFrame(float W, float H) {
         editor_.hide();
         gfx_.fill(pageRect_, pal_.dark ? hexColor("#121214") : hexColor("#DCD7CC"));
         if (!previewNote_.empty()) {
-            const Rect m{sideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+            const Rect m{pageRect_.x + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
             float y = m.y + pageHeader(m, L"PREVIEW", L"The ebook preview isn't available", previewNote_);
             linkText("pv:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
                      [] { cjui::openInBrowser("https://developer.microsoft.com/microsoft-edge/webview2/"); });
@@ -69,6 +73,7 @@ void StudioApp::drawFrame(float W, float H) {
         }
         if (sideRect_.w > 0) drawPreviewSidebar(sideRect_);
         if (panel) drawPreviewPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -81,6 +86,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawTypesetPages(pageRect_);
         if (sideRect_.w > 0) drawTypesetSidebar(sideRect_);
         if (panel) drawTypesetPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -101,6 +107,7 @@ void StudioApp::drawFrame(float W, float H) {
         else drawPublishPage(pageRect_);
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
         if (panel) { if (designing) drawCoverPanel(panelRect_); else drawPublishPanel(panelRect_); }
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -115,6 +122,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawWorldPage(pageRect_);
         if (sideRect_.w > 0) drawWorldSidebar(sideRect_);
         if (panel) drawWorldPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -156,6 +164,7 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
         }
         if (panel) drawPlanPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -169,6 +178,7 @@ void StudioApp::drawFrame(float W, float H) {
         drawReviewPage(pageRect_);
         if (sideRect_.w > 0) drawReviewSidebar(sideRect_);
         if (panel) drawReviewPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         drawStatusBar({0, H, W, 0});
         hideUnplacedFields();
@@ -178,13 +188,14 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Review) ws_ = Workspace::Library;
     if (ws_ == Workspace::Writing && lib_ && lib_->book(writingBook_)) {
         // The editor fills the centre; it's a separate window placed over this area.
-        const Rect m{sideW + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
+        const Rect m{pageRect_.x + pad, kTopH + 26, std::min(centreW - pad * 2, 620.0f), 0};
         if (!editorNote_.empty()) {
             float y = m.y + pageHeader(m, L"WRITING", L"The editor isn't available", editorNote_);
             linkText("ed:webview", m.x, y - 6, L"Get the Microsoft Edge WebView2 Runtime",
                      [] { cjui::openInBrowser("https://developer.microsoft.com/microsoft-edge/webview2/"); });
         } else if (currentNode_.empty()) {
-            pageHeader(m, L"WRITING", L"Choose a chapter", L"Pick a chapter or scene in the outline on the left, or press + Chapter.");
+            emptyState({pageRect_.x + pad, kTopH + 26, centreW - pad * 2, pageRect_.bottom() - kTopH - 60}, cjui::Icon::Writing,
+                       L"Pick a chapter on the left, or start a new one.", L"+ Chapter", [this] { addNode(NodeKind::Chapter); });
         } else if (!editor_.ready()) {
             gfx_.text(L"Opening the editor...", {m.x, m.y + 20, 400, 30}, Font::Body, pal_.inkFaint);
         }
@@ -199,6 +210,7 @@ void StudioApp::drawFrame(float W, float H) {
             gfx_.text(todayLine(), {foot.x + 22, foot.y, foot.w - 36, foot.h}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
         }
         if (panel) drawPanel(panelRect_);
+        drawRail(railRect_);
         drawTopBar({0, 0, W, kTopH});
         {   // Today's words against the daily goal: a thin bar along the foot of the top bar (0.35).
             const std::int64_t goal = dailyGoal();
@@ -230,7 +242,7 @@ void StudioApp::drawFrame(float W, float H) {
     }
     editor_.hide();
     const float top = beginScroll(pageRect_);
-    Rect page{sideW + pad, top + 26, std::min(centreW - pad * 2, 1100.0f), 0};
+    Rect page{pageRect_.x + pad, top + 26, std::min(centreW - pad * 2, 1100.0f), 0};
     float h = 0;
     if (!lib_) h = pageEmpty(page);
     else if (ws_ == Workspace::Import) h = pageImport(page);
@@ -250,7 +262,8 @@ void StudioApp::drawFrame(float W, float H) {
 
     if (sideRect_.w > 0) drawSidebar(sideRect_);
     if (panel) drawPanel(panelRect_);
-    drawTopBar({0, 0, W, kTopH});
+    drawRail(railRect_);
+        drawTopBar({0, 0, W, kTopH});
     drawStatusBar({0, H, W, 0});
     hideUnplacedFields();
 
@@ -299,6 +312,158 @@ void StudioApp::drawDropInto(const Rect& r) {
 
 // ---------------------------------------------------------------- top bar
 
+namespace {
+struct Tab {
+    const wchar_t* name;
+    const wchar_t* shortName;   // under its icon on the rail
+    int milestone;
+    cjui::Icon icon;
+};
+const Tab kTabs[] = {{L"Library", L"Library", 1, cjui::Icon::Library},         {L"Writing", L"Write", 2, cjui::Icon::Writing},
+                     {L"Planning", L"Plan", 8, cjui::Icon::Planning},          {L"Worldbuilding", L"World", 8, cjui::Icon::World},
+                     {L"Review", L"Review", 9, cjui::Icon::Review},            {L"Typesetting", L"Typeset", 5, cjui::Icon::Typeset},
+                     {L"Preview", L"Preview", 6, cjui::Icon::Preview},         {L"Publishing", L"Publish", 7, cjui::Icon::Publish}};
+}  // namespace
+
+int StudioApp::tabCount() const { return (int)(sizeof kTabs / sizeof kTabs[0]); }
+
+// Which workspace is showing, as its place on the rail (-1: Settings).
+bool StudioApp::tabActive(int i) const {
+    const Tab& t = kTabs[i];
+    const bool planning = wcscmp(t.name, L"Planning") == 0;   // Milestone 8 has two tabs
+    return (t.milestone == 1 && ws_ != Workspace::Writing && ws_ != Workspace::Typesetting && ws_ != Workspace::Preview &&
+                                 ws_ != Workspace::Publishing && ws_ != Workspace::Worldbuilding && ws_ != Workspace::Planning &&
+                                 ws_ != Workspace::Review &&
+                                 view_ != View::Settings) ||
+                                (t.milestone == 2 && ws_ == Workspace::Writing) || (t.milestone == 5 && ws_ == Workspace::Typesetting) ||
+                                (t.milestone == 6 && ws_ == Workspace::Preview) || (t.milestone == 7 && ws_ == Workspace::Publishing) ||
+                                (t.milestone == 8 && !planning && ws_ == Workspace::Worldbuilding) ||
+                                (t.milestone == 8 && planning && ws_ == Workspace::Planning) || (t.milestone == 9 && ws_ == Workspace::Review);
+}
+
+// Opens a workspace from the rail (or Ctrl+1 to Ctrl+8): the book or world in hand, as the tabs did.
+void StudioApp::openTab(int i) {
+    if (!lib_ || i < 0 || i >= tabCount()) return;
+    const Tab& t = kTabs[i];
+    const bool planning = wcscmp(t.name, L"Planning") == 0;
+
+    if (t.milestone == 1) {
+if (ws_ == Workspace::Writing) writingCommand(WLibrary);  // back to the book's page
+else if (ws_ == Workspace::Typesetting) { ws_ = Workspace::Library; goTo(View::Book, ts_.book); }
+else if (ws_ == Workspace::Preview) { ws_ = Workspace::Library; goTo(View::Book, pv_.book); }
+else if (ws_ == Workspace::Publishing) { ws_ = Workspace::Library; goTo(View::Book, pb_.book); }
+else if (ws_ == Workspace::Planning) { ws_ = Workspace::Library; goTo(View::Book, pl_.book); }
+else if (ws_ == Workspace::Review) { ws_ = Workspace::Library; goTo(View::Book, rv_.book); }
+else if (ws_ == Workspace::Worldbuilding) {
+    ws_ = Workspace::Library;
+    if (!wb_.world.empty()) goTo(View::World, wb_.world); else goTo(View::Book, wb_.book);
+}
+else if (view_ == View::Settings) goTo(View::Worlds);
+    }
+    else if ((t.milestone == 8 && planning) || t.milestone == 9) {
+Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
+        : ws_ == Workspace::Review ? rv_.book
+        : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book : ws_ == Workspace::Publishing ? pb_.book
+        : ws_ == Workspace::Planning ? pl_.book : ws_ == Workspace::Worldbuilding ? wb_.book
+        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : !pl_.book.empty() ? pl_.book : writingBook_;
+if (ws_ == Workspace::Worldbuilding && book.empty()) {
+    // From a world's bible: the book being written in it, else its first.
+    if (lib_->book(writingBook_) && lib_->book(writingBook_)->worldId == wb_.world) book = writingBook_;
+    else for (const studio::Book* x : lib_->liveBooks()) if (x->worldId == wb_.world) { book = x->id; break; }
+}
+if (book.empty() || !lib_->book(book))
+    flash(std::wstring(L"Choose a book in the Library first, then open ") + (planning ? L"Planning." : L"Review."), 5);
+else if (planning) openPlanning(book);
+else openReview(book);
+    }
+    else if (t.milestone == 8) {
+Id world, book;
+if (!worldbuildingScope(world, book)) flash(L"Choose a world or a book in the Library first, then open Worldbuilding.", 5);
+else openWorldbuilding(world, book);
+    }
+    else if (t.milestone >= 5 && t.milestone <= 7) {
+Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
+        : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book : ws_ == Workspace::Publishing ? pb_.book
+        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : !ts_.book.empty() ? ts_.book : writingBook_;
+if (book.empty() || !lib_->book(book))
+    flash(std::wstring(L"Choose a book in the Library first, then open ") +
+              (t.milestone == 5 ? L"Typesetting." : t.milestone == 6 ? L"Preview." : L"Publishing."), 5);
+else if (t.milestone == 5) openTypesetting(book);
+else if (t.milestone == 6) openPreview(book);
+else openPublishing(book);
+    }
+    else if (t.milestone == 2) {
+if (ws_ == Workspace::Typesetting) { openWriting(ts_.book); return; }
+if (ws_ == Workspace::Preview) { openWriting(pv_.book); return; }
+if (ws_ == Workspace::Publishing) { openWriting(pb_.book); return; }
+if (ws_ == Workspace::Review) {
+    if (const ManuscriptNode* nd = lib_->node(rv_.node); nd && nd->bookId == rv_.book) { writingBook_ = rv_.book; currentNode_ = nd->id; }
+    openWriting(rv_.book);
+    return;
+}
+if (ws_ == Workspace::Planning) {
+    if (!pl_.node.empty() && lib_->node(pl_.node)) { writingBook_ = pl_.book; currentNode_ = pl_.node; }
+    openWriting(pl_.book);
+    return;
+}
+if (ws_ == Workspace::Worldbuilding) {
+    Id b = wb_.book;
+    if (b.empty()) for (const studio::Book* x : lib_->liveBooks()) if (x->worldId == wb_.world) { b = x->id; break; }
+    if (!writingBook_.empty() && lib_->book(writingBook_) &&
+        (lib_->book(writingBook_)->worldId == wb_.world && !wb_.world.empty()))
+        b = writingBook_;
+    if (!b.empty()) { openWriting(b); return; }
+}
+Id book = !writingBook_.empty() && lib_ && lib_->book(writingBook_) ? writingBook_
+        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : Id{};
+if (book.empty()) openLastWriting();   // the book last written in, or the latest changed (0.48.5)
+else openWriting(book);
+    } else
+flash(std::wstring(t.name) + L" isn't built yet. It arrives in Milestone " + std::to_wstring(t.milestone) +
+      L".", 6);
+
+}
+
+void StudioApp::drawRail(const Rect& r) {
+    if (r.w <= 0) return;
+    namespace nr = cjui::northray;
+    gfx_.fill(r, pal_.dark ? pal_.sunken : pal_.surface);
+    gfx_.line(r.right() - 0.5f, r.y, r.right() - 0.5f, r.bottom(), pal_.rule);
+    const float itemH = std::clamp((r.h - 80) / 9.0f, 50.0f, 62.0f);
+    float y = r.y + 10;
+    int activeIndex = -1;
+    for (int i = 0; i < tabCount(); ++i)
+        if (tabActive(i)) activeIndex = i;
+    const bool settingsOn = ws_ == Workspace::Library && view_ == View::Settings;
+    // The selection: a soft pill and a bar at the edge, sliding between workspaces.
+    const float selY = settingsOn ? r.bottom() - itemH - 10 : y + (activeIndex < 0 ? 0 : activeIndex) * itemH;
+    const float sy = slideTo("rail#y", selY);
+    if (activeIndex >= 0 || settingsOn) {
+        gfx_.fillRounded({r.x + 8, sy + 3, r.w - 16, itemH - 6}, 10, pal_.ribbon.withAlpha(pal_.dark ? 0.16f : 0.12f));
+        gfx_.fillRounded({r.x + 2, sy + itemH / 2 - 12, 3, 24}, 1.5f, pal_.ribbon);
+    }
+    auto item = [&](const std::string& id, float iy, cjui::Icon icon, const wchar_t* label, const std::wstring& tip, bool on,
+                    std::function<void()> act) {
+        const Rect b{r.x + 6, iy, r.w - 12, itemH};
+        addHit(id, b, std::move(act));
+        tooltip(id, tip);
+        const float hv = hoverAmount(id);
+        if (!on && hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 3, b.w - 4, b.h - 6}, 10, pal_.ink.withAlpha(0.05f * hv));
+        const Color c = on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv);
+        const float lift = 2.0f * hv;
+        cjui::drawIcon(gfx_, icon, {b.x + (b.w - 22) / 2, b.y + 8 - lift, 22, 22}, on ? pal_.ribbon.mix(pal_.ink, pal_.dark ? 0.1f : 0.35f) : c, 1.6f);
+        gfx_.text(label, {b.x, b.y + 33 - lift, b.w, 16}, on ? Font::SmallStrong : Font::Small, c, {Align::Center, false, true});
+        if (focused(id)) focusRing(b.inset(2));
+    };
+    for (int i = 0; i < tabCount(); ++i) {
+        const Tab& t = kTabs[i];
+        item("nav:" + std::to_string(i), y, t.icon, t.shortName, std::wstring(t.name) + L"   Ctrl+" + std::to_wstring(i + 1), i == activeIndex,
+             [this, i] { openTab(i); });
+        y += itemH;
+    }
+    item("nav:settings", r.bottom() - itemH - 10, cjui::Icon::Settings, L"Settings", L"Settings   Ctrl+,", settingsOn, [this] { openSettings(); });
+}
+
 void StudioApp::drawTopBar(const Rect& r) {
     // The night sky with its aurora band, like the other NorthRay apps' title bars; light text on it.
     namespace nr = cjui::northray;
@@ -306,153 +471,56 @@ void StudioApp::drawTopBar(const Rect& r) {
     nr::auroraBand(gfx_, {r.x, r.y, r.w, 3}, pal_.dark);
     // Minimise, maximise and close end the row (the window has no separate title bar).
     const float capW = drawCaptionButtons({r.x, r.y, r.w, r.h}, true);
-    const float tabPad = r.w < 1300 ? 16 : 24;   // a narrower window: tighter tabs, so Settings still fits
     // The app's mark and name: "NorthRay" over "WRITING STUDIO", as the Launcher has it.
     float lx = 14;
     if (gfx_.drawImage(exeDir() + L"\\web\\studio-mark.png", {lx, (r.h - 30) / 2 + 1, 30, 30}, false)) lx += 38;
-    gfx_.text(L"NorthRay", {lx, 5, kSideW - lx, 20}, Font::BodyStrong, nr::kNightInk, {Align::Left, false, true});
-    gfx_.text(L"WRITING STUDIO", {lx + 1, 25, kSideW - lx, 14}, Font::Label, nr::kAuroraGreen.withAlpha(0.9f), {Align::Left, false, true});
-
-    struct Tab { const wchar_t* name; int milestone; };
-    static const Tab tabs[] = {{L"Library", 1}, {L"Writing", 2}, {L"Planning", 8}, {L"Worldbuilding", 8}, {L"Review", 9},
-                               {L"Typesetting", 5}, {L"Preview", 6}, {L"Publishing", 7}};
-    float x = kSideW + 16;
-    for (const Tab& t : tabs) {
-        const float tw = gfx_.measureWidth(t.name, Font::BodyStrong) + tabPad;
-        const Rect tr{x, 6, tw, r.h - 12};
-        const bool planning = wcscmp(t.name, L"Planning") == 0;   // Milestone 8 has two tabs
-        const bool built = t.milestone <= 2 || (t.milestone >= 5 && t.milestone <= 9);
-        const bool active = (t.milestone == 1 && ws_ != Workspace::Writing && ws_ != Workspace::Typesetting && ws_ != Workspace::Preview &&
-                             ws_ != Workspace::Publishing && ws_ != Workspace::Worldbuilding && ws_ != Workspace::Planning &&
-                             ws_ != Workspace::Review &&
-                             view_ != View::Settings) ||
-                            (t.milestone == 2 && ws_ == Workspace::Writing) || (t.milestone == 5 && ws_ == Workspace::Typesetting) ||
-                            (t.milestone == 6 && ws_ == Workspace::Preview) || (t.milestone == 7 && ws_ == Workspace::Publishing) ||
-                            (t.milestone == 8 && !planning && ws_ == Workspace::Worldbuilding) ||
-                            (t.milestone == 8 && planning && ws_ == Workspace::Planning) || (t.milestone == 9 && ws_ == Workspace::Review);
-        const std::string id = std::string("tab:") + narrow(t.name);
-        addHit(id, tr, [this, t, planning] {
-            if (t.milestone == 1) {
-                if (ws_ == Workspace::Writing) writingCommand(WLibrary);  // back to the book's page
-                else if (ws_ == Workspace::Typesetting) { ws_ = Workspace::Library; goTo(View::Book, ts_.book); }
-                else if (ws_ == Workspace::Preview) { ws_ = Workspace::Library; goTo(View::Book, pv_.book); }
-                else if (ws_ == Workspace::Publishing) { ws_ = Workspace::Library; goTo(View::Book, pb_.book); }
-                else if (ws_ == Workspace::Planning) { ws_ = Workspace::Library; goTo(View::Book, pl_.book); }
-                else if (ws_ == Workspace::Review) { ws_ = Workspace::Library; goTo(View::Book, rv_.book); }
-                else if (ws_ == Workspace::Worldbuilding) {
-                    ws_ = Workspace::Library;
-                    if (!wb_.world.empty()) goTo(View::World, wb_.world); else goTo(View::Book, wb_.book);
-                }
-                else if (view_ == View::Settings) goTo(View::Worlds);
-            }
-            else if ((t.milestone == 8 && planning) || t.milestone == 9) {
-                Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
-                        : ws_ == Workspace::Review ? rv_.book
-                        : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book : ws_ == Workspace::Publishing ? pb_.book
-                        : ws_ == Workspace::Planning ? pl_.book : ws_ == Workspace::Worldbuilding ? wb_.book
-                        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : !pl_.book.empty() ? pl_.book : writingBook_;
-                if (ws_ == Workspace::Worldbuilding && book.empty()) {
-                    // From a world's bible: the book being written in it, else its first.
-                    if (lib_->book(writingBook_) && lib_->book(writingBook_)->worldId == wb_.world) book = writingBook_;
-                    else for (const studio::Book* x : lib_->liveBooks()) if (x->worldId == wb_.world) { book = x->id; break; }
-                }
-                if (book.empty() || !lib_->book(book))
-                    flash(std::wstring(L"Choose a book in the Library first, then open ") + (planning ? L"Planning." : L"Review."), 5);
-                else if (planning) openPlanning(book);
-                else openReview(book);
-            }
-            else if (t.milestone == 8) {
-                Id world, book;
-                if (!worldbuildingScope(world, book)) flash(L"Choose a world or a book in the Library first, then open Worldbuilding.", 5);
-                else openWorldbuilding(world, book);
-            }
-            else if (t.milestone >= 5 && t.milestone <= 7) {
-                Id book = ws_ == Workspace::Writing && lib_->book(writingBook_) ? writingBook_
-                        : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book : ws_ == Workspace::Publishing ? pb_.book
-                        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : !ts_.book.empty() ? ts_.book : writingBook_;
-                if (book.empty() || !lib_->book(book))
-                    flash(std::wstring(L"Choose a book in the Library first, then open ") +
-                              (t.milestone == 5 ? L"Typesetting." : t.milestone == 6 ? L"Preview." : L"Publishing."), 5);
-                else if (t.milestone == 5) openTypesetting(book);
-                else if (t.milestone == 6) openPreview(book);
-                else openPublishing(book);
-            }
-            else if (t.milestone == 2) {
-                if (ws_ == Workspace::Typesetting) { openWriting(ts_.book); return; }
-                if (ws_ == Workspace::Preview) { openWriting(pv_.book); return; }
-                if (ws_ == Workspace::Publishing) { openWriting(pb_.book); return; }
-                if (ws_ == Workspace::Review) {
-                    if (const ManuscriptNode* nd = lib_->node(rv_.node); nd && nd->bookId == rv_.book) { writingBook_ = rv_.book; currentNode_ = nd->id; }
-                    openWriting(rv_.book);
-                    return;
-                }
-                if (ws_ == Workspace::Planning) {
-                    if (!pl_.node.empty() && lib_->node(pl_.node)) { writingBook_ = pl_.book; currentNode_ = pl_.node; }
-                    openWriting(pl_.book);
-                    return;
-                }
-                if (ws_ == Workspace::Worldbuilding) {
-                    Id b = wb_.book;
-                    if (b.empty()) for (const studio::Book* x : lib_->liveBooks()) if (x->worldId == wb_.world) { b = x->id; break; }
-                    if (!writingBook_.empty() && lib_->book(writingBook_) &&
-                        (lib_->book(writingBook_)->worldId == wb_.world && !wb_.world.empty()))
-                        b = writingBook_;
-                    if (!b.empty()) { openWriting(b); return; }
-                }
-                Id book = !writingBook_.empty() && lib_ && lib_->book(writingBook_) ? writingBook_
-                        : focus_.kind == Focus::Book ? focus_.id : view_ == View::Book ? viewId_ : Id{};
-                if (book.empty()) openLastWriting();   // the book last written in, or the latest changed (0.48.5)
-                else openWriting(book);
-            } else
-                flash(std::wstring(t.name) + L" isn't built yet. It arrives in Milestone " + std::to_wstring(t.milestone) +
-                      L".", 6);
-        }, false);
-        if (active) {
-            gfx_.text(t.name, tr, Font::BodyStrong, nr::kNightInk, {Align::Center, false, false, true});
-            // The underline slides between workspaces.
-            const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
-            gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
-        } else {
-            const Color base = built ? nr::kNightInk.withAlpha(0.82f) : nr::kNightMuted.withAlpha(0.7f);
-            gfx_.text(t.name, tr, Font::Body, base.mix(built ? nr::kNightInk : nr::kNightMuted, hoverAmount(id)), {Align::Center, false, false, true});
-        }
-        x += tw + 4;
-    }
-
-    // Settings sits at the right-hand end of the same row of tabs.
+    gfx_.text(L"NorthRay", {lx, 5, 180, 20}, Font::BodyStrong, nr::kNightInk, {Align::Left, false, true});
+    gfx_.text(L"WRITING STUDIO", {lx + 1, 25, 180, 14}, Font::Label, nr::kAuroraGreen.withAlpha(0.9f), {Align::Left, false, true});
+    // Where you are, quietly, after the name.
     {
-        const std::wstring lbl = L"Settings";
-        const float tw = gfx_.measureWidth(lbl, Font::BodyStrong) + tabPad;
-        const Rect tr{r.right() - capW - tw - 8, 6, tw, r.h - 12};
-        const std::string id = "tab:settings";
-        const bool active = ws_ == Workspace::Library && view_ == View::Settings;
-        addHit(id, tr, [this] { openSettings(); }, false);
-        if (active) {
-            gfx_.text(lbl, tr, Font::BodyStrong, nr::kNightInk, {Align::Center, false, false, true});
-            const float ux = slideTo("tab#x", tr.x + 10), uw = slideTo("tab#w", tw - 20);
-            gfx_.fill({ux, r.bottom() - 3, uw, 3}, nr::kAuroraGreen);
-        } else {
-            gfx_.text(lbl, tr, Font::Body, nr::kNightInk.withAlpha(0.82f + 0.18f * hoverAmount(id)), {Align::Center, false, false, true});
-        }
-        // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
-        if (lib_ && !active) {
-            auto layoutButton = [&](const std::string& bid, float bx, bool left, bool on, std::function<void()> act) {
-                const Rect b{bx, (r.h - 30) / 2, 30, 30};
-                addHit(bid, b, std::move(act), false);
-                const float hv = hoverAmount(bid);
-                if (hv > 0.01f) gfx_.fillRounded(b, 6, nr::kNightInk.withAlpha(0.10f * hv));
-                const Color c = nr::kNightMuted.mix(nr::kNightInk, hv);
-                const Rect fr{b.x + 7, b.y + 9, 16, 12};
-                gfx_.strokeRounded(fr, 2, c, 1.2f);
-                const Rect bar = left ? Rect{fr.x + 1, fr.y + 1, 5, fr.h - 2} : Rect{fr.right() - 6, fr.y + 1, 5, fr.h - 2};
-                if (on) gfx_.fill(bar, c);
-                else gfx_.line(left ? fr.x + 6 : fr.right() - 6, fr.y + 1, left ? fr.x + 6 : fr.right() - 6, fr.bottom() - 1, c, 1.0f);
-            };
-            const float bx = tr.x - 70;
-            layoutButton("tab:side", bx, true, settings_.showSide, [this] { settings_.showSide = !settings_.showSide; saveSettings(); invalidate(); });
-            layoutButton("tab:panel", bx + 32, false, settings_.showPanel, [this] { settings_.showPanel = !settings_.showPanel; saveSettings(); invalidate(); });
-        }
+        std::wstring where;
+        for (int i = 0; i < tabCount(); ++i)
+            if (tabActive(i)) where = kTabs[i].name;
+        if (ws_ == Workspace::Library && view_ == View::Settings) where = L"Settings";
+        const Book* b = lib_ ? lib_->book(ws_ == Workspace::Writing ? writingBook_ : ws_ == Workspace::Planning ? pl_.book : ws_ == Workspace::Review ? rv_.book
+                                          : ws_ == Workspace::Typesetting ? ts_.book : ws_ == Workspace::Preview ? pv_.book
+                                          : ws_ == Workspace::Publishing ? pb_.book : Id{}) : nullptr;
+        if (b && !b->deleted) where += L"  \u00B7  " + w(b->title);
+        const float wx = lx + 130;
+        const float sx = std::max(wx + 150, r.w * 0.5f - 230);
+        gfx_.text(where, {wx, 0, sx - wx - 16, r.h}, Font::Small, nr::kNightMuted, {Align::Left, false, true, true});
     }
+    // The search box in the middle (Ctrl+K): chapters, the bible, books and commands.
+    {
+        const float sw = std::clamp(r.w * 0.32f, 300.0f, 520.0f);
+        const float sx = std::max(lx + 280, r.w * 0.5f - sw / 2);
+        topSearchRect_ = {sx, 8, std::min(sw, r.right() - capW - 120 - sx), r.h - 16};
+        const Rect sr = topSearchRect_;
+        const bool on = GetFocus() == fields_[FTopSearch];
+        // On the field's own colour (the box the text is typed in), so the typing and the box are one.
+        gfx_.fillRounded(sr, 9, pal_.surface);
+        gfx_.strokeRounded(sr, 9, on ? pal_.ribbon : pal_.rule, on ? 1.5f : 1.0f);
+        cjui::drawIcon(gfx_, cjui::Icon::Search, {sr.x + 10, sr.y + (sr.h - 15) / 2, 15, 15}, pal_.inkMuted, 1.5f);
+        addHit("top:search", sr, [this] { focusTopSearch(); }, false);
+        placeField(FTopSearch, {sr.x + 32, sr.y + (sr.h - 22) / 2, sr.w - 92, 22});
+        gfx_.text(L"Ctrl+K", {sr.right() - 58, sr.y, 48, sr.h}, Font::Small, pal_.inkFaint, {Align::Right, false, false, true});
+    }
+    // Show or hide the side panels (F3 the outline / sidebar, F4 the details), for more room to read.
+    if (lib_ && !(ws_ == Workspace::Library && view_ == View::Settings)) {
+        auto layoutButton = [&](const std::string& bid, float bx, cjui::Icon icon, bool on, const wchar_t* tip, std::function<void()> act) {
+            const Rect b{bx, (r.h - 30) / 2, 30, 30};
+            addHit(bid, b, std::move(act), false);
+            tooltip(bid, tip);
+            const float hv = hoverAmount(bid);
+            if (hv > 0.01f) gfx_.fillRounded(b, 7, nr::kNightInk.withAlpha(0.08f * hv));
+            cjui::drawIcon(gfx_, icon, {b.x + 7, b.y + 7, 16, 16}, nr::kNightMuted.mix(nr::kNightInk, std::max(hv, on ? 0.6f : 0.0f)), 1.4f);
+        };
+        const float bx = r.right() - capW - 80;
+        layoutButton("tab:side", bx, cjui::Icon::Sidebar, settings_.showSide, L"Show or hide the left side   F3",
+                     [this] { settings_.showSide = !settings_.showSide; saveSettings(); invalidate(); });
+        layoutButton("tab:panel", bx + 34, cjui::Icon::Panel, settings_.showPanel, L"Show or hide the details   F4",
+                     [this] { settings_.showPanel = !settings_.showPanel; saveSettings(); invalidate(); });
+    }    drawSearchResults();   // over everything below the bar
 }
 
 // ----------------------------------------------------------------- sidebar
@@ -471,13 +539,7 @@ void StudioApp::drawSidebar(const Rect& r) {
         const Rect rr{x, y, wdt, 30};
         addHit(id, rr, std::move(act));
         const float hv = hoverAmount(id);
-        if (selected) {
-            // The highlight slides to the new row (positions measured without the scroll, so scrolling doesn't drag it).
-            const float sy = slideTo("side#sel", rr.y + sideScroll_) - sideScroll_;
-            const Rect hr{rr.x, sy, rr.w, rr.h};
-            gfx_.fillRounded(hr, 3, pal_.surface);
-            gfx_.fill({hr.x, hr.y + 7, 3, 16}, pal_.ribbon);
-        } else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        sideRowFrame("side#sel", rr, selected, hv, sideScroll_);
         float tx = rr.x + 12 + indent;
         if (hasDot) { gfx_.circle(tx + 4, rr.y + 15, 4, dot, true); tx += 14; }
         const float cw = count.empty() ? 0 : gfx_.measureWidth(count, Font::Small) + 8;
@@ -490,15 +552,7 @@ void StudioApp::drawSidebar(const Rect& r) {
         return rr;
     };
     auto section = [&](const std::wstring& label, std::function<void()> add, const std::string& addId) {
-        y += 10;
-        gfx_.text(label, {x + 12, y, wdt - 50, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
-        if (add) {
-            const Rect plus{x + wdt - 26, y - 4, 24, 24};
-            addHit(addId, plus, std::move(add));
-            gfx_.text(L"+", plus, Font::Heading, pal_.inkFaint.mix(pal_.ink, hoverAmount(addId)), {Align::Center, false, false, true});
-            if (focused(addId)) focusRing(plus);
-        }
-        y += 22;
+        y += sideSection(x, y, wdt, label, std::move(add), addId);
     };
 
     row("side:worlds", 0, L"Worlds", std::to_wstring(lib_->liveWorlds().size()), view_ == View::Worlds, [this] { goTo(View::Worlds); });
@@ -566,6 +620,36 @@ void StudioApp::drawSidebar(const Rect& r) {
     gfx_.popClip();
 }
 
+// One sidebar look for every workspace (UI pass, 0.64): rows 30 tall with a rounded highlight; the chosen one on the
+// surface with the accent bar at its edge, sliding between rows (`key` keeps each sidebar's own slide).
+void StudioApp::sideRowFrame(const std::string& key, const Rect& rr, bool selected, float hover, float scroll) {
+    if (selected) {
+        const float sy = key.empty() ? rr.y : slideTo(key, rr.y + scroll) - scroll;
+        const Rect hr{rr.x, sy, rr.w, rr.h};
+        gfx_.fillRounded(hr, 8, pal_.surface);
+        gfx_.strokeRounded(hr, 8, pal_.rule);
+        gfx_.fillRounded({hr.x + 1, hr.y + 7, 3, hr.h - 14}, 1.5f, pal_.ribbon);
+    } else if (hover > 0.01f) {
+        gfx_.fillRounded(rr, 8, pal_.surface.withAlpha(0.7f * hover));
+    }
+}
+
+// A sidebar's section heading in small capitals, with a + for adding to it when there's one. The height used.
+float StudioApp::sideSection(float x, float y, float w, const std::wstring& label, std::function<void()> add, const std::string& addId) {
+    y += 10;
+    gfx_.text(label, {x + 12, y, w - 50, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    if (add) {
+        const Rect plus{x + w - 26, y - 4, 24, 24};
+        addHit(addId, plus, std::move(add));
+        tooltip(addId, L"Add");
+        const float hv = hoverAmount(addId);
+        if (hv > 0.01f) gfx_.fillRounded(plus, 6, pal_.surface.withAlpha(hv));
+        cjui::drawIcon(gfx_, cjui::Icon::Plus, plus.inset(5), pal_.inkFaint.mix(pal_.ink, hv), 1.5f);
+        if (focused(addId)) focusRing(plus);
+    }
+    return 32;
+}
+
 // -------------------------------------------------------------- status bar
 
 // There's no status bar. Messages rise as a toast over the page; "Saving..." and
@@ -600,10 +684,10 @@ std::int64_t StudioApp::wordsToday() const {
 // The keyboard shortcuts, for Settings and the Ctrl+/ sheet (one list, so they never disagree).
 std::vector<ShortcutGroup> StudioApp::shortcutGroups() {
     return {
-        {L"Anywhere", {{L"Ctrl+K", L"Go to a chapter, scene, bible entry or book"}, {L"Ctrl+/", L"These shortcuts"}}},
+        {L"Anywhere", {{L"Ctrl+K", L"Search: chapters, scenes, the bible, books, worlds and commands"}, {L"Ctrl+1 to Ctrl+8", L"The workspaces on the rail, top to bottom"}, {L"Ctrl+/", L"These shortcuts"}}},
         {L"Library", {{L"Ctrl+N", L"New book"}, {L"Ctrl+Shift+N", L"New series"}, {L"Ctrl+Shift+W", L"New world"},
                       {L"Ctrl+Shift+I", L"Import a book"}, {L"F2", L"Rename"}, {L"Del", L"Move to Trash"},
-                      {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+1 / Ctrl+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"},
+                      {L"Ctrl+Z", L"Undo Move to Trash"}, {L"Ctrl+Shift+1 / Ctrl+Shift+2", L"Bookshelf / list"}, {L"F3", L"Show or hide the outline and sidebar"},
                       {L"F4", L"Show or hide the details panel"}, {L"Ctrl+O", L"Open or create a library"}, {L"Ctrl+E", L"Export the library"},
                       {L"Ctrl+,", L"Settings"}}},
         {L"Writing", {{L"Ctrl+W", L"Open the current book in Writing (or double-click it)"},
@@ -671,9 +755,26 @@ float StudioApp::pageHeader(const Rect& r, const std::wstring& kicker, const std
 }
 
 bool StudioApp::smallButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> act, float* outW) {
-    const float bw = gfx_.measureWidth(label, Font::Small) + 22;
+    // As wide as the words, with room for the icon its words give it (the calm controls, 0.64).
+    std::wstring text = label;
+    if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+    const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
     if (outW) *outW = bw;
-    return button(id, {x, y, bw, 28}, label, std::move(act));
+    return button(id, {x, y, bw, 30}, label, std::move(act));
+}
+
+// A page's actions as one row of the same buttons, wrapping onto another row when the page is narrow (0.64). The height.
+float StudioApp::actionRow(float x, float y, float maxW, const std::vector<Action>& actions) {
+    float bx = x, by = y;
+    for (const Action& a : actions) {
+        std::wstring text = a.label;
+        if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+        const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(a.label) == cjui::Icon::None ? 0 : 21);
+        if (bx > x && bx + bw > x + maxW) bx = x, by += 38;
+        smallButton(a.id, bx, by, a.label, a.act, nullptr);
+        bx += bw + 8;
+    }
+    return by - y + 30;
 }
 
 // Search box, sort, filter and view toggle above a collection.
@@ -892,9 +993,36 @@ float StudioApp::bookCollection(const Rect& r, const std::vector<const Book*>& b
 // ----------------------------------------------------------------- pages
 
 float StudioApp::pageEmpty(const Rect& r) {
-    float y = r.y + pageHeader(r, L"", L"No library is open", libraryNote_.empty() ? L"" : libraryNote_);
-    button("empty:open", {r.x, y, 220, 34}, L"Open or create a library...", [this] { chooseLibraryFolder(); }, true);
-    return y + 40 - r.y;
+    if (!libraryNote_.empty()) {   // something went wrong opening it: say what, then the way on
+        float y = r.y + pageHeader(r, L"", L"No library is open", libraryNote_);
+        smallButton("empty:open", r.x, y, L"Open or create a library...", [this] { chooseLibraryFolder(); });
+        return y + 40 - r.y;
+    }
+    return emptyState(r, cjui::Icon::Library, L"No library is open yet.", L"Open or create a library...", [this] { chooseLibraryFolder(); });
+}
+
+// An empty page or pane (UI pass, 0.64): a quiet icon, one line and one button, centred a little above the middle.
+float StudioApp::emptyState(const Rect& area, cjui::Icon icon, const std::wstring& line, const std::wstring& label,
+                            std::function<void()> act) {
+    const float a = anim("empty#in:" + std::string(line.begin(), line.begin() + std::min<size_t>(line.size(), 12)), 1.0f, 9.0f);
+    const float lineW = std::min(gfx_.measureWidth(line, Font::Body) + 4, std::max(200.0f, area.w - 40));
+    const float lineH = gfx_.measureHeight(line, lineW, Font::Body);
+    const float h = 40 + 18 + lineH + (label.empty() ? 0 : 20 + 30);
+    const float avail = area.h > 0 ? area.h : 420;
+    float y = area.y + std::max(24.0f, (avail - h) * 0.4f) + 10 * (1 - a);
+    const float cx = area.x + area.w / 2;
+    cjui::drawIcon(gfx_, icon, {cx - 20, y, 40, 40}, pal_.inkFaint.withAlpha(0.7f * a + 0.3f), 1.3f);
+    y += 40 + 18;
+    gfx_.text(line, {cx - lineW / 2, y, lineW, lineH + 4}, Font::Body, pal_.inkMuted, {Align::Center, true});
+    y += lineH + 20;
+    if (!label.empty()) {
+        std::wstring text = label;
+        if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+        const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
+        button("empty:act", {cx - bw / 2, y, bw, 30}, label, std::move(act));
+        y += 30;
+    }
+    return y - area.y + 20;
 }
 
 float StudioApp::pageAllBooks(const Rect& r) {
@@ -991,19 +1119,11 @@ float StudioApp::pageWorlds(const Rect& r) {
         gfx_.text(libraryNote_, {r.x + 14, y + 10, std::min(r.w, 700.0f) - 28, h + 4}, Font::Small, pal_.ink);
         y += h + 36;
     }
-    {
-        float bx = r.x, bw = 0;
-        smallButton("worlds:new", bx, y, L"New world", [this] { newWorld(); }, &bw);
-        bx += bw + 8;
-        smallButton("worlds:book", bx, y, L"New book", [this] { newBook({}, {}); }, &bw);
-        bx += bw + 8;
-        smallButton("worlds:import", bx, y, L"Import a book...", [this] { startImport({}); }, &bw);
-        bx += bw + 8;
-        smallButton("worlds:all", bx, y, L"All books", [this] { goTo(View::AllBooks); }, &bw);
-        bx += bw + 8;
-        smallButton("worlds:github", bx, y, L"Open a world from GitHub...", [this] { goTo(View::FromGitHub); }, &bw);
-        y += 48;
-    }
+    // The page's actions in one row (All books is in the sidebar already).
+    y += actionRow(r.x, y, r.w, {{"worlds:new", L"New world", [this] { newWorld(); }},
+                                 {"worlds:book", L"New book", [this] { newBook({}, {}); }},
+                                 {"worlds:import", L"Import a book\u2026", [this] { startImport({}); }},
+                                 {"worlds:github", L"Open a world from GitHub\u2026", [this] { goTo(View::FromGitHub); }}}) + 18;
     const float gap = 20;
     const int cols = std::max(1, (int)((r.w + gap) / (420 + gap)));
     const float cw = (r.w - gap * (cols - 1)) / cols, ch = 326;

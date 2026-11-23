@@ -1,4 +1,5 @@
 #include "cjui/window.hpp"
+#include "cjui/icons.hpp"
 #include "cjui/menu.hpp"
 
 #include <dwmapi.h>
@@ -160,6 +161,36 @@ void AppWindow::drawToast(const Rect& area) {
     const float a = flashColor(Color{1, 1, 1, 1}).a;
     if (a <= 0.01f) return;
     const std::wstring& t = flashText();
+    if (calm_) {
+        // A small note in the bottom-right corner, sliding in from the right; Undo in it when there's something to undo.
+        const bool undo = (bool)flashUndo_;
+        const float uw = undo ? gfx_.measureWidth(L"Undo", Font::SmallStrong) + 40 : 0;
+        const float maxW = std::min(area.w - 48, 440.0f);
+        const float tw = std::min(gfx_.measureWidth(t, Font::Small), maxW - 28 - uw);
+        const float th = gfx_.measureHeight(t, tw + 1, Font::Small);
+        const float w = tw + 28 + uw, h = std::max(36.0f, th + 18);
+        const float slide = (1.0f - a) * 28;
+        const Rect r{area.right() - w - 20 + slide, area.bottom() - h - 20, w, h};
+        softShadow(r, 9, a * 0.8f);
+        gfx_.fillRounded(r, 9, pal_.surface.withAlpha(0.98f * a));
+        gfx_.strokeRounded(r, 9, pal_.rule.withAlpha(a));
+        gfx_.fillRounded({r.x, r.y + 8, 3, r.h - 16}, 1.5f, pal_.ribbon.withAlpha(a));
+        gfx_.text(t, {r.x + 14, r.y + (h - th) / 2, tw + 1, th + 2}, Font::Small, pal_.ink.withAlpha(a), {Align::Left, true});
+        if (undo) {
+            const Rect b{r.right() - uw + 4, r.y + (h - 26) / 2, uw - 12, 26};
+            addHit("#toast:undo", b, [this] {
+                auto u = flashUndo_;
+                flashUndo_ = nullptr;
+                flashActive_ = false;
+                if (u) u();
+                invalidate();
+            });
+            const float hv = hoverAmount("#toast:undo");
+            gfx_.fillRounded(b, 6, pal_.ribbon.withAlpha((0.12f + 0.12f * hv) * a));
+            gfx_.text(L"Undo", b, Font::SmallStrong, pal_.ink.withAlpha(a), {Align::Center, false, false, true});
+        }
+        return;
+    }
     const float maxW = std::min(area.w - 48, 620.0f);
     const float tw = std::min(gfx_.measureWidth(t, Font::Body), maxW - 36);
     const float th = gfx_.measureHeight(t, tw + 1, Font::Body);
@@ -203,7 +234,7 @@ float AppWindow::beginScroll(const Rect& clip) {
     gfx_.pushClip(clip);
     // New pages rise a few pixels as they fade in.
     const float p = pageProgress();
-    return clip.y - scroll_ + (1.0f - p) * 14.0f;
+    return clip.y - scroll_ + (1.0f - p) * (calm_ ? 26.0f : 14.0f);
 }
 
 void AppWindow::endScroll(float contentHeight) {
@@ -237,12 +268,39 @@ void AppWindow::addHit(const std::string& id, const Rect& r, std::function<void(
     hits_.push_back({id, r, clip, std::move(action), focusable});
 }
 
-void AppWindow::focusRing(const Rect& r) { gfx_.strokeRounded(r.inset(-3), 4, pal_.focus, 2); }
+void AppWindow::focusRing(const Rect& r) { gfx_.strokeRounded(r.inset(-3), calm_ ? 9.0f : 4.0f, pal_.focus, 2); }
+
+// The calm controls' one look (a button, a small button, a link-button): the surface with an outline, a 7-DIP radius,
+// lifting a little and gaining a shadow when pointed at, pressing in when clicked; an icon before the words.
+void AppWindow::calmFace(const std::string& id, const Rect& r, const std::wstring& label, Font f, bool enabled) {
+    const float h = enabled ? hoverAmount(id) : 0, d = enabled ? anim(id + "#press", pressed(id) ? 1.0f : 0.0f, 30.0f) : 0;
+    const Rect b{r.x, r.y - 1.5f * h + 1.0f * d, r.w, r.h};
+    if (h > 0.01f) softShadow(b, 7, 0.55f * h * (1 - d));
+    gfx_.fillRounded(b, 7, enabled ? pal_.surface.mix(pal_.sunken, 0.35f * h + 0.6f * d) : pal_.sunken);
+    gfx_.strokeRounded(b, 7, enabled ? pal_.rule.mix(pal_.inkFaint, 0.55f * h) : pal_.rule);
+    const Color ink = enabled ? pal_.ink.mix(pal_.inkMuted, 0.12f * (1 - h)) : pal_.inkFaint;
+    std::wstring text = label;
+    Icon ic = iconFor(label);
+    if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+    else if (!text.empty() && text[0] == L'\u2039') text.erase(0, text.size() > 1 && text[1] == L' ' ? 2 : 1);
+    float isz = ic == Icon::None ? 0 : std::min(15.0f, b.h - 8);
+    if (isz && gfx_.measureWidth(text, f) + isz + 6 + 10 > b.w) isz = 0;   // no room: the words come first
+    const float tw = std::min(gfx_.measureWidth(text, f), b.w - (isz ? isz + 16 : 14));
+    const float total = (isz ? isz + 6 : 0) + tw;
+    const float x0 = b.x + std::max(5.0f, (b.w - total) / 2);
+    if (isz) drawIcon(gfx_, ic, {x0, b.y + (b.h - isz) / 2, isz, isz}, enabled ? pal_.inkMuted.mix(pal_.ink, h) : pal_.inkFaint, 1.4f);
+    gfx_.text(text, {x0 + (isz ? isz + 6 : 0), b.y, tw + 2, b.h}, f, ink, {Align::Left, false, true, true});
+    if (enabled && focused(id)) focusRing(b);
+}
 
 bool AppWindow::button(const std::string& id, const Rect& r, const std::wstring& label, std::function<void()> action,
                        bool primary) {
     addHit(id, r, std::move(action));
     const bool hov = hovered(id), down = pressed(id);
+    if (calm_) {
+        calmFace(id, r, label, Font::Body, true);
+        return hov;
+    }
     const float h = hoverAmount(id);
     const float d = anim(id + "#press", down ? 1.0f : 0.0f, 30.0f);
     if (primary) {
@@ -259,6 +317,10 @@ bool AppWindow::button(const std::string& id, const Rect& r, const std::wstring&
 }
 
 void AppWindow::disabledButton(const Rect& r, const std::wstring& label) {
+    if (calm_) {
+        calmFace("#disabled", r, label, Font::Body, false);
+        return;
+    }
     gfx_.fillRounded(r, 3, pal_.sunken);
     gfx_.text(label, r, Font::Body, pal_.inkFaint, {Align::Center, false, true, true});
 }
@@ -282,6 +344,27 @@ bool AppWindow::linkText(const std::string& id, float x, float y, const std::wst
     const Rect box{x - 7, y - 3.5f, w + 14, h + 7};
     addHit(id, box, std::move(action));
     const bool hov = hovered(id);
+    if (calm_) {   // the one look; only the drawn marks it always had (‹, +), so it keeps the room its caller measured
+        const float ha = hoverAmount(id), dn = anim(id + "#press", pressed(id) ? 1.0f : 0.0f, 30.0f);
+        const Rect b{box.x, box.y - 1.5f * ha + dn, box.w, box.h};
+        if (ha > 0.01f) softShadow(b, 7, 0.5f * ha * (1 - dn));
+        gfx_.fillRounded(b, 7, pal_.surface.mix(pal_.sunken, 0.35f * ha + 0.6f * dn));
+        gfx_.strokeRounded(b, 7, pal_.rule.mix(pal_.inkFaint, 0.55f * ha));
+        const Color ink = pal_.ink.mix(pal_.inkMuted, 0.12f * (1 - ha));
+        const float dy = b.y - box.y, cy = y + h / 2 + dy;
+        if (icon == 1) {
+            const float cx = x + 4;
+            gfx_.line(cx + 1.5f, cy - 3.5f, cx - 2, cy, ink, 1.5f);
+            gfx_.line(cx - 2, cy, cx + 1.5f, cy + 3.5f, ink, 1.5f);
+        } else if (icon == 2) {
+            const float cx = x + 4.5f;
+            gfx_.line(cx - 3.5f, cy, cx + 3.5f, cy, ink, 1.5f);
+            gfx_.line(cx, cy - 3.5f, cx, cy + 3.5f, ink, 1.5f);
+        }
+        gfx_.text(text, {x + iw, y + dy, tw + 2, h}, strong, ink, {Align::Left, false});
+        if (focused(id)) focusRing(b);
+        return hov;
+    }
     const float a = hoverAmount(id);
     const bool down = pressed(id);
     gfx_.fillRounded(box, 6, pal_.ink.withAlpha((pal_.dark ? 0.06f : 0.04f) + (down ? 0.10f : 0.06f) * a));
@@ -305,7 +388,8 @@ bool AppWindow::linkText(const std::string& id, float x, float y, const std::wst
 void AppWindow::segmented(const std::string& id, const Rect& r, const std::vector<std::wstring>& options, int selected,
                           std::function<void(int)> onSelect) {
     const float w = r.w / options.size();
-    gfx_.fillRounded(r, 3, pal_.sunken);
+    const float rr = calm_ ? 7.0f : 3.0f;
+    gfx_.fillRounded(r, rr, pal_.sunken);
     // The selected pill slides between options.
     const float at = anim(id + "#sel", (float)selected, 20.0f);
     for (size_t i = 0; i < options.size(); ++i) {
@@ -317,8 +401,8 @@ void AppWindow::segmented(const std::string& id, const Rect& r, const std::vecto
     }
     if (selected >= 0 && selected < (int)options.size()) {
         const Rect pill{r.x + at * w, r.y, w, r.h};
-        gfx_.fillRounded(pill.inset(2), 2, pal_.surface);
-        gfx_.strokeRounded(pill.inset(2), 2, pal_.rule);
+        gfx_.fillRounded(pill.inset(2), rr - 1, pal_.surface);
+        gfx_.strokeRounded(pill.inset(2), rr - 1, pal_.rule);
     }
     for (size_t i = 0; i < options.size(); ++i) {
         const std::string sid = id + ":" + std::to_string(i);
@@ -359,7 +443,13 @@ void AppWindow::slider(const std::string& id, const Rect& r, float value, std::f
     if (focused(id)) focusRing(r);
 }
 
+void AppWindow::flashUndo(const std::wstring& message, std::function<void()> undo, int seconds) {
+    flash(message, seconds);
+    flashUndo_ = std::move(undo);
+}
+
 void AppWindow::flash(const std::wstring& message, int seconds) {
+    flashUndo_ = nullptr;
     flash_ = message;
     flashActive_ = true;
     flashVisible_ = true;

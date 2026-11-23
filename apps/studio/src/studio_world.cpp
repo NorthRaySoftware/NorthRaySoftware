@@ -648,7 +648,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         });
         const bool sel = wb_.kind == kind && wb_.facet.empty() && wb_.entry.empty() && wb_.board.empty() && !wb_.checks && !wb_.glossary && !wb_.languages && !wb_.share && !wb_.syncPage && !wb_.relationsPage && !wb_.fontsPage && wb_.familyRoot.empty();
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         if (!kind.empty()) gfx_.circle(tx0 + 4, rr.y + rr.h / 2, 3.5f, kindColor(kind, pal_.dark), true);
         const float lx = kind.empty() ? tx0 : tx0 + 16;
@@ -761,7 +761,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; invalidate(); });
         const bool sel = wb_.glossary;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Glossary", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
@@ -773,7 +773,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openLanguages(); });
         const bool sel = wb_.languages;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Languages", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
@@ -787,7 +787,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openRelations({}); });
         const bool sel = wb_.relationsPage;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Relationships", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
@@ -801,7 +801,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openFonts({}); });
         const bool sel = wb_.fontsPage;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Fonts", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const std::size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
@@ -815,7 +815,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { shareBible(); });
         const bool sel = wb_.share;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Share the bible", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
@@ -827,7 +827,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openSyncPage(); });
         const bool sel = wb_.syncPage;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Sync with GitHub", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
@@ -845,7 +845,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
         addHit(id, rr, [this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; invalidate(); });
         const bool sel = wb_.checks;
         const float hv = hoverAmount(id);
-        if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+        if (sel) sideRowFrame({}, rr, true, 0, 0);
         else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
         gfx_.text(L"Checks", {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink, {Align::Left, false, true, true});
         if (focused(id)) focusRing(rr);
@@ -876,7 +876,7 @@ void StudioApp::drawWorldSidebar(const Rect& r) {
             });
             const bool sel = wb_.board == bid;
             const float hv = hoverAmount(id);
-            if (sel) { gfx_.fillRounded(rr, 3, pal_.surface); gfx_.fill({rr.x, rr.y + 6, 3, rr.h - 12}, pal_.ribbon); }
+            if (sel) sideRowFrame({}, rr, true, 0, 0);
             else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
             gfx_.text(w(bd.value("name", "Board")), {tx0, rr.y, cw - 30, rr.h}, sel ? Font::BodyStrong : Font::Body, pal_.ink,
                       {Align::Left, false, true, true});

@@ -225,7 +225,7 @@ void StudioApp::editorMessage(const std::string& text) {
         editorDirty_ = m.value("dirty", false);
     } else if (type == "appCommand") {   // Ctrl+K, Ctrl+/ typed in the text
         const std::string name = m.value("name", "");
-        if (name == "jump") quickJump();
+        if (name == "jump") focusTopSearch();
         else if (name == "shortcuts") showShortcuts();
     } else if (type == "navigate") {
         stepNode(m.value("delta", 0) < 0 ? -1 : 1, true, true);
@@ -537,7 +537,7 @@ void StudioApp::stepNode(int delta, bool chaptersOnly, bool focusEditor) {
         selectNode(all[j]->id, focusEditor);
         return;
     }
-    flash(delta < 0 ? L"This is the first chapter." : L"This is the last chapter.", 3);
+    (void)delta;   // nothing further that way: the outline shows it (0.64)
     if (focusEditor && editor_.ready()) editor_.send(R"({"type":"focus"})");
 }
 
@@ -612,7 +612,7 @@ void StudioApp::nodeContextMenu(const Id& id) {
         GetCursorPos(&pt);
         const int cmd = (int)cjui::trackMenu(m, pt, hwnd());
         DestroyMenu(m);
-        if (cmd == WRestore && lib_->restore(id)) { selectNode(id); flash(L"Restored “" + nodeLabel(*lib_->node(id)) + L"”.", 4); }
+        if (cmd == WRestore && lib_->restore(id)) selectNode(id);
         invalidate();
         return;
     }
@@ -712,13 +712,8 @@ void StudioApp::writingCommand(int id) {
         case WMoveDown: if (n) moveNodeBy(n->id, 1); break;
         case WTrash:
             if (n) {
+                // At once, with Undo in the note (0.64): it's in the Trash, nothing is lost.
                 const std::wstring what = nodeLabel(*n);
-                const std::int64_t words = nodeTotalWords(n->id);
-                if (words > 0) {
-                    const std::wstring q = L"Move “" + what + L"” (" + wordsLabel(words) + L") to the Trash?\n\n"
-                                           L"It stays in the Trash at the bottom of the outline, where you can restore it, until you empty the Trash.";
-                    if (cjui::messageBox(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) break;
-                }
                 if (editor_.ready()) editor_.send(R"({"type":"flush"})");
                 const Id bookId = n->bookId, trashed = n->id;
                 // Select a neighbour first.
@@ -736,7 +731,9 @@ void StudioApp::writingCommand(int id) {
                 }
                 currentNode_.clear();
                 selectNode(next);
-                flash(L"Moved “" + what + L"” to the Trash. Restore it from the Trash at the bottom of the outline.", 6);
+                flashUndo(L"Moved “" + what + L"” to the Trash.", [this, trashed] {
+                    if (lib_ && lib_->restore(trashed)) selectNode(trashed);
+                });
             }
             break;
     }
@@ -756,19 +753,29 @@ void StudioApp::drawBinder(const Rect& r) {
     const float x = r.x + 10, wd = r.w - 20, tx0 = x + 12;
     float y = r.y + 14 - binderScroll_;
 
-    linkText("side:writing:library", tx0, y, L"‹ Library", [this] { writingCommand(WLibrary); });
-    y += 30;
+    // (Back to the Library is on the rail now: the book's page.)
     gfx_.text(L"MANUSCRIPT", {tx0, y, wd - 24, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
     y += 20;
     y += gfx_.text(w(b->title), {tx0, y, wd - 24, 90}, Font::SerifTitle, pal_.ink) + 2;
     gfx_.text(wordsLabel(lib_->bookWordCount(b->id)), {tx0, y, wd - 24, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
     y += 30;
-    float bx = tx0, bw = 0;
-    smallButton("side:add:chapter", bx, y, L"+ Chapter", [this] { addNode(NodeKind::Chapter); }, &bw);
-    bx += bw + 6;
-    smallButton("side:add:scene", bx, y, L"+ Scene", [this] { addNode(NodeKind::Scene); }, &bw);
-    bx += bw + 6;
-    smallButton("side:add:part", bx, y, L"+ Part", [this] { addNode(NodeKind::Part); }, &bw);
+    {   // Three buttons across the side, each as wide as its words need, sharing the room so they always fit.
+        const float room = wd - 12 - 12;
+        const float m[3] = {gfx_.measureWidth(L"Chapter", Font::Body), gfx_.measureWidth(L"Scene", Font::Body), gfx_.measureWidth(L"Part", Font::Body)};
+        const float extra = std::max(0.0f, (room - m[0] - m[1] - m[2]) / 3);
+        float bx = tx0 - 2;
+        const wchar_t* labels[3] = {L"+ Chapter", L"+ Scene", L"+ Part"};
+        const char* ids[3] = {"side:add:chapter", "side:add:scene", "side:add:part"};
+        const NodeKind kinds[3] = {NodeKind::Chapter, NodeKind::Scene, NodeKind::Part};
+        for (int i = 0; i < 3; ++i) {
+            const NodeKind k = kinds[i];
+            button(ids[i], {bx, y, m[i] + extra, 30}, labels[i], [this, k] { addNode(k); });
+            bx += m[i] + extra + 6;
+        }
+        tooltip("side:add:chapter", L"A new chapter after this one");
+        tooltip("side:add:scene", L"A new scene in this chapter");
+        tooltip("side:add:part", L"A new part");
+    }
     y += 44;
 
     // Depth of each node, for indentation.
@@ -795,11 +802,7 @@ void StudioApp::drawBinder(const Rect& r) {
         addDrop(drop);
         const bool sel = n->id == currentNode_;
         const float hv = hoverAmount(id);
-        if (sel) {
-            const float sy = slideTo("binder#sel", rr.y + binderScroll_) - binderScroll_;
-            gfx_.fillRounded({rr.x, sy, rr.w, rh}, 3, pal_.surface);
-            gfx_.fill({rr.x, sy + 7, 3, rh - 14}, pal_.ribbon);
-        } else if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
+        sideRowFrame("binder#sel", rr, sel, hv, binderScroll_);
         // Status dot: outline grey, draft amber, revised blue, final green.
         static const char* dots[] = {"#9A958A", "#C9922E", "#4E7DB3", "#3E8E5E"};
         const float tx = tx0 + d * 16;
@@ -827,14 +830,14 @@ void StudioApp::drawBinder(const Rect& r) {
         y += rh + 2;
     }
     if (all.empty()) {
-        y += gfx_.text(L"This book has no chapters yet. Press + Chapter to start one.", {tx0, y, wd - 24, 40}, Font::Small,
+        y += gfx_.text(L"No chapters yet.", {tx0, y, wd - 24, 40}, Font::Small,
                        pal_.inkMuted) + 8;
     }
     // Trash.
     const auto trashed = lib_->trashedNodesOf(b->id);
     if (!trashed.empty()) {
         y += 16;
-        const std::wstring t = (showNodeTrash_ ? L"▾ Trash (" : L"▸ Trash (") + std::to_wstring(trashed.size()) + L")";
+        const std::wstring t = (showNodeTrash_ ? L"Hide the Trash (" : L"Trash (") + std::to_wstring(trashed.size()) + L")";
         linkText("side:nodetrash", tx0, y, t, [this] { showNodeTrash_ = !showNodeTrash_; invalidate(); });
         y += 26;
         if (showNodeTrash_) {
@@ -842,7 +845,7 @@ void StudioApp::drawBinder(const Rect& r) {
                 const Rect rr{x, y, wd, 30};
                 const std::string id = "node:" + n->id;
                 addHit(id, rr, [this, nid = n->id] {
-                    if (lib_->restore(nid)) { selectNode(nid); flash(L"Restored “" + nodeLabel(*lib_->node(nid)) + L"”.", 4); }
+                    if (lib_->restore(nid)) selectNode(nid);
                 });
                 const float hv = hoverAmount(id);
                 if (hv > 0.01f) gfx_.fillRounded(rr, 3, pal_.surface.withAlpha(0.6f * hv));
@@ -944,7 +947,7 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
     panelHeading(c, y, L"EARLIER VERSIONS", false);
     const auto versions = lib_->nodeVersions(n->id);
     if (versions.empty()) {
-        y += gfx_.text(L"While you write, the Studio keeps a copy of this text every ten minutes or so. They'll be listed here.",
+        y += gfx_.text(L"None yet. A copy is kept every ten minutes while you write.",
                        {c.x, y, c.w, 80}, Font::Small, pal_.inkFaint) + 8;
     }
     int shown = 0;

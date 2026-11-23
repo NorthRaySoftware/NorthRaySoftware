@@ -149,6 +149,7 @@ protected:
     bool button(const std::string& id, const Rect& r, const std::wstring& label, std::function<void()> action,
                 bool primary = false);
     void disabledButton(const Rect& r, const std::wstring& label);
+    void calmFace(const std::string& id, const Rect& r, const std::wstring& label, Font f, bool enabled);
     bool linkText(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> action,
                   Font f = Font::Small);
     void segmented(const std::string& id, const Rect& r, const std::vector<std::wstring>& options, int selected,
@@ -160,6 +161,13 @@ protected:
 
     // A short message, e.g. for a status bar. Clears itself after `seconds`.
     void flash(const std::wstring& message, int seconds = 4);
+    // The same with an Undo button in it (the calm controls), for changes made at once instead of asked about first.
+    void flashUndo(const std::wstring& message, std::function<void()> undo, int seconds = 8);
+    // The calm, consistent controls (UI pass, 2026-11; Writing Studio first): every button, small button and link-button
+    // drawn alike (one surface, one outline, one radius, the same type), with an icon from its words where there is one;
+    // quieter notes in the corner, with Undo when given; livelier hover and page motion.
+    void setCalmControls(bool on) { calm_ = on; }
+    bool calmControls() const { return calm_; }
     const std::wstring& flashText() const { return flashVisible_ ? flash_ : empty_; }
     // The flash message as a toast: a small rounded note near the bottom of `area`
     // that rises in and fades out (the apps have no status bar).
@@ -217,6 +225,8 @@ private:
     std::string dragging_;
 
     std::wstring flash_, empty_;
+    std::function<void()> flashUndo_;
+    bool calm_ = false;
     bool flashActive_ = false;
     bool flashVisible_ = false;      // still fading out after it expired
     double pageStart_ = -10;

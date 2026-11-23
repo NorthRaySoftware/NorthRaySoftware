@@ -44,6 +44,7 @@ enum Cmd {
     CmdRename, CmdTrash, CmdUndoTrash, CmdEmptyTrash,
     CmdGallery, CmdList, CmdPanel, CmdSide, CmdThemeSystem, CmdThemeLight, CmdThemeDark,
     CmdAbout, CmdFormatDoc, CmdImport, CmdImportInto, CmdWriting, CmdSettings, CmdJump, CmdShortcuts,
+    CmdTab0 = 900,                // + the workspace's place on the rail (Ctrl+1 to Ctrl+8)
     // Popup menus
     CmdMoveWorldBase = 1000,      // + index into liveWorlds, or CmdMoveIndependent
     CmdMoveIndependent = 1999,
@@ -265,6 +266,10 @@ void StudioApp::applyTheme() {
     const bool dark = settings_.theme == 2 || (settings_.theme == 0 && systemPrefersDark());
     // The NorthRay look, like the Launcher, Browser and Files: cool neutrals and aurora green.
     Palette p = cjui::northray::palette(dark);
+    // The UI pass (0.64): quieter text that still reads (WCAG AA, 4.5:1 on the page) and an accent that does too.
+    if (dark) p.inkFaint = cjui::hexColor("#7D889E");
+    else p.inkFaint = cjui::hexColor("#677185"), p.ribbon = cjui::hexColor("#0B7A5E");
+    setCalmControls(true);
     applyPalette(p);
     if (fieldBrush_) DeleteObject(fieldBrush_);
     const Color s = pal_.surface;
@@ -492,8 +497,11 @@ void StudioApp::buildMenu() {
         {FCONTROL | FVIRTKEY, 'W', CmdWriting},
         {FVIRTKEY, VK_F4, CmdPanel},
         {FVIRTKEY, VK_F3, CmdSide},
-        {FCONTROL | FVIRTKEY, '1', CmdGallery},
-        {FCONTROL | FVIRTKEY, '2', CmdList},
+        {FCONTROL | FSHIFT | FVIRTKEY, '1', CmdGallery},
+        {FCONTROL | FSHIFT | FVIRTKEY, '2', CmdList},
+        {FCONTROL | FVIRTKEY, '1', CmdTab0}, {FCONTROL | FVIRTKEY, '2', CmdTab0 + 1}, {FCONTROL | FVIRTKEY, '3', CmdTab0 + 2},
+        {FCONTROL | FVIRTKEY, '4', CmdTab0 + 3}, {FCONTROL | FVIRTKEY, '5', CmdTab0 + 4}, {FCONTROL | FVIRTKEY, '6', CmdTab0 + 5},
+        {FCONTROL | FVIRTKEY, '7', CmdTab0 + 6}, {FCONTROL | FVIRTKEY, '8', CmdTab0 + 7},
         {FCONTROL | FVIRTKEY, VK_UP, WPrev},
         {FCONTROL | FVIRTKEY, VK_DOWN, WNext},
         {FCONTROL | FVIRTKEY, VK_OEM_COMMA, CmdSettings},
@@ -728,6 +736,12 @@ void StudioApp::openLastWriting() {
 
 void StudioApp::command(int id) {
     if (!lib_ && id != CmdOpenLibrary && id != CmdExit && id != CmdAbout && id != CmdShortcuts) return;
+    if (id >= CmdTab0 && id < CmdTab0 + 8) {
+        commitFields();
+        openTab(id - CmdTab0);
+        invalidate();
+        return;
+    }
     if (id >= 5000 && id < 6000) {
         // From the menu while the Library is showing: Ctrl+Up / Ctrl+Down mean nothing there.
         if ((id == WPrev || id == WNext) && ws_ != Workspace::Writing) return;
@@ -779,7 +793,7 @@ void StudioApp::command(int id) {
         case CmdThemeDark: settings_.theme = 2; saveSettings(); applyTheme(); break;
         case CmdAbout: showAbout(); break;
         case CmdSettings: openSettings(); break;
-        case CmdJump: quickJump(); break;
+        case CmdJump: focusTopSearch(); return;   // the search box in the top bar (0.64)
         case CmdShortcuts: showShortcuts(); break;
         case CmdFormatDoc: {
             const std::wstring t = L"Your library is a folder:\n\n" + (lib_ ? w(lib_->folder()) : std::wstring(L"(none open)")) +
@@ -885,18 +899,12 @@ void StudioApp::trashFocused() {
     if (focus_.kind == Focus::Artwork) {
         const Artwork* a = lib_->artwork(focus_.id);
         if (!a) return;
-        const size_t used = lib_->artworkUsage(a->blob).size();
-        if (used) {
-            const std::wstring q = L"“" + w(a->name) + L"” is used in " + std::to_wstring(used) + (used == 1 ? L" chapter" : L" chapters") +
-                                   L". Move it to the Trash anyway?\n\nThe chapters keep showing it; it just leaves the artwork library.";
-            if (cjui::messageBox(hwnd(), q.c_str(), L"Move to Trash", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
-        }
-        commitFields();
+        commitFields();   // at once, with Undo (0.64): chapters using it keep showing it
         const std::wstring name = w(a->name);
         if (!lib_->trashArtwork(focus_.id)) { flash(L"Couldn't move that to the Trash.", 6); return; }
         recentlyTrashed_.push_back(focus_.id);
         setFocus({});
-        flash(L"Moved “" + name + L"” to the Trash. Ctrl+Z puts it back.", 8);
+        flashUndo(L"Moved “" + name + L"” to the Trash.", [this] { undoTrash(); });
         return;
     }
     commitFields();
@@ -916,7 +924,7 @@ void StudioApp::trashFocused() {
     recentlyTrashed_.push_back(focus_.id);
     if ((view_ == View::World || view_ == View::Series || view_ == View::Book) && viewId_ == focus_.id) goTo(View::Worlds);
     else setFocus({});
-    flash(L"Moved “" + what + L"” to the Trash. Ctrl+Z puts it back.", 8);
+    flashUndo(L"Moved “" + what + L"” to the Trash.", [this] { undoTrash(); });
 }
 
 void StudioApp::undoTrash() {
@@ -928,7 +936,7 @@ void StudioApp::undoTrash() {
     else if (const Series* x = lib_->seriesById(id)) what = w(x->name);
     else if (const World* x = lib_->world(id)) what = w(x->name);
     else if (const Artwork* x = lib_->artwork(id)) what = w(x->name);
-    if (lib_->restore(id)) flash(what.empty() ? L"Restored." : L"Restored “" + what + L"”.", 4);
+    lib_->restore(id);   // it's back where it was: no note needed
 }
 
 void StudioApp::emptyTrash() {
@@ -1013,7 +1021,7 @@ void StudioApp::moveBookTo(const Id& bookId, const Id& worldId) {
     commitFields();
     if (lib_->moveBookToWorld(bookId, worldId)) {
         const World* x = lib_->world(worldId);
-        flash(L"Moved to " + (x ? w(x->name) : std::wstring(L"Independent books")) + L".", 5);
+        (void)x;   // it's shown where it went: no note (0.64)
     } else {
         flash(w("Couldn't move it: " + lib_->lastError()), 8);
     }
@@ -1035,7 +1043,7 @@ void StudioApp::addToSeries(const Id& bookId, const Id& seriesId) {
         }
     }
     commitFields();
-    if (lib_->addBookToSeries(bookId, seriesId)) flash(L"Added to “" + w(s->name) + L"”.", 5);
+    if (lib_->addBookToSeries(bookId, seriesId)) {}
     else flash(w("Couldn't add it: " + lib_->lastError()), 8);
 }
 
@@ -1049,7 +1057,7 @@ void StudioApp::moveSeriesTo(const Id& seriesId, const Id& worldId) {
                            std::to_wstring(books) + L" book(s) in it move too. Books that are also in other series of the old world leave those series.";
     if (cjui::messageBox(hwnd(), q.c_str(), L"Move series", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     commitFields();
-    if (lib_->moveSeriesToWorld(seriesId, worldId)) flash(L"Series moved.", 4);
+    if (lib_->moveSeriesToWorld(seriesId, worldId)) {}
     else flash(w("Couldn't move it: " + lib_->lastError()), 8);
 }
 
@@ -1391,7 +1399,10 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
                     if (code == EN_CHANGE && !suppressChange_) {
                         if (f == FSearch) { search_ = fieldText(FSearch); invalidate(); }
                         else if (f == FFind) { find_ = fieldText(FFind); wb_.scroll = 0; invalidate(); }
+                        else if (f == FTopSearch) { topSel_ = 0; invalidate(); }
                         else { dirty_ = true; SetTimer(hwnd(), kSaveTimer, 700, nullptr); }
+                    } else if (code == EN_KILLFOCUS && f == FTopSearch) {
+                        invalidate();
                     } else if (code == EN_KILLFOCUS && f != FSearch && f != FFind) {
                         commitFields();
                     }
@@ -1461,6 +1472,15 @@ LRESULT StudioApp::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
 // ------------------------------------------------------------- drag & drop
 
 bool StudioApp::onMouseDown(float x, float y) {
+    // A result of the top bar's search (its box has just lost the keyboard to this click).
+    if (hoverId().rfind("search:", 0) == 0) {
+        const size_t i = (size_t)std::atoi(hoverId().c_str() + 7);
+        if (i < lastSearchHits_.size()) {
+            const SearchHit h = lastSearchHits_[i];
+            runSearchHit(h);
+            return true;
+        }
+    }
     drag_ = {};
     if (planMouseDown(x, y)) return true;   // a card on the timeline
     if (boardMouseDown(x, y)) return true;  // a picture's resize handle on an image board
@@ -1787,6 +1807,8 @@ bool StudioApp::preTranslate(const MSG& msg) {
     int current = -1;
     for (int f = 0; f < FieldCount; ++f) if (fields_[f] == msg.hwnd) current = f;
     if (current < 0) return false;
+    if (current == FTopSearch && (msg.wParam == VK_UP || msg.wParam == VK_DOWN || msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE))
+        return searchKey(msg.wParam);
     const bool multi = isMultiField(current);
     if (msg.wParam == VK_TAB) {
         // Visible fields in reading order: top to bottom, then left to right.
@@ -1838,6 +1860,7 @@ void StudioApp::createFields() {
     watchFieldPastes();
     SendMessageW(fields_[FSearch], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search titles, authors, tags"));
     SendMessageW(fields_[FFind], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Find in the bible: a name, a word"));
+    SendMessageW(fields_[FTopSearch], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search chapters, the bible, books, commands"));
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"fantasy, dragons"));
     SendMessageW(fields_[FAccent], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"#2D4A6E"));
     SendMessageW(fields_[FNumber], EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Unnumbered"));
@@ -1904,7 +1927,7 @@ void StudioApp::loadFields() {
     loadedFocus_ = focus_;
     dirty_ = false;
     if (!lib_) return;
-    for (int f = 0; f < FieldCount; ++f) if (f != FSearch && f != FFind) setFieldText((Field)f, "");
+    for (int f = 0; f < FieldCount; ++f) if (f != FSearch && f != FFind && f != FTopSearch) setFieldText((Field)f, "");
     // The tags field doubles as an entry's other names.
     SendMessageW(fields_[FTags], EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(focus_.kind == Focus::Entry ? L"the Captain, Mara" : L"fantasy, dragons"));
