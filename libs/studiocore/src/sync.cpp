@@ -772,7 +772,9 @@ bool GitHubRemote::commit(const RemoteState& parentIn, const std::map<std::strin
         if (parent.commit.empty()) { error = "GitHub didn't start the repository."; return false; }
     }
     json tree = json::array();
+    size_t sent = 0;
     for (auto& [path, bytes] : changes) {
+        if (onProgress) onProgress(sent++, changes.size());
         if (!bytes) {
             if (parent.files.count(path)) tree.push_back({{"path", path}, {"mode", "100644"}, {"type", "blob"}, {"sha", nullptr}});
             continue;
@@ -785,10 +787,26 @@ bool GitHubRemote::commit(const RemoteState& parentIn, const std::map<std::strin
         tree.push_back({{"path", path}, {"mode", "100644"}, {"type", "blob"}, {"sha", sha}});
     }
     if (tree.empty()) { newCommit = parent.commit; return true; }
-    HttpResponse r = call("POST", "/git/trees", json{{"base_tree", parent.tree}, {"tree", tree}}.dump());
-    if (r.status != 201) { error = describe(r, "write to the repository"); return false; }
-    const std::string treeSha = str(json::parse(r.body, nullptr, false), "sha");
-    r = call("POST", "/git/commits", json{{"message", message}, {"tree", treeSha}, {"parents", json::array({parent.commit})}}.dump());
+    // The tree is built a batch at a time, each on top of the last (2026-11-23): GitHub times out (422, "your input was
+    // too large") making one tree from a whole world's files at once. A batch that fails is tried again at half the size.
+    std::string treeSha = parent.tree;
+    size_t batch = 100;
+    for (size_t i = 0; i < tree.size();) {
+        const size_t n = std::min(batch, tree.size() - i);
+        json part = json::array();
+        for (size_t k = i; k < i + n; ++k) part.push_back(tree[k]);
+        const HttpResponse t = call("POST", "/git/trees", json{{"base_tree", treeSha}, {"tree", part}}.dump());
+        if (t.status == 201) {
+            treeSha = str(json::parse(t.body, nullptr, false), "sha");
+            if (treeSha.empty()) { error = "GitHub didn't say what it made."; return false; }
+            i += n;
+            continue;
+        }
+        if ((t.status == 422 || t.status == 0 || t.status >= 500) && n > 5) { batch = n / 2; continue; }
+        error = describe(t, "write to the repository");
+        return false;
+    }
+    HttpResponse r = call("POST", "/git/commits", json{{"message", message}, {"tree", treeSha}, {"parents", json::array({parent.commit})}}.dump());
     if (r.status != 201) { error = describe(r, "write to the repository"); return false; }
     const std::string c = str(json::parse(r.body, nullptr, false), "sha");
     r = call("PATCH", "/git/refs/heads/" + branch_, json{{"sha", c}, {"force", false}}.dump());

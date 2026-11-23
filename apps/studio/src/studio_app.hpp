@@ -578,6 +578,7 @@ private:
     void finishClosing();
     std::thread syncThread_;
     std::atomic<bool> syncBusy_{false}, syncCancel_{false};
+    std::atomic<size_t> syncSent_{0}, syncToSend_{0};   // files sent so far in this sync, for the Sync page
     std::deque<SyncJob> syncQueue_;
     Id syncRunning_;                                   // the world being synced ("-" while opening one)
     std::map<Id, std::wstring> syncNote_;              // the last sync's outcome, per world

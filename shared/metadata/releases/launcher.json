@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.142.0",
+      "date": "2026-11-23",
+      "notes": [
+        "Brings Writing Studio 0.67.2, whose Sync with GitHub now works for big worlds."
+      ]
+    },
+    {
       "version": "0.141.0",
       "date": "2026-11-23",
       "notes": [

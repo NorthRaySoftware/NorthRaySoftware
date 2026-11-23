@@ -168,6 +168,13 @@ void StudioApp::runNextSync() {
         // For testing against a stand-in server on this computer only (never another host).
         if (const char* api = std::getenv("NORTHRAY_GITHUB_API"); api && std::string(api).rfind("http://127.0.0.1:", 0) == 0) remote.apiBase = api;
         SecureZeroMemory(token.data(), token.size());
+        syncSent_ = 0;
+        syncToSend_ = 0;
+        remote.onProgress = [this](size_t done, size_t total) {
+            syncSent_ = done;
+            syncToSend_ = total;
+            if (done % 10 == 0) InvalidateRect(hwnd(), nullptr, FALSE);
+        };
         if (job.kind == SyncJob::Check) {
             res->ok = remote.info(res->info, res->error);
         } else {
@@ -218,6 +225,7 @@ void StudioApp::syncFinished(SyncResult* resIn) {
             s.branch = res->info.defaultBranch;
             sy::saveState(*lib_, job.world, s);
         }
+        syncNote_[job.world] = L"The repository is ready. Sending the world…";   // not "Checking" any more (2026-11-23)
         SyncJob next = job;
         next.kind = SyncJob::Sync;
         syncQueue_.push_front(next);
@@ -458,7 +466,10 @@ void StudioApp::drawSync(const Rect& r) {
         y += 22;
         linkText("sync:open", m.x, y, w(s.repo), [repo = s.repo] { cjui::openInBrowser("https://github.com/" + repo); });
         y += 40;
-        gfx_.text(running ? L"Syncing now…" : L"Last synced " + agoText(s.lastSync) + L".", {m.x, y, cw, 22}, Font::Body, pal_.ink,
+        const size_t toSend = syncToSend_, sent = syncSent_;
+        const std::wstring now = toSend > 20 ? L"Sending to GitHub: " + std::to_wstring(sent) + L" of " + std::to_wstring(toSend) + L" files…"
+                                             : std::wstring(L"Syncing now…");
+        gfx_.text(running ? now : L"Last synced " + agoText(s.lastSync) + L".", {m.x, y, cw, 22}, Font::Body, pal_.ink,
                   {Align::Left, false});
         y += 30;
         const bool hasToken = !loadToken(s.repo).empty();

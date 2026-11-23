@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.67.2",
+      "date": "2026-11-23",
+      "notes": [
+        "Sync with GitHub works for big worlds: GitHub gave up (“your request timed out”) when a whole world was sent as one piece, so it now goes in batches, and a batch GitHub can't take is sent again in smaller ones.",
+        "While it sends, the Sync page counts the files (“Sending to GitHub: 62 of 129 files…”), and once the repository has been checked the note says the world is being sent instead of staying on “Checking the repository…”."
+      ]
+    },
+    {
       "version": "0.67.1",
       "date": "2026-11-23",
       "notes": [

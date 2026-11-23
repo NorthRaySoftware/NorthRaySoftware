@@ -3684,6 +3684,8 @@ struct FakeGitHub {
     std::string ref;                                          // the branch's commit ("" = empty repository)
     std::string token = "ghp_secret_token_123";
     bool isPrivate = true;
+    size_t maxTreeEntries = 0;   // like GitHub timing out on a big tree: 422 above this many entries (0: no limit)
+    int treePosts = 0;
     int n = 0, requests = 0;
     bool sawToken = true;
     std::string fresh() { return studio::sync::sha1Hex("x" + std::to_string(++n)); }
@@ -3734,6 +3736,9 @@ struct FakeGitHub {
             return {201, json{{"sha", sha}}.dump(), ""};
         }
         if (method == "POST" && path == "/git/trees") {
+            ++treePosts;
+            if (maxTreeEntries && in["tree"].size() > maxTreeEntries)
+                return {422, R"({"message":"Sorry, your request timed out.  It's likely that your input was too large to process."})", ""};
             auto files = trees[in.value("base_tree", "")];
             for (auto& e : in["tree"]) {
                 if (e["sha"].is_null()) files.erase(e.value("path", ""));
@@ -3943,6 +3948,27 @@ static void testWorldSync() {
         CHECK(e2->nodeContent(n2) == d->nodeContent(n2) && e2->entry(ent) && std::filesystem::exists(e2->blobPath(d->artwork(pic)->blob)));
         CHECK(gh.sawToken);
         // A wrong token: refused, said plainly, and the token isn't in the message.
+        // A big world on a GitHub that times out on big trees (CJ's 422, 23 Nov 2026): built in batches instead.
+        {
+            FakeGitHub big;
+            big.maxTreeEntries = 7;
+            auto bhttp = [&big](const std::string& m, const std::string& u, const std::vector<std::pair<std::string, std::string>>& h,
+                                const std::string& body) { return big(m, u, h, body); };
+            sy::GitHubRemote rb("me", "alvora", big.token, bhttp);
+            auto g = openOk(tempLibrary("sync-g"));
+            const Id w3 = g->createWorld("Alvora");
+            for (int i = 0; i < 40; ++i) g->createEntry(w3, {}, "character", "Person " + std::to_string(i));
+            const size_t want = g->worldFiles(w3).size();
+            CHECK(want > 40);
+            sy::State sg;
+            CHECK(sy::syncWorld(*g, w3, rb, sg, rep, err));
+            CHECK(big.treePosts > (int)(want / 7));
+            CHECK(big.trees[big.commitTree[big.ref]].size() == want + 1);   // every file, and the README
+            auto h = openOk(tempLibrary("sync-h"));
+            sy::GitHubRemote rb2("me", "alvora", big.token, bhttp);
+            sy::State sh;
+            CHECK(sy::syncWorld(*h, {}, rb2, sh, rep, err) && h->entriesOf(w3).size() == 40);
+        }
         sy::GitHubRemote bad("me", "alvora", "wrong_token_456", http);
         sy::State sf;
         auto f2 = openOk(tempLibrary("sync-f"));

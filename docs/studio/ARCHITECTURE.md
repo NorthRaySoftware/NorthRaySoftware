@@ -415,6 +415,14 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.67.2: big worlds to GitHub (23 Nov 2026)
+
+CJ's Alvora (217 entries) failed with GitHub's 422 "Sorry, your request timed out… your input was too large… Consider building the tree incrementally", after the page had sat on "Checking the repository…".
+
+- `GitHubRemote::commit` builds the tree in batches of 100 entries, each `POST /git/trees` with `base_tree` the previous batch's tree; a batch refused with 422, 5xx or no answer is retried at half the size (down to 5). Deletions (sha null) go in batches like the rest.
+- `GitHubRemote::onProgress(done, total)` is called before each file; the app keeps `syncSent_`/`syncToSend_` (atomics) and repaints every 10 files; the Sync page reads "Sending to GitHub: n of m files…" when more than 20 go. After a successful check the note becomes "The repository is ready. Sending the world…".
+- Tested: studiocore 1806 checks (the fake GitHub refusing trees over 7 entries: a 40-entry world sent in batches, every file and the README in the commit, opened on a second library). In Wine against a stand-in for GitHub's API (refusing trees over 50 entries, with a README already there): Alvora's 129 files sent, one refusal, four tree requests, the count shown while sending.
+
 ## 0.67.1: the website from every app (23 Nov 2026)
 
 - cjui `northray::kWebsite` (https://northraysoftware.github.io/NorthRaySoftware/) and `openWebsite(page)` (ShellExecute "open" on the site plus a page path). Settings › About has Visit the website (`set:website`, opening `writing-studio/`). The Launcher's side menu has Website at its foot (`nav:website`, a link icon and an outward arrow) and its Settings › About a button; Capture's Settings › About opens `capture/`; Files' menu opens `files/`; the Browser's menu opens `browser/` in a new tab of its own. `iconFor` gives "website" the Link icon.

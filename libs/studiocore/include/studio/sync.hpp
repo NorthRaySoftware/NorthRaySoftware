@@ -87,6 +87,8 @@ public:
                 const std::string& message, std::string& newCommit, bool& moved, std::string& error) override;
     const std::string& branch() const { return branch_; }
     std::string apiBase = "https://api.github.com";
+    // Called as files are sent (how many so far, of how many), from the thread doing the sending.
+    std::function<void(size_t done, size_t total)> onProgress;
 
 private:
     HttpResponse call(const std::string& method, const std::string& path, const std::string& body = {});
