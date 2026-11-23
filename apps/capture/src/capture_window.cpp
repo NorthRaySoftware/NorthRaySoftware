@@ -121,6 +121,8 @@ bool CaptureWindow::create(HINSTANCE inst, int show) {
     starting_ = true;
     ShowWindow(hwnd(), show);
     UpdateWindow(hwnd());
+    loadOwnThemes();                       // the stream's theme (0.21), before the scenes catch up with it
+    pushThemes();
     loadScenes();
     startEngine();
     loadProfile();
@@ -210,6 +212,7 @@ void CaptureWindow::loadScenes() {
     for (auto& [id, json] : upgraded) scenes_.setSourceSettings(id, json);
     savedChanges_ = upgraded.empty() ? scenes_.changes() : savedChanges_;
     if (!upgraded.empty()) scenesChanged();
+    catchUpTheme();   // last in another theme: made in the stream's (0.21)
     undo_.clear();   // a different collection: its own history
     redo_.clear();
     undoBase_ = undoForm(scenes_.toJson());
@@ -542,6 +545,7 @@ void CaptureWindow::openSettings(bool on) {
     reportOpen_ = false;
     destViewOpen_ = false;
     libraryOpen_ = false;
+    themesOpen_ = false;
     setupTestOpen_ = false;
     if (hkListening_) {
         hkListening_ = false;
@@ -1016,7 +1020,7 @@ void CaptureWindow::drawFrame(float W, float H) {
     // and so does a panel when it's shown; none when Windows' animations are off.
     const std::string page = !settingsOpen_ ? "main"
                              : !designFor_.empty() ? "design" : !filtersFor_.empty() ? "filters" : wizardOpen_ ? "wizard"
-                             : checklistOpen_ ? "checklist" : reportOpen_ ? "report" : destViewOpen_ ? "destinations" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : "settings";
+                             : checklistOpen_ ? "checklist" : reportOpen_ ? "report" : destViewOpen_ ? "destinations" : setupTestOpen_ ? "setuptest" : libraryOpen_ ? "library" : themesOpen_ ? "themes" : "settings";
     if (page != lastPage_) {
         lastPage_ = page;
         setAnim("#pagefade", 0.0f);
@@ -1032,6 +1036,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         else if (destViewOpen_) drawDestView(body);
         else if (setupTestOpen_) drawSetupTest(body);
         else if (libraryOpen_) drawLibrary(body);
+        else if (themesOpen_) drawThemes(body);
         else drawSettings(body);
         if (pageIn < 0.995f) gfx_.fill(body, pal_.paper.withAlpha(1.0f - pageIn));
         gfx_.popClip();
@@ -1158,16 +1163,21 @@ void CaptureWindow::drawTopBar(const Rect& r) {
     };
     tooltip("top:help", L"Version, what's new and where Capture keeps its files");
     tooltip("top:settings", L"Video, audio, streaming, hotkeys and everything else");
+    tooltip("top:theme", L"One switch for the whole stream: every design and sky in NorthRay, Bookish, Dark fantasy, Sci-fi, Cosy, Minimal, Radio, Steampunk or your own");
     tooltip("top:library", L"Your pictures, videos, sounds and designs, shared with the other NorthRay apps");
     tooltip("top:layout", L"Show, hide and arrange the panels, and save layouts");
     tooltip("top:profile", L"Profiles keep their own settings, stream keys and scene collection");
     tooltip("top:scenes", L"Switch between sets of scenes, or make a new set");
     topButton("top:help", L"About", [this] { showAbout(); });
-    topButton("top:settings", L"Settings", [this] { openSettings(!settingsOpen_ || libraryOpen_); }, settingsOpen_ && !libraryOpen_);
+    topButton("top:settings", L"Settings", [this] { openSettings(!settingsOpen_ || libraryOpen_ || themesOpen_); }, settingsOpen_ && !libraryOpen_ && !themesOpen_);
     topButton("top:library", L"Library", [this] {
         if (libraryOpen_) openSettings(false);
         else openLibrary();
     }, libraryOpen_);
+    topButton("top:theme", L"Theme", [this] {
+        if (themesOpen_) openSettings(false);
+        else openThemes();
+    }, themesOpen_);
     topButton("top:layout", L"Layout", [this] {
         POINT pt;
         GetCursorPos(&pt);

@@ -44,6 +44,11 @@ void setWritingSprint(std::int64_t endsAtEpochMs);
 void celebrate(const std::string& text);
 void setWorldColour(const std::string& hex);
 
+// The stream's theme and your own themes (0.21), set by the window (any thread): Writing cards are drawn in their theme,
+// and while a book is written in Writing Studio with the theme's world colour switched on, designs in the stream's
+// theme take the world colour as the theme's main colour.
+void setDesignThemes(const std::vector<design::Theme>& own, const std::string& current, bool worldAccent);
+
 // Writing card parts switched off live (0.20), from the main window's Writing panel and hotkeys (any thread).
 void setWritingHidden(const std::vector<std::string>& parts);
 std::vector<std::string> writingHidden();

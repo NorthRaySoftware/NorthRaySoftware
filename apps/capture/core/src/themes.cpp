@@ -279,6 +279,15 @@ Theme withWorldAccent(const Theme& t, Rgba w) {
     return o;
 }
 
+SkyLook skyLook(const Theme& t) {
+    SkyLook k;
+    k.style = t.style;
+    k.c1 = t.accent, k.c2 = t.accent2, k.c3 = t.accent3, k.night = t.sky;
+    if (t.style == "bookish") k.c1 = t.accent3, k.c3 = t.edge;   // gold dust and gold lines, not the ink-brown labels
+    for (Rgba* c : {&k.c1, &k.c2, &k.c3, &k.night}) c->a = 255;
+    return k;
+}
+
 void recolourAccent(Document& d, const Theme& t, Rgba w) {
     const Theme wt = withWorldAccent(t, w);
     const Rgba from = t.accent, to = wt.accent;
@@ -1298,12 +1307,17 @@ Document retheme(const Document& d, const Theme& from, const Theme& to) {
         }
         out.width = d.width, out.height = d.height;
     }
-    std::set<std::string> fromTemplate;
-    for (auto& e : was.elements) fromTemplate.insert(e.id);
+    // An element is the template's when the template (in the theme it was in) has one of that name and kind: designs made
+    // by older versions of a template have other ids, and their parts are still the template's, not added by hand.
+    auto inWas = [&](const Element& e) -> const Element* {
+        if (const Element* same = was.find(e.id); same && same->name == e.name && same->kind == e.kind) return same;
+        for (auto& w : was.elements)
+            if (w.name == e.name && w.kind == e.kind) return &w;
+        return nullptr;
+    };
     for (const Element& e : d.elements) {
-        if (!fromTemplate.count(e.id)) continue;
-        const Element* before = was.find(e.id);
-        if (!before || before->name != e.name) continue;
+        const Element* before = inWas(e);
+        if (!before) continue;
         // Words changed by hand go to the element of the same name in the new design; one hidden stays hidden.
         for (auto& n : out.elements) {
             if (n.name != e.name || n.kind != e.kind) continue;
@@ -1318,7 +1332,7 @@ Document retheme(const Document& d, const Theme& from, const Theme& to) {
         }
     }
     for (const Element& e : d.elements) {   // added by hand: kept, in the new look
-        if (fromTemplate.count(e.id)) continue;
+        if (inWas(e)) continue;
         Element x = e;
         styleElement(x, to);
         x.id.clear();

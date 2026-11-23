@@ -392,6 +392,13 @@ Theme withWorldAccent(const Theme& t, Rgba world);
 // how see-through it is (the theme's own designs, while writing).
 void recolourAccent(Document& d, const Theme& t, Rgba world);
 
+// The colours a theme gives its skies (aurora sky, pulse and wave): its style and three colours over its sky colour.
+struct SkyLook {
+    std::string style;
+    Rgba c1, c2, c3, night;
+};
+SkyLook skyLook(const Theme& t);
+
 // The ready-made designs, each made in any theme. Ids are stable.
 struct ThemedTemplate {
     const char* id;

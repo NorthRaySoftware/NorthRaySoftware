@@ -809,6 +809,24 @@ void celebrate(const std::string& text) {
     ++gValuesVersion;
 }
 
+namespace {
+std::mutex gThemeM;
+std::vector<Theme> gOwnThemes;
+std::string gThemeId = "northray";
+bool gWorldAccent = true;
+}  // namespace
+
+void setDesignThemes(const std::vector<Theme>& own, const std::string& current, bool worldAccent) {
+    {
+        std::lock_guard<std::mutex> l(gThemeM);
+        gOwnThemes = own;
+        gThemeId = current;
+        gWorldAccent = worldAccent;
+    }
+    std::lock_guard<std::mutex> l(gValuesM);
+    ++gValuesVersion;
+}
+
 void setWorldColour(const std::string& hex) {
     {
         std::lock_guard<std::mutex> l(gWritingM);
@@ -862,11 +880,24 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
     }
     Brand brand = designBrand();
     std::string celebration;
+    std::vector<Theme> ownThemes;
+    std::string themeId;
+    bool worldAccent = false;
     {
-        // While writing a book in Writing Studio, its world's colour stands in for the kit's main colour (0.13).
+        std::lock_guard<std::mutex> l(gThemeM);
+        ownThemes = gOwnThemes;
+        themeId = gThemeId;
+        worldAccent = gWorldAccent;
+    }
+    const Theme streamTheme = themeById(ownThemes, themeId);
+    sourceutil::Rgba world{0, 0, 0, 0};
+    {
+        // While writing a book in Writing Studio, its world's colour stands in for the kit's main colour (0.13); since
+        // 0.21, when the stream's theme has its world colour switched on, and for the NorthRay theme (which is the kit).
         std::lock_guard<std::mutex> l(gWritingM);
         sourceutil::Rgba wc;
-        if (!gWorldColour.empty() && sourceutil::parseColour(gWorldColour, wc)) {
+        if (worldAccent && !gWorldColour.empty() && sourceutil::parseColour(gWorldColour, wc)) world = {wc.r, wc.g, wc.b, 255};
+        if (worldAccent && streamTheme.id == "northray" && !gWorldColour.empty() && sourceutil::parseColour(gWorldColour, wc)) {
             // Lightened until it reads on the designs' dark panels (a world's accent is often deep).
             for (int i = 0; i < 8; ++i) {
                 const float lum = (0.2126f * wc.r + 0.7152f * wc.g + 0.0722f * wc.b) / 255.0f;
@@ -909,8 +940,11 @@ bool renderDesign(const Document& linked, float tMs, float scale, const Placehol
         } else {
             hidden = writingHidden();
         }
-        d = applyBrand(buildWritingCard(d, values, clk, hidden), brand);
+        const Theme cardTheme = themeById(ownThemes, d.writing.look);
+        d = applyBrand(buildWritingCard(d, values, clk, hidden, &cardTheme), brand);
     }
+    // The theme's main colour as the book's world colour (themes other than NorthRay, whose colours are the kit's).
+    if (world.a && streamTheme.id != "northray" && d.theme == streamTheme.id) recolourAccent(d, streamTheme, world);
     // "Only while music plays": an empty, see-through page when nothing is (the designer still shows it).
     if (!showMissing && ((d.onlyWhilePlaying && nowPlaying().title.empty()) || !shownNow(d, clk))) {
         d.elements.clear();

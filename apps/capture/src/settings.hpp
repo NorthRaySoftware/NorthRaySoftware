@@ -54,6 +54,11 @@ struct Settings {
         std::map<std::string, std::string> sceneFor;   // workspace ("writing", "planning", "worldbuilding", "other") -> scene name
         std::vector<std::string> hiddenParts;          // Writing card parts switched off live (the Writing panel, hotkeys) (0.20)
     } writing;
+    // The stream's theme (0.21): one switch for every design and sky that follows it.
+    std::string streamTheme = "northray";
+    std::string ownThemesJson;                       // your own themes (design::themesToJson)
+    std::map<std::string, bool> themeWorldAccent;    // theme id -> the book's world colour as its main colour while writing
+    std::map<std::string, std::string> themeApplied; // scene collection -> the theme its designs are in (caught up when it loads)
     std::vector<std::string> checklistItems; // your own list on it (core/checklist; empty: the starting suggestions)
     std::vector<automation::Rule> automationRules;   // Settings › Automation (core/automation)
     std::vector<hotkeys::Binding> hotkeys;           // Settings › Hotkeys (core/hotkeys)            // an MP4 copy when a recording ends (the MKV is kept)

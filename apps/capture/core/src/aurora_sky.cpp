@@ -250,10 +250,21 @@ float motes(float px, float py, float cell, float dx, float dy, float density, f
     return std::exp(-(d * d) / (size * size));
 }
 
+// An angle from a direction, by a polynomial (the same in HLSL: some shader compilers lack atan2).
+float atan2p(float y, float x) {
+    const float ax = std::fabs(x), ay = std::fabs(y);
+    const float a = std::min(ax, ay) / std::max(std::max(ax, ay), 1e-6f);
+    const float sq = a * a;
+    float r = ((-0.0464964749f * sq + 0.15931422f) * sq - 0.327622764f) * sq * a + a;
+    if (ay > ax) r = 1.57079637f - r;
+    if (x < 0) r = 3.14159274f - r;
+    if (y < 0) r = -r;
+    return r;
+}
 // A gear seen from the front (steampunk): how much of the pixel it covers, and `rim`, the light along its edge.
 float gearAt(float u, float v, float w, float h, float cx, float cy, float r, float n, float rot, float& rim) {
     const float dx = (u - cx) * w / h, dy = v - cy;
-    const float d = std::sqrt(dx * dx + dy * dy), a = std::atan2(dy, dx);
+    const float d = std::sqrt(dx * dx + dy * dy), a = atan2p(dy, dx);
     const float R = r * (1 + 0.09f * smoothstep(-0.3f, 0.3f, std::sin(a * n + rot)));
     const float aa = 1.5f / h;
     float cover = sat((R - d) / aa + 0.5f) * sat((d - r * 0.22f) / aa + 0.5f);
@@ -503,10 +514,21 @@ float motes_(float px, float py, float cell, float dx, float dy, float density, 
     float size = smin + (smax - smin) * r2;
     return exp(-(d * d) / (size * size));
 }
+float atan2p_(float y, float x)
+{
+    float ax = abs(x), ay = abs(y);
+    float a = min(ax, ay) / max(max(ax, ay), 1e-6);
+    float sq = a * a;
+    float r = ((-0.0464964749 * sq + 0.15931422) * sq - 0.327622764) * sq * a + a;
+    if (ay > ax) r = 1.57079637 - r;
+    if (x < 0) r = 3.14159274 - r;
+    if (y < 0) r = -r;
+    return r;
+}
 float gearAt_(float u, float v, float w, float h, float cx, float cy, float r, float n, float rot, out float rim)
 {
     float dx = (u - cx) * w / h, dy = v - cy;
-    float d = sqrt(dx * dx + dy * dy), a = atan2(dy, dx);
+    float d = sqrt(dx * dx + dy * dy), a = atan2p_(dy, dx);
     float R = r * (1 + 0.09 * smoothstep(-0.3, 0.3, sin(a * n + rot)));
     float aa = 1.5 / h;
     float cover = saturate((R - d) / aa + 0.5) * saturate((d - r * 0.22) / aa + 0.5);

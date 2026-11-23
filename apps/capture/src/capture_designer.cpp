@@ -369,7 +369,7 @@ void CaptureWindow::writingTick() {
     }
     writingSeen_ = true;
     video::setWritingSprint(sprintEnds);
-    video::setWorldColour(settings_.writing.worldColour ? worldColour : std::string());
+    video::setWorldColour(worldColour);   // drawn in it only where the theme's world colour is on (0.21)
     if (vals == writingValues_) return;
     writingValues_ = vals;
     loadProfile();
@@ -428,28 +428,96 @@ void CaptureWindow::switchToSceneNamed(const std::string& name, const std::wstri
 
 // ---------------------------------------------------------------- opening and saving
 
+// The design's theme (0.21): whether it follows the stream's, or keeps one of its own.
+float CaptureWindow::drawDesignTheme(const Rect& r, float y) {
+    const bool made = !designDoc_.templateId.empty() || designDoc_.writing.on;
+    const dz::Theme t = dz::themeById(ownThemes_, designDoc_.theme.empty() ? designDoc_.writing.look : designDoc_.theme);
+    gfx_.text(L"Theme", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
+    y += 22;
+    toggle("dz:th:follow", r.x, y + 1, designDoc_.followTheme, [this] {
+        designDoc_.followTheme = !designDoc_.followTheme;
+        if (designDoc_.followTheme) {   // into the stream's theme now
+            const dz::Theme to = currentTheme();
+            designDoc_ = dz::retheme(designDoc_, dz::themeById(ownThemes_, designDoc_.theme.empty() ? "northray" : designDoc_.theme), to);
+            designDoc_.followTheme = true;
+            designSel_.clear();
+            designMulti_.clear();
+        }
+        designChanged();
+    });
+    gfx_.text(L"Follows the stream's theme", {r.x + 60, y, r.w - 60, 22}, Font::Body, pal_.ink, {Align::Left, false, true, true});
+    y += 30;
+    button("dz:th:pick", {r.x, y, r.w, 30}, L"In " + widen(t.name) + L" \u25BE", [this] {
+        std::vector<dz::Theme> all(dz::builtInThemes().begin(), dz::builtInThemes().end());
+        for (auto& o : ownThemes_) all.push_back(o);
+        std::vector<MenuItem> items;
+        for (std::size_t i = 0; i < all.size(); ++i) items.push_back(MenuItem::item(widen(all[i].name), 100 + (UINT)i, {}, true, all[i].id == designDoc_.theme));
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
+        if (cmd < 100 || cmd >= 100 + all.size()) return;
+        const dz::Theme to = all[cmd - 100];
+        const bool follow = to.id == settings_.streamTheme && designDoc_.followTheme;
+        designDoc_ = dz::retheme(designDoc_, dz::themeById(ownThemes_, designDoc_.theme.empty() ? "northray" : designDoc_.theme), to);
+        designDoc_.followTheme = follow;   // a theme of its own stays, whatever the stream's
+        designSel_.clear();
+        designMulti_.clear();
+        designChanged();
+    });
+    y += 36;
+    y += gfx_.text(made ? (designDoc_.followTheme ? L"Changing the stream's theme (Theme, at the top) makes this design again in it, keeping words you've "
+                                                     L"changed and what you've added."
+                                                   : L"It stays in this theme whatever the stream's theme is.")
+                        : L"Not made from a template: choosing a theme restyles its text, shapes and pictures in that theme's look.",
+                   {r.x, y, r.w, 60}, Font::Small, pal_.inkFaint) + 12;
+    return y;
+}
+
 void CaptureWindow::addDesign() {
     // Start from a template or an empty page.
     // A submenu for each group of templates (0.17: there are two looks of many, too many for one list).
-    std::vector<MenuItem> items = {MenuItem::item(L"An empty page (1920 × 1080)", 1), MenuItem::sep()};
-    const auto& ts = dz::templates();
+    // The stream's theme's set (0.21), grouped; and any of them in another theme, kept in it.
+    const dz::Theme cur = currentTheme();
+    std::vector<MenuItem> items = {MenuItem::item(L"An empty page (1920 × 1080)", 1), MenuItem::sep(), MenuItem::heading(L"In " + widen(cur.name))};
+    const auto& ts = dz::themedTemplateList();
     std::vector<std::string> groups;
     for (auto& t : ts)
         if (std::find(groups.begin(), groups.end(), t.group) == groups.end()) groups.push_back(t.group);
     for (auto& g : groups) {
         std::vector<MenuItem> sub;
         for (std::size_t i = 0; i < ts.size(); ++i)
-            if (ts[i].group == g)
-                sub.push_back(MenuItem::item(widen(ts[i].name), 100 + (UINT)i, std::to_wstring(ts[i].doc.width) + L" × " + std::to_wstring(ts[i].doc.height)));
+            if (ts[i].group == g) sub.push_back(MenuItem::item(widen(ts[i].name), 100 + (UINT)i));
         items.push_back(MenuItem::sub(widen(g), sub));
     }
+    std::vector<dz::Theme> others;
+    for (auto& t : dz::builtInThemes())
+        if (t.id != cur.id) others.push_back(t);
+    for (auto& t : ownThemes_)
+        if (t.id != cur.id) others.push_back(t);
+    std::vector<MenuItem> other;
+    for (std::size_t k = 0; k < others.size() && k < 40; ++k) {
+        std::vector<MenuItem> sub;
+        for (std::size_t i = 0; i < ts.size(); ++i) sub.push_back(MenuItem::item(widen(ts[i].name), 1000 + (UINT)(k * 100 + i)));
+        other.push_back(MenuItem::sub(widen(others[k].name), sub));
+    }
+    items.push_back(MenuItem::sep());
+    items.push_back(MenuItem::sub(L"In another theme (kept in it)", other));
     POINT pt;
     GetCursorPos(&pt);
     const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_);
     dz::Document d;
-    if (cmd == 1) d.name = "Design";
-    else if (cmd >= 100 && cmd < 100 + ts.size()) d = ts[cmd - 100].doc;
-    else return;
+    if (cmd == 1) {
+        d.name = "Design";
+        d.theme = cur.id;   // new elements in the stream's theme's look
+        d.followTheme = true;
+    } else if (cmd >= 100 && cmd < 100 + ts.size()) {
+        d = dz::themedTemplate(ts[cmd - 100].id, cur);
+    } else if (cmd >= 1000 && (cmd - 1000) / 100 < others.size() && (cmd - 1000) % 100 < ts.size()) {
+        d = dz::themedTemplate(ts[(cmd - 1000) % 100].id, others[(cmd - 1000) / 100]);
+        d.followTheme = false;
+    } else {
+        return;
+    }
     const Id before = selected_;
     addCapture(SourceKind::Design, d.name, dz::toJson(d));
     // The new item is selected; open the designer on its source.
@@ -1097,7 +1165,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
                 e.fill = brandFill("secondary");
             }
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         };
         const float bw = (left.w - 8) / 2;
@@ -1118,7 +1186,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             const std::size_t cut = path.find_last_of(L"\\/");
             e.name = narrow(cut == std::wstring::npos ? path : path.substr(cut + 1)).substr(0, 60);
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         });
         y += 38;
@@ -1134,7 +1202,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.fill = brandFill("text");
             e.font = dz::kBrandHeading;
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         });
         button("dz:add:qr", {left.x + bw + 8, y, bw, 30}, L"QR code", [this] {
@@ -1147,7 +1215,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.fill = dz::Fill::solid({255, 255, 255, 255});
             e.radius = 0;
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         });
         y += 38;
@@ -1162,7 +1230,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.fill = brandFill("text");
             e.font = dz::kBrandBody;
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         });
         button("dz:add:icon", {left.x, y, bw, 30}, L"Icon\u2026", [this] {
@@ -1182,7 +1250,7 @@ void CaptureWindow::drawDesigner(const Rect& area) {
             e.y = std::round((designDoc_.height - e.h) / 2);
             e.fill = dz::Fill::linear(gradients()[0].stops, 0);
             designMulti_.clear();
-            designSel_ = dz::add(designDoc_, e);
+            designSel_ = dz::add(designDoc_, themedElement(e));
             designChanged();
         });
         y += 48;
@@ -1534,13 +1602,7 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
             y += 32;
         }
         y += 8;
-        gfx_.text(L"Look", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
-        y += 22;
-        segmented("dz:wc:look", {r.x, y, r.w, 30}, {L"NorthRay aurora", L"Bookish"}, designDoc_.writing.look == "bookish" ? 1 : 0, [this](int i) {
-            designDoc_.writing.look = i == 1 ? "bookish" : "aurora";
-            designChanged();
-        });
-        y += 44;
+        y = drawDesignTheme(r, y);
         gfx_.text(L"The cast row, when it's too long to fit, scrolls", {r.x, y, r.w, 20}, Font::Small, pal_.inkMuted, {Align::Left, false});
         y += 22;
         segmented("dz:wc:dir", {r.x, y, r.w, 30}, {L"Right to left", L"Left to right"}, designDoc_.writing.castRightToLeft ? 0 : 1, [this](int i) {
@@ -1560,6 +1622,7 @@ void CaptureWindow::drawDesignerPropertiesBody(const Rect& r) {
         y += gfx_.text(std::to_wstring(designDoc_.width) + L" × " + std::to_wstring(designDoc_.height) + L" pixels. Background: " +
                            fillText(designDoc_.background) + L". Change both under Page…",
                        {r.x, y, r.w, 60}, Font::Small, pal_.inkMuted) + 12;
+        y = drawDesignTheme(r, y);
         y += gfx_.text(L"Click an element on the page or in Layers to change it. Text can show your details: {name}, {twitch}, {youtube}, "
                        L"{instagram}, {tiktok}, {website} and {schedule} (set them under Your details…), and the music playing in a "
                        L"video or sound source: {song} and {artist}. Colours and fonts marked Brand "

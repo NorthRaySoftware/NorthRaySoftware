@@ -86,6 +86,18 @@ bool Settings::load(const std::wstring& path) {
     plannedMinutes = std::clamp(cj::valueOr(j, "plannedMinutes", 0), 0, 24 * 60);
     nextStreamAt = cj::valueOr(j, "nextStreamAt", std::string());
     preLiveChecklist = cj::valueOr(j, "preLiveChecklist", false);
+    streamTheme = cj::valueOr(j, "streamTheme", std::string("northray"));
+    if (streamTheme.empty() || streamTheme.size() > 40) streamTheme = "northray";
+    ownThemesJson.clear();
+    if (auto it = j.find("ownThemes"); it != j.end() && it->is_object()) ownThemesJson = it->dump();
+    themeWorldAccent.clear();
+    if (auto it = j.find("themeWorldAccent"); it != j.end() && it->is_object())
+        for (auto& [k, v] : it->items())
+            if (v.is_boolean() && k.size() <= 40 && themeWorldAccent.size() < 64) themeWorldAccent[k] = v.get<bool>();
+    themeApplied.clear();
+    if (auto it = j.find("themeApplied"); it != j.end() && it->is_object())
+        for (auto& [k, v] : it->items())
+            if (v.is_string() && k.size() <= 200 && v.get<std::string>().size() <= 40 && themeApplied.size() < 200) themeApplied[k] = v.get<std::string>();
     writing = WritingLink{};
     if (auto it = j.find("writingStudio"); it != j.end() && it->is_object()) {
         const nlohmann::json& w = *it;
@@ -165,7 +177,7 @@ bool Settings::save(const std::wstring& path) const {
                               {"savedLayouts", layouts},    {"sceneCollection", sceneCollection}, {"profile", profile},
                               {"recordingsFolder", narrow(recordingsFolder)}, {"welcomed", welcomed},
                               {"monitorDevice", narrow(monitorDevice)}, {"monitorHeadphones", monitorHeadphones}, {"secondDevice", narrow(secondDevice)}, {"secondBus", secondBus},
-                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"timelapse", timelapse}, {"notesSpeed", notesSpeed}, {"dndReminder", dndReminder}, {"notesSize", notesSize}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems},
+                              {"recordEncoder", narrow(recordEncoder)}, {"recordKbps", recordKbps}, {"recordTracks", recordTracks}, {"recordMp4", recordMp4}, {"timelapse", timelapse}, {"notesSpeed", notesSpeed}, {"dndReminder", dndReminder}, {"notesSize", notesSize}, {"recordWhileStreaming", recordWhileStreaming}, {"sceneChapters", sceneChapters}, {"brbScene", brbScene}, {"goLiveAt", goLiveAt}, {"goLiveStarts", goLiveStarts}, {"goLiveScene", goLiveScene}, {"goLiveDone", goLiveDone}, {"plannedMinutes", plannedMinutes}, {"nextStreamAt", nextStreamAt}, {"preLiveChecklist", preLiveChecklist}, {"checklistItems", checklistItems}, {"streamTheme", streamTheme}, {"ownThemes", ownThemesJson.empty() ? nlohmann::json::object() : nlohmann::json::parse(ownThemesJson, nullptr, false)}, {"themeWorldAccent", themeWorldAccent}, {"themeApplied", themeApplied},
                               {"writingStudio", {{"spoilerSafe", writing.spoilerSafe}, {"worldColour", writing.worldColour}, {"celebrate", writing.celebrate},
                                                  {"markers", writing.markers}, {"scenes", writing.scenes}, {"sceneFor", writing.sceneFor}, {"hiddenParts", writing.hiddenParts}}}, {"automation", nlohmann::json::parse(automation::toJson(automationRules))}, {"hotkeys", nlohmann::json::parse(hotkeys::toJson(hotkeys))}, {"audioKbps", audioKbps},
                               {"streamDestinations", dests}, {"streamRetryMax", streamRetryMax},

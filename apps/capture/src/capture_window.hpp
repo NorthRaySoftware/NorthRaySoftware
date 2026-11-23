@@ -367,6 +367,29 @@ private:
     void brandVideos();
     void brandSky(aurora_sky::Settings& a) const;
     void brandSkies();
+    // The stream's theme (0.21; capture_themes.cpp).
+    design::Theme currentTheme() const;
+    bool worldAccentFor(const std::string& id) const;
+    void loadOwnThemes();
+    void saveOwnThemes();
+    void pushThemes();
+    void themeSky(aurora_sky::Settings& a) const;
+    bool rethemeCollection(const design::Theme& to, const design::Theme* previous);
+    void setStreamTheme(const std::string& id, const design::Theme* previous = nullptr);
+    void catchUpTheme();
+    void openThemes();
+    void drawThemes(const cjui::Rect& area);
+    void editOwnTheme(const std::string& id, std::function<void(design::Theme&)> change);
+    design::Element themedElement(design::Element e) const;
+    float drawDesignTheme(const cjui::Rect& r, float y);
+    std::vector<design::Theme> ownThemes_;
+    bool themesOpen_ = false;
+    std::string themeSel_;
+    struct ThemePic {
+        int w = 0, h = 0;
+        std::vector<std::uint8_t> bgra;
+    };
+    std::map<std::string, std::pair<std::string, ThemePic>> themeThumbs_;
     void registerHotkeys();
     void unregisterHotkeys();
     bool hotkeyMessage(WPARAM id);

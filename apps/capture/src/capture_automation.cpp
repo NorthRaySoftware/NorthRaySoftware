@@ -224,9 +224,14 @@ float CaptureWindow::drawWritingSettings(float x, float y0, float colW) {
     };
     row("ws:safe", L"Spoiler-safe", L"Leave out the viewpoint, place, story day and who's in the chapter from every design.",
         settings_.writing.spoilerSafe, [this, saved] { settings_.writing.spoilerSafe = !settings_.writing.spoilerSafe; saved(); });
-    row("ws:world", L"The world's colour", L"While you write a book, brand-linked designs take its world's colour (its accent in Writing Studio's "
-                                            L"Library) in place of your brand kit's main colour.",
-        settings_.writing.worldColour, [this, saved] { settings_.writing.worldColour = !settings_.writing.worldColour; saved(); });
+    row("ws:world", L"The world's colour", L"While you write a book, the stream's theme (" + widen(currentTheme().name) +
+                                            L") takes its world's colour (its accent in Writing Studio's Library) as its main colour. Each theme has "
+                                            L"its own switch, under Theme at the top.",
+        worldAccentFor(settings_.streamTheme), [this, saved] {
+            settings_.themeWorldAccent[settings_.streamTheme] = !worldAccentFor(settings_.streamTheme);
+            pushThemes();
+            saved();
+        });
     row("ws:cel", L"Celebrations", L"The Celebration design pops up when you reach your daily word goal or finish a writing sprint. Add it to "
                                     L"your writing scenes from Sources › + › Overlay design.",
         settings_.writing.celebrate, [this, saved] { settings_.writing.celebrate = !settings_.writing.celebrate; saved(); });

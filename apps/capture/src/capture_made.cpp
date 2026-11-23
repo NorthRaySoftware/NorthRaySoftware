@@ -37,7 +37,7 @@ enum : UINT {
     CmdMediaPause, CmdMediaPlay, CmdMediaRestart, CmdMediaNext, CmdMediaLoop, CmdMediaShuffle, CmdMediaFiles, CmdDesignEdit, CmdMediaFromStart,
     CmdFont0 = 6100, CmdSize0 = 6200, CmdColour0 = 6300, CmdAlign0 = 6400, CmdOutline0 = 6500, CmdOutlineColour0 = 6600, CmdSeconds0 = 6700,
     // Any item (itemExtraCommand).
-    CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight, CmdSkyPulse = 6780, CmdSkyWave,
+    CmdSkySpeed0 = 6750, CmdSkyBright0 = 6760, CmdSkyStars = 6770, CmdSkyBrand, CmdSkyC1, CmdSkyC2, CmdSkyNight, CmdSkyPulse = 6780, CmdSkyWave, CmdSkyStyle0 = 6785,
     CmdOpacity0 = 6800, CmdOpacityOther = 6850, CmdPlacement, CmdRotation, CmdDuplicate, CmdUngroup, CmdBorder,
     CmdGroupWith0 = 7000, CmdAddToGroup0 = 7500, CmdFollow0 = 8000, CmdUnfollow = 8400,
 };
@@ -361,7 +361,7 @@ void CaptureWindow::brandSkies() {
         aurora_sky::Settings a = aurora_sky::fromJson(s.settings);
         if (!a.followBrand) continue;
         const aurora_sky::Settings before = a;
-        brandSky(a);
+        themeSky(a);
         if (a == before) continue;
         scenes_.setSourceSettings(s.id, aurora_sky::toJson(a));
         changed = true;
@@ -411,7 +411,7 @@ void CaptureWindow::brandVideos() {
 
 void CaptureWindow::addAuroraSky() {
     aurora_sky::Settings a;
-    brandSky(a);
+    themeSky(a);
     a.width = scenes_.canvasWidth;
     a.height = scenes_.canvasHeight;
     addCapture(SourceKind::AuroraSky, "Aurora sky", aurora_sky::toJson(a));
@@ -420,7 +420,7 @@ void CaptureWindow::addAuroraSky() {
 
 void CaptureWindow::addAuroraPulse(bool wave) {
     aurora_sky::Settings a;
-    brandSky(a);
+    themeSky(a);
     a.width = scenes_.canvasWidth;
     a.height = scenes_.canvasHeight;
     a.wave = wave;
@@ -644,7 +644,18 @@ void CaptureWindow::madeMenuItems(const Source& src, std::vector<MenuItem>& menu
                 MenuItem::sub(L"Brightness", br),
                 MenuItem::item(L"Stars", CmdSkyStars, {}, true, a.stars),
                 MenuItem::sep(),
-                MenuItem::item(L"Colours from the brand kit", CmdSkyBrand, L"main, second and night", true, a.followBrand),
+                MenuItem::item(L"Follows the stream's theme", CmdSkyBrand, L"its design and colours", true, a.followBrand),
+                MenuItem::sub(L"Design", [&] {
+                    std::vector<MenuItem> st;
+                    const auto& keys = aurora_sky::styles();
+                    for (std::size_t i = 0; i < keys.size() && i < 12; ++i) {
+                        std::wstring name = widen(keys[i]);
+                        for (auto& ts : design::themeStyles())
+                            if (keys[i] == ts.key) name = widen(ts.name);
+                        st.push_back(MenuItem::item(name, CmdSkyStyle0 + (UINT)i, {}, true, a.style == keys[i]));
+                    }
+                    return st;
+                }()),
                 MenuItem::item(L"Main colour…", CmdSkyC1, widen(su::colourText(a.colour1))),
                 MenuItem::item(L"Second colour…", CmdSkyC2, widen(su::colourText(a.colour2))),
                 MenuItem::item(L"Sky colour…", CmdSkyNight, widen(su::colourText(a.night))),
@@ -682,6 +693,17 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
         scenesChanged();
         return true;
     }
+    if (cmd >= CmdSkyStyle0 && cmd < CmdSkyStyle0 + 12 && (src->kind == SourceKind::AuroraSky || src->kind == SourceKind::AuroraPulse)) {
+        aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
+        const auto& keys = aurora_sky::styles();
+        if (cmd - CmdSkyStyle0 >= keys.size()) return true;
+        a.style = keys[cmd - CmdSkyStyle0];
+        a.followBrand = false;   // a design of its own, whatever the stream's theme
+        scenes_.setSourceSettings(source, aurora_sky::toJson(a));
+        syncSources();
+        scenesChanged();
+        return true;
+    }
     if (cmd >= CmdSkySpeed0 && cmd <= CmdSkyNight && (src->kind == SourceKind::AuroraSky || src->kind == SourceKind::AuroraPulse)) {
         aurora_sky::Settings a = aurora_sky::fromJson(src->settings);
         const float speeds[] = {0.25f, 0.5f, 1.0f, 1.75f, 3.0f}, brights[] = {0.4f, 0.7f, 1.0f, 1.25f, 1.5f};
@@ -690,7 +712,7 @@ bool CaptureWindow::madeCommand(UINT cmd, const Id& source) {
         else if (cmd == CmdSkyStars) a.stars = !a.stars;
         else if (cmd == CmdSkyBrand) {
             a.followBrand = !a.followBrand;
-            if (a.followBrand) brandSky(a);
+            if (a.followBrand) themeSky(a);
         } else {
             const char* which = cmd == CmdSkyC1 ? "colour1" : cmd == CmdSkyC2 ? "colour2" : "night";
             const su::Rgba now = cmd == CmdSkyC1 ? a.colour1 : cmd == CmdSkyC2 ? a.colour2 : a.night;

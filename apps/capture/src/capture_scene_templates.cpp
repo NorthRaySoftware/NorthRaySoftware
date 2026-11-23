@@ -40,10 +40,14 @@ void CaptureWindow::sceneFromTemplate(const st::SceneTemplate& t) {
     std::vector<Id> items(t.parts.size());
     std::vector<st::Rect> rects(t.parts.size(), st::Rect{0, 0, 0, 0});
     std::vector<std::wstring> notes;
-    auto designDoc = [](const char* id) -> const design::Document* {
-        for (auto& d : design::templates())
-            if (std::string(id) == d.id) return &d.doc;
-        return nullptr;
+    // The designs in the stream's theme (0.21).
+    std::vector<design::Document> made;
+    made.reserve(t.parts.size());
+    auto designDoc = [&](const char* id) -> const design::Document* {
+        design::Document d = design::themedTemplate(id, currentTheme());
+        if (d.name.empty()) return nullptr;
+        made.push_back(d);
+        return &made.back();
     };
     for (std::size_t i = 0; i < t.parts.size(); ++i) {
         const st::Part& p = t.parts[i];
@@ -89,7 +93,7 @@ void CaptureWindow::sceneFromTemplate(const st::SceneTemplate& t) {
             case st::PartKind::AuroraSky:
             case st::PartKind::AuroraPulse: {
                 aurora_sky::Settings a;
-                brandSky(a);
+                themeSky(a);
                 a.width = (int)cw;
                 a.height = (int)ch;
                 const bool pulse = p.kind == st::PartKind::AuroraPulse;

@@ -3678,6 +3678,7 @@ static void testSkyStyles() {
                     z.wave = w2, z.stars = stars;
                     const std::string src = as::shader(z, p2);
                     CHECK(hlslReservedWordIn(src).empty() && src.find('$') == std::string::npos && src.substr(src.size() - 2) == "}\n");
+                    CHECK(src.find("atan2(") == std::string::npos);   // Wine's compiler has none
                     if (!hlslReservedWordIn(src).empty()) std::printf("  reserved: %s\n", hlslReservedWordIn(src).c_str());
                 }
     }
