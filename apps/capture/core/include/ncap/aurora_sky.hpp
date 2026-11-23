@@ -22,7 +22,9 @@ struct Settings {
     // Its design (0.21), one per theme style: aurora (curtains of light), bookish (ink and gold dust; book spines;
     // calligraphy), fantasy (embers and mist; flames; flame ribbons), scifi (a grid horizon and a scan beam; an
     // equaliser; an oscilloscope), cosy (lamplight, bokeh and fireflies; a warm glow; soft ribbons), minimal (soft bands;
-    // a row of bars; a single line). Sky, pulse and wave each have their own picture in every style.
+    // a row of bars; a single line), radio (radio waves and static; valve glow behind a grille with a tuning needle; an
+    // AM carrier), steampunk (turning gears, steam and sparks; copper pipes with steam; brass ribbons). Sky, pulse and
+    // wave each have their own picture in every style.
     std::string style = "aurora";
     float speed = 1.0f;                 // 0.25 (slow) .. 3 (lively)
     float brightness = 1.0f;            // 0.3 .. 1.5

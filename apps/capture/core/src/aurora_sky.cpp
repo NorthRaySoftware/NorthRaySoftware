@@ -11,7 +11,7 @@ namespace ncap::aurora_sky {
 using nlohmann::json;
 
 const std::vector<std::string>& styles() {
-    static const std::vector<std::string> v = {"aurora", "bookish", "fantasy", "scifi", "cosy", "minimal"};
+    static const std::vector<std::string> v = {"aurora", "bookish", "fantasy", "scifi", "cosy", "minimal", "radio", "steampunk"};
     return v;
 }
 
@@ -250,6 +250,18 @@ float motes(float px, float py, float cell, float dx, float dy, float density, f
     return std::exp(-(d * d) / (size * size));
 }
 
+// A gear seen from the front (steampunk): how much of the pixel it covers, and `rim`, the light along its edge.
+float gearAt(float u, float v, float w, float h, float cx, float cy, float r, float n, float rot, float& rim) {
+    const float dx = (u - cx) * w / h, dy = v - cy;
+    const float d = std::sqrt(dx * dx + dy * dy), a = std::atan2(dy, dx);
+    const float R = r * (1 + 0.09f * smoothstep(-0.3f, 0.3f, std::sin(a * n + rot)));
+    const float aa = 1.5f / h;
+    float cover = sat((R - d) / aa + 0.5f) * sat((d - r * 0.22f) / aa + 0.5f);
+    if (d > r * 0.35f && d < r * 0.78f && std::sin(a * 5.0f + rot * 5.0f / n) < -0.25f) cover = 0;
+    rim = std::exp(-std::fabs(d - R * 0.96f) * h / 4.0f);
+    return cover;
+}
+
 Rgb styled(const Settings& s, float u, float v, float seconds, int w, int h, const Pulse* pulse) {
     const bool P = pulse != nullptr, W = P && s.wave;
     const float band = P ? bandAt(*pulse, u) : 0, loud = P ? sat(pulse->level) : 0;
@@ -259,7 +271,7 @@ Rgb styled(const Settings& s, float u, float v, float seconds, int w, int h, con
     const V3 night = v3(lin(s.night)), c1 = v3(lin(s.colour1)), c2 = v3(lin(s.colour2)), c3 = v3(lin(s.colour3));
     const float bright = s.brightness * (P ? 0.75f + 0.5f * loud : 1.0f);
     const float px = u * w, py = v * h;
-    const int ST = s.style == "bookish" ? 1 : s.style == "fantasy" ? 2 : s.style == "scifi" ? 3 : s.style == "cosy" ? 4 : 5;
+    const int ST = s.style == "bookish" ? 1 : s.style == "fantasy" ? 2 : s.style == "scifi" ? 3 : s.style == "cosy" ? 4 : s.style == "radio" ? 6 : s.style == "steampunk" ? 7 : 5;
     V3 col;
     float r = 0;
     if (ST == 1) {   // bookish: a leather-dark room, drifting ink, gold dust; book spines; calligraphy
@@ -368,6 +380,67 @@ Rgb styled(const Settings& s, float u, float v, float seconds, int w, int h, con
             const float halo = motes(px, py, 110, dxf, dyf, 0.3f, 6.0f, 9.0f, t, r2);
             col = col + (c1 * 0.4f + V3{0.6f, 0.6f, 0.6f}) * ((core + 0.35f * halo) * (0.5f + 0.5f * std::sin(t * 2.2f + r2 * 30.0f)) * 1.2f);
         }
+    } else if (ST == 6) {   // radio: waves from a transmitter and static; valve glow behind a grille; an AM carrier
+        const float dx = (u - 0.5f) * w / h, dy = v - 1.05f, dist = std::sqrt(dx * dx + dy * dy);
+        col = night * (0.5f + 0.6f * v);
+        col = col + c1 * (std::exp(-dist * 2.2f) * 0.25f);
+        const float ring = frac(dist * 3.0f - t * 0.15f);
+        col = col + c1 * (std::exp(-((ring - 0.5f) * (ring - 0.5f)) / 0.0015f) * std::exp(-dist * 0.9f) * 0.45f * (P ? 0.6f + 0.8f * loud : 1.0f));
+        if (P && !W) {
+            const float n = 24, i = std::floor(u * n), cu = u * n - i;
+            const float b = bandAtU((i + 0.5f) / n), top = 1 - (0.05f + 0.5f * b);
+            const float gx = frac(px / 10.0f) - 0.5f, gy = frac(py / 10.0f) - 0.5f;
+            const float grill = std::sqrt(gx * gx + gy * gy) < 0.32f ? 1.0f : 0.25f;
+            if (cu > 0.12f && cu < 0.88f && v > top) col = col + mixv(c1, c2, sat((v - top) / 0.5f)) * (0.9f * grill * bright * (0.6f + 0.4f * std::sin(cu * 3.1416f)));
+            if (v > 0.1f && v < 0.14f) {
+                col = col + c3 * 0.12f;
+                if (frac(u * 40.0f) < 0.06f) col = col + c1 * 0.6f;
+            }
+            const float nx = 0.2f + 0.6f * loud;
+            if (v > 0.07f && v < 0.17f && std::fabs(u - nx) * w < 2.0f) col = col + c2 * 1.2f;
+        }
+        if (W) {
+            const float env = 0.02f + 0.25f * wb;
+            const float y = 0.55f + env * std::sin(u * 160.0f - t * 8.0f);
+            const float d = y - v, sig = 1.5f / h;
+            col = col + c1 * ((std::exp(-(d * d) / (sig * sig)) + 0.3f * std::exp(-std::fabs(d) * 40.0f)) * (0.6f + 0.6f * wb) * bright);
+            const float e1 = std::fabs(v - (0.55f - env)), e2 = std::fabs(v - (0.55f + env));
+            col = col + c3 * (sat(1 - std::min(e1, e2) * h / 1.5f) * 0.5f);
+        }
+        if (s.stars) {   // a little static
+            const float n = h2(std::floor(px / 2) + std::floor(t * 20.0f), std::floor(py / 2));
+            if (n > 0.996f) col = col + c3 * 0.14f;
+        }
+    } else if (ST == 7) {   // steampunk: turning gears, steam and sparks; copper pipes; brass ribbons
+        col = night * (0.5f + 0.6f * v);
+        const float gears[3][5] = {{0.16f, 0.78f, 0.30f, 14, 0.6f}, {0.84f, 0.28f, 0.22f, 11, -0.6f}, {0.55f, 1.05f, 0.38f, 18, 0.6f}};
+        for (auto& g : gears) {
+            float rim = 0;
+            const float cover = gearAt(u, v, (float)w, (float)h, g[0], g[1], g[2], g[3], t * g[4], rim);
+            col = mixv(col, c2 * 0.5f + c1 * (rim * 0.5f), cover * 0.75f * (P ? 0.6f : 1.0f));
+        }
+        const float mist = sat(0.5f + 0.5f * std::sin(u * 3.3f + t * 0.2f + std::sin(v * 7.0f - t * 0.15f))) * std::exp(-std::fabs(v - 0.7f) * 5.0f);
+        col = col + V3{0.6f, 0.58f, 0.55f} * (mist * 0.15f);
+        if (P && !W) {
+            const float n = 16, i = std::floor(u * n), cu = u * n - i;
+            const float b = bandAtU((i + 0.5f) / n), top = 1 - (0.08f + 0.5f * b);
+            if (cu > 0.25f && cu < 0.75f && v > top) {
+                const float shade = 0.25f + 0.75f * std::cos((cu - 0.5f) * 6.2832f);
+                col = mixv(col, (v < top + 0.015f ? c3 * shade : mixv(c2, c1, shade)) * bright, 0.95f);
+            }
+            const float puff = std::exp(-((v - (top - 0.04f)) * (v - (top - 0.04f))) / 0.0012f) * b * std::exp(-((cu - 0.5f) * (cu - 0.5f)) / 0.08f);
+            col = col + V3{0.7f, 0.68f, 0.65f} * (puff * 0.5f);
+        }
+        for (int k = 0; W && k < 3; ++k) {
+            const float d = waveLine(k, u, t, wb) - v;
+            const float thick = 0.006f + 0.012f * wb;
+            const float amount = (1.2f * std::exp(-(d * d) / (thick * thick)) + 0.4f * std::exp(-std::fabs(d) * 16.0f)) * (0.8f - 0.15f * k) * (0.45f + 1.2f * wb);
+            col = col + mixv(c3, c1, k * 0.5f) * (amount * bright);
+        }
+        if (s.stars) {
+            const float e = motes(px, py, 80, 0, t * h * 0.04f, 0.2f, 1.0f, 2.2f, t, r);
+            col = col + c3 * (e * (0.55f + 0.45f * std::sin(t * 5.0f + r * 30.0f)) * smoothstep(0.1f, 0.9f, v) * 1.3f);
+        }
     } else {   // minimal: soft bands; a row of bars; a single line
         col = night;
         const float s1 = frac(u * 0.55f + v * 0.85f - t * 0.015f), s2 = frac(u * 0.4f - v * 0.7f + t * 0.011f + 0.37f);
@@ -401,7 +474,7 @@ void replaceAll(std::string& s, const std::string& from, const std::string& to) 
 }
 
 std::string styledShader(const Settings& s, bool pulse) {
-    const int ST = s.style == "bookish" ? 1 : s.style == "fantasy" ? 2 : s.style == "scifi" ? 3 : s.style == "cosy" ? 4 : 5;
+    const int ST = s.style == "bookish" ? 1 : s.style == "fantasy" ? 2 : s.style == "scifi" ? 3 : s.style == "cosy" ? 4 : s.style == "radio" ? 6 : s.style == "steampunk" ? 7 : 5;
     std::string src = R"(// NorthRay Capture's $NAME sky (built in; the same sums as aurora_sky::sample).
 cbuffer C : register(b0) { float4 pos_[4]; float4 uv_[4]; float4 colour_; float4 flags_; };
 struct V_ { float4 p : SV_Position; float2 t : TEXCOORD0; };
@@ -429,6 +502,17 @@ float motes_(float px, float py, float cell, float dx, float dy, float density, 
     float d = length(float2(fx - ox, fy - oy)) * cell;
     float size = smin + (smax - smin) * r2;
     return exp(-(d * d) / (size * size));
+}
+float gearAt_(float u, float v, float w, float h, float cx, float cy, float r, float n, float rot, out float rim)
+{
+    float dx = (u - cx) * w / h, dy = v - cy;
+    float d = sqrt(dx * dx + dy * dy), a = atan2(dy, dx);
+    float R = r * (1 + 0.09 * smoothstep(-0.3, 0.3, sin(a * n + rot)));
+    float aa = 1.5 / h;
+    float cover = saturate((R - d) / aa + 0.5) * saturate((d - r * 0.22) / aa + 0.5);
+    if (d > r * 0.35 && d < r * 0.78 && sin(a * 5.0 + rot * 5.0 / n) < -0.25) cover = 0;
+    rim = exp(-abs(d - R * 0.96) * h / 4.0);
+    return cover;
 }
 float4 ps(V_ i) : SV_Target
 {
@@ -555,6 +639,70 @@ $BODY
         float core = motes_(px, py, 110, dxf, dyf, 0.3, 1.6, 2.6, t, r2);
         float halo = motes_(px, py, 110, dxf, dyf, 0.3, 6.0, 9.0, t, r2);
         col += (c1 * 0.4 + float3(0.6, 0.6, 0.6)) * ((core + 0.35 * halo) * (0.5 + 0.5 * sin(t * 2.2 + r2 * 30.0)) * 1.2);
+    }
+)";
+    else if (ST == 6) body = R"(
+    float dx = (u - 0.5) * w / h, dy = v - 1.05, dist = sqrt(dx * dx + dy * dy);
+    col = night * (0.5 + 0.6 * v);
+    col += c1 * (exp(-dist * 2.2) * 0.25);
+    float ring = frac(dist * 3.0 - t * 0.15);
+    col += c1 * (exp(-((ring - 0.5) * (ring - 0.5)) / 0.0015) * exp(-dist * 0.9) * 0.45 * (PULSE ? 0.6 + 0.8 * loud : 1.0));
+    if (PULSE && !WAVE) {
+        float n = 24, ix = floor(u * n), cu = u * n - ix;
+        float b = bandAt_((ix + 0.5) / n), top = 1 - (0.05 + 0.5 * b);
+        float gx = frac(px / 10.0) - 0.5, gy = frac(py / 10.0) - 0.5;
+        float grill = sqrt(gx * gx + gy * gy) < 0.32 ? 1.0 : 0.25;
+        if (cu > 0.12 && cu < 0.88 && v > top) col += lerp(c1, c2, saturate((v - top) / 0.5)) * (0.9 * grill * bright * (0.6 + 0.4 * sin(cu * 3.1416)));
+        if (v > 0.1 && v < 0.14) {
+            col += c3 * 0.12;
+            if (frac(u * 40.0) < 0.06) col += c1 * 0.6;
+        }
+        float nx = 0.2 + 0.6 * loud;
+        if (v > 0.07 && v < 0.17 && abs(u - nx) * w < 2.0) col += c2 * 1.2;
+    }
+    if (WAVE) {
+        float env = 0.02 + 0.25 * wb;
+        float y = 0.55 + env * sin(u * 160.0 - t * 8.0);
+        float d = y - v, sig = 1.5 / h;
+        col += c1 * ((exp(-(d * d) / (sig * sig)) + 0.3 * exp(-abs(d) * 40.0)) * (0.6 + 0.6 * wb) * bright);
+        float e1 = abs(v - (0.55 - env)), e2 = abs(v - (0.55 + env));
+        col += c3 * (saturate(1 - min(e1, e2) * h / 1.5) * 0.5);
+    }
+    if (STARS) {
+        float n = h2_(floor(px / 2) + floor(t * 20.0), floor(py / 2));
+        if (n > 0.996) col += c3 * 0.14;
+    }
+)";
+    else if (ST == 7) body = R"(
+    col = night * (0.5 + 0.6 * v);
+    float rim = 0;
+    float cover = gearAt_(u, v, w, h, 0.16, 0.78, 0.30, 14, t * 0.6, rim);
+    col = lerp(col, c2 * 0.5 + c1 * (rim * 0.5), cover * 0.75 * (PULSE ? 0.6 : 1.0));
+    cover = gearAt_(u, v, w, h, 0.84, 0.28, 0.22, 11, t * -0.6, rim);
+    col = lerp(col, c2 * 0.5 + c1 * (rim * 0.5), cover * 0.75 * (PULSE ? 0.6 : 1.0));
+    cover = gearAt_(u, v, w, h, 0.55, 1.05, 0.38, 18, t * 0.6, rim);
+    col = lerp(col, c2 * 0.5 + c1 * (rim * 0.5), cover * 0.75 * (PULSE ? 0.6 : 1.0));
+    float mist = saturate(0.5 + 0.5 * sin(u * 3.3 + t * 0.2 + sin(v * 7.0 - t * 0.15))) * exp(-abs(v - 0.7) * 5.0);
+    col += float3(0.6, 0.58, 0.55) * (mist * 0.15);
+    if (PULSE && !WAVE) {
+        float n = 16, ix = floor(u * n), cu = u * n - ix;
+        float b = bandAt_((ix + 0.5) / n), top = 1 - (0.08 + 0.5 * b);
+        if (cu > 0.25 && cu < 0.75 && v > top) {
+            float shade = 0.25 + 0.75 * cos((cu - 0.5) * 6.2832);
+            col = lerp(col, (v < top + 0.015 ? c3 * shade : lerp(c2, c1, shade)) * bright, 0.95);
+        }
+        float puff = exp(-((v - (top - 0.04)) * (v - (top - 0.04))) / 0.0012) * b * exp(-((cu - 0.5) * (cu - 0.5)) / 0.08);
+        col += float3(0.7, 0.68, 0.65) * (puff * 0.5);
+    }
+    [unroll] for (int k = 0; k < (WAVE ? 3 : 0); ++k) {
+        float d = waveLine_(k, u, t, wb) - v;
+        float thick = 0.006 + 0.012 * wb;
+        float amount = (1.2 * exp(-(d * d) / (thick * thick)) + 0.4 * exp(-abs(d) * 16.0)) * (0.8 - 0.15 * k) * (0.45 + 1.2 * wb);
+        col += lerp(c3, c1, k * 0.5) * (amount * bright);
+    }
+    if (STARS) {
+        float e = motes_(px, py, 80, 0, t * h * 0.04, 0.2, 1.0, 2.2, t, r);
+        col += c3 * (e * (0.55 + 0.45 * sin(t * 5.0 + r * 30.0)) * smoothstep(0.1, 0.9, v) * 1.3);
     }
 )";
     else body = R"(

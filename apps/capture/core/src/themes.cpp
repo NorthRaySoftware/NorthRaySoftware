@@ -96,6 +96,29 @@ float rnd(int i, int salt) {
     return n - std::floor(n);
 }
 
+// A gear: a disc with `teeth` teeth round it and a hole in the middle, turned by `turn` degrees.
+void gear(Document& d, const std::string& name, float cx, float cy, float r, int teeth, Fill f, Rgba hole, float turn, float opacity = 1) {
+    for (int i = 0; i < teeth; ++i) {
+        const float a = (turn + 360.0f * i / teeth) * kPi / 180.0f;
+        Element tth = rectEl(name + " tooth", cx + std::cos(a) * r * 0.98f - r * 0.15f, cy + std::sin(a) * r * 0.98f - r * 0.17f, r * 0.3f, r * 0.34f, f, r * 0.04f);
+        tth.rotation = turn + 360.0f * i / teeth + 90;
+        tth.opacity = opacity;
+        if (tth.x + tth.w <= 0 || tth.y + tth.h <= 0 || tth.x >= d.width || tth.y >= d.height) continue;   // off the page
+        add(d, tth);
+    }
+    Element body = ellipseEl(name, cx - r, cy - r, 2 * r, 2 * r, f);
+    body.opacity = opacity;
+    add(d, body);
+    Element in = ellipseEl(name + " hole", cx - r * 0.28f, cy - r * 0.28f, r * 0.56f, r * 0.56f, Fill::solid(hole));
+    in.opacity = opacity;
+    add(d, in);
+}
+Element rivet(float cx, float cy, float size, Rgba c) {
+    Element e = ellipseEl("Rivet", cx - size / 2, cy - size / 2, size, size, Fill::radial({{0, mixc(c, Rgba{255, 255, 255, 255}, 0.55f)}, {0.6f, c}, {1, mixc(c, Rgba{0, 0, 0, 255}, 0.45f)}}));
+    e.shadow = {true, 0, 1, 2, hex("#00000099"), ""};
+    return e;
+}
+
 // ------------------------------------------------------------------------------------------------ the built-in themes
 
 Theme make(const char* id, const char* name, const char* style, std::vector<const char*> c, const char* hf, const char* bf,
@@ -117,7 +140,9 @@ const std::vector<ThemeStyle>& themeStyles() {
         {"fantasy", "Dark fantasy", "Black and crimson, silver blade corners and gems, embers and mist"},
         {"scifi", "Sci-fi", "Deep blue with neon HUD brackets, a grid horizon and readouts"},
         {"cosy", "Cosy", "Cream notes on warm wood, washi tape, fairy lights and polaroids"},
-        {"minimal", "Minimal", "Flat panels, clean type and a single accent"}};
+        {"minimal", "Minimal", "Flat panels, clean type and a single accent"},
+        {"radio", "Radio", "A vintage on-air studio: walnut and brass, amber dial glow, ON AIR lamps and speaker grilles"},
+        {"steampunk", "Steampunk", "Brass, copper and iron: rivets, turning gears, pipes and portholes"}};
     return s;
 }
 
@@ -145,6 +170,12 @@ const std::vector<Theme>& builtInThemes() {
         make("minimal-light", "Minimal (white)", "minimal",
              {"#F7F7F5", "#F7F7F5", "#FFFFFF", "#FFFFFF", "#E3E4E6", "#E5484D", "#E5484D", "#F08A8D", "#16171A", "#3B3E44", "#7C8089", "#FFFFFF", "#F2F2F0"},
              "Segoe UI", "Segoe UI", "Segoe UI"),
+        make("radio", "Radio", "radio",
+             {"#1A0F0A", "#3A2014", "#24150D", "#2E1B10", "#C8A15A", "#FFB23F", "#E0402E", "#F4E3C1", "#FBEFD9", "#E8D6B8", "#B39A7A", "#1A0F0A", "#120A06"},
+             "Franklin Gothic Medium", "Segoe UI", "Franklin Gothic Medium"),
+        make("steampunk", "Steampunk", "steampunk",
+             {"#14100C", "#2B1D12", "#2A1E14", "#3A2918", "#C9A24A", "#D9822E", "#7A4A21", "#E8C979", "#F2E2C0", "#DCC8A2", "#A88F6A", "#14100C", "#0E0B08"},
+             "Constantia", "Constantia", "Copperplate Gothic Bold"),
     };
     return t;
 }
@@ -367,6 +398,42 @@ void card(Document& d, const Look& L, float x, float y, float w, float h, Anim a
             t2.rotation = 11;
             put(t2);
         }
+    } else if (L.is("radio")) {
+        Element c = rectEl(name, x, y, w, h, Fill::linear({{0, al(t.panel2, 0xF6)}, {1, al(t.panel, 0xF6)}}, 90), L.r(14));
+        c.stroke = t.edge, c.strokeWidth = 2.5f;
+        c.shadow = {true, 0, 10, 26, hex("#000000AA"), ""};
+        put(c);
+        put(ellipseEl("Dial glow", x + w * 0.1f, y - h * 0.2f, w * 0.8f, h * 0.9f, Fill::radial({{0, al(t.accent, 0x22)}, {1, al(t.accent, 0)}})));
+        if (w >= 400 && h >= 100 && h <= 240) {   // a speaker grille at the right (not on tall cards, where words run past it)
+            const float gx = x + w - 120, gy = y + h / 2 - 30;
+            for (int row = 0; row < 4; ++row)
+                for (int col = 0; col < 5; ++col) put(ellipseEl("Grille", gx + col * 18, gy + row * 18, 8, 8, Fill::solid(hex("#00000066"))));
+        }
+        if (w >= 160) {   // the on-air lamp
+            Element lamp = ellipseEl("On-air lamp", x + w - 26, y + 12, 12, 12, Fill::radial({{0, mixc(t.accent2, Rgba{255, 255, 255, 255}, 0.4f)}, {1, t.accent2}}));
+            lamp.glow = {true, 12, 1.2f, al(t.accent2, 0xCC), ""};
+            put(lamp);
+        }
+    } else if (L.is("steampunk")) {
+        Element c = rectEl(name, x, y, w, h, Fill::linear({{0, al(t.panel2, 0xF6)}, {1, al(t.panel, 0xF6)}}, 90), L.r(6));
+        c.stroke = t.edge, c.strokeWidth = 4;
+        c.shadow = {true, 0, 10, 24, hex("#000000B0"), ""};
+        put(c);
+        Element in = rectEl("Copper rule", x + 9, y + 9, w - 18, h - 18, Fill::none(), L.r(3));
+        in.stroke = al(t.accent, 0x99), in.strokeWidth = 1.5f;
+        put(in);
+        const int n = std::clamp((int)(w / 110), 2, 9);
+        for (int i = 0; i <= n; ++i) {
+            const float rx = x + 16 + (w - 32) * i / n;
+            put(rivet(rx, y + 4, 8, t.edge));
+            if (h >= 60) put(rivet(rx, y + h - 4, 8, t.edge));
+        }
+        if (w >= 300 && h >= 100) {
+            Document g;
+            g.width = d.width, g.height = d.height;
+            gear(g, "Gear", x + w - 22, y + 18, 26, 10, Fill::radial({{0, t.accent3}, {1, t.edge}}), t.panel, 8);
+            for (auto& e : g.elements) put(e);
+        }
     } else if (L.is("minimal")) {
         Element c = rectEl(name, x, y, w, h, Fill::solid(al(t.panel, 0xF4)), L.r(10));
         c.stroke = t.edge, c.strokeWidth = 1;
@@ -403,6 +470,16 @@ Element label(const Look& L, const char* name, const std::string& upper, const s
     }
     if (L.is("cosy")) return text(L, name, words, x, y - 4, w, h + 8, 24, t.accent2, false, t.labelFont, a, align);   // handwritten
     if (L.is("minimal")) return text(L, name, words, x, y, w, h, 18, t.muted, true, t.labelFont, a, align);
+    if (L.is("radio")) {
+        Element e = text(L, name, words, x, y, w, h, 21, t.accent, false, t.labelFont, a, align);
+        e.glow = {true, 8, 0.8f, al(t.accent, 0x66), ""};
+        return e;
+    }
+    if (L.is("steampunk")) {
+        Element e = text(L, name, words, x, y, w, h, 20, t.edge, true, t.labelFont, a, align);
+        e.fill = Fill::linear({{0, t.accent3}, {1, t.edge}}, 90);   // polished brass
+        return e;
+    }
     Element e = text(L, name, words, x, y, w, h, 22, t.accent, true, t.labelFont, a, align);
     e.fill = Fill::linear({{0, t.accent}, {1, t.accent3}}, 0);   // gradient letters
     return e;
@@ -414,6 +491,8 @@ Element title(const Look& L, const char* name, const std::string& words, float x
     if (L.is("aurora")) e.glow = {true, 20, 1.0f, al(t.accent, 0x55), ""};
     else if (L.is("fantasy")) e.glow = {true, 18, 1.1f, al(t.accent, 0x66), ""};
     else if (L.is("scifi")) e.glow = {true, 14, 1.0f, al(t.accent, 0x70), ""};
+    else if (L.is("radio")) e.glow = {true, 16, 0.9f, al(t.accent, 0x55), ""};
+    else if (L.is("steampunk")) e.shadow = {true, 0, 3, 6, hex("#000000CC"), ""};
     return e;
 }
 Element body(const Look& L, const char* name, const std::string& words, float x, float y, float w, float h, float size, Anim a,
@@ -423,7 +502,7 @@ Element body(const Look& L, const char* name, const std::string& words, float x,
 Element muted(const Look& L, const char* name, const std::string& words, float x, float y, float w, float h, float size, Anim a,
               const char* align = "left") {
     Element e = text(L, name, words, x, y, w, h, size, L.t.muted, false, L.t.bodyFont, a, align);
-    e.italic = L.is("bookish") || L.is("fantasy") || L.is("cosy");
+    e.italic = L.is("bookish") || L.is("fantasy") || L.is("cosy") || L.is("steampunk");
     return e;
 }
 // A rule under a heading, `w` wide from x (centred pieces sit at its middle).
@@ -457,6 +536,17 @@ void rule(Document& d, const Look& L, float x, float y, float w, Anim a) {
         h.x = mid - 13, h.y = y - 12, h.w = 26, h.h = 26;
         h.fill = Fill::solid(t.accent2);
         put(h);
+    } else if (L.is("radio")) {   // a tuning dial: a scale with ticks and a red needle
+        put(rectEl("Dial line", x, y, w, 2, Fill::solid(al(t.accent, 0xAA))));
+        const int n = 24;
+        for (int i = 0; i <= n; ++i) put(rectEl("Dial tick", x + w * i / n - 1, y - (i % 4 == 0 ? 10.0f : 5.0f), 2, i % 4 == 0 ? 10.0f : 5.0f, Fill::solid(al(t.accent, i % 4 == 0 ? 0xDD : 0x88))));
+        Element nd = rectEl("Dial needle", x + w * 0.62f - 1.5f, y - 16, 3, 24, Fill::solid(t.accent2));
+        nd.glow = {true, 8, 1.0f, al(t.accent2, 0xAA), ""};
+        put(nd);
+    } else if (L.is("steampunk")) {   // a brass pipe with joints and a rivet in the middle
+        put(rectEl("Pipe", x, y - 3, w, 7, Fill::linear({{0, t.accent3}, {0.5f, t.edge}, {1, t.accent2}}, 90), 3.5f));
+        for (float jx : {x - 4, x + w - 10}) put(rectEl("Pipe joint", jx, y - 7, 14, 15, Fill::linear({{0, t.accent3}, {1, t.accent2}}, 90), 2));
+        put(rivet(mid, y, 12, t.accent));
     } else if (L.is("minimal")) {
         put(rectEl("Accent line", x, y, std::min(64.0f, w), 3, Fill::solid(t.accent), 1.5f));
     } else {
@@ -502,6 +592,21 @@ void portrait(Document& d, const Look& L, const std::string& name, const std::st
         back = ellipseEl(name + " backing", x + w * 0.06f, y + h * 0.06f, w * 0.88f, h * 0.88f, Fill::linear({{0, t.accent2}, {1, t.panel}}, 135));
         p.mask = "hexagon", p.stroke = t.accent, p.strokeWidth = 3;
         p.glow = {true, 14, 1.0f, al(t.accent, 0x99), ""};
+    } else if (L.is("radio")) {   // round like a dial knob, in a brass ring
+        back = ellipseEl(name + " backing", x, y, w, h, Fill::linear({{0, t.accent}, {1, t.accent2}}, 135));
+        p.mask = "circle", p.stroke = t.edge, p.strokeWidth = 5;
+        p.shadow = {true, 0, 4, 10, hex("#000000AA"), ""};
+    } else if (L.is("steampunk")) {   // a porthole with rivets round it
+        back = ellipseEl(name + " backing", x, y, w, h, Fill::linear({{0, t.accent2}, {1, t.panel}}, 135));
+        p.mask = "circle", p.stroke = t.edge, p.strokeWidth = std::max(4.0f, w * 0.06f);
+        p.shadow = {true, 0, 4, 10, hex("#000000AA"), ""};
+        put(back);
+        put(p);
+        for (int i = 0; i < 8; ++i) {
+            const float a = i * kPi / 4;
+            put(rivet(x + w / 2 + std::cos(a) * w * 0.47f, y + h / 2 + std::sin(a) * h * 0.47f, std::max(4.0f, w * 0.05f), t.accent3));
+        }
+        return;
     } else if (L.is("minimal")) {
         back = ellipseEl(name + " backing", x, y, w, h, Fill::solid(t.edge));
         p.mask = "circle", p.stroke = t.accent, p.strokeWidth = 2;
@@ -525,6 +630,8 @@ Element icon(const Look& L, const char* name, const char* id, float x, float y, 
     else if (L.is("scifi")) ic.fill = Fill::solid(t.accent), ic.glow = {true, 12, 1.0f, al(t.accent, 0x99), ""};
     else if (L.is("cosy")) ic.fill = Fill::linear({{0, t.accent}, {1, t.accent2}}, 90);
     else if (L.is("minimal")) ic.fill = Fill::solid(t.accent);
+    else if (L.is("radio")) ic.fill = Fill::solid(t.accent), ic.glow = {true, 12, 1.0f, al(t.accent, 0x88), ""};
+    else if (L.is("steampunk")) ic.fill = Fill::linear({{0, t.accent3}, {1, t.accent}}, 90);
     else ic.fill = Fill::linear({{0, t.accent}, {1, t.accent2}}, 0), ic.glow = {true, 16, 1.0f, al(t.accent, 0x66), ""};
     ic.anim = a;
     return ic;
@@ -536,6 +643,8 @@ void badge(Document& d, const Look& L, const char* name, const std::string& word
     Rgba ink = t.onAccent;
     if (L.is("aurora")) pill.fill = Fill::solid(hex("#E0566A")), ink = hex("#FFFFFF");   // on air is red
     if (L.is("bookish")) pill.fill = Fill::linear({{0, hex("#9B3A2C")}, {1, hex("#6E2219")}}, 90), pill.stroke = t.accent3, pill.strokeWidth = 2, ink = t.onAccent;
+    if (L.is("radio")) pill.fill = Fill::solid(t.accent2), pill.glow = {true, 14, 1.2f, al(t.accent2, 0xAA), ""}, ink = hex("#FFF4E0");
+    if (L.is("steampunk")) pill.fill = Fill::linear({{0, t.accent}, {1, t.accent2}}, 90), pill.stroke = t.edge, pill.strokeWidth = 2, pill.radius = L.r(4);
     if (L.is("fantasy")) pill.stroke = t.edge, pill.strokeWidth = 1.5f, pill.glow = {true, 12, 1.0f, al(t.accent, 0x88), ""};
     if (L.is("scifi")) pill.fill = Fill::none(), pill.stroke = t.accent, pill.strokeWidth = 2, pill.glow = {true, 10, 1.0f, al(t.accent, 0x88), ""}, ink = t.accent;
     pill.anim = Anim::Pop;
@@ -637,6 +746,38 @@ void page(Document& d, const Look& L) {
             b.glow = {true, 18, 1.4f, al(c, 0xCC), ""};
             add(d, b);
         }
+    } else if (L.is("radio")) {
+        d.background = Fill::linear({{0, t.page}, {1, t.page2}}, 90);
+        add(d, ellipseEl("Dial glow", W * 0.15f, H * 0.15f, W * 0.7f, H * 0.7f, Fill::radial({{0, al(t.accent, 0x30)}, {1, al(t.accent, 0)}})));
+        for (int i = 1; i <= 5; ++i) {   // radio waves from a transmitter at the bottom
+            const float rr = H * 0.22f * i;
+            Element ring = ellipseEl("Radio wave", W / 2 - rr, H * 1.02f - rr, 2 * rr, 2 * rr, Fill::none());
+            ring.stroke = al(t.accent, 0x60 - i * 10), ring.strokeWidth = 3;
+            add(d, ring);
+        }
+        // A frequency scale along the bottom, like a radio's dial.
+        const float sy = H * 0.9f, sx = W * 0.12f, sw = W * 0.76f;
+        add(d, rectEl("Dial scale", sx, sy, sw, 2, Fill::solid(al(t.accent, 0x99))));
+        for (int i = 0; i <= 40; ++i)
+            add(d, rectEl("Dial tick", sx + sw * i / 40 - 1, sy - (i % 5 == 0 ? 14.0f : 7.0f), 2, i % 5 == 0 ? 14.0f : 7.0f, Fill::solid(al(t.accent, i % 5 == 0 ? 0xCC : 0x77))));
+        for (int i = 0; i <= 8; ++i)
+            add(d, textEl("Frequency", std::to_string(88 + i * 5 / 2), sx + sw * i / 8 - 40, sy + 8, 80, 30, 20, al(t.muted, 0xCC), false, "centre"));
+        Element nd = rectEl("Dial needle", sx + sw * 0.62f - 2, sy - 34, 4, 44, Fill::solid(t.accent2));
+        nd.glow = {true, 10, 1.0f, al(t.accent2, 0xAA), ""};
+        add(d, nd);
+    } else if (L.is("steampunk")) {
+        d.background = Fill::linear({{0, t.page}, {1, t.page2}}, 90);
+        gear(d, "Big gear", W * 0.93f, H * 0.1f, H * 0.2f, 14, Fill::radial({{0, al(t.accent2, 0x88)}, {1, al(t.edge, 0x55)}}), al(t.page, 0xFF), 4, 0.55f);
+        gear(d, "Small gear", W * 0.93f - H * 0.28f, H * 0.33f, H * 0.11f, 9, Fill::radial({{0, al(t.accent, 0x88)}, {1, al(t.accent2, 0x66)}}), al(t.page, 0xFF), 12, 0.55f);
+        gear(d, "Big gear", W * 0.05f, H * 0.95f, H * 0.24f, 16, Fill::radial({{0, al(t.accent2, 0x88)}, {1, al(t.edge, 0x55)}}), al(t.page2, 0xFF), 0, 0.5f);
+        add(d, ellipseEl("Steam", W * 0.25f, H * 0.62f, W * 0.6f, H * 0.3f, Fill::radial({{0, hex("#FFFFFF16")}, {1, hex("#FFFFFF00")}})));
+        add(d, rectEl("Pipe", 0, H * 0.965f, W, 14, Fill::linear({{0, t.accent3}, {0.5f, t.edge}, {1, t.accent2}}, 90), 7));
+        for (float jx : {W * 0.3f, W * 0.62f}) add(d, rectEl("Pipe joint", jx, H * 0.965f - 5, 26, 24, Fill::linear({{0, t.accent3}, {1, t.accent2}}, 90), 3));
+        const float g = m * 0.035f;
+        Element fr = rectEl("Brass frame", g, g, W - 2 * g, H - 2 * g, Fill::none(), L.r(6));
+        fr.stroke = al(t.edge, 0xAA), fr.strokeWidth = 4;
+        add(d, fr);
+        for (auto [cx, cy] : std::vector<std::pair<float, float>>{{g, g}, {W - g, g}, {g, H - g}, {W - g, H - g}}) add(d, rivet(cx, cy, 16, t.accent3));
     } else if (L.is("minimal")) {
         d.background = Fill::linear({{0, t.page}, {1, t.page2}}, 90);
         const float g = m * 0.07f;
@@ -679,6 +820,12 @@ Words holdingWords(const Look& L, const std::string& id) {
         {"starting-soon", "minimal", "Starting soon", "We'll be live in a moment"},
         {"be-right-back", "minimal", "Be right back", "Back shortly"},
         {"ending", "minimal", "Thanks for watching", "See you next stream"},
+        {"starting-soon", "radio", "Starting soon", "Warming up the valves, stay tuned"},
+        {"be-right-back", "radio", "Be right back", "Don't touch that dial"},
+        {"ending", "radio", "Thanks for listening", "That's all from the studio tonight"},
+        {"starting-soon", "steampunk", "Starting soon", "Stoking the boilers"},
+        {"be-right-back", "steampunk", "Be right back", "Topping up the steam, back shortly"},
+        {"ending", "steampunk", "Thanks for watching", "Full steam ahead to the next one"},
     };
     if (id == "offline-banner") return {"Offline", "{schedule}"};
     for (auto& r : rows)
@@ -716,6 +863,24 @@ Document holding(const Look& L, const std::string& id, const char* name) {
         s.animMs = 900;
         add(d, s);
         add(d, muted(L, "Socials", kSocials, 260, 900, 1400, 60, 32, Anim::None, "centre"));
+    } else if (L.is("radio")) {
+        badge(d, L, "On air", "ON AIR", 860, 230, 200, 56, Anim::Pop);
+        add(d, label(L, "Above", "{name}", "{name}", 260, 300, 1400, 50, Anim::Fade, "centre"));
+        add(d, title(L, "Title", w.title, 160, 360, 1600, 180, 120, Anim::Pop, "centre"));
+        rule(d, L, 660, 580, 600, Anim::Fade);
+        Element s = muted(L, "Subtitle", w.sub, 260, 610, 1400, 80, 42, Anim::Fade, "centre");
+        s.animMs = 900;
+        add(d, s);
+        add(d, muted(L, "Socials", kSocials, 260, 760, 1400, 50, 30, Anim::None, "centre"));
+    } else if (L.is("steampunk")) {
+        card(d, L, 310, 250, 1300, 520, Anim::Fade, "Plate");
+        add(d, label(L, "Above", "{name}", "{name}", 360, 300, 1200, 50, Anim::Fade, "centre"));
+        add(d, title(L, "Title", w.title, 360, 360, 1200, 170, 110, Anim::Pop, "centre"));
+        rule(d, L, 660, 570, 600, Anim::Fade);
+        Element s = muted(L, "Subtitle", w.sub, 360, 600, 1200, 80, 40, Anim::Fade, "centre");
+        s.animMs = 900;
+        add(d, s);
+        add(d, muted(L, "Socials", kSocials, 260, 860, 1400, 50, 30, Anim::None, "centre"));
     } else if (L.is("scifi")) {
         add(d, label(L, "Above", "{name}", "{name}", 160, 250, 1200, 50, Anim::Fade));
         add(d, title(L, "Title", w.title, 150, 300, 1600, 180, 128, Anim::SlideLeft));
@@ -843,6 +1008,28 @@ Document facecam(const Look& L) {
         add(d, t2);
         card(d, L, 40, 346, 280, 60, Anim::None, "Name tag");
         add(d, text(L, "Name", "{name}", 40, 352, 280, 48, 28, t.accent2, false, t.labelFont, Anim::None, "centre"));
+    } else if (L.is("radio")) {
+        f.radius = L.r(18), f.stroke = t.edge, f.strokeWidth = 10, f.shadow = {true, 0, 8, 22, hex("#000000AA"), ""};
+        add(d, f);
+        Element in = rectEl("Walnut rule", 30, 30, 620, 340, Fill::none(), L.r(12));
+        in.stroke = al(t.panel2, 0xEE), in.strokeWidth = 3;
+        add(d, in);
+        for (auto [cx, cy] : std::vector<std::pair<float, float>>{{25, 25}, {655, 25}, {25, 375}, {655, 375}}) add(d, rivet(cx, cy, 12, t.accent3));
+        card(d, L, 40, 346, 300, 60, Anim::None, "Name tag");
+        add(d, text(L, "Name", "{name}", 56, 354, 250, 44, 26, t.accent, false, t.headingFont, Anim::None, "left"));
+    } else if (L.is("steampunk")) {
+        f.radius = L.r(8), f.stroke = t.edge, f.strokeWidth = 12, f.shadow = {true, 0, 8, 22, hex("#000000B0"), ""};
+        add(d, f);
+        Element in = rectEl("Copper rule", 32, 32, 616, 336, Fill::none(), L.r(4));
+        in.stroke = al(t.accent, 0xCC), in.strokeWidth = 2;
+        add(d, in);
+        for (int i = 0; i <= 8; ++i) {
+            add(d, rivet(30 + 620.0f * i / 8, 20, 9, t.accent3));
+            add(d, rivet(30 + 620.0f * i / 8, 380, 9, t.accent3));
+        }
+        gear(d, "Gear", 640, 40, 34, 10, Fill::radial({{0, t.accent3}, {1, t.edge}}), t.panel, 6);
+        card(d, L, 40, 346, 280, 60, Anim::None, "Name tag");
+        add(d, title(L, "Name", "{name}", 40, 356, 280, 40, 26, Anim::None, "centre"));
     } else if (L.is("minimal")) {
         f.radius = L.r(12), f.stroke = al(t.title, 0xDD), f.strokeWidth = 4;
         add(d, f);

@@ -3453,7 +3453,7 @@ static void testThemes() {
     std::printf("themes\n");
     using namespace ncap::design;
     // Built in: six styles, seven themes, every style used.
-    CHECK(themeStyles().size() == 6 && builtInThemes().size() == 7);
+    CHECK(themeStyles().size() == 8 && builtInThemes().size() == 9);
     for (auto& st : themeStyles()) {
         bool used = false;
         for (auto& t : builtInThemes()) used = used || t.style == st.key;
@@ -3548,7 +3548,7 @@ static void testThemes() {
             for (auto& e : themedTemplate("starting-soon", themeById({}, st.key == std::string("aurora") ? "northray" : st.key)).elements) names.insert(e.name);
             shapes.insert(names);
         }
-        CHECK(shapes.size() == 6);
+        CHECK(shapes.size() == themeStyles().size());
         bool portraitShapes[4] = {false, false, false, false};
         for (auto [id, mask, i] : {std::tuple{"northray", "circle", 0}, std::tuple{"bookish", "arch", 1}, std::tuple{"fantasy", "hexagon", 2}, std::tuple{"scifi", "hexagon", 3}})
             for (auto& e : shown(themedTemplate("writing", themeById({}, id))).elements) portraitShapes[i] = portraitShapes[i] || e.mask == mask;
@@ -3633,7 +3633,7 @@ static void testThemes() {
 static void testSkyStyles() {
     std::printf("sky styles\n");
     namespace as = ncap::aurora_sky;
-    CHECK(as::styles().size() == 6);
+    CHECK(as::styles().size() == 8);
     as::Settings s;
     s.style = "scifi";
     s.colour3 = {255, 61, 203, 255};
@@ -3655,7 +3655,7 @@ static void testSkyStyles() {
     };
     as::Settings aur;
     const float aurora = total(aur, nullptr, 5);
-    for (const std::string st : {"bookish", "fantasy", "scifi", "cosy", "minimal"}) {
+    for (const std::string st : {"bookish", "fantasy", "scifi", "cosy", "minimal", "radio", "steampunk"}) {
         as::Settings x;
         x.style = st;
         x.night = {20, 16, 24, 255};

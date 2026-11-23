@@ -359,7 +359,7 @@ constexpr float kCastSpeed = 40;           // pixels a second
 // themes start as a copy of one and change its colours, fonts and corners.
 struct Theme {
     std::string id, name;
-    std::string style = "aurora";            // aurora, bookish, fantasy, scifi, cosy, minimal
+    std::string style = "aurora";            // aurora, bookish, fantasy, scifi, cosy, minimal, radio, steampunk
     Rgba page, page2;                        // a full page's background, top and bottom
     Rgba panel, panel2;                      // cards, top and bottom
     Rgba edge;                               // cards' edges and frames
@@ -377,7 +377,7 @@ struct ThemeStyle {
     const char* about;
 };
 const std::vector<ThemeStyle>& themeStyles();
-const std::vector<Theme>& builtInThemes();   // northray, bookish, fantasy, scifi, cosy, minimal, minimal-light
+const std::vector<Theme>& builtInThemes();   // northray, bookish, fantasy, scifi, cosy, minimal, minimal-light, radio, steampunk
 // A theme by id: your own first, then the built-in ones; unknown ids (and "aurora") give NorthRay.
 Theme themeById(const std::vector<Theme>& own, const std::string& id);
 bool validThemeId(const std::string& id);    // 1-40 of a-z, 0-9 and -
