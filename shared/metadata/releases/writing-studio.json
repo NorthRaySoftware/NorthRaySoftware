@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.64.0",
+      "date": "2026-11-23",
+      "notes": [
+        "A rail down the left side holds the workspaces (Library, Write, Plan, World, Review, Typeset, Preview, Publish) with an icon and a word each, and Settings at its foot. Ctrl+1 to Ctrl+8 open them top to bottom; the bookshelf and list views of the Library moved to Ctrl+Shift+1 and Ctrl+Shift+2.",
+        "One search box in the top bar (Ctrl+K) finds chapters and scenes, bible entries (by their other names too), books, worlds, the workspaces and commands as you type. Up and Down choose, Enter opens, Esc leaves it.",
+        "Every button has one look: a soft frame that lifts when you point at it, with a small icon beside its words. Rows of buttons wrap onto another line when a page is narrow instead of running off it.",
+        "The chosen row in every left sidebar looks the same, and the outline's buttons are + Chapter, + Scene and + Part, side by side.",
+        "Moving a chapter, scene, book, series, world or picture to the Trash happens at once, with Undo in the note at the bottom right, instead of asking first.",
+        "Fewer notes: nothing pops up to say a book was moved or added to a series or board, since you can see it there. The details panel's hints are one short line.",
+        "An empty Writing page says one thing and has one button (+ Chapter)."
+      ]
+    },
+    {
       "version": "0.63.0",
       "date": "2026-11-22",
       "notes": [

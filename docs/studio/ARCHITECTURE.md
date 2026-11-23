@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.64.0: UI pass, part 1: Writing and the shared pieces (23 Nov 2026)
+
+CJ asked for a UI/UX pass: not too many things taking his attention, and everything consistent. His answers (project doc studio-uiux-answers-2026-11-23): keep panels but quieter, one button style with icons and words, neutral colours with one accent, a side rail, the details panel in one place, one sidebar style, a top-bar search, livelier motion, fewer notes, one-line empty pages, Undo instead of asking, comfortable density, light and dark equal, accessibility. Four releases, one per area; this is Writing plus what every area shares.
+
+- cjui `icons.hpp/.cpp`: `Icon` (48 line icons on a 16-unit grid, drawn with Gfx lines so they follow the palette) and `iconFor(label)`, which picks one from a command's words.
+- cjui `AppWindow::setCalmControls(true)`: `button`, `disabledButton` and `linkText` draw `calmFace` (radius 7, hover lift and shadow, icon from the words, dropped when there's no room); `segmented` radius 7; focus ring radius 9; pages rise 26px; the note is bottom-right and `flashUndo(message, undo)` puts an Undo hit (`#toast:undo`) in it.
+- Studio: `kRailW = 76`; `drawRail` (ids `nav:<i>`, `nav:settings`, sliding pill, tooltips with Ctrl+N), the tab code split into `tabActive`/`openTab`. Top bar: where you are, then the `FTopSearch` pill; `studio_search.cpp` (`searchHits` matches every typed word over commands, workspaces, the book in hand's nodes and bible with aliases, else every world's bible, books, worlds; 12 at most; `searchKey` from preTranslate; results card with `search:<i>` hits taken first in onMouseDown). `actionRow` wraps buttons; `sideRowFrame`/`sideSection` draw every sidebar's chosen row and headings; `emptyState(area, icon, line, label, act)`.
+- Trash without asking: nodes, artwork, books, series and worlds go at once with `flashUndo` (restore). Routine success notes removed (moved, added to series/board, restored, first/last chapter). inkFaint raised for contrast (dark #7D889E, light #677185; light ribbon #0B7A5E).
+- Tested in Wine: the rail and Ctrl+N, search ("maren" finding bible entries), wrapped actions, the outline's three buttons with icons, trash and Undo of a chapter, the shorter panel hints.
+
 ## 0.62.0: a plan replaces the book's plan; sexuality like gender (22 Nov 2026)
 
 CJ imported a plan with plain titles into Shards of Light, whose chapters are "1. 🗡 Steel and Snow" and the like: nothing matched, so every chapter (and the part) was added again, and thread descriptions doubled.
