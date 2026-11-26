@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.182.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.105.0: chapter dates written as the book prints them, in a format you choose, the same in Writing, print, the ebook and Word."
+      ]
+    },
+    {
       "version": "0.181.0",
       "date": "2026-11-26",
       "notes": [

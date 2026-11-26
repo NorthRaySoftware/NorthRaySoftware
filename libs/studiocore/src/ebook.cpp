@@ -267,8 +267,10 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
                 else if (style.povPlace == "before" && open != std::string::npos) heading.insert(open + 1, icon + " ");
                 else if (close != std::string::npos) heading.insert(close, " " + icon);
             }
-            if (style.chapterDates && sec.dated && !src.calendar.empty())
-                heading += "<p class=\"chapdate\">" + escape(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), style.dateForm, style.dateEra)) + "</p>\n";
+            if (style.chapterDates && !sec.dateLine.empty()) {   // the same line as the printed book (0.105)
+                heading += "<p class=\"chapdate\">" + escape(sec.dateLine) + "</p>\n";
+                if (!sec.timeLine.empty()) heading += "<p class=\"chapdate chaptime\">" + escape(sec.timeLine) + "</p>\n";
+            }
             heading = withHeader(heading);
             if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
         }

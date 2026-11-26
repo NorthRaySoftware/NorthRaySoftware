@@ -1103,8 +1103,10 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
             x.para("Heading1", titled(t.rest.empty() ? sec.title : t.rest, hs), "<w:spacing w:before=\"0\"/>");
         } else
             x.para("Heading1", titled(sec.title, hs), headBefore);
-        if (d.chapterDates && sec.dated && !src.calendar.empty())
-            x.para("ChapterDate", Docx::run(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), d.dateForm, d.dateEra)));
+        if (d.chapterDates && !sec.dateLine.empty()) {   // the same line as the printed book (0.105)
+            x.para("ChapterDate", Docx::run(sec.dateLine));
+            if (!sec.timeLine.empty()) x.para("ChapterDate", Docx::run(sec.timeLine), "<w:spacing w:before=\"0\"/>");
+        }
         x.blocks(content, first, 0);
     }
     if (d.povIcon && d.povKey == "back") key();

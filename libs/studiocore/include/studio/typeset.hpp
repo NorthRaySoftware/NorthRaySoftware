@@ -149,6 +149,9 @@ struct Source {
         // Its day in the book's calendar (0.85): the chapter's own place on the timeline, else its first placed scene's.
         bool dated = false;
         std::int64_t calendarDay = 0;
+        // Its date line, written in the book's (or its own) date format (phase 5, 0.105): the one text Writing shows and the
+        // book, ebook and Word document print. `timeLine` is the time of day when the format puts it on a line of its own.
+        std::string dateLine, timeLine;
         // The picture or ornament it opens with (0.89), resolved from its own, its viewpoint's and the book's defaults.
         bool hasHeader = false;
         headers::Header header;

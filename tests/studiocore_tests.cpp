@@ -5,6 +5,7 @@
 #include "studio/bible_markdown.hpp"
 #include "studio/toolbar.hpp"
 #include "studio/icons.hpp"
+#include "studio/chapter_dates.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -1894,13 +1895,18 @@ static void testTypeset() {
         const std::string on = openings(dd);
         // Spaces are in the text since 0.94 (so the PDF copies and reads aloud as words).
         CHECK(on.find("4 Bloomtide 2033 TA") != std::string::npos && on.find("4 Frostmoon 2034 TA") != std::string::npos);
-        dd.dateForm = "numbers";
-        dd.dateEra = "name";
+        // The format is the book's since 0.105 (one source for Writing, print, the ebook and Word).
+        {
+            studio::dates::Format f;
+            f.style = "numeric-dmy";
+            f.era = "full";
+            studio::dates::setBookFormat(*lib, book, f);
+        }
         CHECK(openings(dd).find("04/02/2033 The Third Age") != std::string::npos);
         const Design back = designFromJson(designToJson(dd));
-        CHECK(back.chapterDates && back.dateForm == "numbers" && back.dateEra == "name");
+        CHECK(back.chapterDates);
         // The ebook, the same.
-        const auto content = ebook::build(src, {}, ebook::styleFrom(dd));
+        const auto content = ebook::build(snapshot(*lib, book), {}, ebook::styleFrom(dd));
         CHECK(!content.chapters.empty() && content.chapters[0].html.find("<p class=\"chapdate\">04/02/2033 The Third Age</p>") != std::string::npos);
         lib->setSetting("timeline:" + book, "");
     }
@@ -6131,7 +6137,103 @@ static void testDocx104() {
     fs::remove_all(dir);
 }
 
+// Phase 5a (0.105): chapter dates written in the book's format, or a chapter's own; the one line every output prints.
+static void testChapterDates105() {
+    namespace dt = studio::dates;
+    namespace cal = studio::cal;
+    cal::Calendar c = cal::gregorian();
+    c.eras = {{"Second Era", "SE", 1, false}};
+    const cal::Date d{1450, 2, 12};   // 12 March 1450
+    const cal::TimeOfDay none;
+    auto f = [&](const std::string& style) { dt::Format x; x.style = style; return x; };
+    CHECK(dt::format(c, d, none, f("numeric-dmy")).date == "12/03/1450 SE");
+    CHECK(dt::format(c, d, none, f("numeric-mdy")).date == "03/12/1450 SE");
+    CHECK(dt::format(c, d, none, f("numeric-ymd")).date == "1450-03-12 SE");
+    CHECK(dt::format(c, d, none, f("day-month")).date == "12 March 1450 SE");
+    {
+        const std::string longDate = dt::format(c, d, none, f("long")).date;
+        CHECK(longDate.find(", 12 March 1450 SE") != std::string::npos && longDate.find("day,") != std::string::npos);
+    }
+    CHECK(dt::format(c, d, none, f("month")).date == "March 1450 SE");
+    {
+        dt::Format x = f("custom");
+        x.pattern = "{DD}.{MM}.{YYYY} ({Mon})";
+        x.era = "full";
+        x.eraPlace = "before";
+        x.eraSeparator = " | ";
+        CHECK(dt::format(c, d, none, x).date == "Second Era | 12.03.1450 (Mar)");
+        x.pattern = "{D} {Month}, year {Year} of the {EraName}";   // the pattern places the era itself
+        CHECK(dt::format(c, d, none, x).date == "12 March, year 1450 of the Second Era");
+        x.pattern = "{Unknown} {D}";
+        CHECK(dt::format(c, d, none, x).date == "Second Era | {Unknown} 12");
+    }
+    {
+        dt::Format x = f("day-month");
+        x.era = "none";
+        cal::TimeOfDay t;
+        t.minutes = 14 * 60 + 30;
+        CHECK(dt::format(c, d, t, x).date == "12 March 1450" && dt::format(c, d, t, x).time.empty());   // hidden
+        x.time = "appended";
+        CHECK(dt::format(c, d, t, x).date == "12 March 1450, 14:30");
+        x.time = "line";
+        const auto ln = dt::format(c, d, t, x);
+        CHECK(ln.date == "12 March 1450" && ln.time == "14:30");
+    }
+    {   // JSON keeps what's valid and drops what isn't.
+        dt::Format x = f("custom");
+        x.pattern = "{D}/{M}";
+        x.eraSeparator = " · ";
+        x.time = "line";
+        CHECK(dt::Format::fromJson(x.toJson()) == x);
+        const dt::Format bad = dt::Format::fromJson(R"({"style":"weird","era":"x","time":"later"})");
+        CHECK(bad.style == "day-month" && bad.era == "short" && bad.time == "hidden");
+    }
+    // The book's format, a chapter's own, and the line every output prints.
+    const std::string dir = tempLibrary("dates105");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id book = lib->createBook("Dated", {});
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "One");
+    const Id c2 = lib->createNode(book, {}, NodeKind::Chapter, "Two");
+    const Id s2 = lib->createNode(book, c2, NodeKind::Scene, "A scene");
+    for (const Id& id : {c1, c2}) lib->saveNodeContent(id, R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Words."}]}]})");
+    // A book from before 0.105: its Typesetting design's choice is where it starts.
+    lib->setSetting("typeset:" + book, R"({"dateForm":"numbers","dateEra":"none"})");
+    CHECK(dt::bookFormat(*lib, book).style == "numeric-dmy" && dt::bookFormat(*lib, book).era == "none");
+    {
+        const cal::Calendar cc = cal::fromText("Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Bloomtide: 30\nEra: The Third Age (TA) from year 1\n");
+        CHECK(cal::saveBookCalendar(*lib, book, cc));
+        const auto start = cal::toDay(cc, {2033, 0, 1});
+        CHECK(lib->setSetting("timeline:" + book, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", start},
+                                                                  {"nodes", {{c1, {{"day", 9}, {"time", 600}}}, {s2, {{"day", 39}}}}}}.dump()));
+    }
+    dt::Format bf;
+    bf.style = "day-month";
+    bf.era = "none";
+    bf.time = "appended";
+    dt::setBookFormat(*lib, book, bf);
+    dt::Format own;
+    own.style = "month";
+    own.era = "none";
+    dt::setChapterFormat(*lib, book, c2, own);
+    CHECK(dt::chapterFormat(*lib, book, c2).has_value() && !dt::chapterFormat(*lib, book, c1).has_value());
+    CHECK(dt::formatFor(*lib, book, c2).style == "month" && dt::formatFor(*lib, book, c1).style == "day-month");
+    const auto l1 = dt::lineFor(*lib, *lib->node(c1));
+    const auto l2 = dt::lineFor(*lib, *lib->node(c2));   // from its first placed scene, in its own format
+    if (l1 && l2) {
+        CHECK(l1->date == "10 Frostmoon 2033, 10:00");   // the book's format, its time appended
+        CHECK(l2->date == "Bloomtide 2033");              // its own format, from its first placed scene
+        const auto src = studio::typeset::snapshot(*lib, book);
+        CHECK(src.sections[0].dateLine == l1->date && src.sections[1].dateLine == l2->date);
+    } else
+        CHECK(l1.has_value() && l2.has_value());
+    dt::setChapterFormat(*lib, book, c2, std::nullopt);
+    CHECK(!dt::chapterFormat(*lib, book, c2).has_value());
+    fs::remove_all(dir);
+}
+
 int main() {
+    testChapterDates105();
     testDocx104();
     testViewpointIcons103();
     testToolbar100();

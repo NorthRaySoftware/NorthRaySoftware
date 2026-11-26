@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.105.0: chapter dates as formatted text (suite 0.182.0, 26 Nov 2026)
+
+Phase 5a of CJ's combined request (5.1, 5.2, 5.3's format and time, 5.5). 5b (print styling, scene dates at breaks) and 5c (converting typed date lines) follow.
+- **studiocore `studio/chapter_dates.hpp`** (new, `studio::dates`): `Format {style, pattern, era, eraPlace, eraSeparator, time}` with JSON (invalid values fall back); `styles()`; `format(calendar, date, time, format)` → `Lines {date, time}`: numeric dmy/mdy (the calendar's separator, two-digit day and month) and ymd (ISO-like), day-month, long (the calendar's weekday, when it has a week), month, custom tokens ({D} {DD} {M} {MM} {Month} {Mon} {Year}/{YYYY} {Weekday} {Era} {EraName}; unknown ones as written; a pattern naming the era isn't given it twice); the era short/full before or after with the separator; the time hidden, appended after ", " or on its own line. `bookFormat` (setting `dates:<book>` → format; a book from before starts from its design's dateForm/dateEra), `setBookFormat`, `chapterFormat`/`setChapterFormat` (overrides by chapter id), `formatFor`, and `lineFor(lib, node)`: the chapter's day (its own, else its first placed scene's) and time from `timeline:<book>` in its format; a scene in its chapter's.
+- **One source**: `typeset::Source::Section::dateLine`/`timeLine` from `lineFor` in `snapshot`; the typesetter, `ebook::buildWith` and `buildDocx` print those (the time on its own line when there is one) instead of `formatDateStyled`. `chapterHeadJson` sends the same `date`/`time` (a scene's only when it differs from its chapter's).
+- **Editor**: `#cdate`, a button styled as the printed line (italic, centred, under the title; the time as `.ctime` on its own line; "Not on the timeline: give it a date" quietly when undated), opening When it happens; outside the document, so not counted, checked, quoted or searched. `viewSettings.dates` (Aa › Show the chapter's date) → `nodates`; Show header pictures and the viewpoint no longer hides it.
+- **App**: Typesetting › Chapter dates: Print each chapter's date (the design's `chapterDates`), Date written (a menu of the styles with the book's first date in each; Your own pattern asks for tokens), The era, After/Before, the separator (space, |, comma, ·, own), Time of day, and the live example. Chapter tools › Date format: As the book's, a style, or its own pattern (`setChapterFormat`).
+- **Tested:** studiocore 2,628 (every style, custom tokens and the era placed by the pattern, era before with a separator, time hidden/appended/line, JSON, the legacy start, a chapter's own format from its first scene, the snapshot's line, the 0.85 print and ebook test now from the book's format); editor 31; the date line rendered in Chromium; cross-compiled. **Not run on Windows.**
+
 ## 0.104.0: the manuscript as a Word document (suite 0.181.0, 26 Nov 2026)
 
 The DOCX export the director chose to add (26 Nov), with the viewpoint icons as he asked.

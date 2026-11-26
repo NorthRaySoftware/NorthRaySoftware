@@ -5,6 +5,7 @@
 #include "internal.hpp"
 #include "studio/document.hpp"
 #include "studio/planning.hpp"
+#include "studio/chapter_dates.hpp"
 
 #include <algorithm>
 #include <set>
@@ -1253,6 +1254,7 @@ Source snapshot(const Library& lib, const Id& bookId) {
                         if (m->parentId == n->id && m->kind == NodeKind::Scene)
                             if ((day = dayOf(m->id))) break;
                 if (day) { sec.dated = true; sec.calendarDay = *day; }
+                if (const auto ln = dates::lineFor(lib, *n)) { sec.dateLine = ln->date; sec.timeLine = ln->time; }
             }
         }
     }
@@ -1862,16 +1864,19 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 inlinePov(tl, fs * 1.55f);
                 addLines(std::move(tl), true);
             }
-            // Its date, in the style chosen, under the heading (0.85).
-            if (d.chapterDates && n->dated && !src.calendar.empty()) {
+            // Its date line under the heading (0.85; the book's date format since 0.105), and its time on a line of its own.
+            if (d.chapterDates && !n->dateLine.empty()) {
                 space(1);
-                Block db;
-                db.align = Align::Center;
-                db.indent = false;
-                Span sp{cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, n->calendarDay), d.dateForm, d.dateEra)};
-                sp.italic = true;
-                db.spans.push_back(sp);
-                addLines(set.paragraph(db, true), true);
+                for (const std::string& text : {n->dateLine, n->timeLine}) {
+                    if (text.empty()) continue;
+                    Block db;
+                    db.align = Align::Center;
+                    db.indent = false;
+                    Span sp{text};
+                    sp.italic = true;
+                    db.spans.push_back(sp);
+                    addLines(set.paragraph(db, true), true);
+                }
             }
             if (head) addHeader(n->header, headStart, title);
             space(2);

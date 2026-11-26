@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.104.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.181.0 |
+| Version at the time of writing | 0.105.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.182.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -63,6 +63,7 @@ Status labels used in this manual:
 - Saves as you type; versions of every chapter; undo that survives reopening.
 - A ribbon-style writing bar; the outline (narrow, hideable); a details card. On a narrow window or at a large interface size the outline becomes an Outline button on the chapter's bar that opens it beside the page (F3 too), and closes again when a chapter is picked.
 - Focus and typewriter modes; fonts, size, width (narrow, normal, wide, fit, and Auto: wider on a wide window) and spacing; warm night paper.
+- Chapter dates (0.105): a line over the text as the book prints it (not a chip, not part of the text; click for When it happens); Aa › Show the chapter's date, apart from Show header pictures and the viewpoint. The book's date format in Typesetting › Chapter dates (seven styles including your own pattern with {D} {DD} {M} {MM} {Month} {Mon} {Year} {Weekday} {Era} {EraName}; era none, short or full, before or after, with a separator; time of day hidden, appended or on its own line; a live example); a chapter's own in Chapter tools › Date format. The same line in Writing, the typeset book, the ebook and Word.
 - The page's own zoom (0.97), 50–200%: Ctrl and + / − / 0 while writing, Ctrl+wheel over the page, Aa › Page zoom. Separate from the interface size; the writing bar follows the interface.
 
 **Checks while writing**
@@ -183,7 +184,7 @@ Status labels used in this manual:
 ### Planned (the director's answers; not in the release notes yet)
 
 From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96, page zoom in 0.97):
-- Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.
+- Chapter dates, the rest of phase 5: print styling (weight and case per part, alignment, position) and a scene's own date at a scene break (5b); converting typed date lines at the start of chapters, with a preview and undo (5c). 5a shipped in 0.105.
 
 From 15 and 18 Nov 2026:
 - Ambience sounds while writing.

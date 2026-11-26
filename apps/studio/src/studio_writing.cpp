@@ -1,5 +1,6 @@
 // The Writing workspace (manuscript outline, editor, details) and the import preview.
 #include "studio_app.hpp"
+#include "studio/chapter_dates.hpp"
 #include <ctime>
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
@@ -1397,6 +1398,44 @@ std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
         t.push_back(ToolItem::item(L"Open its page in Planning", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; openPlanPage(id); }).in("planpage", tb::Organise, Icon::Planning));
     if (n->kind != NodeKind::Scene) t.push_back(ToolItem::menu(L"Header picture", headerTools(n->id)).in("header", tb::Settings, Icon::Picture));
     t.push_back(ToolItem::item(L"When it happens…", [this] { editWhenInWriting(); }).in("when", tb::Organise, Icon::Calendar));
+    // Its date written its own way (phase 5, 0.105), else as the book's format says.
+    if (n->kind == NodeKind::Chapter) {
+        namespace dt = studio::dates;
+        const auto own = dt::chapterFormat(*lib_, n->bookId, n->id);
+        const dt::Format book = dt::bookFormat(*lib_, n->bookId);
+        const studio::cal::Calendar cc = studio::cal::calendarOfBook(*lib_, n->bookId);
+        const studio::cal::StorySpan sp = studio::cal::storySpan(*lib_, n->bookId);
+        std::vector<ToolItem> sub;
+        auto sample = [&](const dt::Format& f) {
+            return cc.empty() || !sp.on ? std::wstring() : L"   " + w(dt::format(cc, studio::cal::fromDay(cc, sp.any ? sp.first : sp.start), {}, f).date);
+        };
+        sub.push_back(ToolItem::item(L"As the book's" + sample(book), [this, bid = n->bookId, id = n->id] {
+            studio::dates::setChapterFormat(*lib_, bid, id, std::nullopt);
+            sendHead(true);
+        }, !own));
+        sub.push_back(ToolItem::line());
+        for (auto& [sid, label] : dt::styles()) {
+            if (sid == "custom") continue;
+            dt::Format f = own ? *own : book;
+            f.style = sid;
+            sub.push_back(ToolItem::item(w(label) + sample(f), [this, bid = n->bookId, id = n->id, f] {
+                studio::dates::setChapterFormat(*lib_, bid, id, f);
+                sendHead(true);
+            }, own && own->style == sid));
+        }
+        sub.push_back(ToolItem::item(L"Its own pattern…", [this, bid = n->bookId, id = n->id, base = own ? *own : book] {
+            std::wstring v = w(base.pattern);
+            if (!cjui::askText(hwnd(), L"This chapter's date",
+                               L"Tokens: {D} {DD} day, {M} {MM} month number, {Month} {Mon} its name, {Year} year, {Weekday}, {Era} {EraName}.", v, L"Use it"))
+                return;
+            studio::dates::Format f = base;
+            f.style = "custom";
+            f.pattern = narrow(v);
+            studio::dates::setChapterFormat(*lib_, bid, id, f);
+            sendHead(true);
+        }, own && own->style == "custom"));
+        t.push_back(ToolItem::menu(L"Date format", sub).in("dateformat", tb::Settings, Icon::Calendar));
+    }
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Add"));
     t.push_back(ToolItem::item(L"New chapter", [this] { addNode(NodeKind::Chapter); }).in("chapter", tb::Create, Icon::Plus));

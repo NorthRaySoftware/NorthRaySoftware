@@ -3,6 +3,7 @@
 // worker thread from a snapshot of the book, so editing never waits for it.
 #include "studio_app.hpp"
 #include "studio/icons.hpp"
+#include "studio/chapter_dates.hpp"
 #include "cjui/dialog.hpp"
 #include "studio/calendar.hpp"
 #include "cjui/dialog.hpp"
@@ -521,37 +522,98 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                        {tx0 + 28, y - 4, cw - 28, 60}, Font::Small, pal_.inkFaint, {Align::Left, false, true}) + 10;
     check("side:ts:roman", L"Front matter in roman numerals", ts_.design.frontRoman,
           [this, changed] { ts_.design.frontRoman = !ts_.design.frontRoman; changed(); });
-    // Each chapter's date from Planning's timeline under its heading, in a chosen style (0.85).
-    check("side:ts:dates", L"Each chapter's date under its heading", ts_.design.chapterDates,
+    // Chapter dates (phase 5, 0.105): the book's date format, which Writing shows and every output prints; printing them
+    // under the heading is this design's switch (Writing's own is Aa › Show the chapter's date).
+    y += 14;
+    gfx_.text(L"CHAPTER DATES", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 24;
+    check("side:ts:dates", L"Print each chapter's date under its heading", ts_.design.chapterDates,
           [this, changed] { ts_.design.chapterDates = !ts_.design.chapterDates; changed(); });
-    if (ts_.design.chapterDates) {
+    {
         const cal::Calendar cc = cal::calendarOfBook(*lib_, ts_.book);
         const cal::StorySpan sp = cal::storySpan(*lib_, ts_.book);
         if (cc.empty() || !sp.on) {
-            gfx_.text(cc.empty() ? L"The book's world has no calendar yet, so there are no dates to show."
-                                 : L"Planning's timeline doesn't count in calendar dates yet (Timeline › Counts in), so there are no dates to show.",
-                      {tx0, y, cw, 44}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
-            y += 50;
+            y += gfx_.text(cc.empty() ? L"The book's world has no calendar yet, so there are no dates to show."
+                                      : L"Planning's timeline doesn't count in calendar dates yet (Timeline › Counts in), so there are no dates to show.",
+                           {tx0, y, cw, 44}, Font::Small, pal_.inkFaint, {Align::Left, false, true}) + 10;
         } else {
+            namespace dt = studio::dates;
+            const dt::Format f = dt::bookFormat(*lib_, ts_.book);
+            auto save = [this](const dt::Format& nf) { dt::setBookFormat(*lib_, ts_.book, nf); designChanged(); sendHead(true); invalidate(); };
             const cal::Date ex = cal::fromDay(cc, sp.any ? sp.first : sp.start);
-            label(L"Dates written");
-            segmented("side:ts:dform", {tx0, y, cw, 28},
-                      {w(cal::formatDateStyled(cc, ex, "words", "none")), w(cal::formatDateStyled(cc, ex, "numbers", "none"))},
-                      ts_.design.dateForm == "numbers" ? 1 : 0, [this, changed](int i) {
-                          ts_.design.dateForm = i == 1 ? "numbers" : "words";
-                          changed();
-                      });
-            y += 40;
+            cal::TimeOfDay exTime;
+            exTime.minutes = 10 * std::max(1, cc.minutesPerHour);
+            // The style, each shown with the book's first date in it.
+            label(L"Date written");
+            {
+                std::wstring cur;
+                for (auto& [id, l] : dt::styles()) if (id == f.style) cur = w(l);
+                menuButton("side:ts:dstyle", tx0, y, cur, [this, f, cc, ex, save] {
+                    std::vector<ToolItem> items;
+                    for (auto& [id, l] : dt::styles()) {
+                        dt::Format g = f;
+                        g.style = id;
+                        g.era = "none";
+                        g.time = "hidden";
+                        const std::wstring sample = id == "custom" ? std::wstring(L"{D} {Month} {Year}…") : w(dt::format(cc, ex, {}, g).date);
+                        items.push_back(ToolItem::item(w(l) + L"   " + sample, [save, f, id, this] {
+                            dt::Format nf = f;
+                            nf.style = id;
+                            if (id == "custom") {
+                                std::wstring v = w(nf.pattern);
+                                if (!cjui::askText(hwnd(), L"Your own pattern",
+                                                   L"Tokens: {D} {DD} day, {M} {MM} month number, {Month} {Mon} its name, {Year} year, {Weekday}, "
+                                                   L"{Era} {EraName}. Anything else prints as it is.", v, L"Use it"))
+                                    return;
+                                nf.pattern = narrow(v);
+                            }
+                            save(nf);
+                        }, id == f.style));
+                    }
+                    return items;
+                });
+                y += 40;
+            }
             label(L"The era");
-            segmented("side:ts:dera", {tx0, y, cw, 28}, {L"Short", L"Full name", L"None"},
-                      ts_.design.dateEra == "name" ? 1 : ts_.design.dateEra == "none" ? 2 : 0, [this, changed](int i) {
-                          ts_.design.dateEra = i == 1 ? "name" : i == 2 ? "none" : "abbr";
-                          changed();
-                      });
+            segmented("side:ts:dera", {tx0, y, cw, 28}, {L"None", L"Short", L"Full name"}, f.era == "none" ? 0 : f.era == "full" ? 2 : 1,
+                      [f, save](int i) { dt::Format nf = f; nf.era = i == 0 ? "none" : i == 2 ? "full" : "short"; save(nf); });
             y += 36;
-            gfx_.text(L"For example: " + w(cal::formatDateStyled(cc, ex, ts_.design.dateForm, ts_.design.dateEra)), {tx0, y, cw, 22}, Font::Small,
-                      pal_.inkFaint, {Align::Left, false, true});
-            y += 30;
+            if (f.era != "none") {
+                segmented("side:ts:deraplace", {tx0, y, cw, 28}, {L"After the date", L"Before it"}, f.eraPlace == "before" ? 1 : 0,
+                          [f, save](int i) { dt::Format nf = f; nf.eraPlace = i == 1 ? "before" : "after"; save(nf); });
+                y += 36;
+                static const char* seps[] = {" ", " | ", ", ", " \u00B7 "};
+                static const wchar_t* sepNames[] = {L"Space", L"|", L",", L"\u00B7"};
+                int sel = -1;
+                for (int k = 0; k < 4; ++k) if (f.eraSeparator == seps[k]) sel = k;
+                segmented("side:ts:dsep", {tx0, y, cw, 28}, {sepNames[0], sepNames[1], sepNames[2], sepNames[3], L"Own\u2026"}, sel < 0 ? 4 : sel,
+                          [this, f, save](int i) {
+                              dt::Format nf = f;
+                              if (i < 4) nf.eraSeparator = seps[i];
+                              else {
+                                  std::wstring v = w(f.eraSeparator);
+                                  if (!cjui::askText(hwnd(), L"Between the date and the era", L"Up to a few characters, spaces included.", v, L"Use it"))
+                                      return;
+                                  nf.eraSeparator = narrow(v).substr(0, 12);
+                              }
+                              save(nf);
+                          });
+                y += 36;
+            }
+            label(L"Time of day");
+            segmented("side:ts:dtime", {tx0, y, cw, 28}, {L"Hidden", L"After it", L"Own line"}, f.time == "appended" ? 1 : f.time == "line" ? 2 : 0,
+                      [f, save](int i) { dt::Format nf = f; nf.time = i == 1 ? "appended" : i == 2 ? "line" : "hidden"; save(nf); });
+            y += 36;
+            // The live example, as it prints.
+            const dt::Lines exLines = dt::format(cc, ex, exTime, f);
+            const Rect pv{tx0, y, cw, exLines.time.empty() ? 36.0f : 56.0f};
+            gfx_.fillRounded(pv, 8, pal_.dark ? pal_.sunken : hexColor("#FBF8F1"));
+            gfx_.strokeRounded(pv, 8, pal_.rule);
+            gfx_.text(w(exLines.date), {pv.x, pv.y + 8, pv.w, 20}, Font::SerifSmall, pal_.ink, {Align::Center, false, true});
+            if (!exLines.time.empty()) gfx_.text(w(exLines.time), {pv.x, pv.y + 28, pv.w, 20}, Font::SerifSmall, pal_.ink, {Align::Center, false, true});
+            y += pv.h + 8;
+            y += gfx_.text(L"Writing shows the same line over each chapter. A chapter can have its own format: Chapter tools › Date format.",
+                           {tx0, y, cw, 44}, Font::Small, pal_.inkFaint) + 10;
         }
     }
     // The viewpoint's icon in chapter headings (phase 4c, 0.103), off unless chosen.

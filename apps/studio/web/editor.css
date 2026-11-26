@@ -206,6 +206,15 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 #cpic img { display: block; width: 100%; }
 #corn { order: 1; font-size: calc(var(--text-size, 1.12rem) * 2.2); line-height: 1.2; margin: 0 0 .6rem; color: var(--ink); }
 #cmeta { order: 3; margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+/* The chapter's date (0.105): a line as the book prints it (italic, centred, under the title), not part of the text;
+   a click opens When it happens. Not yet on the timeline: a quiet line to give it one. */
+#cdate { order: 3; margin: .7rem 0 0; padding: .1rem .5rem; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  font: italic var(--text-size, 1.12rem)/1.5 var(--text-font, var(--serif)); color: var(--ink); text-align: center; }
+#cdate .ctime { display: block; }
+#cdate:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#cdate.empty { font: .82rem/1.4 var(--ui, "Segoe UI", sans-serif); color: var(--faint); font-style: normal; }
+#ctop.title-above #cdate { order: 4; }
+.nodates #cdate { display: none !important; }
 #ctop.title-above #cpic, #ctop.title-above #corn { order: 3; margin: 1.2rem 0 0; }
 #ctop.title-above #cmeta { order: 4; }
 #ctop.size-band #cpic img { aspect-ratio: 3.2 / 1; object-fit: cover; }

@@ -533,7 +533,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 3, zoom: 1, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true, povName: true };
+const VIEW_DEFAULTS = { v: 3, zoom: 1, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true, povName: true, dates: true };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -556,6 +556,7 @@ function applyView() {
   root.classList.toggle("typewriter", !!v.typewriter);
   root.classList.toggle("noheads", v.heads === false);   // the chapter's header picture and date (0.92)
   root.classList.toggle("nopovname", v.povName === false);   // the viewpoint's icon alone, without the name (0.102)
+  root.classList.toggle("nodates", v.dates === false);       // the chapter's date line, apart from the rest (0.105)
   if (view) {
     // The Studio's own checker once its dictionary is loaded (it knows the bible's names); the browser's until then.
     view.dom.setAttribute("spellcheck", v.spellcheck && !spell.ready() ? "true" : "false");
@@ -835,12 +836,14 @@ let chapterHead = null;
 function setHead(h) {
   chapterHead = h && typeof h === "object" ? h : null;
   const top = document.getElementById("ctop"), pic = document.getElementById("cpic"), img = pic.querySelector("img");
-  const orn = document.getElementById("corn"), meta = document.getElementById("cmeta");
+  const orn = document.getElementById("corn"), meta = document.getElementById("cmeta"), dateLine = document.getElementById("cdate");
   top.className = "";
   pic.hidden = true;
   orn.hidden = true;
   meta.hidden = true;
   meta.replaceChildren();
+  dateLine.hidden = true;
+  dateLine.replaceChildren();
   if (!chapterHead) return;
   const hd = chapterHead.header;
   const pick = (v, list, d) => (list.includes(v) ? v : d);
@@ -874,15 +877,20 @@ function setHead(h) {
     b.addEventListener("click", () => { flush(); send({ type: "entry", id: p.id }); });
     chips.push(b);
   }
+  // Its date as a line, written as the book prints it (0.105): the same text Typesetting, the ebook and Word use.
   if (chapterHead.date || chapterHead.dated === false) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "cchip plain" + (chapterHead.date ? "" : " empty");
-    b.textContent = chapterHead.date || "Not on the timeline";
-    b.title = chapterHead.date ? "When it happens: click to change it" : "Give it a date or a day on the timeline";
-    b.addEventListener("mousedown", (e) => e.preventDefault());
-    b.addEventListener("click", () => send({ type: "editWhen" }));
-    chips.push(b);
+    dateLine.className = chapterHead.date ? "" : "empty";
+    dateLine.textContent = chapterHead.date || "Not on the timeline: give it a date";
+    if (chapterHead.time) {
+      const t = document.createElement("span");
+      t.className = "ctime";
+      t.textContent = chapterHead.time;
+      dateLine.append(t);
+    }
+    dateLine.title = chapterHead.date ? "When it happens: click to change it" : "Give it a date or a day on the timeline";
+    dateLine.onmousedown = (e) => e.preventDefault();
+    dateLine.onclick = () => send({ type: "editWhen" });
+    dateLine.hidden = false;
   }
   if (chips.length) { meta.append(...chips); meta.hidden = false; }
   requestAnimationFrame(() => placeCaret());   // the text moved down or up

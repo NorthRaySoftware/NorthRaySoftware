@@ -2,6 +2,7 @@
 // for chapters and parts (Typesetting's design card), a chapter's or part's own (Planning's details), and a viewpoint
 // character's (⋯ on their page). Kept by studio::headers; the typesetter, ebook, review copy and Plans page draw them.
 #include "studio_app.hpp"
+#include "studio/chapter_dates.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
@@ -241,28 +242,21 @@ nlohmann::json StudioApp::chapterHeadJson(const ManuscriptNode& n) {
         if (hj.contains("blob") || hj.contains("symbol")) j["header"] = hj;
     }
     if (n.kind == NodeKind::Part) return j;
-    // Its date, written as the book's Dates setting says; a scene's only when it differs from its chapter's.
-    const auto times = storyTimes(n.bookId);
-    auto textOf = [&](const Id& id) -> std::string {
-        auto it = times.find(id);
-        if (it == times.end() || !it->second.placed) return {};
-        std::string t;
-        const cal::Calendar cc = cal::calendarOfBook(*lib_, n.bookId);
-        if (timelineInCalendar(n.bookId) && !cc.empty()) {
-            const typeset::Design d = typeset::designFromJson(lib_->setting("typeset:" + n.bookId));
-            const std::int64_t day = cal::storySpan(*lib_, n.bookId).start + (std::int64_t)std::floor(it->second.day);
-            t = cal::formatDateStyled(cc, cal::fromDay(cc, day), d.dateForm, d.dateEra);
-        } else t = narrow(storyDayText(n.bookId, it->second.day));
-        if (it->second.minutes >= 0 || !it->second.part.empty())
-            t += ", " + cal::timeOfDayText(cc.empty() ? cal::gregorian() : cc, {it->second.minutes, it->second.part});
-        return t;
-    };
-    const std::string date = textOf(n.id);
+    // Its date line (phase 5, 0.105): written in the book's date format or the chapter's own, the same text the book,
+    // ebook and Word document print; a scene's only when it differs from its chapter's.
+    const auto line = studio::dates::lineFor(*lib_, n);
     if (n.kind == NodeKind::Scene) {
-        if (!date.empty() && date != textOf(n.parentId)) j["date"] = date;
+        const ManuscriptNode* parent = lib_->node(n.parentId);
+        const auto chapterLine = parent ? studio::dates::lineFor(*lib_, *parent) : std::nullopt;
+        if (line && (!chapterLine || chapterLine->date != line->date || chapterLine->time != line->time)) {
+            j["date"] = line->date;
+            if (!line->time.empty()) j["time"] = line->time;
+        }
     } else {
-        if (!date.empty()) j["date"] = date;
-        else j["dated"] = false;
+        if (line) {
+            j["date"] = line->date;
+            if (!line->time.empty()) j["time"] = line->time;
+        } else j["dated"] = false;
     }
     // Whose eyes it's seen through: their portrait, else their symbol, else initials, ringed in their colour.
     Id pov = n.povId;

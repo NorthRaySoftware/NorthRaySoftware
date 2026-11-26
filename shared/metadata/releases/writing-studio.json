@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.105.0",
+      "date": "2026-11-26",
+      "notes": [
+        "In Writing, a chapter's date is a line over the text written exactly as the book prints it, not a chip. It isn't part of the text, so it's never counted, checked, quoted or searched; click it to change when it happens. Aa › Show the chapter's date shows or hides it in Writing, apart from header pictures; Typesetting decides whether it prints.",
+        "One date line for everything: Writing, the typeset book, the ebook and the Word document all use the same text.",
+        "Typesetting › Chapter dates sets how the book writes them, with a live example: numeric (day, month or year first), day and month name, long with the weekday, month name only, or your own pattern ({D} {Month} {Year}, {Weekday} and more) in your world's calendar; the era short, in full or left off, before or after the date with the separator you choose; and the time of day hidden, after the date or on its own line.",
+        "A chapter can have its own date format: Chapter tools › Date format."
+      ]
+    },
+    {
       "version": "0.104.0",
       "date": "2026-11-26",
       "notes": [
