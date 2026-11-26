@@ -593,6 +593,27 @@ bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place)
     return lib.setSetting("nodeplaces:" + book, j.dump());
 }
 
+std::map<Id, std::string> nodeNotes(const Library& lib, const Id& book) {
+    std::map<Id, std::string> out;
+    const json j = parseObj(lib.setting("nodenotes:" + book));
+    for (auto& [node, v] : j.items())
+        if (v.is_string() && !v.get<std::string>().empty()) out[node] = v.get<std::string>();
+    return out;
+}
+
+std::string nodeNote(const Library& lib, const Id& book, const Id& node) {
+    const json j = parseObj(lib.setting("nodenotes:" + book));
+    auto it = j.find(node);
+    return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
+}
+
+bool setNodeNote(Library& lib, const Id& book, const Id& node, const std::string& text) {
+    json j = parseObj(lib.setting("nodenotes:" + book));
+    if (trim(text).empty()) j.erase(node);
+    else j[node] = text;
+    return lib.setSetting("nodenotes:" + book, j.empty() ? std::string() : j.dump());
+}
+
 std::map<Id, std::vector<Id>> nodeCast(const Library& lib, const Id& book) {
     std::map<Id, std::vector<Id>> out;
     const json j = parseObj(lib.setting("nodecast:" + book));
@@ -826,6 +847,10 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             it.time = v;
         }
         else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
+        else if (field(l, {"notes", "note"}, v)) {
+            // Notes (0.90): a line each paragraph.
+            if (!v.empty()) it.notes += (it.notes.empty() ? "" : "\n\n") + v;
+        }
         else if (it.kind == NodeKind::Chapter && field(l, {"matter"}, v) &&
                  (lower(v) == "front" || lower(v) == "back" || lower(v) == "story" || lower(v) == "front matter" || lower(v) == "back matter"))
             it.matter = lower(v).rfind("front", 0) == 0 ? 1 : lower(v).rfind("back", 0) == 0 ? 2 : 0;
@@ -859,6 +884,7 @@ std::string outlineText(const Library& lib, const Id& book) {
         }
     const auto places = nodePlaces(lib, book);
     const auto casts = nodeCast(lib, book);
+    const auto notes = nodeNotes(lib, book);
     // The world's calendar, when the timeline is in its dates (0.75).
     const cal::Calendar calendar = cal::calendarOfBook(lib, book);
     const cal::StorySpan span = cal::storySpan(lib, book);
@@ -940,6 +966,9 @@ std::string outlineText(const Library& lib, const Id& book) {
             else if (v.contains("part") && v["part"].is_string() && !v["part"].get<std::string>().empty())
                 out += "Time: " + lower(v["part"].get<std::string>()) + "\n";
         }
+        if (auto nt = notes.find(n->id); nt != notes.end())
+            for (auto& l : lines(nt->second))
+                if (!trim(l).empty()) out += "Notes: " + trim(l) + "\n";
         if (!n->synopsis.empty()) out += n->synopsis + "\n";
     }
     return out;
@@ -1127,6 +1156,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         lib.updateNode(n);
         setNodePlace(lib, book, id, {});
         setNodeCast(lib, book, id, {});
+        setNodeNote(lib, book, id, it.notes);
         tl["nodes"].erase(id);
         if (!it.place.empty()) {
             const Id pl = placeNamed(it.place);

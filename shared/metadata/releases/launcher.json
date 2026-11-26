@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.166.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.90.0: a page of its own for every chapter and scene in Planning, with notes."
+      ]
+    },
+    {
       "version": "0.165.0",
       "date": "2026-11-26",
       "notes": [

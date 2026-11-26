@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.90.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Every chapter and scene in Planning has a page of its own. Click a card on the corkboard to open it; right-click a card for its quick details beside the board. “Click opens” on the corkboard swaps the two, kept for each book, and the quick details have Open as page.",
+        "The page opens as the book does: the header picture with the title over, above or under it (click the title to rename it), then the date with the moon, the viewpoint's portrait, the place, the status and words against the target, each a click away from changing.",
+        "Below: the synopsis, Notes with room to write, the chapter's scenes as cards (each opens its own page), and the text itself, its first paragraphs with Show all and Open in Writing. At the side: when it happens, the target, who's there as portraits, plot threads, the beats it carries and its header picture.",
+        "Names on the page open their bible pages, threads open the Threads view and beats open Structure. ‹ › step through every card in the corkboard's order, a scene's page links to its chapter's, and Back or Esc returns to the corkboard where you were.",
+        "Notes are new: each chapter and scene has its own, kept with the plan, written as Notes: lines when the plan is exported and read back when it's imported, and shown on the shared bible's Plans page and in its PDF.",
+        "A box in Planning's details scrolled partly out of view shows what's in it instead of looking empty."
+      ]
+    },
+    {
       "version": "0.89.0",
       "date": "2026-11-26",
       "notes": [

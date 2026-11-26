@@ -88,6 +88,11 @@ bool importThreads(Library& lib, const Id& book, const std::string& text, Thread
 // Where each chapter or scene happens: a place (or realm) of the bible.
 std::map<Id, Id> nodePlaces(const Library& lib, const Id& book);
 bool setNodePlace(Library& lib, const Id& book, const Id& node, const Id& place);   // empty place: none
+// Each chapter's and scene's notes (0.90): longer than a synopsis, written on its page in Planning; kept in the setting
+// "nodenotes:<book>", in the plan's text as "Notes:" lines and on the shared bible's Plans page.
+std::map<Id, std::string> nodeNotes(const Library& lib, const Id& book);
+std::string nodeNote(const Library& lib, const Id& book, const Id& node);
+bool setNodeNote(Library& lib, const Id& book, const Id& node, const std::string& text);   // empty: none
 // Who is present in each chapter or scene (0.59): characters (or creatures) of the bible, in the order chosen. A
 // character only named in the text isn't present unless chosen here. Capture's cast list reads it.
 std::map<Id, std::vector<Id>> nodeCast(const Library& lib, const Id& book);
@@ -125,6 +130,7 @@ struct OutlineItem {
     // chapter after an "End of part" line, which stands outside any part.
     int matter = -1;
     bool outsidePart = false;
+    std::string notes;                // "Notes:" lines, one paragraph each (0.90)
 };
 // `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);

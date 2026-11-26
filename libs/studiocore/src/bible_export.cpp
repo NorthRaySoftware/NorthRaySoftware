@@ -560,6 +560,7 @@ struct PlanRow {
     std::string title, synopsis, status, viewpoint, place, when;
     std::vector<std::string> cast, threads, beats;
     std::string headBlob, headSymbol;   // the picture or ornament it opens with (0.89)
+    std::string notes;                  // its notes from its page in Planning (0.90)
 };
 struct BookPlan {
     Id book;
@@ -619,8 +620,10 @@ BookPlan planOf(const Library& lib, const Id& book, const std::string& dateForm 
     if (unit != "week" && unit != "month" && unit != "year") unit = "day";
     int chapter = 0, scene = 0;
     const headers::BookHeaders heads = headers::read(lib, book);
+    const auto notes = plan::nodeNotes(lib, book);
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
         PlanRow r;
+        if (auto nt = notes.find(n->id); nt != notes.end()) r.notes = nt->second;
         if (const auto hd = headers::resolve(lib, *n, heads)) { r.headBlob = hd->header.blob; r.headSymbol = hd->header.symbol; }
         r.kind = n->kind;
         r.title = n->title;
@@ -869,7 +872,7 @@ dl dt{font-weight:600;margin-top:.9em}dl dd{margin:0;color:var(--muted)}
 .plan th{text-align:left;font:700 11px var(--bf);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--rule)}
 .plan td{padding:8px 12px}.plan table.beats td:first-child{width:14em}.plan td p{margin:.3em 0 0}.plan td.num{color:var(--faint);width:3em}.plan tr.scene td:nth-child(2){padding-left:28px}
 .plan tr.part td{font:700 12px var(--bf);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--paper)}
-.plan img.phead{display:block;width:120px;height:38px;object-fit:cover;border-radius:6px;margin:0 0 6px}.plan span.phead{display:inline-block;font-size:20px;margin-right:6px;vertical-align:-2px}
+.plan .pnotes{margin-top:.5em;padding-left:10px;border-left:2px solid var(--rule)}.plan img.phead{display:block;width:120px;height:38px;object-fit:cover;border-radius:6px;margin:0 0 6px}.plan span.phead{display:inline-block;font-size:20px;margin-right:6px;vertical-align:-2px}
 .plan ul.threads{list-style:none;padding:0}.plan ul.threads li{margin:.35em 0}.plan ul.threads i{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:8px}
 @media (max-width:760px){.plan table{display:block;overflow-x:auto}}
 input.filter{font:15px var(--bf);padding:7px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);margin:6px 0 12px;width:280px;max-width:100%}
@@ -1541,7 +1544,8 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
                 }
                 body += std::string("<tr") + (r.kind == NodeKind::Scene ? " class=\"scene\"" : "") + "><td class=\"num\">" + esc(r.number) +
                         "</td><td>" + head + "<strong>" + esc(r.title) + "</strong> <span class=\"meta\">" + esc(r.status) + "</span>" +
-                        (r.synopsis.empty() ? "" : prose(r.synopsis, view.entries(), {})) + extra + "</td><td>" + esc(r.when) + "</td><td>" +
+                        (r.synopsis.empty() ? "" : prose(r.synopsis, view.entries(), {})) + extra +
+                        (r.notes.empty() ? "" : "<div class=\"pnotes\"><span class=\"meta\">Notes</span>" + prose(r.notes, view.entries(), {}) + "</div>") + "</td><td>" + esc(r.when) + "</td><td>" +
                         esc(r.viewpoint) + "</td><td>" + esc(r.place) + "</td><td>" + esc(cast) + "</td></tr>";
             }
             body += "</tbody></table></section>";
@@ -1957,6 +1961,14 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                 }
                 for (auto& para : paragraphs(r.synopsis)) {
                     d.paragraph("body");
+                    d.text(para);
+                    d.endBlock();
+                }
+                bool firstNote = true;
+                for (auto& para : paragraphs(r.notes)) {
+                    d.paragraph("note");
+                    if (firstNote) d.text("Notes: ", doc::Builder::Em);
+                    firstNote = false;
                     d.text(para);
                     d.endBlock();
                 }

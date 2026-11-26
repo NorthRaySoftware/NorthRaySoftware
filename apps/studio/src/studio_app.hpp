@@ -499,6 +499,16 @@ private:
                        const std::optional<studio::headers::Resolved>& fallback, const std::wstring& title,
                        std::function<void(const studio::headers::Header&)> save);
     void chooseViewpointHeader(const Id& entry);
+    // A chapter's or scene's own page in Planning (0.90, studio_planpage.cpp).
+    bool clickOpensPage() const;
+    void cardClick(const Id& nodeId);        // a card clicked: its page, or its details beside the board (the corkboard's choice)
+    void cardOtherClick(const Id& nodeId);   // right-clicked: the other one
+    void selectQuiet(const Id& nodeId);      // selected for a change on the card itself
+    void openPlanPage(const Id& nodeId);
+    void closePlanPage();
+    std::vector<Id> planPageOrder() const;
+    void stepPlanPage(int dir);
+    void drawPlanPage(const Rect& r);
     // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).
@@ -935,6 +945,10 @@ private:
         float tlOrigin = 0, tlX0 = 0;   // where the first day is drawn before scrolling, and now
         Rect tlDropArea{};         // where a card or event can be dropped onto the timeline
         std::string beat;          // Structure: the beat selected
+        Id page;                   // a chapter's or scene's own page (0.90), "" = the views
+        float pageScroll = 0, pageContent = 0;
+        bool pageTextAll = false;  // its text unfolded
+        bool panelOpen = true;     // the selected card's details shown (false: selected only for a change on the card)
     } pl_;
     // Worldbuilding
     // Share the bible (0.38): the choices, kept with the world.

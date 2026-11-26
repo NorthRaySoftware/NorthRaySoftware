@@ -266,6 +266,7 @@ void StudioApp::openPlanning(const Id& bookId) {
 
 void StudioApp::selectCard(const Id& nodeId) {
     commitFields();
+    pl_.panelOpen = true;
     // A second click on the same card soon after: open it in Writing (0.49.2).
     static Id lastCard;
     static DWORD lastAt = 0;
@@ -577,7 +578,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     }
     std::wstring sub = std::to_wstring(chapters) + (chapters == 1 ? L" chapter" : L" chapters");
     if (scenes) sub += L", " + std::to_wstring(scenes) + (scenes == 1 ? L" scene" : L" scenes");
-    sub += L". Click a card to plan it; double-click to write it.";
+    sub += clickOpensPage() ? L". Click a card for its page, right-click for its details here." : L". Click a card to plan it; double-click to write it; right-click for its page.";
     float y = m.y + planHeader(m, sub);
     if (all.empty()) {
         y += gfx_.text(L"No chapters yet.", {m.x, y, cw, 24}, Font::Body, pal_.inkMuted) + 12;
@@ -617,6 +618,14 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         label(L"Colour by");
         segmented("pl:colourby", {tx, y, 250, th}, {L"Viewpoint", L"Thread", L"Status"}, colourBy == "thread" ? 1 : colourBy == "status" ? 2 : 0,
                   [this](int i) { setPlanPref(pl_.book, "colourBy", i == 1 ? "thread" : i == 2 ? "status" : "viewpoint"); });
+        tx += 250 + 20;
+        // What a click on a card opens (0.90): its page, or its details beside the board; right-click opens the other.
+        wrap(80 + 150);
+        label(L"Click opens");
+        segmented("pl:click", {tx, y, 150, th}, {L"Page", L"Details"}, clickOpensPage() ? 0 : 1, [this](int i) {
+            setPlanPref(pl_.book, "click", i == 0 ? "page" : "panel");
+        });
+        tooltip("pl:click", L"A card's own page, or its details beside the board. Right-click a card for the other.");
         y += th + 18;
     }
 
@@ -652,7 +661,8 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         // Only the cards on screen are drawn (0.72): a long book's board was drawn whole every frame.
         if (cr.bottom() < r.y - 40 || cr.y > r.bottom() + 40 || cr.right() < r.x - 40 || cr.x > r.right() + 40) return;
         const std::string id = "pl:card:" + n->id;
-        addHit(id, cr, [this, nid = n->id] { selectCard(nid); });
+        addHit(id, cr, [this, nid = n->id] { cardClick(nid); });
+        tooltip(id, clickOpensPage() ? L"Click for its page; right-click for its details here" : L"Click for its details; right-click for its page");
         {
             Drop drop{Drop::NodeRow, cr, n->id, n->parentId};
             drop.horizontal = !columns;   // rows of cards: before or after by left and right halves; columns: top and bottom
@@ -706,7 +716,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         const std::string sid = "pl:card:" + n->id + "|status";
         const Rect stR{ix + iw - stW - 6, cr.y + 8, stW + 8, 22};
         addHit(sid, stR, [this, nid = n->id] {
-            if (pl_.node != nid) selectCard(nid);
+            if (pl_.node != nid) selectQuiet(nid);
             const ManuscriptNode* x = lib_->node(nid);
             if (!x) return;
             std::vector<std::wstring> items;
@@ -732,7 +742,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (chip.right() + (cardCal.moons.empty() ? 0 : 16) < stR.x - 4) {
                 drawDateChip(chip, d.day, w(cal::monthLabel(cardCal, d.month)));
                 const std::string did = "pl:card:" + n->id + "|date";
-                addHit(did, chip, [this, nid = n->id] { selectCard(nid); }, false);
+                addHit(did, chip, [this, nid = n->id] { cardClick(nid); }, false);
                 std::wstring tip = w(cal::formatDate(cardCal, d));
                 if (!cardCal.moons.empty()) {
                     const double ph = cal::moonPhase(cardCal, cardCal.moons[0], *day);
@@ -749,7 +759,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         if (!editingTitle) {
             const std::string tid = "pl:card:" + n->id + "|title";
             addHit(tid, titleR, [this, nid = n->id] {
-                if (pl_.node != nid) selectCard(nid);
+                if (pl_.node != nid) selectQuiet(nid);
                 pl_.cardEdit = FName;
                 pl_.cardEditFocused = false;
                 invalidate();
@@ -770,7 +780,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
         if (!editingSyn) {
             const std::string yid = "pl:card:" + n->id + "|syn";
             addHit(yid, syn, [this, nid = n->id] {
-                if (pl_.node != nid) selectCard(nid);
+                if (pl_.node != nid) selectQuiet(nid);
                 pl_.cardEdit = FSynopsis;
                 pl_.cardEditFocused = false;
                 invalidate();
@@ -809,7 +819,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             const std::string vid = "pl:card:" + n->id + "|pov";
             const Rect vr{ix - 4, whoY - 2, iw + 6, 22};
             addHit(vid, vr, [this, nid = n->id] {
-                if (pl_.node != nid) selectCard(nid);
+                if (pl_.node != nid) selectQuiet(nid);
                 chooseViewpoint(nid);
             });
             tooltip(vid, L"Choose whose eyes it's seen through");
@@ -883,7 +893,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
                 drawKindMark(pe->kind, {ix + iw - placeW, py + 1, 14, 14});
                 gfx_.text(pn, {ix + iw - placeW + 18, py, placeW - 18, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
                 const std::string plid = "pl:card:" + n->id + "|place";
-                addHit(plid, {ix + iw - placeW, py, placeW, 18}, [this, nid = n->id] { selectCard(nid); }, false);
+                addHit(plid, {ix + iw - placeW, py, placeW, 18}, [this, nid = n->id] { cardClick(nid); }, false);
                 tooltip(plid, L"Where it happens: " + pn);
             }
         // Length against the target.
@@ -1122,6 +1132,10 @@ void StudioApp::drawPlanPanel(const Rect& r) {
             openWriting(pl_.book);
         }, true);
         y += 44;
+        if (n->kind != NodeKind::Part) {
+            button("pl:page", {c.x, y, c.w, 32}, L"Open as page", [this, id = n->id] { openPlanPage(id); });
+            y += 44;
+        }
         float lx = c.x, lw = 0;
         auto link = [&](const std::string& id, const std::wstring& t, std::function<void()> act) {
             linkText(id, lx, y, t, std::move(act));

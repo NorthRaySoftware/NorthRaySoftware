@@ -216,8 +216,22 @@ void StudioApp::drawFrame(float W, float H) {
         const ManuscriptNode* seln = pl_.node.empty() ? nullptr : lib_->node(pl_.node);
         if (seln && seln->deleted) seln = nullptr;
         if (focus_.kind != Focus::Plan) pl_.targetOpen = false;
-        const bool popover = seln && pl_.view == 0 && !focusing;
-        const bool details = !focusing && !popover && (seln || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat ||
+        // A chapter's or scene's own page (0.90) takes the whole page.
+        if (!pl_.page.empty()) {
+            const ManuscriptNode* pg = lib_->node(pl_.page);
+            if (!pg || pg->deleted || pg->bookId != pl_.book) pl_.page.clear();
+        }
+        if (!pl_.page.empty() && !focusing) {
+            drawPlanPage(pageRect_);
+            drawRail(railRect_);
+            drawTopBar({0, 0, W, kTopH});
+            drawStatusBar({0, H, W, 0});
+            hideUnplacedFields();
+            lastDrops_ = drops_;
+            return;
+        }
+        const bool popover = seln && pl_.panelOpen && pl_.view == 0 && !focusing;
+        const bool details = !focusing && !popover && ((seln && pl_.panelOpen) || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat ||
                                                        focus_.kind == Focus::Structure || pl_.targetOpen);
         const float cardW = std::min(kPanelW + 10, pageRect_.w * 0.4f);
         const Rect page{pageRect_.x, pageRect_.y, pageRect_.w - (details ? cardW + 24 : 0), pageRect_.h};
@@ -2294,6 +2308,24 @@ float StudioApp::panelField(const Rect& r, float y, const std::wstring& lbl, Fie
     else if (ie_.field == (int)f)   // being edited where it's shown (0.70)
         gfx_.text(L"Being edited above", box.inset(10, 0), Font::Small, pal_.inkFaint, {Align::Left, false, true, h < 40});
     else if (inView) placeField(f, box);
+    else if (box.bottom() > panelRect_.y && box.y < panelRect_.bottom()) {
+        // Partly scrolled out of view, so the box isn't placed: what's in it, drawn, so it doesn't look empty (0.90).
+        gfx_.pushClip(box.inset(1));
+        gfx_.text(widen(fieldText(f)), {box.x + 8, box.y + (h < 40 ? 0.0f : 6.0f), box.w - 16, h < 40 ? h : 4000.0f}, Font::Body, pal_.ink,
+                  {Align::Left, h >= 40, true, h < 40});
+        gfx_.popClip();
+    }
+    if (!inView && !(ws_ == Workspace::Planning && pl_.cardEdit == (int)f) && ie_.field != (int)f &&
+        ws_ == Workspace::Planning && !pl_.page.empty() && box.bottom() > panelRect_.y && box.y < panelRect_.bottom()) {
+        // Partly scrolled out of a chapter's page (0.90): a click brings it into view and puts the caret in it.
+        const std::string id = "pf:" + std::to_string((int)f);
+        addHit(id, box, [this, f, by = box.y, bh = box.h] {
+            const float want = by < panelRect_.y + 40 ? by - (panelRect_.y + 60) : by + bh - (panelRect_.bottom() - 20);
+            pl_.pageScroll = std::clamp(pl_.pageScroll + want, 0.0f, std::max(0.0f, pl_.pageContent - pageRect_.h));
+            focusFieldSoon_ = f;
+            invalidate();
+        });
+    }
     return y + h + 12;
 }
 

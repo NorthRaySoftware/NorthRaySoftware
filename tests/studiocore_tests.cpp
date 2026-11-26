@@ -654,6 +654,11 @@ static void testPlanRoundTrip() {
     if(x.title=="Prologue"){x.matter=1; lib->updateNode(x);} }
   lib->createNode(b,{},NodeKind::Chapter,"Epilogue");
   auto bs=plan::bookStructure(*lib,b); bs.notes[bs.beats.begin()->first]="A note on the beat."; plan::setBookStructure(*lib,b,bs);
+    // Notes on a chapter's page (0.90), two paragraphs, kept apart from the synopsis.
+    Id forge;
+    for (auto* n : lib->manuscriptOf(b)) if (n->title == "The Forge") forge = n->id;
+    CHECK(plan::setNodeNote(*lib, b, forge, "Tom should fail here first.\n\nRemember the ledger's smell."));
+    CHECK(plan::nodeNote(*lib, b, forge) == "Tom should fail here first.\n\nRemember the ledger's smell.");
     const std::string before = planSnapshot(*lib, b);
     const std::string out = plan::planningText(*lib, b, "world:" + w);
     CHECK(out.find("End of part\n\nChapter: Epilogue") != std::string::npos);
@@ -662,6 +667,20 @@ static void testPlanRoundTrip() {
     CHECK(plan::importPlanning(*lib, b, "world:" + w, out, again));
     CHECK(planSnapshot(*lib, b) == before);
     CHECK(plan::planningText(*lib, b, "world:" + w) == out);
+    CHECK(out.find("Notes: Tom should fail here first.\nNotes: Remember the ledger's smell.\nTom works late.") != std::string::npos);
+    CHECK(plan::nodeNote(*lib, b, forge) == "Tom should fail here first.\n\nRemember the ledger's smell.");
+    CHECK(lib->node(forge)->synopsis.find("Remember") == std::string::npos);
+    {
+        std::string err;
+        int pages = 0;
+        bible::Options o{w, {}, false, {}};
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages));
+        std::ifstream f(fs::path(dir) / "site" / "plans.html");
+        const std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(html.find("<div class=\"pnotes\"><span class=\"meta\">Notes</span>") != std::string::npos && html.find("ledger") != std::string::npos);
+    }
+    CHECK(plan::setNodeNote(*lib, b, forge, "  ") && plan::nodeNotes(*lib, b).empty());   // blank: none
+    CHECK(plan::setNodeNote(*lib, b, forge, "Tom should fail here first.\n\nRemember the ledger's smell."));
     // Into a book with nothing in it, the same outline, front matter and a chapter outside the part.
     const Id fresh = lib->createBook("Three", w);
     plan::PlanningImport into;

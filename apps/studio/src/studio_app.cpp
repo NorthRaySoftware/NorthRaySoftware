@@ -1,4 +1,5 @@
 #include "studio_app.hpp"
+#include "studio/planning.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/northray.hpp"
 #include "cjui/menu.hpp"
@@ -1097,6 +1098,32 @@ void StudioApp::contextMenuFor(const std::string& hitId, float, float) {
     if (hitId.rfind("node:", 0) == 0) { nodeContextMenu(hitId.substr(5)); return; }
     if (hitId.rfind("wb:card:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }
     if (hitId.rfind("wb:tree:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }
+    // A corkboard card: whichever of its page and its details a click doesn't open (0.90).
+    if (hitId.rfind("pl:card:", 0) == 0) {
+        const std::string id = hitId.substr(8, hitId.find('|') == std::string::npos ? std::string::npos : hitId.find('|') - 8);
+        cardOtherClick(id);
+        return;
+    }
+    // Someone on a chapter's page: take them out of who's there.
+    if (hitId.rfind("plp:cast:", 0) == 0) {
+        const std::string eid = hitId.substr(9);
+        const Entry* e = lib_->entry(eid);
+        std::vector<cjui::MenuItem> items{cjui::MenuItem::item(L"Open their page", 1),
+                                          cjui::MenuItem::item(L"Take " + widen(e ? e->name : std::string("them")) + L" out of this chapter", 2)};
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
+        if (c == 1 && e) { commitFields(); openWorldbuilding(e->worldId, e->bookId); openEntry(eid); }
+        else if (c == 2) {
+            auto all = studio::plan::nodeCast(*lib_, pl_.book);
+            auto v = all[pl_.page];
+            v.erase(std::remove(v.begin(), v.end(), eid), v.end());
+            commitFields();
+            studio::plan::setNodeCast(*lib_, pl_.book, pl_.page, v);
+            invalidate();
+        }
+        return;
+    }
     auto idAfter = [&](const std::string& prefix) -> std::string {
         if (hitId.rfind(prefix, 0) != 0) return {};
         std::string rest = hitId.substr(prefix.size());
@@ -1266,6 +1293,7 @@ bool StudioApp::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
     if (!lib_) return false;
     if (ws_ == Workspace::Review && !ctrl && vk == VK_ESCAPE) { ws_ = Workspace::Library; goTo(View::Book, rv_.book); return true; }
     if (ws_ == Workspace::Planning && !ctrl && vk == VK_ESCAPE) {
+        if (!pl_.page.empty()) { closePlanPage(); return true; }   // a chapter's page: back to the board (0.90)
         if (!pl_.node.empty() || pl_.targetOpen || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat || focus_.kind == Focus::Structure) {
             pl_.targetOpen = false;   // the details put away (0.69)
             selectCard({});
@@ -1740,6 +1768,11 @@ bool StudioApp::onWheel(float x, float y, float lines) {
         invalidate();
         return true;
     }
+    if (ws_ == Workspace::Planning && !pl_.page.empty() && pageRect_.contains(x, y)) {
+        pl_.pageScroll = std::clamp(pl_.pageScroll + lines * 30, 0.0f, std::max(0.0f, pl_.pageContent - pageRect_.h));
+        invalidate();
+        return true;
+    }
     if (ws_ == Workspace::Planning) {
         if (panelRect_.contains(x, y)) pl_.panelScroll = std::clamp(pl_.panelScroll + lines * 20, 0.0f, std::max(0.0f, pl_.panelContent - panelRect_.h));
         else if (sideRect_.contains(x, y)) pl_.sideScroll = std::clamp(pl_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pl_.sideContent - sideRect_.h));
@@ -2077,6 +2110,7 @@ void StudioApp::loadFields() {
                 setFieldText(FTimeOfDay, tm);
             }
             setFieldText(FWhen, it != times.end() ? it->second.when : std::string());
+            setFieldText(FNotes, withCrLf(studio::plan::nodeNote(*lib_, n->bookId, n->id)));   // its notes (0.90)
         }
     } else if (focus_.kind == Focus::Comment) {
         if (const Comment* c = lib_->comment(focus_.id)) setFieldText(FDescription, withCrLf(c->body));
@@ -2280,6 +2314,7 @@ void StudioApp::commitFields() {
             ManuscriptNode n = *x;
             n.title = fieldText(FName);
             n.synopsis = fieldText(FSynopsis);
+            if (studio::plan::nodeNote(*lib_, n.bookId, n.id) != fieldText(FNotes)) studio::plan::setNodeNote(*lib_, n.bookId, n.id, fieldText(FNotes));
             {
                 const std::string t = fieldText(FTarget);
                 n.targetWords = t.empty() ? 0 : std::strtoll(t.c_str(), nullptr, 10);
