@@ -1166,8 +1166,11 @@ void StudioApp::drawWorldPage(const Rect& r) {
             // Cards, or (0.59) a list of rows, one per entry, for big bibles.
             const bool rows = settings_.entryList;
             const float gap = rows ? 4 : 14;
-            const int cols = rows ? 1 : std::max(1, (int)((cw + gap) / (290 + gap)));   // 0.46: a little wider, more room for the summary
-            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = rows ? 44 : 118;   // 0.43: picture, two lines, details
+            // Character icons' size (0.101): the picture on a card and in a row, and the card's height and width with it.
+            const float sc = iconScale();
+            const float picW = std::round(72 * sc), picH = std::round(90 * sc), rowPic = std::round(34 * sc);
+            const int cols = rows ? 1 : std::max(1, (int)((cw + gap) / (290 + (picW - 72) + gap)));   // 0.46: a little wider, more room for the summary
+            const float cardW = (cw - gap * (cols - 1)) / cols, cardH = rows ? rowPic + 12 : std::max(118.0f, picH + 28);   // 0.43: picture, two lines, details
             const bool headings = groups.size() > 1 || (groups.size() == 1 && groups.begin()->first != std::string::npos && wb_.bookOrder.size() > 1);
             for (auto& [g, items] : groups) {
             if (headings) {
@@ -1277,9 +1280,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     gfx_.fillRounded(cr, 4, pal_.surface.mix(pal_.sunken, 0.35f * hv));
                     gfx_.fill({cr.x + 1, cr.y + 6, 3, cr.h - 12}, kc);
                     const float indent = std::min(depth, 4) * 18.0f;
-                    const Rect pic{cr.x + 14 + indent, cr.y + 6, 32, 32};
-                    drawPortrait(*x, pic, 16);   // its picture in a circle, else its symbol or initials (0.87)
-                    drawKindMark(x->kind, {pic.right() - 11, pic.bottom() - 11, 14, 14});
+                    const Rect pic{cr.x + 14 + indent, cr.y + 6, rowPic, rowPic};
+                    drawPortrait(*x, pic, rowPic / 2);   // its picture in a circle, else its symbol or initials (0.87)
+                    if (x->symbol.empty() || x->imageBlob.empty() || x->iconStyle == "symbol")   // else its symbol's badge is there
+                        drawKindMark(x->kind, {pic.right() - 11, pic.bottom() - 11, 14, 14});
                     const float nx = pic.right() + 12;
                     const float nameW = std::min(260.0f, (cr.right() - nx) * 0.34f);
                     gfx_.text(w(x->name), {nx, cr.y, nameW, cr.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
@@ -1306,11 +1310,14 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 // The kind's colour: a band down the left edge, and the initials' circle.
                 gfx_.fillRounded({cr.x + 5, cr.y + 12, 3, cr.h - 24}, 1.5f, kc);
                 // The picture (a portrait's top), or the initials in a ring of the kind's colour.
-                const Rect pic{cr.x + 14, cr.y + 14, 72, 90};
-                if (x->imageBlob.empty() || !gfx_.drawImageRounded(w(lib_->blobPath(x->imageBlob)), pic, 6)) {
-                    drawPortrait(*x, {pic.x + 4, pic.y + 13, 64, 64}, 32);   // its symbol or initials (0.87)
+                const Rect pic{cr.x + 14, cr.y + 14, picW, picH};
+                const bool symbolAlone = x->iconStyle == "symbol" && !x->symbol.empty();
+                if (symbolAlone || x->imageBlob.empty() || !gfx_.drawImageRounded(w(lib_->blobPath(x->imageBlob)), pic, 6)) {
+                    const float d = std::round(64 * sc);
+                    drawPortrait(*x, {pic.x + (picW - d) / 2, pic.y + (picH - d) / 2, d, d}, d / 2);   // its symbol or initials (0.87)
                 } else {
                     gfx_.strokeRounded(pic, 6, pal_.rule, 1);
+                    drawSymbolBadge(*x, pic);   // its symbol on the picture's corner (0.101)
                 }
                 const float tx = pic.right() + 14, tw = cr.right() - 14 - tx;
                 {
@@ -2211,14 +2218,15 @@ void StudioApp::drawWorldPage(const Rect& r) {
             lastLabel = readLabel;
             // Its portrait and kind's symbol before the name (0.87); the label's colour beside it, as on the web.
             gfx_.circle(m.x + 162, y + 12, 3.5f, linkColour(readLabel), true);
-            drawPortrait(*other, {m.x + 170, y + 1, 22, 22}, 11);
-            linkText("wb:rel:" + other->id + l.label, m.x + 200, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
+            const float rp = std::round(26 * iconScale());   // the size setting (0.101)
+            drawPortrait(*other, {m.x + 170, y + 12 - rp / 2, rp, rp}, rp / 2);
+            linkText("wb:rel:" + other->id + l.label, m.x + 178 + rp, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
             drawKindMark(other->kind, {m.right() - gfx_.measureWidth(L"Remove", Font::Small) - 40, y + 4, 16, 16}, "wb:relk:" + other->id + l.label);
             gfx_.text(w(entryKindLabel(other->kind)), {m.x + 200, y, cw - 200 - 84, 24}, Font::Small, pal_.inkFaint,
                       {Align::Right, false, true, true});
             linkText("wb:unrel:" + other->id + l.label, m.right() - gfx_.measureWidth(L"Remove", Font::Small), y + 4, L"Remove",
                      [this, l] { lib_->removeLink(l.from, l.to, l.label); invalidate(); });
-            y += 28;
+            y += std::max(28.0f, rp + 6);
         }
         y += 22;
 
@@ -2361,7 +2369,15 @@ std::vector<StudioApp::ToolItem> StudioApp::entryTools(const Entry& e) {
     std::vector<ToolItem> t;
     t.push_back(ToolItem::heading(L"What it is"));
     t.push_back(ToolItem::item(L"Kind: " + w(entryKindLabel(e.kind)) + L"…", [this] { entryKindChoice(); }));
-    t.push_back(ToolItem::item(L"Symbol (until it has a picture)…", [this, id = e.id] { chooseEntrySymbol(id); }));
+    t.push_back(ToolItem::item(L"Symbol…", [this, id = e.id] { chooseEntrySymbol(id); }));
+    t.push_back(ToolItem::item(L"Colour…", [this, id = e.id] { chooseEntryColour(id); }));
+    {   // How its icon shows (0.101): its picture with the symbol as a badge, or the symbol alone.
+        std::vector<ToolItem> how;
+        how.push_back(ToolItem::item(L"Its picture, with its symbol as a badge", [this, id = e.id] { setEntryIconStyle(id, false); }, e.iconStyle.empty()));
+        how.push_back(ToolItem::item(L"Its symbol alone", [this, id = e.id] { setEntryIconStyle(id, true); }, e.iconStyle == "symbol"));
+        if (e.symbol.empty()) how.back().enabled = false;
+        t.push_back(ToolItem::menu(L"Its icon shows", how));
+    }
     // A viewpoint character's chapter header picture (0.89).
     if (e.kind == "character" || e.kind == "creature") {
         t.push_back(ToolItem::item(e.headerBlob.empty() ? L"Chapter header picture…" : L"Change the chapter header picture…",

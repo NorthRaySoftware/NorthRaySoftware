@@ -140,6 +140,7 @@ void StudioApp::loadSettings() {
     if (j.contains("writingView") && j["writingView"].is_object()) settings_.writingView = j["writingView"].dump();
     settings_.backupFolder = cj::valueOr(j, "backupFolder", "");
     settings_.toolsAsMenus = cj::valueOr(j, "toolsAsMenus", false);
+    settings_.iconSize = std::clamp(cj::valueOr(j, "iconSize", 1), 0, 2);
     if (j.contains("toolBars") && j["toolBars"].is_object())
         for (auto it = j["toolBars"].begin(); it != j["toolBars"].end(); ++it)
             if (it.value().is_object() && it.key().size() < 40) settings_.toolBars[it.key()] = studio::toolbar::Custom::fromJson(it.value().dump());
@@ -163,6 +164,7 @@ void StudioApp::saveSettings() {
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
     j["toolsAsMenus"] = settings_.toolsAsMenus;
+    j["iconSize"] = settings_.iconSize;
     {
         json bars = json::object();
         for (const auto& [k, c] : settings_.toolBars)

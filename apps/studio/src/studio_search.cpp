@@ -228,7 +228,7 @@ void StudioApp::drawSearchResults() {
     const auto hits = searchHits();
     lastSearchHits_ = hits;
     const Rect sr = topSearchRect_;
-    const float rowH = 34;
+    const float rowH = std::max(34.0f, std::round(28 * iconScale()) + 8);   // room for the icon at its size (0.101)
     const float h = hits.empty() ? 52 : 12 + rowH * hits.size();
     const float a = anim("search#open", 1.0f, 22.0f);
     const Rect card{sr.x - 8, sr.bottom() + 6 - 8 * (1 - a), sr.w + 16, h};
@@ -252,14 +252,15 @@ void StudioApp::drawSearchResults() {
         if (hit.kind == 1) {
             // A bible page: its portrait, with its kind's symbol (0.87).
             if (const Entry* e = lib_ ? lib_->entry(hit.id) : nullptr) {
-                const float ps = std::min(26.0f, rowH - 6);
+                const float ps = std::min(std::round(28 * iconScale()), rowH - 6);
                 drawPortrait(*e, {r.x + 6, r.y + (rowH - ps) / 2, ps, ps}, ps / 2);
                 drawKindMark(e->kind, {r.x + 6 + ps - 10, r.y + (rowH + ps) / 2 - 11, 12, 12});
             }
         } else
             cjui::drawIcon(gfx_, hit.icon, {r.x + 10, r.y + (rowH - 16) / 2, 16, 16}, (int)i == topSel_ ? pal_.ink : pal_.inkMuted, 1.4f);
         const float rw = std::min(gfx_.measureWidth(hit.right, Font::Small) + 8, r.w * 0.45f);
-        gfx_.text(hit.label, {r.x + 36, r.y, r.w - 48 - rw, rowH}, (int)i == topSel_ ? Font::BodyStrong : Font::Body, pal_.ink,
+        const float lx = std::max(36.0f, std::round(28 * iconScale()) + 14);
+        gfx_.text(hit.label, {r.x + lx, r.y, r.w - lx - 12 - rw, rowH}, (int)i == topSel_ ? Font::BodyStrong : Font::Body, pal_.ink,
                   {Align::Left, false, true, true});
         gfx_.text(hit.right, {r.right() - rw - 8, r.y, rw, rowH}, Font::Small, pal_.inkFaint, {Align::Right, false, true, true});
     }

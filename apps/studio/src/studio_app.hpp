@@ -115,6 +115,7 @@ struct Settings {
     std::string backupFolder;
     // Tools (phase 3, 0.100): as a toolbar under the tabs, or as the "… tools" menus; each bar's changes, by bar.
     bool toolsAsMenus = false;
+    int iconSize = 1;   // character icons in the bible (0.101): 0 small, 1 medium, 2 large
     std::map<std::string, studio::toolbar::Custom> toolBars;
 };
 
@@ -528,6 +529,14 @@ private:
     // Pictures for pages (0.87): the page's picture filling `r` with corners of `radius` (a circle when it's half the
     // side), else its chosen symbol (an emoji or a drawn one) or its initials, on its kind's colour.
     void drawPortrait(const studio::Entry& e, const Rect& r, float radius);
+    // Character icons (phase 4a, 0.101): an entry's colour (its own, else a character's or creature's as on the
+    // timeline, else its kind's); ink that reads on it; its symbol as a badge on a picture; the size setting's scale.
+    cjui::Color entryColour(const studio::Entry& e) const;
+    cjui::Color inkOn(cjui::Color c) const;
+    void drawSymbolBadge(const studio::Entry& e, const Rect& pic);
+    float iconScale() const { return settings_.iconSize == 0 ? 0.8f : settings_.iconSize == 2 ? 1.3f : 1.0f; }
+    void chooseEntryColour(const Id& entryId);
+    void setEntryIconStyle(const Id& entryId, bool symbolAlone);
     // The kind's symbol on a disc of its colour, `r` square; with a tooltip naming the kind when `tipId` is given.
     void drawKindMark(const std::string& kind, const Rect& r, const std::string& tipId = {});
     // Choose a page's symbol: emoji, drawn symbols, or none (its initials).

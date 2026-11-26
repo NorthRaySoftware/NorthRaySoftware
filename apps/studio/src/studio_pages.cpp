@@ -2782,6 +2782,17 @@ float StudioApp::pageSettings(const Rect& r0) {
     y += 34;
     y += gfx_.text(L"With icons only, each button's words show when the pointer rests on it, and menus keep their words.",
                    {cx, y, cw, 40}, Font::Small, pal_.inkFaint) + 12;
+    rowLabel(L"Character icons");   // (0.101): in the bible's cards, rows, relationships and search
+    segmented("set:iconsize", {cx, y, cw, 28}, {L"Small", L"Medium", L"Large"}, settings_.iconSize, [this](int i) {
+        settings_.iconSize = i;
+        saveSettings();
+        invalidate();
+    });
+    y += 34;
+    y += gfx_.text(L"How big pictures, symbols and initials are on the bible's cards and rows, beside relationships and in search. "
+                   L"Each page's ⋯ menu sets its colour, its symbol (a small picture, a typed character, an ornament or emoji) and "
+                   L"whether its icon shows its picture or its symbol alone.",
+                   {cx, y, cw, 60}, Font::Small, pal_.inkFaint) + 12;
     rowLabel(L"Show tools as");   // (0.100)
     segmented("set:toolsas", {cx, y, cw, 28}, {L"A toolbar", L"Menus"}, settings_.toolsAsMenus ? 1 : 0, [this](int i) {
         settings_.toolsAsMenus = i == 1;

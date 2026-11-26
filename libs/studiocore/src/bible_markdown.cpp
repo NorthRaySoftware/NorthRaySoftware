@@ -105,8 +105,8 @@ void splitKind(const std::string& s, std::string& name, std::string& kind) {
 
 // A page as the export writes it.
 struct Exact {
-    std::string name, kind, pronunciation, symbol, picture, headerPicture, map, summary, details, notes;
-    bool hasPicture = false, hasHeader = false, hasMap = false, hasGallery = false, hasPins = false;
+    std::string name, kind, pronunciation, symbol, symbolPicture, colour, iconStyle, picture, headerPicture, map, summary, details, notes;
+    bool hasPicture = false, hasHeader = false, hasMap = false, hasGallery = false, hasPins = false, hasSymbolPicture = false;
     std::vector<std::string> aliases;
     std::vector<std::pair<std::string, std::string>> sections, bookNotes;   // title -> text; book title -> text
     struct Link { std::string label, name, kind; };
@@ -184,6 +184,9 @@ Exact readPage(const std::string& text) {
             else if (lab == "Other name") p.aliases.push_back(val);
             else if (lab == "How it's said") p.pronunciation = val;
             else if (lab == "Symbol") p.symbol = val;
+            else if (lab == "Symbol picture") { p.symbolPicture = val; p.hasSymbolPicture = true; }
+            else if (lab == "Colour") p.colour = val;
+            else if (lab == "Icon") p.iconStyle = val == "symbol alone" ? "symbol" : "";
             else if (lab == "Picture") { p.picture = val; p.hasPicture = true; }
             else if (lab == "Header picture") { p.headerPicture = val; p.hasHeader = true; }
             else if (lab == "Map") { p.map = val; p.hasMap = true; }
@@ -278,7 +281,12 @@ MarkdownExport exportMarkdown(const Library& lib, const Id& world, const Id& boo
             t += "## " + oneLine(e->name) + "\n\nKind: " + kind + "\n";
             for (const std::string& a : e->aliases) t += "Other name: " + oneLine(a) + "\n";
             if (!e->pronunciation.empty()) t += "How it's said: " + oneLine(e->pronunciation) + "\n";
-            if (!e->symbol.empty()) t += "Symbol: " + oneLine(e->symbol) + "\n";
+            if (e->symbol.rfind("blob:", 0) == 0) {   // a picture as its symbol (0.101)
+                if (const std::string p = pictureFor(e->symbol.substr(5)); !p.empty()) t += "Symbol picture: " + p + "\n";
+            } else if (!e->symbol.empty())
+                t += "Symbol: " + oneLine(e->symbol) + "\n";
+            if (!e->colour.empty()) t += "Colour: " + e->colour + "\n";
+            if (e->iconStyle == "symbol") t += "Icon: symbol alone\n";
             if (const std::string p = pictureFor(e->imageBlob); !p.empty()) t += "Picture: " + p + "\n";
             if (const std::string p = pictureFor(e->headerBlob); !p.empty()) t += "Header picture: " + p + "\n";
             if (const std::string p = pictureFor(e->mapBlob); !p.empty()) t += "Map: " + p + "\n";
@@ -437,7 +445,14 @@ bool importExact(Library& lib, const Id& world, const Id& book, const std::vecto
         for (const std::string& u : p.unread) out.unread.push_back(e.name + ": " + u);
         e.aliases = p.aliases;
         e.pronunciation = p.pronunciation;
-        e.symbol = p.symbol;
+        // A picture symbol stays when the file names no symbol (an export without its pictures), as Picture does.
+        if (!(p.symbol.empty() && !p.hasSymbolPicture && e.symbol.rfind("blob:", 0) == 0)) e.symbol = p.symbol;
+        if (p.hasSymbolPicture) {
+            const std::string b = picture(p.symbolPicture);
+            e.symbol = b.empty() ? std::string() : "blob:" + b;
+        }
+        e.colour = p.colour.size() == 7 && p.colour[0] == '#' ? p.colour : std::string();
+        e.iconStyle = p.iconStyle;
         e.summary = p.summary;
         e.details = p.details;
         e.notes = p.notes;
@@ -493,7 +508,8 @@ bool importExact(Library& lib, const Id& world, const Id& book, const std::vecto
     for (size_t i = 0; i < out.updated.size(); ++i) {
         const Entry* now = lib.entry(out.updated[i]);
         const Entry& was = out.before[i];
-        if (now && now->aliases == was.aliases && now->pronunciation == was.pronunciation && now->symbol == was.symbol &&
+        if (now && now->aliases == was.aliases && now->pronunciation == was.pronunciation && now->symbol == was.symbol && now->colour == was.colour &&
+            now->iconStyle == was.iconStyle &&
             now->summary == was.summary && now->details == was.details && now->notes == was.notes && now->sections == was.sections &&
             now->bookNotes == was.bookNotes && now->revealed == was.revealed && now->imageBlob == was.imageBlob &&
             lib.linksOf(out.updated[i]).size() == out.linksBefore[i].size())

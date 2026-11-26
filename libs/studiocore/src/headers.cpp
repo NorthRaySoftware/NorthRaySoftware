@@ -96,7 +96,7 @@ void write(Library& lib, const Id& book, const BookHeaders& b) {
 }
 
 bool printableSymbol(const std::string& s) {
-    if (s.empty() || s.rfind("icon:", 0) == 0) return false;
+    if (s.empty() || s.rfind("icon:", 0) == 0 || s.rfind("blob:", 0) == 0) return false;   // drawn or picture symbols: screen only
     return std::any_of(s.begin(), s.end(), [](char c) { return !std::isspace((unsigned char)c); });
 }
 

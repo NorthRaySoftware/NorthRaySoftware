@@ -4,6 +4,8 @@
 
 #include "studio_app.hpp"
 #include "cjui/menu.hpp"
+#include "cjui/dialog.hpp"
+#include <algorithm>
 #include <optional>
 #include <nlohmann/json.hpp>
 #include "studio/calendar.hpp"
@@ -60,23 +62,59 @@ std::wstring initialsOf(const std::string& name) {
 }
 }  // namespace
 
-void StudioApp::drawPortrait(const Entry& e, const Rect& r, float radius) {
-    if (!e.imageBlob.empty() && gfx_.drawImageRounded(w(lib_->blobPath(e.imageBlob)), r, radius)) {
-        gfx_.strokeRounded(r, radius, pal_.rule.withAlpha(0.8f), 1);
+cjui::Color StudioApp::entryColour(const Entry& e) const {
+    if (e.colour.size() == 7 && e.colour[0] == '#') return cjui::hexColor(e.colour.c_str());
+    if (e.kind == "character" || e.kind == "creature") return povColour(e.id);   // as their lanes on the timeline
+    return entryKindColor(e.kind, pal_.dark);
+}
+
+// Dark ink on a light colour, white on a dark one (the colour's relative luminance, sRGB).
+cjui::Color StudioApp::inkOn(cjui::Color c) const {
+    auto lin = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+    const float l = 0.2126f * lin(c.r) + 0.7152f * lin(c.g) + 0.0722f * lin(c.b);
+    return l > 0.36f ? cjui::hexColor("#15171E") : cjui::hexColor("#FFFFFF");
+}
+
+// Its symbol in a small disc of its colour at the picture's lower right, ringed in the surface so it stands off the photo.
+void StudioApp::drawSymbolBadge(const Entry& e, const Rect& pic) {
+    const float side = std::min(pic.w, pic.h);
+    if (e.symbol.empty() || side < 28) return;
+    const float bs = std::clamp(side * 0.38f, 14.0f, 34.0f);
+    const Rect b{pic.right() - bs * 0.85f, pic.bottom() - bs * 0.85f, bs, bs};
+    const cjui::Color c = entryColour(e);
+    gfx_.fillRounded(b.inset(-2), bs / 2 + 2, pal_.surface);
+    gfx_.fillRounded(b, bs / 2, c);
+    if (e.symbol.rfind("blob:", 0) == 0) {
+        gfx_.drawImageRounded(w(lib_->blobPath(e.symbol.substr(5))), b, bs / 2);
         return;
     }
-    const cjui::Color kc = entryKindColor(e.kind, pal_.dark);
-    gfx_.fillRounded(r, radius, pal_.surface);   // opaque, so lines under it (the web, the tree) don't show through
-    gfx_.fillRounded(r, radius, kc.withAlpha(pal_.dark ? 0.22f : 0.15f));
-    gfx_.strokeRounded(r.inset(0.75f), std::max(0.0f, radius - 0.75f), kc.withAlpha(0.45f), 1.2f);
+    const float isz = bs * 0.62f;
+    drawSymbol(e.symbol, {b.x + (bs - isz) / 2, b.y + (bs - isz) / 2, isz, isz}, inkOn(c), cjui::Icon::None);
+}
+
+void StudioApp::drawPortrait(const Entry& e, const Rect& r, float radius) {
+    // Phase 4a (0.101): its picture with its symbol as a badge; or, with "symbol alone" or no picture, its symbol (or
+    // initials) in that colour's ink on a solid disc of its colour, which reads in light and dark themes alike.
+    const bool symbolAlone = e.iconStyle == "symbol" && !e.symbol.empty();
+    if (!symbolAlone && !e.imageBlob.empty() && gfx_.drawImageRounded(w(lib_->blobPath(e.imageBlob)), r, radius)) {
+        gfx_.strokeRounded(r, radius, pal_.rule.withAlpha(0.8f), 1);
+        drawSymbolBadge(e, r);
+        return;
+    }
+    const cjui::Color c = entryColour(e);
+    const cjui::Color ink = inkOn(c);
+    gfx_.fillRounded(r, radius, c);
+    gfx_.strokeRounded(r.inset(0.5f), std::max(0.0f, radius - 0.5f), c.mix(pal_.ink, pal_.dark ? 0.0f : 0.25f).withAlpha(pal_.dark ? 0.0f : 0.5f), 1);
     const float side = std::min(r.w, r.h);
-    if (!e.symbol.empty()) {
-        const float isz = side * 0.56f;
-        drawSymbol(e.symbol, {r.x + (r.w - isz) / 2, r.y + (r.h - isz) / 2, isz, isz}, kc.mix(pal_.ink, 0.25f), cjui::Icon::None);
+    if (e.symbol.rfind("blob:", 0) == 0 && gfx_.drawImageRounded(w(lib_->blobPath(e.symbol.substr(5))), r.inset(side * 0.12f), std::max(0.0f, radius - side * 0.12f)))
+        return;
+    if (!e.symbol.empty() && e.symbol.rfind("blob:", 0) != 0) {
+        const float isz = side * 0.58f;
+        drawSymbol(e.symbol, {r.x + (r.w - isz) / 2, r.y + (r.h - isz) / 2, isz, isz}, ink, cjui::Icon::None);
         return;
     }
     const Font f = side >= 60 ? Font::Heading : side >= 30 ? Font::SmallStrong : Font::Label;
-    gfx_.text(initialsOf(e.name), r, f, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+    gfx_.text(initialsOf(e.name), r, f, ink, {Align::Center, false, false, true});
 }
 
 void StudioApp::drawKindMark(const std::string& kind, const Rect& r, const std::string& tipId) {
@@ -140,9 +178,96 @@ void StudioApp::chooseSymbol(const std::string& current, const std::wstring& non
     if (out != current) pick(out);
 }
 
+void StudioApp::chooseEntryColour(const Id& entryId) {
+    const Entry* e = lib_->entry(entryId);
+    if (!e) return;
+    // A dozen colours that hold up in both themes, and the automatic one (0.101).
+    static const std::pair<const wchar_t*, const char*> swatches[] = {
+        {L"Blue", "#3B7DD8"}, {L"Red", "#D2513A"}, {L"Green", "#2E9E6B"}, {L"Purple", "#9B59B6"}, {L"Amber", "#D48A1F"}, {L"Teal", "#1F9CA8"},
+        {L"Rose", "#C2417E"}, {L"Olive", "#6C7A2E"}, {L"Indigo", "#5B5FD6"}, {L"Brown", "#A0522D"}, {L"Slate", "#5E6878"}, {L"Gold", "#C9A227"}};
+    std::vector<cjui::MenuItem> items;
+    items.push_back(cjui::MenuItem::item(e->kind == "character" || e->kind == "creature" ? L"Automatic (as on the timeline)" : L"Automatic (its kind's)",
+                                         1, {}, true, e->colour.empty()));
+    for (size_t i = 0; i < sizeof swatches / sizeof *swatches; ++i)
+        items.push_back(cjui::MenuItem::item(std::wstring(L"\u25CF  ") + swatches[i].first, 10 + (UINT)i, {}, true, e->colour == swatches[i].second));
+    items.push_back(cjui::MenuItem::item(L"Another colour (#RRGGBB)…", 2));
+    POINT pt;
+    GetCursorPos(&pt);
+    const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
+    if (!c) return;
+    std::string hex;
+    if (c >= 10) hex = swatches[c - 10].second;
+    else if (c == 2) {
+        std::wstring v = w(e->colour);
+        if (!cjui::askText(hwnd(), L"A colour of its own", L"A colour as #RRGGBB, such as #3B7DD8.", v)) return;
+        std::string t = narrow(v);
+        t.erase(std::remove_if(t.begin(), t.end(), [](char ch) { return std::isspace((unsigned char)ch); }), t.end());
+        if (!t.empty() && t[0] != '#') t = "#" + t;
+        const bool ok = t.size() == 7 && std::all_of(t.begin() + 1, t.end(), [](char ch) { return std::isxdigit((unsigned char)ch); });
+        if (!ok) { flash(L"That isn't a colour as #RRGGBB, so nothing changed."); return; }
+        for (auto& ch : t) ch = (char)std::toupper((unsigned char)ch);
+        hex = t;
+    }
+    const Entry* x0 = lib_->entry(entryId);
+    if (!x0 || x0->colour == hex) return;
+    const Entry before = *x0;
+    Entry x = *x0;
+    x.colour = hex;
+    lib_->updateEntry(x);
+    flashUndo(L"Colour changed.", [this, before] { lib_->updateEntry(before); invalidate(); });
+    invalidate();
+}
+
+void StudioApp::setEntryIconStyle(const Id& entryId, bool symbolAlone) {
+    const Entry* x0 = lib_->entry(entryId);
+    if (!x0) return;
+    const Entry before = *x0;
+    Entry x = *x0;
+    x.iconStyle = symbolAlone ? "symbol" : "";
+    if (x.iconStyle == before.iconStyle) return;
+    lib_->updateEntry(x);
+    flashUndo(symbolAlone ? L"Its icon shows its symbol alone." : L"Its icon shows its picture, with its symbol as a badge.",
+              [this, before] { lib_->updateEntry(before); invalidate(); });
+    invalidate();
+}
+
 void StudioApp::chooseEntrySymbol(const Id& entryId) {
     const Entry* e = lib_->entry(entryId);
     if (!e) return;
+    // A picture or a typed character of its own (0.101), before the ornaments, emoji and drawn symbols.
+    {
+        std::vector<cjui::MenuItem> first{cjui::MenuItem::item(L"A small picture of its own…", 1, {}, true, e->symbol.rfind("blob:", 0) == 0),
+                                          cjui::MenuItem::item(L"A character you type (a letter, a rune, an emoji)…", 2),
+                                          cjui::MenuItem::item(L"Ornaments, emoji and drawn symbols…", 3)};
+        POINT pt;
+        GetCursorPos(&pt);
+        const UINT c = cjui::showMenu(hwnd(), first, pt, pal_);
+        if (!c) return;
+        std::string sym;
+        if (c == 1) {
+            const std::string blob = pickPicture(L"Its symbol");
+            if (blob.empty()) return;
+            sym = "blob:" + blob;
+        } else if (c == 2) {
+            std::wstring v = e->symbol.rfind("blob:", 0) == 0 || e->symbol.rfind("icon:", 0) == 0 ? std::wstring() : w(e->symbol);
+            if (!cjui::askText(hwnd(), L"Its symbol", L"Type or paste the symbol: a letter, a rune, an emoji (up to four characters).", v)) return;
+            while (!v.empty() && iswspace(v.back())) v.pop_back();
+            while (!v.empty() && iswspace(v.front())) v.erase(v.begin());
+            if (v.size() > 8) v.resize(8);   // a few characters (an emoji can take several)
+            sym = narrow(v);
+        }
+        if (c == 1 || c == 2) {
+            const Entry* x0 = lib_->entry(entryId);
+            if (!x0 || x0->symbol == sym) return;
+            const Entry before = *x0;
+            Entry x = *x0;
+            x.symbol = sym;
+            lib_->updateEntry(x);
+            flashUndo(L"Symbol changed.", [this, before] { lib_->updateEntry(before); invalidate(); });
+            invalidate();
+            return;
+        }
+    }
     chooseSymbol(e->symbol, L"Its initials", [this, entryId](const std::string& sym) {
         const Entry* x0 = lib_->entry(entryId);
         if (!x0) return;

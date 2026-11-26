@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.101.0: the bible's character icons (suite 0.178.0, 26 Nov 2026)
+
+Phase 4a of CJ's combined request (4.1–4.3). 4b (Writing and Planning) and 4c (print) follow.
+- **studiocore**: `Entry::colour` ("#RRGGBB" or "") and `Entry::iconStyle` ("" or "symbol") in the page JSON (`colour`, `iconStyle`), carried by `mergeEntries`; `symbol` may be `blob:<hash>` (a picture as its symbol), which `headers::printableSymbol` refuses (screen only) and sync carries (its hash is in the page). Markdown export writes `Colour:`, `Icon: symbol alone` and `Symbol picture: <file>`; import reads them, and keeps a picture symbol when the file names none (an export without pictures), as `Picture` does. Tested in the 0.95 round trip (2,570 checks).
+- **The app**: `entryColour` (own, else `povColour` for characters and creatures, the timeline's lanes, else the kind's); `inkOn` (dark ink above relative luminance 0.36, else white); `drawPortrait` now draws a solid disc of that colour with the symbol or initials in `inkOn`, or the picture with `drawSymbolBadge` (a disc of its colour ringed in the surface at the lower right, from 28 DIPs). Every caller (bible, search, Planning, the timeline, the family tree) gets the look. The card's portrait picture also takes the badge, and `symbolAlone` draws the disc instead.
+- **Choosing**: entry ⋯ › Symbol… (a small picture via `pickPicture`, a typed character via `askText`, or the old ornament / emoji / drawn menu), Colour… (12 swatches, #RRGGBB, automatic), Its icon shows (picture with badge / symbol alone, the latter only with a symbol); each with Undo.
+- **Size**: `Settings::iconSize` (0, 1, 2) → `iconScale()` 0.8 / 1 / 1.3 on the cards (picture 72 × 90 at Medium, card height and width with it), rows (34, from 32), relationship rows (26, from 22) and search (28, rows grow to fit). Settings › Appearance › Character icons.
+- Not in 4a: hover cards for names (with 4b, in Writing); the relationship web's and family tree's sizes keep their own.
+- **Tested:** studiocore 2,570, ctest; cross-compiled. **Not run on Windows**: the look (contrast in both themes, badges, picture symbols) and the choosers need checking there.
+
 ## 0.100.0: tools you can see (suite 0.177.0, 26 Nov 2026)
 
 Phase 3 of CJ's combined request. CJ's choices (26 Nov): a row under the tabs (option A); **one row only**, never two; a hide toggle remembered per workspace (focus mode hides Writing's anyway); groups customisable (reorder, pin, hide).

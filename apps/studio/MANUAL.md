@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.100.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.177.0 |
+| Version at the time of writing | 0.101.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.178.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -90,6 +90,7 @@ Status labels used in this manual:
 - Templated sections, including choice sections.
 - Facets: gender, sexuality, race, realm, type.
 - Symbols, galleries, image boards, notes per book.
+- Character icons (0.101): each page's picture, symbol (an ornament, emoji, drawn symbol, typed character or small picture of its own) and colour (its own, or automatic: a character's or creature's as on the timeline, else its kind's). Without a picture, or set to show its symbol alone, the icon is the symbol or initials on a solid disc of its colour in ink chosen to read on it; with a picture and a symbol, the symbol is a badge on the picture's corner. ⋯ › Symbol…, Colour…, Its icon shows. Settings › Appearance › Character icons: Small, Medium, Large (cards, rows, relationships, search).
 - Spoilers per fact, by the book that reveals them.
 
 **Relationships**
@@ -180,9 +181,7 @@ Status labels used in this manual:
 ### Planned (the director's answers; not in the release notes yet)
 
 From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96, page zoom in 0.97):
-- Responsive layouts that stack and wrap on narrow windows and use wide ones (phase 2c). Interface zoom shipped in 0.96, the writing page's zoom and Auto width in 0.97.
-- Tools always visible as toolbars, customisable, with a command palette.
-- Character portraits, symbols and colours throughout the bible, Writing, Planning and the printed viewpoint icon.
+- Character icons, the rest of phase 4: 4b the viewpoint icon at chapter openings (with an optional name), on the corkboard, the timeline and in plan views, and hover cards for names; 4c the printed viewpoint icon (Typesetting's options, a key of symbols, print-quality checks, ebook descriptions, removing a typed copy of the symbol from titles). 4a, the bible's icons, shipped in 0.101.
 - Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.
 
 From 15 and 18 Nov 2026:

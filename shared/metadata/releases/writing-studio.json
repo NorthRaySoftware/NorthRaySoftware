@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.101.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Clearer character icons in the bible: a page without a picture shows its symbol or initials on a solid disc of its colour, in ink that reads in light and dark themes, and a page with a picture and a symbol shows the symbol as a small badge on the picture.",
+        "Each page's ⋯ menu has Colour… (a dozen colours, your own as #RRGGBB, or automatic: a character's matches their lane on the timeline), Symbol… (now also a small picture of its own or a character you type) and Its icon shows: its picture with the symbol as a badge, or the symbol alone.",
+        "Settings › Appearance › Character icons: Small, Medium or Large, for the bible's cards and rows, relationships and search.",
+        "Export as Markdown keeps a page's colour, how its icon shows and a picture used as its symbol, and Import many pages reads them back."
+      ]
+    },
+    {
       "version": "0.100.0",
       "date": "2026-11-26",
       "notes": [

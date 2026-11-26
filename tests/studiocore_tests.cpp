@@ -5727,6 +5727,15 @@ static void testBibleMarkdown095() {
         e.gallery = {{lib->storeBlob(pngOf(32, 32)), "Young | old"}, {e.imageBlob, ""}};
         CHECK(lib->updateEntry(e));
     }
+    {   // A colour, the symbol alone, and a picture as the symbol (0.101).
+        Entry e = *lib->entry(bram);
+        e.colour = "#2E9E6B";
+        e.iconStyle = "symbol";
+        e.symbol = "blob:" + lib->storeBlob(pngOf(24, 24));
+        CHECK(lib->updateEntry(e));
+        const Entry back = *lib->entry(bram);
+        CHECK(back.colour == "#2E9E6B" && back.iconStyle == "symbol" && back.symbol.rfind("blob:", 0) == 0);
+    }
     {
         Entry e = *lib->entry(city);
         e.mapBlob = lib->storeBlob(pngOf(100, 80));
@@ -5738,7 +5747,7 @@ static void testBibleMarkdown095() {
     auto snapshot = [&](Library& l, const Id& w) {
         std::string o;
         for (const Entry* e : l.entriesOf(w)) {
-            o += e->kind + "|" + e->name + "|" + e->pronunciation + "|" + e->symbol + "|" + e->summary + "|" + e->details + "|" + e->notes + "|" + e->imageBlob + "|" + e->mapBlob + "\n";
+            o += e->kind + "|" + e->name + "|" + e->pronunciation + "|" + e->symbol + "|" + e->colour + "|" + e->iconStyle + "|" + e->summary + "|" + e->details + "|" + e->notes + "|" + e->imageBlob + "|" + e->mapBlob + "\n";
             for (auto& a : e->aliases) o += " a " + a + "\n";
             for (auto& [t, x] : e->sections) o += " s " + t + "=" + x + "\n";
             for (auto& [b, x] : e->bookNotes) { const Book* bk = l.book(b); o += " n " + (bk ? bk->title : b) + "=" + x + "\n"; }
@@ -5754,7 +5763,8 @@ static void testBibleMarkdown095() {
     };
     const std::string before = snapshot(*lib, world);
     const pa::MarkdownExport ex = pa::exportMarkdown(*lib, world, {});
-    CHECK(ex.entries == 4 && pa::isMarkdownExport(ex.text) && ex.pictures.size() == 3);   // a picture used twice is written once
+    CHECK(ex.entries == 4 && pa::isMarkdownExport(ex.text) && ex.pictures.size() == 4);   // a picture used twice is written once
+    CHECK(ex.text.find("Colour: #2E9E6B\nIcon: symbol alone\n") != std::string::npos && ex.text.find("Symbol picture: ") != std::string::npos);
     CHECK(ex.text.find("\n\\# not a heading\n") != std::string::npos && ex.text.find("\n\\\\ a backslash line\n") != std::string::npos);
     CHECK(ex.text.find("# Characters\n") != std::string::npos && ex.text.find("# Places\n") != std::string::npos);
     CHECK(ex.text.find("Appears in") == std::string::npos);

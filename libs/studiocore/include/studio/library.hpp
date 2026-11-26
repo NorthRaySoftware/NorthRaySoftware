@@ -224,7 +224,11 @@ struct Entry {
     std::string pronunciation;                             // how its name is said ("ZAH-mez"), for the glossary
     // Its symbol (0.87), shown where it has no picture yet: an emoji or a character ("🐉"), or "icon:<name>" for one of
     // the app's drawn symbols ("icon:paw"). "" = its initials.
-    std::string symbol;
+    std::string symbol;   // also "blob:<id>", a small picture of its own as its symbol (0.101)
+    // Its colour (0.101): "#RRGGBB", or "" for the automatic one (a character's as on the timeline; else its kind's).
+    std::string colour;
+    // How its icon shows (0.101): "" its picture, with its symbol as a badge; "symbol" its symbol alone.
+    std::string iconStyle;
     // A viewpoint character's chapter header picture (0.89): the picture a chapter seen through their eyes opens with
     // when it hasn't chosen its own ("" = their symbol, as an ornament, if it's one that prints).
     std::string headerBlob;

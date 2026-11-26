@@ -402,6 +402,8 @@ std::string entryPageText(const Entry& e) {
     if (!g.empty()) j["gallery"] = g;
     if (!e.pronunciation.empty()) j["say"] = e.pronunciation;
     if (!e.symbol.empty()) j["symbol"] = e.symbol;
+    if (!e.colour.empty()) j["colour"] = e.colour;
+    if (!e.iconStyle.empty()) j["iconStyle"] = e.iconStyle;
     if (!e.headerBlob.empty()) j["header"] = e.headerBlob;
     if (!e.revealed.empty()) {
         json r = json::object();
@@ -431,6 +433,9 @@ void readEntryPage(Entry& e, const std::string& text) {
                 e.gallery.push_back({x.value("blob", std::string()), x.value("caption", std::string())});
     e.pronunciation = j.value("say", std::string());
     e.symbol = j.value("symbol", std::string());
+    e.colour = j.value("colour", std::string());
+    if (e.colour.size() != 7 || e.colour[0] != '#') e.colour.clear();
+    e.iconStyle = j.value("iconStyle", std::string()) == "symbol" ? "symbol" : "";
     e.headerBlob = j.value("header", std::string());
     if (auto r = j.find("revealed"); r != j.end() && r->is_object())
         for (auto it = r->begin(); it != r->end(); ++it) if (it->is_string()) e.revealed.emplace_back(it.key(), it->get<std::string>());
@@ -927,6 +932,8 @@ bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
     if (k.mapBlob.empty()) { k.mapBlob = other->mapBlob; k.pins = other->pins; }
     if (k.pronunciation.empty()) k.pronunciation = other->pronunciation;
     if (k.symbol.empty()) k.symbol = other->symbol;
+    if (k.colour.empty()) k.colour = other->colour;
+    if (k.iconStyle.empty()) k.iconStyle = other->iconStyle;
     if (k.headerBlob.empty()) k.headerBlob = other->headerBlob;
     for (auto& r : other->revealed) if (k.revealedIn(r.first).empty()) k.setRevealedIn(r.first, r.second);
     k.modified = now();
