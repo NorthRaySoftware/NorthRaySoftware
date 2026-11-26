@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.98.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.174.0 |
+| Version at the time of writing | 0.99.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.175.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -61,7 +61,7 @@ Status labels used in this manual:
 - Semantic paragraph styles. Comic-script styles: page, panel, dialogue, caption, SFX.
 - Draft notes: the Draft note style for a paragraph, or Ctrl+Shift+D / right-click › Draft note (not printed) for words. Never printed, exported, sent in review copies or quoted; still counted in word counts.
 - Saves as you type; versions of every chapter; undo that survives reopening.
-- A ribbon-style writing bar; the outline (narrow, hideable); a details card.
+- A ribbon-style writing bar; the outline (narrow, hideable); a details card. On a narrow window or at a large interface size the outline becomes an Outline button on the chapter's bar that opens it beside the page (F3 too), and closes again when a chapter is picked.
 - Focus and typewriter modes; fonts, size, width (narrow, normal, wide, fit, and Auto: wider on a wide window) and spacing; warm night paper.
 - The page's own zoom (0.97), 50–200%: Ctrl and + / − / 0 while writing, Ctrl+wheel over the page, Aa › Page zoom. Separate from the interface size; the writing bar follows the interface.
 
@@ -167,10 +167,11 @@ Status labels used in this manual:
 - Editing in place, on warm paper with cards.
 - Settings › Buttons and menus show: icons only, words only, or both.
 - Interface size (0.96, the content only since 0.98): 50–200% for what's between the top bar and the rail (pages, cards, panels, fields, the writing page), from Settings › Appearance or Ctrl with + / − / 0 and Ctrl with the wheel (over the corkboard, timeline, a family tree or a map, the wheel keeps its own zoom). The bars, menus and boxes keep their size. Kept on this PC.
+- Layouts that follow the window: when a details or choices card would leave the page under 560 points wide, it goes under the page instead; on a wide window the Library's shelves use up to 1,640 points across (the bible already did).
 
 ### Partial or not verified
 - The editor's behaviour inside the real app (WebView2) on Windows: the right-click menu items (including Draft note), pasting pictures, keys reaching the app, the draft-note look.
-- Interface size (0.96, 0.98) and page zoom (0.97): built and cross-compiled, not yet run on Windows.
+- Interface size (0.96, 0.98), page zoom (0.97) and the layouts that follow the window (0.99): built and cross-compiled, not yet run on Windows.
 - The named-button boxes of Import many pages (0.94) and Export as Markdown (0.95) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
 - PDF import: experimental.
 - PDF/X conformance is by construction plus a qpdf check. It has not been run through a preflight validator such as Acrobat's or callas pdfToolbox.
@@ -218,7 +219,7 @@ From 15 and 18 Nov 2026:
 - Night-sky top bar: the app mark, where you are, the search pill, the caption buttons.
 - A 76 DIP rail on the left: Library, Write, Plan, World, Review, Typeset, Preview, Publish, Settings.
 - Pages: a gold kicker, a serif title, tabs, a tools ▾ menu, then cards on warm paper (light #F4F1EA, dark #12141B).
-- Writing keeps a narrow, hideable outline (F3) and an optional details card (F4).
+- Writing keeps a narrow, hideable outline (F3) and an optional details card (F4). When the window (or the interface size) leaves too little room, the outline is a drawer behind an Outline button and cards sit under the page.
 
 **Principles** (the director's answers, 23 Nov)
 - Fewer things taking attention.

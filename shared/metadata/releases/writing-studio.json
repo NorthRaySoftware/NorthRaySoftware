@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.99.0",
+      "date": "2026-11-26",
+      "notes": [
+        "On a narrow window, or at a large interface size, the page keeps its room. In Writing, the outline folds into an Outline button at the left of the chapter's bar and opens beside the page when you need it (F3 too); picking a chapter puts it away. Details and choices cards go under the page instead of squeezing it from the side.",
+        "On a wide window, the Library's shelves use more of the width, so more covers and worlds fit in each row."
+      ]
+    },
+    {
       "version": "0.98.0",
       "date": "2026-11-26",
       "notes": [

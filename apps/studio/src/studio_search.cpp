@@ -116,7 +116,7 @@ void StudioApp::runSearchHit(const SearchHit& h) {
         else if (h.cmd == -1) startImport({});
         else if (h.cmd == -2) openSettings();
         else if (h.cmd == -3) showShortcuts();
-        else if (h.cmd == -4) { settings_.showSide = !settings_.showSide; saveSettings(); }
+        else if (h.cmd == -4) toggleOutline();
         else if (h.cmd == -5) { settings_.showPanel = !settings_.showPanel; saveSettings(); }
         else if (h.cmd <= -6) {
             settings_.theme = h.cmd == -6 ? 1 : h.cmd == -7 ? 2 : 0;

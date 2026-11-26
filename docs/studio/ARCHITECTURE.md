@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.99.0: layouts that follow the window (suite 0.175.0, 26 Nov 2026)
+
+Phase 2c of CJ's combined request, Writing Studio first ("on narrow windows, panels stack or collapse into toggles and toolbars wrap rather than clip; on wide windows, the extra space is used").
+- Already responsive before this: `pageTabs` folds tabs that don't fit under More; `actionRow` and `viewSwitch` wrap; card grids (bible, books, worlds, editions, corkboard) work out their columns from the width; the bible's page goes to 1640 across.
+- **`drawFrame`** decides in the zoomed space (so a large interface size counts as a narrow window). `kMinPageW` (640): with less than `kWriteSideW + kMinPageW` for the area, `outlineNarrow_` is set and the outline docks only while `outlineDrawer_` is open (not saved; `selectNode` closes it). `kMinCardPageW` (560): when a details card beside the page would leave less, `cardsStacked_` takes `sheetH` (42% of the height, 240–420) off the bottom of `pageRect_` and `cardRect` goes under the page, across it. That works for the editor's and the preview's WebView2 windows, which nothing can be drawn over. Worldbuilding's tool card and Planning's details do the same with their own `under`; the corkboard's popover is unchanged.
+- **`toggleOutline()`**: F3 (`CmdSide`), the top bar's button, the search command and F3 from the editor go through it: the drawer when narrow, `settings_.showSide` otherwise. `drawWritingBar` draws the Outline button (`wr:outline`) at its left while the drawer is shut, and says "Tools" instead of "Chapter tools" under 600 wide.
+- **Wide**: the Library's shelf pages (worlds, all books, a world, a series, independent books, artwork, Trash) go to 1640 across instead of 1100; a book's page and Settings stay at 1100.
+- **Tested:** Studio cross-compiles with MinGW; the native (ctest) and editor (31) tests pass. **Not run on Windows.** To check there: Writing at 200% on a 1366 or 1920 window (the Outline button, the drawer, picking a chapter), F4's details under the page, a bible tool's card and Planning's details under the board when narrow, and the Library on a wide screen.
+
 ## 0.98.0: interface size for what's between the bars (suite 0.174.0, 26 Nov 2026)
 
 CJ, after 0.96: the top bar and the side rail should stay as they are; only the window's content should change size.

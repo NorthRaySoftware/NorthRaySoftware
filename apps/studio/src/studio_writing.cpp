@@ -203,8 +203,8 @@ void StudioApp::editorMessage(const std::string& text) {
     if (!m.is_object() || !lib_) return;
     const std::string type = m.value("type", "");
     if (type == "togglePanel") {   // F3 / F4 pressed in the text
-        if (m.value("which", "") == "side") settings_.showSide = !settings_.showSide;
-        else settings_.writingDetails = !settings_.writingDetails;   // the chapter's details (0.70)
+        if (m.value("which", "") == "side") { toggleOutline(); return; }
+        settings_.writingDetails = !settings_.writingDetails;   // the chapter's details (0.70)
         saveSettings();
         invalidate();
         return;
@@ -496,6 +496,17 @@ void StudioApp::styleFileImport() {
     editor_.send(json{{"type", "styleImported"}, {"data", j}}.dump());   // the editor checks every rule
 }
 
+// F3, the top bar's button and the Outline button (0.99): with room, show or hide the docked outline (remembered); without,
+// open or close it as a drawer beside the page, which closes again once a chapter is picked.
+void StudioApp::toggleOutline() {
+    if (outlineNarrow_) outlineDrawer_ = !outlineDrawer_;
+    else {
+        settings_.showSide = !settings_.showSide;
+        saveSettings();
+    }
+    invalidate();
+}
+
 void StudioApp::placeEditor() {
     const bool show = ws_ == Workspace::Writing && lib_ && !currentNode_.empty() && editorNote_.empty();
     if (!show) { editor_.hide(); return; }
@@ -535,6 +546,7 @@ void StudioApp::selectNode(const Id& id, bool focusEditor) {
     if (id != currentNode_) { pic_ = {}; crop_ = {}; }
     currentNode_ = id;
     writingBook_ = n->bookId;
+    outlineDrawer_ = false;   // a chapter picked from the drawer: back to the page (0.99)
     setFocus({Focus::Node, id, {}});
     sendLoad();
     invalidate();
@@ -1403,11 +1415,24 @@ void StudioApp::drawWritingBar(const Rect& r) {
     gfx_.fill(r, pal_.paper);
     gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
     const float pad = r.w > 900 ? 28 : 18;
-    const float x = r.x + pad;
+    float x = r.x + pad;
+    // Too narrow for the outline beside the page (0.99): a button that opens it as a drawer.
+    if (outlineNarrow_ && !outlineDrawer_) {
+        const Rect ob{x, r.y + (r.h - 32) / 2, 32, 32};
+        addHit("wr:outline", ob, [this] { toggleOutline(); });
+        tooltip("wr:outline", L"The outline   F3");
+        const float hv = hoverAmount("wr:outline");
+        gfx_.fillRounded(ob, 8, pal_.surface.mix(pal_.sunken, 0.35f * hv));
+        gfx_.strokeRounded(ob, 8, pal_.rule.mix(pal_.inkFaint, 0.5f * hv));
+        cjui::drawIcon(gfx_, cjui::Icon::Sidebar, {ob.x + 8, ob.y + 8, 16, 16}, pal_.inkMuted.mix(pal_.ink, hv), 1.4f);
+        if (focused("wr:outline")) focusRing(ob);
+        x = ob.right() + 14;
+    }
     // The tools at the right first, so the name knows its room.
-    const float tw = gfx_.measureWidth(L"Chapter tools", Font::Body) + 44;
+    const wchar_t* toolsLabel = r.w < 600 ? L"Tools" : L"Chapter tools";   // narrow (0.99): room for the name
+    const float tw = gfx_.measureWidth(toolsLabel, Font::Body) + 44;
     const float tx = r.right() - pad - tw;
-    menuButton("wr:tools", tx, r.y + (r.h - 32) / 2, L"Chapter tools", [this] { return chapterTools(); });
+    menuButton("wr:tools", tx, r.y + (r.h - 32) / 2, toolsLabel, [this] { return chapterTools(); });
     const float dw = gfx_.measureWidth(L"Details", Font::Body) + 28;
     const Rect db{tx - 8 - dw, r.y + (r.h - 32) / 2, dw, 32};
     addHit("wr:details", db, [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); invalidate(); });

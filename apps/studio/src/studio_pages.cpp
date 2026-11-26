@@ -74,8 +74,6 @@ void StudioApp::drawFrame(float W, float H) {
     const bool bookCard = bookWs && ((ws_ == Workspace::Review && ((rv_.section == 1 && !rv_.snapshot.empty()) || rv_.section == 3)) ||
                                      (ws_ == Workspace::Typesetting && settings_.typesetDesign) ||
                                      (ws_ == Workspace::Preview && settings_.previewChoices) || ws_ == Workspace::Publishing);
-    const float sideW = focusing || worldLayout || planLayout || libLayout || bookWs || (!settings_.showSide && !settingsPage) ? 0
-                      : writeLayout ? kWriteSideW : kSideW;
     const bool panel = !focusing && !worldLayout && !planLayout && !libLayout && !writeLayout && !bookWs && settings_.showPanel && lib_ && !settingsPage;
     panelAsCard_ = worldCard || planLayout || libCard || writeCard || bookCard;
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
@@ -90,10 +88,22 @@ void StudioApp::drawFrame(float W, float H) {
         W = area.right();
         H = area.bottom();
     }
-    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard || writeCard || bookCard ? kPanelW + 34 : 0);
+    // Responsive layout (0.99), decided in the zoomed space: Writing's outline docks only with room for the page beside it,
+    // else it's a drawer behind the Outline button; a card goes under the page when beside it would squeeze the page.
+    const float areaW = W - railW;
+    outlineNarrow_ = writeLayout && areaW < kWriteSideW + kMinPageW;
+    if (!outlineNarrow_) outlineDrawer_ = false;
+    const float sideW = focusing || worldLayout || planLayout || libLayout || bookWs ? 0
+                      : writeLayout ? ((outlineNarrow_ ? outlineDrawer_ : settings_.showSide) ? kWriteSideW : 0)
+                      : (!settings_.showSide && !settingsPage) ? 0 : kSideW;
+    const bool sideCard = libCard || writeCard || bookCard;
+    cardsStacked_ = sideCard && areaW - sideW - (panel ? kPanelW : 0) - kPanelW - 34 < kMinCardPageW;
+    const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (sideCard && !cardsStacked_ ? kPanelW + 34 : 0);
+    const float sheetH = std::clamp((H - kTopH) * 0.42f, 240.0f, 420.0f);   // a card under the page
     // Draws a details or choices card at the right edge.
+    Rect cardRect{W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
     auto rightCard = [&](const std::function<void(const Rect&)>& drawIt) {
-        panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+        panelRect_ = cardRect;
         card(panelRect_, 14);
         gfx_.pushClip(panelRect_.inset(0, 6));
         drawIt(panelRect_);
@@ -102,6 +112,10 @@ void StudioApp::drawFrame(float W, float H) {
     sideRect_ = {railW, kTopH, sideW, H - kTopH};
     panelRect_ = panel ? Rect{W - kPanelW, kTopH, kPanelW, H - kTopH} : Rect{};
     pageRect_ = {railW + sideW, kTopH, centreW, H - kTopH};
+    if (cardsStacked_) {   // under the page, across it
+        pageRect_.h -= sheetH;
+        cardRect = {pageRect_.x + 16, pageRect_.bottom() + 6, pageRect_.w - 32, sheetH - 22};
+    }
 
     gfx_.fill({0, 0, W, H}, pal_.paper);
     const float pad = centreW > 900 ? 40 : 28;
@@ -193,11 +207,13 @@ void StudioApp::drawFrame(float W, float H) {
         if (worldSub) {
             // One of the bible's tools: a strip along its top back to the bible, and any details as a card at the right.
             const float cardW = worldCard ? std::min(kPanelW + 10, pageRect_.w * 0.4f) : 0;
-            const Rect page{pageRect_.x, pageRect_.y + 44, pageRect_.w - (worldCard ? cardW + 24 : 0), pageRect_.h - 44};
+            const bool under = worldCard && pageRect_.w - kPanelW - 34 < kMinCardPageW;   // narrow: the card under the page (0.99)
+            const Rect page{pageRect_.x, pageRect_.y + 44, pageRect_.w - (worldCard && !under ? cardW + 24 : 0), pageRect_.h - 44 - (under ? sheetH : 0)};
             { StudioTimer t_("drawWorldPage"); drawWorldPage(page); }
             drawWorldStrip({pageRect_.x, pageRect_.y, page.w, 44});
             if (worldCard) {
-                panelRect_ = {pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
+                panelRect_ = under ? Rect{page.x + 16, page.bottom() + 6, page.w - 32, sheetH - 22}
+                                   : Rect{pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
                 card(panelRect_, 14);
                 gfx_.pushClip(panelRect_.inset(0, 6));
                 drawWorldPanel(panelRect_);
@@ -247,7 +263,8 @@ void StudioApp::drawFrame(float W, float H) {
         const bool details = !focusing && !popover && ((seln && pl_.panelOpen) || focus_.kind == Focus::Thread || focus_.kind == Focus::Beat ||
                                                        focus_.kind == Focus::Structure || pl_.targetOpen);
         const float cardW = std::min(kPanelW + 10, pageRect_.w * 0.4f);
-        const Rect page{pageRect_.x, pageRect_.y, pageRect_.w - (details ? cardW + 24 : 0), pageRect_.h};
+        const bool under = details && pageRect_.w - kPanelW - 34 < kMinCardPageW;   // narrow: the details under the board (0.99)
+        const Rect page{pageRect_.x, pageRect_.y, pageRect_.w - (details && !under ? cardW + 24 : 0), pageRect_.h - (under ? sheetH : 0)};
         if (pl_.view == 1) { StudioTimer t_("drawPlanTimeline"); drawPlanTimeline(page); }
         else if (pl_.view == 2) { StudioTimer t_("drawPlanStructure"); drawPlanStructure(page); }
         else if (pl_.view == 3) { StudioTimer t_("drawPlanThreads"); drawPlanThreads(page); }
@@ -283,7 +300,8 @@ void StudioApp::drawFrame(float W, float H) {
             dr = {px, py, pw, ph};
             softShadow(dr, 14, 3.5f);
         } else if (details) {
-            dr = {pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
+            dr = under ? Rect{page.x + 16, page.bottom() + 6, page.w - 32, sheetH - 22}
+                       : Rect{pageRect_.right() - cardW - 16, pageRect_.y + 16, cardW, pageRect_.h - 32};
         }
         if (dr.w > 0) {
             panelRect_ = dr;
@@ -363,7 +381,7 @@ void StudioApp::drawFrame(float W, float H) {
         if (panel) drawPanel(panelRect_);
         if (stripRect.w > 0) drawWritingBar(stripRect);
         if (writeCard) {
-            panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+            panelRect_ = cardRect;
             card(panelRect_, 14);
             gfx_.pushClip(panelRect_.inset(0, 6));
             drawPanel(panelRect_);
@@ -414,7 +432,11 @@ void StudioApp::drawFrame(float W, float H) {
     }
     editor_.hide();
     const float top = beginScroll(pageRect_);
-    Rect page{pageRect_.x + pad, top + 26, std::min(centreW - pad * 2, 1100.0f), 0};
+    // Wide windows (0.99): the Library's shelves and lists use up to 1640 across; a book's page and Settings stay at 1100.
+    const bool shelves = ws_ == Workspace::Library && (view_ == View::Worlds || view_ == View::AllBooks || view_ == View::World ||
+                                                       view_ == View::Series || view_ == View::Independent || view_ == View::Artwork ||
+                                                       view_ == View::Trash);
+    Rect page{pageRect_.x + pad, top + 26, std::min(centreW - pad * 2, shelves ? 1640.0f : 1100.0f), 0};
     float h = 0;
     if (!lib_) h = pageEmpty(page);
     else if (ws_ == Workspace::Import) h = pageImport(page);
@@ -443,7 +465,7 @@ void StudioApp::drawFrame(float W, float H) {
     if (sideRect_.w > 0) drawSidebar(sideRect_);
     if (panel) drawPanel(panelRect_);
     if (libCard) {
-        panelRect_ = {W - kPanelW - 16, kTopH + 16, kPanelW, H - kTopH - 32};
+        panelRect_ = cardRect;
         card(panelRect_, 14);
         gfx_.pushClip(panelRect_.inset(0, 6));
         drawPanel(panelRect_);
@@ -730,8 +752,8 @@ void StudioApp::drawTopBar(const Rect& r) {
             cjui::drawIcon(gfx_, icon, {b.x + 7, b.y + 7, 16, 16}, nr::kNightMuted.mix(nr::kNightInk, std::max(hv, on ? 0.6f : 0.0f)), 1.4f);
         };
         const float bx = r.right() - capW - 80;
-        layoutButton("tab:side", bx, cjui::Icon::Sidebar, settings_.showSide, L"Show or hide the left side   F3",
-                     [this] { settings_.showSide = !settings_.showSide; saveSettings(); invalidate(); });
+        layoutButton("tab:side", bx, cjui::Icon::Sidebar, outlineNarrow_ ? outlineDrawer_ : settings_.showSide, L"Show or hide the outline   F3",
+                     [this] { toggleOutline(); });
         const bool writing = ws_ == Workspace::Writing;   // there, the button shows the chapter's details (0.70)
         layoutButton("tab:panel", bx + 34, cjui::Icon::Panel, writing ? settings_.writingDetails : settings_.showPanel, L"Show or hide the details   F4",
                      [this, writing] {

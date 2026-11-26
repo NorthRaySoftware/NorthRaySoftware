@@ -818,7 +818,7 @@ void StudioApp::command(int id) {
             else settings_.showPanel = !settings_.showPanel;
             saveSettings();
             break;
-        case CmdSide: settings_.showSide = !settings_.showSide; saveSettings(); break;
+        case CmdSide: toggleOutline(); break;
         case CmdThemeSystem: settings_.theme = 0; saveSettings(); applyTheme(); break;
         case CmdThemeLight: settings_.theme = 1; saveSettings(); applyTheme(); break;
         case CmdThemeDark: settings_.theme = 2; saveSettings(); applyTheme(); break;

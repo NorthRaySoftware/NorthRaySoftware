@@ -46,6 +46,8 @@ enum class View { Worlds, AllBooks, World, Series, Independent, Trash, Book, Set
 enum class Workspace { Library, Writing, Import, Typesetting, Preview, Publishing, Worldbuilding, Planning, Review };
 
 inline constexpr float kWriteSideW = 230, kWriteBarH = 52, kViewerHeadH = 64;   // Writing's outline and chapter bar (0.70)
+inline constexpr float kMinPageW = 640;      // the narrowest the page gets beside Writing's outline before it folds into a drawer (0.99)
+inline constexpr float kMinCardPageW = 560;  // ... and beside a details card before the card goes under the page (0.99)
 inline constexpr float kTopH = 46, kSideW = 260, kPanelW = 330, kStatusH = 28, kRailW = 76;
 inline constexpr UINT WM_APP_IMPORT = WM_APP + 20;  // an import file has been read (lParam: Plan*)
 inline constexpr UINT WM_APP_TYPESET = WM_APP + 21; // a book has been typeset (wParam: generation, lParam: typeset::Book*)
@@ -835,6 +837,10 @@ private:
     std::map<std::string, float> areaH_;   // how tall each editable piece of text was last drawn
     Color gold_{};   // the kicker labels' warm gold (0.68)
     bool panelAsCard_ = false;   // a details column drawn as a card on the page (0.68)
+    // Responsive layout (0.99): too narrow for Writing's outline beside the page, it folds into a button and opens as a
+    // drawer (not saved); too narrow for a details card beside the page, the card goes under it.
+    bool outlineNarrow_ = false, outlineDrawer_ = false, cardsStacked_ = false;
+    void toggleOutline();
     HBRUSH fieldBrush_ = nullptr;
     HACCEL accel_ = nullptr;
 
