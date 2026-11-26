@@ -950,6 +950,7 @@ struct Flow {
     int lines = 1;                           // Space / Picture: grid lines
     PicturePlacement pic;                    // Picture (x relative to the text block, y from its top)
     SetLine caption;
+    std::vector<SetLine> over;               // Picture: lines set over it, centred (a chapter's title, 0.89)
 };
 
 }  // namespace
@@ -1004,6 +1005,25 @@ Source snapshot(const Library& lib, const Id& bookId) {
             }
         }
         s.sections.push_back(std::move(sec));
+    }
+    // Each chapter's and part's header picture (0.89).
+    {
+        const headers::BookHeaders hb = headers::read(lib, bookId);
+        size_t i = 0;
+        for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
+            Source::Section& sec = s.sections[i++];
+            const auto res = headers::resolve(lib, *n, hb);
+            if (!res) continue;
+            sec.hasHeader = true;
+            sec.header = res->header;
+            sec.headerFrom = res->from;
+            if (const Entry* v = res->viewpoint.empty() ? nullptr : lib.entry(res->viewpoint)) sec.viewpoint = v->name;
+            const std::string& h = res->header.blob;
+            if (!h.empty() && !s.picturePaths.count(h)) {
+                s.picturePaths[h] = lib.blobPath(h);
+                if (const Artwork* a = lib.artworkForBlob(h)) s.pictureSizes[h] = {a->width, a->height};
+            }
+        }
     }
     // Each chapter's date (0.85), when the timeline counts in the calendar's dates: its own, else its first placed scene's.
     if (const cal::StorySpan span = cal::storySpan(lib, bookId); span.on) {
@@ -1149,6 +1169,85 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
     Span italicLook; italicLook.italic = true;
     Span capsLook; capsLook.smallCaps = true;
 
+    // A picture's size in pixels: from the artwork library, else read from its file.
+    auto pixelSize = [&](const std::string& blob) -> std::pair<int, int> {
+        int pw = 0, ph = 0;
+        if (auto it = src.pictureSizes.find(blob); it != src.pictureSizes.end()) { pw = it->second.first; ph = it->second.second; }
+        if ((pw <= 0 || ph <= 0) && src.picturePaths.count(blob)) {
+            std::ifstream in(studio::detail::u8path(src.picturePaths.at(blob)), std::ios::binary);
+            std::string head(256 * 1024, '\0');
+            in.read(head.data(), (std::streamsize)head.size());
+            head.resize((size_t)in.gcount());
+            const ImageInfo info = imageInfo(head);
+            pw = info.width; ph = info.height;
+        }
+        return {pw, ph};
+    };
+    // A chapter's or part's header (0.89), put with the heading set from flow[headStart] on: a picture (the text's
+    // width, a band cropped from its middle, or a small ornament) or a symbol set large, above, below or behind it.
+    auto addHeader = [&](const headers::Header& h, size_t headStart, const std::string& where) {
+        const size_t end = flow.size();
+        if (h.blob.empty()) {
+            if (!headers::printableSymbol(h.symbol)) return;
+            SetLine l = set.centred(h.symbol, plain, fs * 2.4f, measure);
+            l.lines = 3;
+            if (h.title == "above") { space(1); addLines({std::move(l)}, false); return; }
+            addLines({std::move(l)}, true);
+            space(1);
+            std::rotate(flow.begin() + (std::ptrdiff_t)headStart, flow.begin() + (std::ptrdiff_t)end, flow.end());   // before the title
+            return;
+        }
+        const auto [pw, ph] = pixelSize(h.blob);
+        if (pw <= 0 || ph <= 0) { book.warnings.push_back("The header picture of “" + where + "” couldn't be read and was left out."); return; }
+        // The title's lines, for a title over the picture.
+        std::vector<SetLine> over;
+        int overLines = 0;
+        if (h.title == "over") {
+            for (size_t k = headStart; k < end; ++k) {
+                if (flow[k].kind == Flow::Line) { over.push_back(flow[k].line); overLines += flow[k].line.lines; }
+                else if (flow[k].kind == Flow::Space) { SetLine gap; gap.lines = flow[k].lines; over.push_back(gap); overLines += gap.lines; }
+            }
+            for (auto& l : over) for (auto& run : l.runs) run.light = h.tone == "dark";
+            flow.erase(flow.begin() + (std::ptrdiff_t)headStart, flow.end());
+        }
+        Flow f;
+        f.kind = Flow::Picture;
+        f.pic.blob = h.blob;
+        f.pic.tone = h.title == "over" ? (h.tone == "fade" ? 2 : 1) : 0;
+        Placement& c = f.pic.crop;
+        double w = measure, ht = 0;
+        const double aspect = (double)ph / pw;   // height over width
+        if (h.size == "band") {
+            ht = measure / 3.2;
+            // Cropped from the middle to the band's shape.
+            if (aspect > ht / w) { c.cropH = (ht / w) / aspect; c.cropY = (1 - c.cropH) / 2; }
+            else { c.cropW = aspect / (ht / w); c.cropX = (1 - c.cropW) / 2; }
+        } else {
+            if (h.size == "ornament") w = measure * 0.28;
+            ht = w * aspect;
+            const double cap = (h.size == "ornament" ? 6 : capacity * 0.45) * d.leading;
+            if (ht > cap) { w *= cap / ht; ht = cap; }
+        }
+        // A title over it needs room: the picture is at least its lines and two more tall (cropped to fit).
+        if (overLines > 0 && ht < (overLines + 2) * d.leading) {
+            const double want = (overLines + 2) * d.leading;
+            const double fullH = w * aspect;   // the whole picture's height at this width
+            if (fullH >= want) { c.cropX = 0; c.cropW = 1; c.cropH = want / fullH; c.cropY = (1 - c.cropH) / 2; }
+            else { c.cropY = 0; c.cropH = 1; c.cropW = std::max(0.05, fullH / want); c.cropX = (1 - c.cropW) / 2; }
+            ht = want;
+        }
+        f.pic.w = (float)w;
+        f.pic.h = (float)ht;
+        f.pic.x = (float)((measure - w) / 2);
+        f.lines = (int)std::ceil(ht / d.leading) + 1;
+        f.over = std::move(over);
+        if (h.title == "over") { flow.push_back(std::move(f)); return; }
+        if (h.title == "above") { space(1); flow.push_back(std::move(f)); return; }
+        flow.push_back(std::move(f));
+        space(1);
+        std::rotate(flow.begin() + (std::ptrdiff_t)headStart, flow.begin() + (std::ptrdiff_t)end, flow.end());   // before the title
+    };
+
     // Title page.
     if (d.titlePage) {
         newPage(Page::Title, true, {});
@@ -1256,7 +1355,9 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             if (entryNo < entries.size()) entries[entryNo++].openingFlow = flow.size();
             newPage(Page::PartTitle, true, title);
             bodyStarted = true;
-            space(capacity / 3);
+            const bool head = n->hasHeader && !d.comicScript;
+            space(head && !n->header.blob.empty() && n->header.size != "ornament" ? capacity / 8 : head ? capacity / 5 : capacity / 3);
+            const size_t headStart = flow.size();
             Block t;
             t.align = Align::Center;
             t.indent = false;
@@ -1265,6 +1366,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             auto tl = set.paragraph(t, true);
             for (auto& l : tl) l.lines = 3;
             addLines(std::move(tl), false);
+            if (head) addHeader(n->header, headStart, title);
             // A part with its own text (an epigraph, an introduction) prints it on the part page.
             if (!blocks.empty()) space(2);
             for (auto& b : blocks) if (b.type == Block::Para) addLines(set.paragraph(b, true), false);
@@ -1280,7 +1382,10 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             const bool front = n->matter == 1 && !bodyStarted;
             newPage(Page::ChapterOpening, d.chaptersOnRecto || (d.frontRoman && !bodyStarted && !front), title);
             if (!front) bodyStarted = true;
-            space(d.chapterSinkLines);
+            const bool head = n->hasHeader && !d.comicScript;
+            const bool bigHead = head && !n->header.blob.empty() && n->header.size != "ornament";
+            space(bigHead ? std::min(d.chapterSinkLines, 2) : head ? std::max(0, d.chapterSinkLines - 3) : d.chapterSinkLines);
+            const size_t headStart = flow.size();
             const ChapterName cn = splitChapterTitle(title);
             int num = 0;
             if (!cn.special && n->matter == 0) num = cn.number ? (chapterNo = cn.number) : ++chapterNo;
@@ -1331,6 +1436,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 db.spans.push_back(sp);
                 addLines(set.paragraph(db, true), true);
             }
+            if (head) addHeader(n->header, headStart, title);
             space(2);
             firstInChapter = true;
             afterBreak = true;
@@ -1352,17 +1458,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 continue;
             }
             if (b.type == Block::Picture) {
-                int pw = 0, ph = 0;
-                if (auto it = src.pictureSizes.find(b.blob); it != src.pictureSizes.end()) { pw = it->second.first; ph = it->second.second; }
-                if ((pw <= 0 || ph <= 0) && src.picturePaths.count(b.blob)) {
-                    // Not in the artwork library: read the size from the file.
-                    std::ifstream in(studio::detail::u8path(src.picturePaths.at(b.blob)), std::ios::binary);
-                    std::string head(256 * 1024, '\0');
-                    in.read(head.data(), (std::streamsize)head.size());
-                    head.resize((size_t)in.gcount());
-                    const ImageInfo info = imageInfo(head);
-                    pw = info.width; ph = info.height;
-                }
+                const auto [pw, ph] = pixelSize(b.blob);
                 if (pw <= 0 || ph <= 0) { book.warnings.push_back("A picture in “" + title + "” couldn't be read and was left out."); continue; }
                 Flow f;
                 f.kind = Flow::Picture;
@@ -1584,6 +1680,16 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 pic.x += left;
                 pic.y = lineTop + (float)d.leading * 0.35f;
                 page.pictures.push_back(pic);
+                // A title over the picture: its lines centred in it.
+                if (!p.f->over.empty()) {
+                    int total = 0;
+                    for (const SetLine& l : p.f->over) total += l.lines;
+                    float y = pic.y + (pic.h - total * (float)d.leading) / 2;
+                    for (const SetLine& l : p.f->over) {
+                        if (!l.runs.empty() || !l.rules.empty()) place(l, y + (float)d.leading * (l.lines - 1) + (float)(d.leading * 0.78), 0);
+                        y += l.lines * (float)d.leading;
+                    }
+                }
                 if (!p.f->caption.runs.empty())
                     place(p.f->caption, pic.y + pic.h + (float)d.leading * 1.1f, 0);
                 continue;

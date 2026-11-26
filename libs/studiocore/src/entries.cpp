@@ -402,6 +402,7 @@ std::string entryPageText(const Entry& e) {
     if (!g.empty()) j["gallery"] = g;
     if (!e.pronunciation.empty()) j["say"] = e.pronunciation;
     if (!e.symbol.empty()) j["symbol"] = e.symbol;
+    if (!e.headerBlob.empty()) j["header"] = e.headerBlob;
     if (!e.revealed.empty()) {
         json r = json::object();
         for (auto& [k, b] : e.revealed) if (!b.empty()) r[k] = b;
@@ -430,6 +431,7 @@ void readEntryPage(Entry& e, const std::string& text) {
                 e.gallery.push_back({x.value("blob", std::string()), x.value("caption", std::string())});
     e.pronunciation = j.value("say", std::string());
     e.symbol = j.value("symbol", std::string());
+    e.headerBlob = j.value("header", std::string());
     if (auto r = j.find("revealed"); r != j.end() && r->is_object())
         for (auto it = r->begin(); it != r->end(); ++it) if (it->is_string()) e.revealed.emplace_back(it.key(), it->get<std::string>());
     if (auto m = j.find("map"); m != j.end() && m->is_object()) {
@@ -925,6 +927,7 @@ bool Library::mergeEntries(const Id& keepId, const Id& otherId) {
     if (k.mapBlob.empty()) { k.mapBlob = other->mapBlob; k.pins = other->pins; }
     if (k.pronunciation.empty()) k.pronunciation = other->pronunciation;
     if (k.symbol.empty()) k.symbol = other->symbol;
+    if (k.headerBlob.empty()) k.headerBlob = other->headerBlob;
     for (auto& r : other->revealed) if (k.revealedIn(r.first).empty()) k.setRevealedIn(r.first, r.second);
     k.modified = now();
     if (!saveEntry(k)) { rollback(); return false; }

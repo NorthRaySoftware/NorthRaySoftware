@@ -1077,6 +1077,26 @@ void StudioApp::drawPlanPanel(const Rect& r) {
         y = panelField(c, y, L"Synopsis", FSynopsis, 150);
         planPanelExtras(c, y);
         if (n->kind != NodeKind::Part) cardThreads(c, y);
+        // The picture or ornament it opens with (0.89): its own, else what it would take.
+        if (n->kind != NodeKind::Scene) {
+            panelHeading(c, y, L"HEADER PICTURE", false);
+            const headers::BookHeaders hb = headers::read(*lib_, pl_.book);
+            const auto ownIt = hb.nodes.find(n->id);
+            const headers::Header own = ownIt == hb.nodes.end() ? headers::Header{} : ownIt->second;
+            headers::BookHeaders without = hb;
+            without.nodes.erase(n->id);
+            const auto fallback = headers::resolve(*lib_, *n, without);
+            headerChooser("pl:head", c, y, own, true, fallback, w(n->title), [this, id = n->id](const headers::Header& h) {
+                commitFields();
+                headers::BookHeaders b = headers::read(*lib_, pl_.book);
+                if (h.none || !h.empty()) b.nodes[id] = h;
+                else b.nodes.erase(id);
+                headers::write(*lib_, pl_.book, b);
+                invalidate();
+            });
+            if (n->matter != 0)
+                y += gfx_.text(L"Front and back matter open with a header only when it's chosen here.", {c.x, y, c.w, 40}, Font::Small, pal_.inkFaint) + 10;
+        }
         // The world's entries that appear in it.
         if (auto it = pl_.appearances.find(n->id); it != pl_.appearances.end() && !it->second.empty()) {
             panelHeading(c, y, L"APPEARING", false);

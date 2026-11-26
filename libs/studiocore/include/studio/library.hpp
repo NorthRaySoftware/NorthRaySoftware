@@ -225,6 +225,9 @@ struct Entry {
     // Its symbol (0.87), shown where it has no picture yet: an emoji or a character ("🐉"), or "icon:<name>" for one of
     // the app's drawn symbols ("icon:paw"). "" = its initials.
     std::string symbol;
+    // A viewpoint character's chapter header picture (0.89): the picture a chapter seen through their eyes opens with
+    // when it hasn't chosen its own ("" = their symbol, as an ornament, if it's one that prints).
+    std::string headerBlob;
     // Spoilers: facts revealed in a book, so they're kept out of what readers of earlier books see. The key
     // is "detail:<label>", "section:<title>", "summary" or "entry" (the whole entry); the value a book.
     std::vector<std::pair<std::string, Id>> revealed;

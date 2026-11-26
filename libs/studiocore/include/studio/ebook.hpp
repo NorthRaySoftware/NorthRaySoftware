@@ -52,6 +52,13 @@ using CroppedPictureUrl = std::function<std::string(const std::string& blob, con
 // pictures (crop kept as data for the reader's stylesheet).
 Content build(const typeset::Source& src, const PictureUrl& pictureUrl, const Style& style = {});
 Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& pictureUrl, const Style& style = {});
+// The same, with a header picture that has its title over it written as its own darkened (tone 1) or faded (2)
+// file (0.89), since not every reader applies CSS filters.
+using TonedPictureUrl = std::function<std::string(const std::string& blob, int tone)>;
+Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& pictureUrl, const Style& style, const TonedPictureUrl& toned);
+// A chapter's or part's header (0.89) with its heading: an ornament or a figure above or below it, or the heading
+// over the picture. `src` is the picture's address.
+std::string headerHtml(const headers::Header& h, const std::string& src, const std::string& heading, bool baked = false);
 
 // One document's body (document JSON) as HTML, without the chapter title.
 std::string documentHtml(const std::string& docJson, const PictureUrl& pictureUrl);

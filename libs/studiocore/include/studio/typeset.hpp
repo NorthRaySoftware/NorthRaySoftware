@@ -11,6 +11,7 @@
 
 #include "studio/artwork.hpp"
 #include "studio/calendar.hpp"
+#include "studio/headers.hpp"
 #include "studio/library.hpp"
 
 #include <cstdint>
@@ -82,12 +83,14 @@ struct GlyphRun {
     std::vector<std::uint32_t> glyphs;  // glyph ids in that font
     std::vector<float> xs;              // each glyph's x, pt from the left of the page
     std::vector<float> dy;              // each glyph's vertical offset (marks), pt, up is negative
+    bool light = false;                 // set in white (a chapter's title over its darkened header picture, 0.89)
 };
 struct Rule { float x = 0, y = 0, w = 0, h = 0; };   // a filled rectangle (underlines, strike-through)
 struct PicturePlacement {
     std::string blob;
     float x = 0, y = 0, w = 0, h = 0;   // where it prints, pt
     Placement crop;                      // the part of the picture shown
+    int tone = 0;                        // 0 as it is, 1 darkened, 2 faded (a header picture with its title over it, 0.89)
 };
 
 struct Page {
@@ -125,6 +128,11 @@ struct Source {
         // Its day in the book's calendar (0.85): the chapter's own place on the timeline, else its first placed scene's.
         bool dated = false;
         std::int64_t calendarDay = 0;
+        // The picture or ornament it opens with (0.89), resolved from its own, its viewpoint's and the book's defaults.
+        bool hasHeader = false;
+        headers::Header header;
+        std::string headerFrom;         // "own", "viewpoint", "chapters" or "parts"
+        std::string viewpoint;          // the viewpoint's name, when it came from them
     };
     cal::Calendar calendar;             // the book's calendar, when its timeline counts in calendar dates (0.85)
     std::vector<Section> sections;

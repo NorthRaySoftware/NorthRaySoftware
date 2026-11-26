@@ -304,6 +304,30 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
         });
         y += 40;
     }
+    // Chapter headers (0.89): the picture or ornament every chapter, and every part, opens with unless it chooses its own.
+    {
+        y += 6;
+        gfx_.text(L"CHAPTER HEADERS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 22;
+        segmented("side:ts:headtab", {tx0, y, cw, 28}, {L"Chapters", L"Parts"}, ts_.headerTab, [this](int i) { ts_.headerTab = i; invalidate(); });
+        y += 38;
+        const headers::BookHeaders hb = headers::read(*lib_, ts_.book);
+        const bool parts = ts_.headerTab == 1;
+        std::wstring sample = parts ? L"Part One" : L"Chapter title";
+        for (const ManuscriptNode* n : lib_->manuscriptOf(ts_.book))
+            if (n->kind == (parts ? NodeKind::Part : NodeKind::Chapter) && n->matter == 0) { sample = w(n->title); break; }
+        headerChooser(parts ? "side:ts:hp" : "side:ts:hc", {tx0, y, cw, 0}, y, parts ? hb.parts : hb.chapters, false, std::nullopt, sample,
+                      [this, parts](const headers::Header& h) {
+                          headers::BookHeaders b = headers::read(*lib_, ts_.book);
+                          (parts ? b.parts : b.chapters) = h;
+                          headers::write(*lib_, ts_.book, b);
+                          designChanged();
+                      });
+        y += gfx_.text(parts ? L"A part can choose its own in Planning (click its card)."
+                             : L"A chapter can choose its own, or none, in Planning (click its card). Without one, a chapter opens with its viewpoint "
+                               L"character's header picture or symbol, then this.",
+                       {tx0, y, cw, 80}, Font::Small, pal_.inkFaint) + 16;
+    }
     // Text block.
     label(L"Right edge");
     segmented("side:ts:justify", {tx0, y, cw, 28}, {L"Justified", L"Ragged"}, ts_.design.justify ? 0 : 1, [this, changed](int i) {

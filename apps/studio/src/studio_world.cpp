@@ -2353,6 +2353,21 @@ std::vector<StudioApp::ToolItem> StudioApp::entryTools(const Entry& e) {
     t.push_back(ToolItem::heading(L"What it is"));
     t.push_back(ToolItem::item(L"Kind: " + w(entryKindLabel(e.kind)) + L"…", [this] { entryKindChoice(); }));
     t.push_back(ToolItem::item(L"Symbol (until it has a picture)…", [this, id = e.id] { chooseEntrySymbol(id); }));
+    // A viewpoint character's chapter header picture (0.89).
+    if (e.kind == "character" || e.kind == "creature") {
+        t.push_back(ToolItem::item(e.headerBlob.empty() ? L"Chapter header picture…" : L"Change the chapter header picture…",
+                                   [this, id = e.id] { chooseViewpointHeader(id); }));
+        if (!e.headerBlob.empty())
+            t.push_back(ToolItem::item(L"Remove the chapter header picture", [this, id = e.id] {
+                if (const Entry* x = lib_->entry(id)) {
+                    const Entry before = *x;
+                    Entry u = *x;
+                    u.headerBlob.clear();
+                    lib_->updateEntry(u);
+                    flashUndo(L"Removed the chapter header picture.", [this, before] { lib_->updateEntry(before); invalidate(); });
+                }
+            }));
+    }
     if (e.kind == "creature" || e.kind == "character") {
         const Entry* parent = nullptr;
         for (const EntryLink& l : lib_->linksOf(e.id))

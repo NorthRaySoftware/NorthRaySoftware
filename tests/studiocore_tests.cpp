@@ -5188,7 +5188,234 @@ static void testPlanReplacesThreads() {
     fs::remove_all(dir);
 }
 
+// Chapter header pictures (0.89): own, viewpoint, book and part defaults, front matter; typeset, ebook, EPUB, review
+// copy and the Plans page.
+static void testHeaders() {
+    using namespace studio::typeset;
+    const std::string dir = tempLibrary("headers");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id book = lib->createBook("Shards of Light", w);
+    // A real picture: 300 x 200, grey with a lighter band.
+    std::vector<unsigned char> px(300 * 200 * 3, 120);
+    for (int y = 80; y < 120; ++y) for (int x = 0; x < 300; ++x) for (int c = 0; c < 3; ++c) px[(y * 300 + x) * 3 + c] = 220;
+    size_t pngLen = 0;
+    void* png = tdefl_write_image_to_png_file_in_memory(px.data(), 300, 200, 3, &pngLen);
+    const std::string pngBytes(static_cast<const char*>(png), pngLen);
+    mz_free(png);
+    const Id artId = lib->addArtwork(pngBytes, "Forge", "Bible");
+    CHECK(!artId.empty());
+    std::string pic;
+    for (const Artwork& a : lib->artworks()) if (a.id == artId) pic = a.blob;
+    CHECK(pic.size() == 64);
+    std::vector<unsigned char> px2(px);
+    for (auto& v : px2) v = (unsigned char)(255 - v);
+    png = tdefl_write_image_to_png_file_in_memory(px2.data(), 300, 200, 3, &pngLen);
+    const std::string png2(static_cast<const char*>(png), pngLen);
+    mz_free(png);
+    std::string tomPic;
+    { const Id a2 = lib->addArtwork(png2, "Tom's blade", "Bible"); for (const Artwork& a : lib->artworks()) if (a.id == a2) tomPic = a.blob; }
+    CHECK(tomPic.size() == 64 && tomPic != pic);
+
+    const Id tom = lib->createEntry(w, {}, "character", "Tom");
+    const Id sarrah = lib->createEntry(w, {}, "character", "Sarrah");
+    const Id kael = lib->createEntry(w, {}, "character", "Kael");
+    { Entry e = *lib->entry(tom); e.headerBlob = tomPic; e.symbol = "\xF0\x9F\x97\xA1"; CHECK(lib->updateEntry(e)); }
+    { Entry e = *lib->entry(sarrah); e.symbol = "\xE2\x9C\xA7"; CHECK(lib->updateEntry(e)); }
+    { Entry e = *lib->entry(kael); e.symbol = "icon:paw"; CHECK(lib->updateEntry(e)); }   // a drawn symbol doesn't print
+    CHECK(lib->entry(tom)->headerBlob == tomPic);
+    { auto again = openOk(dir); CHECK(again->entry(tom)->headerBlob == tomPic); }   // kept in the page JSON
+
+    const std::string para = R"({"type":"paragraph","content":[{"type":"text","text":"The forge was cold when Tom came down, and the ledger lay open on the anvil where his father had left it the night before."}]})";
+    const std::string doc = R"({"type":"doc","content":[)" + para + "," + para + "]}";
+    const Id prologue = lib->createNode(book, {}, NodeKind::Chapter, "Prologue");
+    const Id part = lib->createNode(book, {}, NodeKind::Part, "Part One");
+    const Id forge = lib->createNode(book, part, NodeKind::Chapter, "The Forge");
+    const Id watch = lib->createNode(book, part, NodeKind::Chapter, "Night Watch");
+    const Id ashes = lib->createNode(book, part, NodeKind::Chapter, "Ashes");
+    const Id wall = lib->createNode(book, part, NodeKind::Chapter, "The Wall");
+    const Id kaelCh = lib->createNode(book, part, NodeKind::Chapter, "Kael");
+    for (const Id& n : {prologue, forge, watch, ashes, wall, kaelCh}) lib->saveNodeContent(n, doc);
+    { ManuscriptNode n = *lib->node(prologue); n.matter = 1; CHECK(lib->updateNode(n)); }
+    { ManuscriptNode n = *lib->node(forge); n.povId = tom; CHECK(lib->updateNode(n)); }
+    { ManuscriptNode n = *lib->node(watch); n.povId = sarrah; CHECK(lib->updateNode(n)); }
+    { ManuscriptNode n = *lib->node(kaelCh); n.povId = kael; CHECK(lib->updateNode(n)); }
+
+    // Nothing chosen: only the viewpoints' own.
+    headers::BookHeaders hb = headers::read(*lib, book);
+    CHECK(hb.chapters.empty() && hb.parts.empty() && hb.nodes.empty());
+    auto res = [&](const Id& n) { return headers::resolve(*lib, *lib->node(n), headers::read(*lib, book)); };
+    CHECK(!res(prologue) && !res(part) && !res(ashes) && !res(kaelCh));
+    CHECK(res(forge) && res(forge)->from == "viewpoint" && res(forge)->header.blob == tomPic && res(forge)->header.size == "band");
+    CHECK(res(watch) && res(watch)->header.symbol == "\xE2\x9C\xA7" && res(watch)->header.size == "ornament" && res(watch)->header.blob.empty());
+
+    // The book's defaults, a part's, a chapter's own (over, faded), one opting out, and the prologue's own.
+    hb.chapters.blob = pic; hb.chapters.size = "full"; hb.chapters.title = "below"; hb.chapters.alt = "A forge at night";
+    hb.parts.blob = pic; hb.parts.size = "band"; hb.parts.title = "over"; hb.parts.tone = "dark";
+    headers::Header own; own.blob = pic; own.size = "band"; own.title = "over"; own.tone = "fade";
+    hb.nodes[ashes] = own;
+    headers::Header none; none.none = true;
+    hb.nodes[wall] = none;
+    headers::Header orn; orn.symbol = "\xE2\x9D\xA6"; orn.size = "ornament"; orn.title = "above";
+    hb.nodes[prologue] = orn;
+    headers::write(*lib, book, hb);
+    {
+        const headers::BookHeaders back = headers::read(*lib, book);
+        CHECK(back.chapters.blob == pic && back.chapters.size == "full" && back.chapters.alt == "A forge at night");
+        CHECK(back.parts.title == "over" && back.nodes.size() == 3 && back.nodes.at(wall).none && back.nodes.at(ashes).tone == "fade");
+        CHECK(headers::toJson(back) == headers::toJson(hb));
+        // Bad values are put right.
+        const headers::Header bad = headers::headerFromJson(R"({"blob":"nothex","size":"huge","title":"beside","tone":"pink"})");
+        CHECK(bad.blob.empty() && bad.size == "band" && bad.title == "below" && bad.tone == "dark");
+    }
+    CHECK(res(prologue) && res(prologue)->from == "own" && res(prologue)->header.symbol == "\xE2\x9D\xA6");
+    CHECK(res(part) && res(part)->from == "parts");
+    CHECK(res(ashes) && res(ashes)->from == "own" && res(ashes)->header.tone == "fade");
+    CHECK(!res(wall));                                                                        // opted out
+    CHECK(res(kaelCh) && res(kaelCh)->from == "chapters" && res(kaelCh)->header.blob == pic);   // a drawn symbol: the book's
+    CHECK(res(forge) && res(forge)->header.blob == tomPic && res(forge)->header.size == "full");   // sized like the book's
+    CHECK(res(watch) && res(watch)->header.size == "ornament");
+    {
+        const auto used = headers::blobsUsed(*lib, book);
+        CHECK(used.size() == 2 && std::find(used.begin(), used.end(), tomPic) != used.end());
+    }
+
+    // Typeset: a picture on each opening that has one; a title over a darkened picture is white, over a faded one ink.
+    const Resources resources{appFolder("fonts"), appFolder("hyphenation")};
+    Design design = preset("classic").design;
+    const Source src = snapshot(*lib, book);
+    int withHeader = 0;
+    for (const auto& sec : src.sections) if (sec.hasHeader) ++withHeader;
+    CHECK(withHeader == 6);   // the prologue, the part, the forge, the watch, ashes, kael
+    CHECK(src.picturePaths.count(pic) && src.picturePaths.count(tomPic) && src.pictureSizes.at(pic).first == 300);
+    const studio::typeset::Book tb = typesetBook(src, design, resources);
+    CHECK(tb.ok);
+    auto pageOf = [&](const std::string& chapter, Page::Kind kind) -> const Page* {
+        for (auto& p : tb.pages) if (p.chapter == chapter && p.kind == kind) return &p;
+        return nullptr;
+    };
+    auto textOf = [&](const Page& p, bool light) {
+        std::string t;
+        for (auto& r : p.runs) if (r.light == light) for (auto g : r.glyphs) t += tb.fonts[r.font].toUnicode.count(g) ? tb.fonts[r.font].toUnicode.at(g) : "";
+        return t;
+    };
+    const Page* pForge = pageOf("The Forge", Page::ChapterOpening);
+    const Page* pAshes = pageOf("Ashes", Page::ChapterOpening);
+    const Page* pWall = pageOf("The Wall", Page::ChapterOpening);
+    const Page* pPart = pageOf("Part One", Page::PartTitle);
+    const Page* pPro = pageOf("Prologue", Page::ChapterOpening);
+    const Page* pWatch = pageOf("Night Watch", Page::ChapterOpening);
+    CHECK(pForge && pAshes && pWall && pPart && pPro && pWatch);
+    if (pForge && pAshes && pWall && pPart && pPro && pWatch) {
+        const double measure = tb.width - (design.marginInside + design.marginOutside) * 72;
+        CHECK(pForge->pictures.size() == 1 && pForge->pictures[0].blob == tomPic && pForge->pictures[0].tone == 0);
+        CHECK(std::abs(pForge->pictures[0].w - measure) < 1);                     // full: the text's width
+        // Below: the picture comes before the title.
+        float titleY = 1e9f;
+        for (auto& r : pForge->runs) if (!r.glyphs.empty() && r.size > design.fontSize * 1.2) titleY = std::min(titleY, r.y);
+        CHECK(titleY > pForge->pictures[0].y + pForge->pictures[0].h);
+        // Ashes: a band, its title over it in ink (faded).
+        CHECK(pAshes->pictures.size() == 1 && pAshes->pictures[0].tone == 2);
+        CHECK(std::abs(pAshes->pictures[0].w / pAshes->pictures[0].h - 3.2) < 0.4);
+        CHECK(pAshes->pictures[0].crop.cropH < 1);                                // cropped from the middle
+        CHECK(textOf(*pAshes, false).find("Ashes") != std::string::npos && textOf(*pAshes, true).empty());
+        bool inside = false;
+        for (auto& r : pAshes->runs)
+            if (!r.glyphs.empty() && r.y > pAshes->pictures[0].y && r.y < pAshes->pictures[0].y + pAshes->pictures[0].h) inside = true;
+        CHECK(inside);
+        // The part: over a darkened picture, in white.
+        CHECK(pPart->pictures.size() == 1 && pPart->pictures[0].tone == 1 && textOf(*pPart, true).find("PartOne") != std::string::npos);
+        CHECK(pWall->pictures.empty());                                            // opted out
+        CHECK(pPro->pictures.empty() && textOf(*pPro, false).find("\xE2\x9D\xA6") != std::string::npos);   // an ornament, set as type
+        CHECK(pWatch->pictures.empty() && textOf(*pWatch, false).find("\xE2\x9C\xA7") != std::string::npos);
+        // Prologue: the ornament after its title ("above").
+        float tY = 1e9f, oY = 0;
+        for (auto& r : pPro->runs) {
+            std::string t;
+            for (auto g : r.glyphs) t += tb.fonts[r.font].toUnicode.count(g) ? tb.fonts[r.font].toUnicode.at(g) : "";
+            if (t.find("\xE2\x9D\xA6") != std::string::npos) oY = r.y;
+            else if (t.find("Prologue") != std::string::npos) tY = std::min(tY, r.y);
+        }
+        CHECK(oY > tY);
+        // Drawn: the darkened band's pixels are dark, the part's title white on them.
+        int partIndex = (int)(pPart - tb.pages.data());
+        const Bitmap bm = renderPage(tb, partIndex, 72);
+        const auto& pp = pPart->pictures[0];
+        const std::uint8_t* corner = &bm.rgba[(((size_t)pp.y + 3) * bm.width + (size_t)pp.x + 3) * 4];
+        CHECK(corner[0] < 70);   // 120 grey darkened
+        bool white = false;
+        for (int y = (int)pp.y; y < (int)(pp.y + pp.h) && !white; ++y)
+            for (int x = (int)pp.x; x < (int)(pp.x + pp.w); ++x)
+                if (bm.rgba[((size_t)y * bm.width + x) * 4] > 200) { white = true; break; }
+        CHECK(white);
+        // The PDF: the toned pictures as images of their own, white text switched on and off.
+        std::string err;
+        const std::string pdf = pdfBytes(tb, err, {true, false, false});
+        CHECK(err.empty() && pdf.find("/GTS_PDFX") != std::string::npos);
+        size_t images = 0;
+        for (size_t at = 0; (at = pdf.find("/Subtype /Image", at)) != std::string::npos; ++at) ++images;
+        CHECK(images == 4);   // the book's picture as it is, darkened and faded, and Tom's
+    }
+
+    // The ebook: the figure before or after the heading, a title over a picture inside it, the ornament as text.
+    {
+        const auto c = ebook::build(src, [](const std::string& b) { return "pic/" + b.substr(0, 6); }, ebook::styleFrom(design));
+        std::map<std::string, std::string> html;
+        for (auto& ch : c.chapters) html[ch.title] = ch.html;
+        CHECK(html["The Forge"].find("<figure class=\"chead size-full title-below\">") < html["The Forge"].find("<h1>"));
+        CHECK(html["Ashes"].find("chead size-band title-over tone-fade") != std::string::npos &&
+              html["Ashes"].find("<div class=\"overtitle\">\n<h1 class=\"numbered\">") != std::string::npos &&
+              html["Ashes"].find("Ashes</span></h1>\n</div></div>") != std::string::npos);
+        CHECK(html["Part One"].find("tone-dark") != std::string::npos);
+        CHECK(html["Prologue"].find("<h1>Prologue</h1>\n<p class=\"ornament\" aria-hidden=\"true\">") != std::string::npos);
+        CHECK(html["The Wall"].find("chead") == std::string::npos);
+        CHECK(html["Kael"].find("alt=\"A forge at night\"") != std::string::npos);
+        CHECK(html["The Forge"].find("alt=\"\" role=\"presentation\"") != std::string::npos);   // Tom's: decorative
+        CHECK(ebook::stylesheet().find(".chead.tone-dark:not(.baked) img") != std::string::npos);
+    }
+    // The EPUB: the darkened and faded pictures made as files of their own.
+    {
+        publish::EpubOptions o;
+        o.style = ebook::styleFrom(design);
+        o.modified = "2026-11-26T10:00:00Z";
+        const auto r = publish::buildEpub(src, o);
+        CHECK(r.ok);
+        const std::string opf = unzipped(r.bytes, "OEBPS/content.opf");
+        CHECK(opf.find("images/h" + pic.substr(0, 12) + "-1.jpg") != std::string::npos && opf.find("images/h" + pic.substr(0, 12) + "-2.jpg") != std::string::npos);
+        bool baked = false;
+        for (int i = 1; i < 12 && !baked; ++i) {
+            char name[64];
+            std::snprintf(name, sizeof name, "OEBPS/chapter-%03d.xhtml", i);
+            const std::string x = unzipped(r.bytes, name);
+            if (x.find("baked") != std::string::npos) baked = true;
+        }
+        CHECK(baked);
+    }
+    // The review copy: each chapter's header with an empty heading the page fills in.
+    {
+        std::ifstream tf(appFolder("web") + "/review-copy.html", std::ios::binary);
+        std::stringstream ts;
+        ts << tf.rdbuf();
+        std::string err;
+        const std::string html = review::makeReviewCopy(*lib, book, ts.str(), err);
+        CHECK(err.empty() && html.find("\"head\":\"<figure class=\\\"chead size-full title-below\\\"><div class=\\\"frame\\\"><img src=\\\"data:image/png;base64,") != std::string::npos);
+        CHECK(html.find("(c.head || \"<h1></h1>\")") != std::string::npos);
+    }
+    // The Plans page: a small picture on each row with one, the ornament on the watch's.
+    {
+        std::string err;
+        int pages = 0;
+        bible::Options o{w, {}, false, {}};
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages));
+        std::ifstream f(fs::path(dir) / "site" / "plans.html");
+        const std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(html.find("<img class=\"phead\" src=\"images/" + pic.substr(0, 24)) != std::string::npos);
+        CHECK(html.find("<span class=\"phead\" aria-hidden=\"true\">\xE2\x9C\xA7</span><strong>Night Watch</strong>") != std::string::npos);
+    }
+}
+
 int main() {
+    testHeaders();
     testPlanReplaces();
     testWorldSync();
     testSexualityFromSeries();

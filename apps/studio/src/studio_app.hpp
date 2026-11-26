@@ -492,7 +492,13 @@ private:
     // A symbol as stored ("" , an emoji, or "icon:<name>") drawn in `r`; `fallback` when it's empty (0.88).
     void drawSymbol(const std::string& symbol, const Rect& r, cjui::Color ink, cjui::Icon fallback);
     // The emoji and drawn-symbol menu; `pick` gets the chosen symbol ("" for none). `none` names the no-symbol choice.
-    void chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick);
+    void chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick, bool drawnToo = true);
+    // Chapter header pictures (0.89, studio_headers.cpp).
+    std::string pickPicture(const std::wstring& title);
+    void headerChooser(const std::string& id, const Rect& c, float& y, const studio::headers::Header& own, bool forNode,
+                       const std::optional<studio::headers::Resolved>& fallback, const std::wstring& title,
+                       std::function<void(const studio::headers::Header&)> save);
+    void chooseViewpointHeader(const Id& entry);
     // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).
@@ -865,6 +871,7 @@ private:
         Id book;
         studio::typeset::Design design;
         std::string presetId = "classic";
+        int headerTab = 0;              // the design card's chapter headers: 0 chapters, 1 parts (0.89)
         std::shared_ptr<studio::typeset::Book> result;
         int generation = 0;        // bumped for every new setting
         bool busy = false, again = false;

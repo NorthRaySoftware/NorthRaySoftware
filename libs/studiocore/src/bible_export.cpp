@@ -7,6 +7,7 @@
 #include "studio/entry_paste.hpp"
 #include "studio/planning.hpp"
 #include "studio/calendar.hpp"
+#include "studio/headers.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
@@ -558,6 +559,7 @@ struct PlanRow {
     std::string number;     // "3", "3.2"
     std::string title, synopsis, status, viewpoint, place, when;
     std::vector<std::string> cast, threads, beats;
+    std::string headBlob, headSymbol;   // the picture or ornament it opens with (0.89)
 };
 struct BookPlan {
     Id book;
@@ -616,8 +618,10 @@ BookPlan planOf(const Library& lib, const Id& book, const std::string& dateForm 
     std::string unit = tl.is_object() ? tl.value("unit", "day") : "day";
     if (unit != "week" && unit != "month" && unit != "year") unit = "day";
     int chapter = 0, scene = 0;
+    const headers::BookHeaders heads = headers::read(lib, book);
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
         PlanRow r;
+        if (const auto hd = headers::resolve(lib, *n, heads)) { r.headBlob = hd->header.blob; r.headSymbol = hd->header.symbol; }
         r.kind = n->kind;
         r.title = n->title;
         r.synopsis = n->synopsis;
@@ -865,6 +869,7 @@ dl dt{font-weight:600;margin-top:.9em}dl dd{margin:0;color:var(--muted)}
 .plan th{text-align:left;font:700 11px var(--bf);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--rule)}
 .plan td{padding:8px 12px}.plan table.beats td:first-child{width:14em}.plan td p{margin:.3em 0 0}.plan td.num{color:var(--faint);width:3em}.plan tr.scene td:nth-child(2){padding-left:28px}
 .plan tr.part td{font:700 12px var(--bf);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--paper)}
+.plan img.phead{display:block;width:120px;height:38px;object-fit:cover;border-radius:6px;margin:0 0 6px}.plan span.phead{display:inline-block;font-size:20px;margin-right:6px;vertical-align:-2px}
 .plan ul.threads{list-style:none;padding:0}.plan ul.threads li{margin:.35em 0}.plan ul.threads i{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:8px}
 @media (max-width:760px){.plan table{display:block;overflow-x:auto}}
 input.filter{font:15px var(--bf);padding:7px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);margin:6px 0 12px;width:280px;max-width:100%}
@@ -1511,8 +1516,14 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
             body += "<h3>Outline</h3><table class=\"outline\"><thead><tr><th></th><th>Chapter or scene</th><th>When</th><th>Viewpoint</th><th>Where</th>"
                     "<th>Who's there</th></tr></thead><tbody>";
             for (const PlanRow& r : p.rows) {
+                // Its header picture as a small picture beside its title, or its ornament (0.89).
+                std::string head;
+                if (!r.headBlob.empty()) {
+                    const std::string src = site.picture(r.headBlob);
+                    if (!src.empty()) head = "<img class=\"phead\" src=\"" + esc(src) + "\" alt=\"\"/>";
+                } else if (headers::printableSymbol(r.headSymbol)) head = "<span class=\"phead\" aria-hidden=\"true\">" + esc(r.headSymbol) + "</span>";
                 if (r.kind == NodeKind::Part) {
-                    body += "<tr class=\"part\"><td colspan=\"6\">" + esc(r.title) + "</td></tr>";
+                    body += "<tr class=\"part\"><td colspan=\"6\">" + head + esc(r.title) + "</td></tr>";
                     continue;
                 }
                 std::string cast;
@@ -1529,7 +1540,7 @@ bool exportWebsite(const Library& lib, const Options& options, const std::string
                     extra += "<div class=\"meta\">Beat: " + esc(t) + "</div>";
                 }
                 body += std::string("<tr") + (r.kind == NodeKind::Scene ? " class=\"scene\"" : "") + "><td class=\"num\">" + esc(r.number) +
-                        "</td><td><strong>" + esc(r.title) + "</strong> <span class=\"meta\">" + esc(r.status) + "</span>" +
+                        "</td><td>" + head + "<strong>" + esc(r.title) + "</strong> <span class=\"meta\">" + esc(r.status) + "</span>" +
                         (r.synopsis.empty() ? "" : prose(r.synopsis, view.entries(), {})) + extra + "</td><td>" + esc(r.when) + "</td><td>" +
                         esc(r.viewpoint) + "</td><td>" + esc(r.place) + "</td><td>" + esc(cast) + "</td></tr>";
             }

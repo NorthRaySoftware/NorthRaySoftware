@@ -4,6 +4,7 @@
 
 #include "studio/document.hpp"
 #include "studio/ebook.hpp"
+#include "studio/headers.hpp"
 
 #include "internal.hpp"
 
@@ -174,21 +175,29 @@ std::string makeReviewCopy(const Library& lib, const Id& bookId, const std::stri
     const Book* b = lib.book(bookId);
     if (!b) { error = "That book no longer exists."; return {}; }
     json chapters = json::array();
+    // Pictures go inside the file (up to 3 MB each), so it still works when emailed.
+    auto inside = [&](const std::string& blob) -> std::string {
+        std::ifstream in(studio::detail::u8path(lib.blobPath(blob)), std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string bytes = ss.str();
+        const std::string mime = mimeOf(bytes);
+        if (mime.empty() || bytes.size() > 3 * 1024 * 1024) return {};
+        return "data:" + mime + ";base64," + base64(bytes);
+    };
+    const headers::BookHeaders heads = headers::read(lib, bookId);
     for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
         if (!n || n->deleted) continue;
-        const std::string html = ebook::documentHtml(lib.nodeContent(n->id), [&](const std::string& blob) -> std::string {
-            // Pictures go inside the file (up to 3 MB each), so it still works when emailed.
-            std::ifstream in(studio::detail::u8path(lib.blobPath(blob)), std::ios::binary);
-            std::ostringstream ss;
-            ss << in.rdbuf();
-            const std::string bytes = ss.str();
-            const std::string mime = mimeOf(bytes);
-            if (mime.empty() || bytes.size() > 3 * 1024 * 1024) return {};
-            return "data:" + mime + ";base64," + base64(bytes);
-        });
+        const std::string html = ebook::documentHtml(lib.nodeContent(n->id), inside);
         if (n->kind == NodeKind::Scene && html.empty()) continue;
-        chapters.push_back({{"node", n->id}, {"title", n->title.empty() ? std::string(label(n->kind)) : n->title},
-                            {"part", n->kind == NodeKind::Part}, {"html", html}});
+        json ch = {{"node", n->id}, {"title", n->title.empty() ? std::string(label(n->kind)) : n->title},
+                   {"part", n->kind == NodeKind::Part}, {"html", html}};
+        // Its header picture or ornament (0.89), with an empty heading the page fills with the title.
+        if (const auto hd = headers::resolve(lib, *n, heads)) {
+            const std::string src = hd->header.blob.empty() ? std::string() : inside(hd->header.blob);
+            if (hd->header.blob.empty() || !src.empty()) ch["head"] = ebook::headerHtml(hd->header, src, "<h1></h1>\n");
+        }
+        chapters.push_back(ch);
     }
     if (chapters.empty()) { error = "The book has no chapters to share yet."; return {}; }
     const std::string author = b->penName.empty() ? b->author : b->penName;

@@ -71,6 +71,13 @@ Pixels decode(const std::string& bytes) {
     return p;
 }
 
+// A header picture under its title (0.89): darkened (1) for a light title, or faded towards white (2) for an ink one.
+void applyTone(Pixels& p, int tone) {
+    if (tone == 1) for (auto& v : p.rgb) v = (std::uint8_t)(v * 0.42);
+    else if (tone == 2) for (auto& v : p.rgb) v = (std::uint8_t)(255 - (255 - v) * 0.3);
+}
+std::string imageKey(const PicturePlacement& pic) { return pic.tone ? pic.blob + "#" + std::to_string(pic.tone) : pic.blob; }
+
 }  // namespace
 
 // ----------------------------------------------------------------- preview
@@ -83,16 +90,19 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
     bm.height = (int)std::lround(book.height * s);
     bm.rgba.assign((size_t)bm.width * bm.height * 4, 255);
     const Page& page = book.pages[index];
+    static const std::uint8_t kWhite[3] = {255, 255, 255};
+    const std::uint8_t* ink = kInk;
     auto blend = [&](int x, int y, unsigned cov) {
         if (x < 0 || y < 0 || x >= bm.width || y >= bm.height || !cov) return;
         std::uint8_t* px = &bm.rgba[((size_t)y * bm.width + x) * 4];
-        for (int c = 0; c < 3; ++c) px[c] = (std::uint8_t)((kInk[c] * cov + px[c] * (255 - cov)) / 255);
+        for (int c = 0; c < 3; ++c) px[c] = (std::uint8_t)((ink[c] * cov + px[c] * (255 - cov)) / 255);
     };
 
     // Pictures first, so text over them (captions are below anyway) stays readable.
     for (const PicturePlacement& pic : page.pictures) {
             auto path = book.picturePaths.find(pic.blob);
-            const Pixels img = path == book.picturePaths.end() ? Pixels{} : decode(readAll(path->second));
+            Pixels img = path == book.picturePaths.end() ? Pixels{} : decode(readAll(path->second));
+            applyTone(img, pic.tone);
             const int x0 = (int)std::lround(pic.x * s), y0 = (int)std::lround(pic.y * s);
             const int w = std::max(1, (int)std::lround(pic.w * s)), h = std::max(1, (int)std::lround(pic.h * s));
             if (img.w <= 0) {
@@ -134,6 +144,7 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
     for (const GlyphRun& r : page.runs) {
         const int fi = fonts.open(book.fonts[r.font].path);
         if (fi < 0) continue;
+        ink = r.light ? kWhite : kInk;
         FT_Face face = fonts.face(fi).ft;
         FT_Set_Char_Size(face, 0, (FT_F26Dot6)std::lround(r.size * 64), (FT_UInt)std::lround(dpi), (FT_UInt)std::lround(dpi));
         for (size_t i = 0; i < r.glyphs.size(); ++i) {
@@ -149,6 +160,7 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
         }
         FT_Set_Transform(face, nullptr, nullptr);
     }
+    ink = kInk;
     for (const Rule& r : page.rules) {
         const double x0 = r.x * s, x1 = (r.x + r.w) * s, y0 = r.y * s, y1 = (r.y + r.h) * s;
         for (int y = (int)std::floor(y0); y < (int)std::ceil(y1); ++y)
@@ -380,31 +392,33 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
     std::map<std::string, int> imageObj;
     for (auto& p : book.pages)
         for (auto& pic : p.pictures) {
-            if (imageObj.count(pic.blob)) continue;
+            const std::string key = imageKey(pic);
+            if (imageObj.count(key)) continue;
             auto where = book.picturePaths.find(pic.blob);
             const std::string bytes = where == book.picturePaths.end() ? std::string() : readAll(where->second);
             const ImageInfo inf = imageInfo(bytes);
             const int id = pdf.reserve();
             const int comps = inf.format == "jpeg" ? jpegComponents(bytes) : 0;
-            if (comps == 1 || (comps == 3 && !x1a)) {
+            if (!pic.tone && (comps == 1 || (comps == 3 && !x1a))) {
                 pdf.stream(id, "<< /Type /XObject /Subtype /Image /Width " + std::to_string(inf.width) + " /Height " + std::to_string(inf.height) +
                                    " /ColorSpace /" + (comps == 1 ? "DeviceGray" : "DeviceRGB") + " /BitsPerComponent 8 /Filter /DCTDecode >>",
                            bytes, false);
             } else {
-                const Pixels px = decode(bytes);
-                if (px.w <= 0) { pdf.object(id, "<< >>"); imageObj[pic.blob] = 0; continue; }
+                Pixels px = decode(bytes);
+                if (px.w <= 0) { pdf.object(id, "<< >>"); imageObj[key] = 0; continue; }
+                applyTone(px, pic.tone);
                 if (x1a) {
                     pdf.stream(id, "<< /Type /XObject /Subtype /Image /Width " + std::to_string(px.w) + " /Height " + std::to_string(px.h) +
                                        " /ColorSpace /" + (options.colourPictures ? "DeviceCMYK" : "DeviceGray") + " /BitsPerComponent 8 >>",
                                printPixels(px, options.colourPictures), true);
-                    imageObj[pic.blob] = id;
+                    imageObj[key] = id;
                     continue;
                 }
                 pdf.stream(id, "<< /Type /XObject /Subtype /Image /Width " + std::to_string(px.w) + " /Height " + std::to_string(px.h) +
                                    " /ColorSpace /DeviceRGB /BitsPerComponent 8 >>",
                            std::string(px.rgb.begin(), px.rgb.end()), true);
             }
-            imageObj[pic.blob] = id;
+            imageObj[key] = id;
         }
 
     // Pages.
@@ -421,7 +435,7 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
         const double ox = bleed > 0 && pi % 2 == 1 ? bleed : 0, oy = bleed;
         if (bleed > 0) c += "q 1 0 0 1 " + num(ox) + " " + num(oy) + " cm\n";
         for (auto& pic : p.pictures) {
-            auto it = imageObj.find(pic.blob);
+            auto it = imageObj.find(imageKey(pic));
             if (it == imageObj.end() || !it->second) continue;
             const double fullW = pic.w / pic.crop.cropW, fullH = pic.h / pic.crop.cropH;
             const double ox = pic.x - pic.crop.cropX * fullW;
@@ -434,9 +448,17 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
         else c += num(kInk[0] / 255.0) + " " + num(kInk[1] / 255.0) + " " + num(kInk[2] / 255.0) + " rg\nBT\n";
         int curFont = -1;
         double curSize = -1;
+        bool curLight = false;
         char gh[8];
         for (auto& r : p.runs) {
             if (r.glyphs.empty()) continue;
+            if (r.light != curLight) {
+                // White for a title over a darkened header picture; back to the ink after.
+                curLight = r.light;
+                if (curLight) c += "1 g\n";
+                else if (x1a) c += "0 g\n";
+                else c += num(kInk[0] / 255.0) + " " + num(kInk[1] / 255.0) + " " + num(kInk[2] / 255.0) + " rg\n";
+            }
             if (r.font != curFont || r.size != curSize) {
                 c += "/F" + std::to_string(r.font) + " " + num(r.size) + " Tf\n";
                 curFont = r.font;
@@ -468,7 +490,7 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
         for (size_t f = 0; f < book.fonts.size(); ++f) fontsRes += " /F" + std::to_string(f) + " " + std::to_string(fontObj[f]) + " 0 R";
         std::string xobj;
         for (auto& pic : p.pictures)
-            if (auto it = imageObj.find(pic.blob); it != imageObj.end() && it->second)
+            if (auto it = imageObj.find(imageKey(pic)); it != imageObj.end() && it->second)
                 xobj += " /Im" + std::to_string(it->second) + " " + std::to_string(it->second) + " 0 R";
         const std::string media = "[0 0 " + num(book.width + bleed) + " " + num(book.height + 2 * bleed) + "]";
         const std::string trimBox = "[" + num(ox) + " " + num(oy) + " " + num(ox + book.width) + " " + num(oy + book.height) + "]";

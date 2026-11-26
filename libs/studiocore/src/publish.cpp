@@ -397,7 +397,40 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
         }
         pics[key] = pic;
         return pic.file;
-    }, style);
+    }, style, [&](const std::string& blob, int tone) -> std::string {
+        // A header picture under its title (0.89): darkened or faded into a file of its own, on white.
+        anyPicture = true;
+        const std::string key = blob + "#tone" + std::to_string(tone);
+        if (auto it = pics.find(key); it != pics.end()) return it->second.file;
+        Pic pic;
+        auto d = decoded.find(blob);
+        if (d == decoded.end()) {
+            const auto path = src.picturePaths.find(blob);
+            d = decoded.emplace(blob, decodeRgba(path == src.picturePaths.end() ? std::string() : readAll(path->second))).first;
+        }
+        const std::string base = "images/h" + blob.substr(0, 12) + "-" + std::to_string(tone);
+        if (d->second.w > 0) {
+            Rgba t = shrink(d->second, maxSide);
+            for (size_t i = 0; i + 3 < t.px.size(); i += 4) {
+                const unsigned a = t.px[i + 3];
+                for (int c = 0; c < 3; ++c) {
+                    const unsigned v = (t.px[i + c] * a + 255 * (255 - a)) / 255;
+                    t.px[i + c] = (std::uint8_t)(tone == 1 ? v * 0.42 : 255 - (255 - v) * 0.3);
+                }
+                t.px[i + 3] = 255;
+            }
+            const Encoded e = encode(t, true);
+            pic.file = base + "." + e.ext;
+            pic.mime = e.mime;
+            files.push_back({pic.file, e});
+            pic.ok = true;
+        } else {
+            unreadable.insert(blob);
+            pic.file = base + ".missing";
+        }
+        pics[key] = pic;
+        return pic.file;
+    });
     for (const auto& sec : src.sections)
         if (sec.content.find("\"type\":\"image\"") != std::string::npos) {
             // Every picture needs a description for readers who can't see it.

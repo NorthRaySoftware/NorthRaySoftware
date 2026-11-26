@@ -106,7 +106,7 @@ void StudioApp::drawSymbol(const std::string& symbol, const Rect& r, cjui::Color
         cjui::drawIcon(gfx_, fallback, sq, ink, std::max(1.1f, side / 12));
 }
 
-void StudioApp::chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick) {
+void StudioApp::chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick, bool drawnToo) {
     // A handful of emoji worlds tend to need, and the app's own drawn symbols. The emoji are drawn by Windows' emoji font.
     static const wchar_t* emoji[] = {L"\U0001F409", L"\U0001F43A", L"\U0001F985", L"\U0001F40D", L"\U0001F984", L"\U0001F9D9", L"\U0001F451",
                                      L"⚔️", L"\U0001F6E1️", L"\U0001F3F0", L"\U0001F30B", L"\U0001F30A", L"\U0001F332",
@@ -122,14 +122,20 @@ void StudioApp::chooseSymbol(const std::string& current, const std::wstring& non
         if (!nm.empty()) nm[0] = (wchar_t)towupper(nm[0]);
         drawn.push_back(cjui::MenuItem::item(nm, 300 + (UINT)i, {}, true, current == std::string("icon:") + cjui::iconName(icons[i])));
     }
-    std::vector<cjui::MenuItem> items{cjui::MenuItem::sub(L"An emoji", em), cjui::MenuItem::sub(L"A drawn symbol", drawn),
-                                      cjui::MenuItem::item(none, 1, {}, true, current.empty())};
+    // Ornaments that print in a book (0.89), and the drawn symbols only where they're shown on screen.
+    static const wchar_t* orn[] = {L"✧", L"✦", L"❦", L"❧", L"✠", L"☙", L"⁂", L"✵", L"✶", L"❖", L"◆", L"☽", L"☀", L"⚜", L"\U0001F5E1"};
+    std::vector<cjui::MenuItem> ornaments;
+    for (size_t i = 0; i < sizeof orn / sizeof *orn; ++i) ornaments.push_back(cjui::MenuItem::item(orn[i], 200 + (UINT)i, {}, true, w(current) == orn[i]));
+    std::vector<cjui::MenuItem> items{cjui::MenuItem::sub(L"An ornament", ornaments), cjui::MenuItem::sub(L"An emoji", em)};
+    if (drawnToo) items.push_back(cjui::MenuItem::sub(L"A drawn symbol", drawn));
+    items.push_back(cjui::MenuItem::item(none, 1, {}, true, current.empty()));
     POINT pt;
     GetCursorPos(&pt);
     const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
     if (!c) return;
     std::string out;
     if (c >= 300) out = std::string("icon:") + cjui::iconName(icons[c - 300]);
+    else if (c >= 200) out = narrow(orn[c - 200]);
     else if (c >= 100) out = narrow(emoji[c - 100]);
     if (out != current) pick(out);
 }

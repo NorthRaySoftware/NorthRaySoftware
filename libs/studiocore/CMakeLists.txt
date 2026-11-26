@@ -30,7 +30,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/libs/third_party/harfbuzz ${CMAKE_BINARY_DI
 add_library(studiocore STATIC src/library.cpp src/manuscript.cpp src/document.cpp src/markup.cpp src/import.cpp
                               src/text.cpp src/pdf.cpp src/docx.cpp src/artwork.cpp
                               src/typeset.cpp src/typeset_fonts.cpp src/typeset_hyphen.cpp src/typeset_output.cpp src/ebook.cpp
-                              src/publish.cpp src/editions.cpp src/entries.cpp src/family.cpp src/continuity.cpp src/bible_export.cpp src/review.cpp src/words.cpp src/comments.cpp src/reviewcopy.cpp src/cover.cpp src/conlang.cpp src/entry_paste.cpp src/fonts.cpp src/family_tree.cpp src/planning.cpp src/sync.cpp src/calendar.cpp src/ages.cpp)
+                              src/publish.cpp src/editions.cpp src/entries.cpp src/family.cpp src/continuity.cpp src/bible_export.cpp src/review.cpp src/words.cpp src/comments.cpp src/reviewcopy.cpp src/cover.cpp src/conlang.cpp src/entry_paste.cpp src/fonts.cpp src/family_tree.cpp src/planning.cpp src/sync.cpp src/calendar.cpp src/ages.cpp src/headers.cpp)
 target_include_directories(studiocore PUBLIC include PRIVATE ${CMAKE_SOURCE_DIR}/libs/third_party)
 target_link_libraries(studiocore PUBLIC sqlite3 PRIVATE miniz harfbuzz freetype)
 if(MSVC)

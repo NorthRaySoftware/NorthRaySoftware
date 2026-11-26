@@ -87,6 +87,7 @@ void inlineHtml(const json& content, std::string& out) {
 struct Pictures {
     std::function<std::string(const std::string& blob, const Placement& p)> url;
     bool applied = false;
+    TonedPictureUrl toned;
 };
 
 void blocksHtml(const json& content, std::string& out, const Pictures& url, bool& afterBreak, int depth) {
@@ -220,6 +221,15 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
         ch.words = sec.words;
         std::string body = docHtml(sec.content, url);
         std::string heading = "<h1>" + escape(sec.title) + "</h1>\n";
+        auto withHeader = [&](const std::string& h) {
+            if (!sec.hasHeader) return h;
+            const headers::Header& hd = sec.header;
+            if (hd.blob.empty()) return headerHtml(hd, {}, h);
+            const int tone = hd.title == "over" ? (hd.tone == "fade" ? 2 : 1) : 0;
+            if (tone && url.toned) return headerHtml(hd, url.toned(hd.blob, tone), h, true);
+            return headerHtml(hd, url.url ? url.url(hd.blob, Placement{}) : hd.blob, h);
+        };
+        if (ch.part) heading = withHeader(heading);
         if (!ch.part) {
             // Numbered as the printed book is: chapters in the story, not prologues or front and back matter.
             const typeset::ChapterTitle t = typeset::chapterTitleParts(sec.title);
@@ -228,6 +238,7 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             heading = chapterHeading(sec.title, number, t.word, t.rest, style);
             if (style.chapterDates && sec.dated && !src.calendar.empty())
                 heading += "<p class=\"chapdate\">" + escape(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), style.dateForm, style.dateEra)) + "</p>\n";
+            heading = withHeader(heading);
             if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
         }
         ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n" + heading + body + "</section>\n";
@@ -253,6 +264,29 @@ Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& url, c
     p.url = url;
     p.applied = true;
     return buildWith(src, p, style);
+}
+
+Content buildCropped(const typeset::Source& src, const CroppedPictureUrl& url, const Style& style, const TonedPictureUrl& toned) {
+    Pictures p;
+    p.url = url;
+    p.applied = true;
+    p.toned = toned;
+    return buildWith(src, p, style);
+}
+
+std::string headerHtml(const headers::Header& h, const std::string& src, const std::string& heading, bool baked) {
+    if (h.blob.empty()) {
+        if (!headers::printableSymbol(h.symbol)) return heading;
+        const std::string orn = "<p class=\"ornament\" aria-hidden=\"true\">" + escape(h.symbol) + "</p>\n";
+        return h.title == "above" ? heading + orn : orn + heading;
+    }
+    // A decorative picture has an empty description (readers skip it); one described says what it shows.
+    const std::string img = "<img src=\"" + escape(src) + "\" alt=\"" + escape(h.alt) + "\"" + (h.alt.empty() ? " role=\"presentation\"" : "") + "/>";
+    const std::string cls = "chead size-" + h.size + " title-" + h.title + (h.title == "over" ? " tone-" + h.tone : std::string()) + (baked ? " baked" : "");
+    if (h.title == "over")
+        return "<div class=\"" + cls + "\"><div class=\"frame\">" + img + "</div><div class=\"overtitle\">\n" + heading + "</div></div>\n";
+    const std::string fig = "<figure class=\"" + cls + "\"><div class=\"frame\">" + img + "</div></figure>\n";
+    return h.title == "above" ? heading + fig : fig + heading;
 }
 
 static std::string base();
@@ -391,6 +425,24 @@ h1 span.chaptitle { display: block; }
 h1.numeral span.chaptitle { font-style: italic; font-size: 0.85em; }
 span.leadin { font-variant: small-caps; letter-spacing: 0.05em; }
 span.dropcap { float: left; font-size: 3.4em; line-height: 0.82; margin: 0.06em 0.08em 0 0; }
+.chead { margin: 1.5em auto 0; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+.chead .frame { line-height: 0; overflow: hidden; }
+.chead img { display: block; margin: 0 auto; max-width: 100%; }
+.chead.size-full img, .chead.size-band img { width: 100%; }
+.chead.size-band .frame { aspect-ratio: 3.2 / 1; }
+.chead.size-band img { height: 100%; object-fit: cover; }
+.chead.size-ornament img { width: 28%; }
+.chead.title-above { margin-top: 0; margin-bottom: 1.6em; }
+.chead.title-over { position: relative; margin-bottom: 1.6em; }
+.chead.title-over .frame { min-height: 9em; }
+.chead.title-over img { width: 100%; height: 100%; min-height: 9em; object-fit: cover; }
+.chead.title-over .overtitle { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; }
+.chead.title-over .overtitle h1 { margin: 0.3em 0; }
+.chead.title-over .overtitle p.chapdate { margin: 0; }
+.chead.tone-dark .overtitle { color: #fff; }
+.chead.tone-dark:not(.baked) img { filter: brightness(0.42); }
+.chead.tone-fade:not(.baked) img { opacity: 0.3; }
+p.ornament { text-align: center; text-indent: 0; font-size: 2.4em; line-height: 1.2; margin: 1.2em 0 0; }
 )CSS";
 }
 
