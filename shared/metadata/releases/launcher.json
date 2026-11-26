@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.183.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.106.0: chapter dates styled and placed as you choose, and a scene's own date at its scene break."
+      ]
+    },
+    {
       "version": "0.182.0",
       "date": "2026-11-26",
       "notes": [

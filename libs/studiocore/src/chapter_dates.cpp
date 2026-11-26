@@ -33,7 +33,23 @@ const std::vector<std::pair<std::string, std::string>>& styles() {
 }
 
 std::string Format::toJson() const {
-    return json{{"style", style}, {"pattern", pattern}, {"era", era}, {"eraPlace", eraPlace}, {"eraSeparator", eraSeparator}, {"time", time}}.dump();
+    auto part = [](const PartLook& p) { return json{{"bold", p.bold}, {"italic", p.italic}, {"caps", p.caps}}; };
+    return json{{"style", style}, {"pattern", pattern}, {"era", era}, {"eraPlace", eraPlace}, {"eraSeparator", eraSeparator}, {"time", time},
+                {"look", {{"date", part(look.date)}, {"era", part(look.era)}, {"time", part(look.time)}, {"align", look.align},
+                          {"position", look.position}, {"sceneDates", look.sceneDates}}}}
+        .dump();
+}
+
+std::string applyCaps(const std::string& text, const std::string& caps) {
+    if (caps != "upper") return text;
+    std::u32string u = typeset::utf32(text);
+    for (char32_t& c : u) {
+        if (c >= 'a' && c <= 'z') c -= 32;
+        else if ((c >= 0xE0 && c <= 0xFE && c != 0xF7) || (c >= 0x3B1 && c <= 0x3C9 && c != 0x3C2) || (c >= 0x430 && c <= 0x44F)) c -= 32;
+        else if (c >= 0x450 && c <= 0x45F) c -= 80;
+        else if (c >= 0x100 && c <= 0x17F && (c & 1)) c -= 1;   // Latin Extended-A pairs
+    }
+    return typeset::utf8(u);
 }
 
 Format Format::fromJson(const std::string& text) {
@@ -52,6 +68,23 @@ Format Format::fromJson(const std::string& text) {
     if (j.contains("pattern") && j["pattern"].is_string() && j["pattern"].get<std::string>().size() <= 200) f.pattern = j["pattern"].get<std::string>();
     if (j.contains("eraSeparator") && j["eraSeparator"].is_string() && j["eraSeparator"].get<std::string>().size() <= 12)
         f.eraSeparator = j["eraSeparator"].get<std::string>();
+    if (j.contains("look") && j["look"].is_object()) {
+        const json& l = j["look"];
+        auto part = [&](const char* k, PartLook& p) {
+            if (!l.contains(k) || !l[k].is_object()) return;
+            p.bold = l[k].value("bold", p.bold);
+            p.italic = l[k].value("italic", p.italic);
+            const std::string c = l[k].value("caps", p.caps);
+            if (oneOf(c, {"as", "small", "upper"})) p.caps = c;
+        };
+        part("date", f.look.date);
+        part("era", f.look.era);
+        part("time", f.look.time);
+        const std::string a = l.value("align", f.look.align), pos = l.value("position", f.look.position);
+        if (oneOf(a, {"left", "center", "right"})) f.look.align = a;
+        if (oneOf(pos, {"under", "header", "above"})) f.look.position = pos;
+        f.look.sceneDates = l.value("sceneDates", false);
+    }
     return f;
 }
 
@@ -68,13 +101,18 @@ Lines format(const cal::Calendar& c, const cal::Date& d0, const cal::TimeOfDay& 
         if (w >= 0 && w < (int)c.weekdays.size()) weekday = c.weekdays[(size_t)w];
     }
     const std::string sep(1, c.separator ? c.separator : '/');
-    std::string date;
+    std::vector<Seg> segs;   // the date line in parts
+    auto add = [&](const std::string& t, int part) {
+        if (t.empty()) return;
+        if (!segs.empty() && segs.back().part == part) segs.back().text += t;
+        else segs.push_back({t, part});
+    };
     bool eraNamed = false;
-    if (f.style == "numeric-dmy") date = pad(d.day, 2) + sep + pad(mnum, 2) + sep + pad(ey.year, 2);
-    else if (f.style == "numeric-mdy") date = pad(mnum, 2) + sep + pad(d.day, 2) + sep + pad(ey.year, 2);
-    else if (f.style == "numeric-ymd") date = pad(ey.year, 4) + "-" + pad(mnum, 2) + "-" + pad(d.day, 2);
-    else if (f.style == "long") date = (weekday.empty() ? "" : weekday + ", ") + std::to_string(d.day) + " " + month + " " + std::to_string(ey.year);
-    else if (f.style == "month") date = month + " " + std::to_string(ey.year);
+    if (f.style == "numeric-dmy") add(pad(d.day, 2) + sep + pad(mnum, 2) + sep + pad(ey.year, 2), 0);
+    else if (f.style == "numeric-mdy") add(pad(mnum, 2) + sep + pad(d.day, 2) + sep + pad(ey.year, 2), 0);
+    else if (f.style == "numeric-ymd") add(pad(ey.year, 4) + "-" + pad(mnum, 2) + "-" + pad(d.day, 2), 0);
+    else if (f.style == "long") add((weekday.empty() ? "" : weekday + ", ") + std::to_string(d.day) + " " + month + " " + std::to_string(ey.year), 0);
+    else if (f.style == "month") add(month + " " + std::to_string(ey.year), 0);
     else if (f.style == "custom") {
         const std::string& p = f.pattern;
         for (size_t i = 0; i < p.size();) {
@@ -83,6 +121,7 @@ Lines format(const cal::Calendar& c, const cal::Date& d0, const cal::TimeOfDay& 
                 if (e != std::string::npos) {
                     const std::string tok = p.substr(i + 1, e - i - 1);
                     std::string v;
+                    int part = 0;
                     bool known = true;
                     if (tok == "D") v = std::to_string(d.day);
                     else if (tok == "DD") v = pad(d.day, 2);
@@ -92,30 +131,48 @@ Lines format(const cal::Calendar& c, const cal::Date& d0, const cal::TimeOfDay& 
                     else if (tok == "Mon") v = month.substr(0, std::min<size_t>(3, month.size()));
                     else if (tok == "Year" || tok == "YYYY") v = std::to_string(ey.year);
                     else if (tok == "Weekday") v = weekday;
-                    else if (tok == "Era") { v = ey.abbr; eraNamed = true; }
-                    else if (tok == "EraName") { v = ey.name; eraNamed = true; }
+                    else if (tok == "Era") { v = ey.abbr; eraNamed = true; part = 1; }
+                    else if (tok == "EraName") { v = ey.name; eraNamed = true; part = 1; }
                     else known = false;
-                    if (known) { date += v; i = e + 1; continue; }
+                    if (known) { add(v, part); i = e + 1; continue; }
                 }
             }
-            date += p[i++];
+            add(std::string(1, p[i++]), 0);
         }
         // A weekday-less calendar leaves "{Weekday}, " as ", ": tidy what's left at the start.
-        while (!date.empty() && (date[0] == ',' || date[0] == ' ')) date.erase(0, 1);
-    } else date = std::to_string(d.day) + " " + month + " " + std::to_string(ey.year);   // day-month
-    // The era, unless the pattern placed it.
+        while (!segs.empty() && !segs[0].text.empty() && (segs[0].text[0] == ',' || segs[0].text[0] == ' ')) {
+            segs[0].text.erase(0, 1);
+            if (segs[0].text.empty()) segs.erase(segs.begin());
+        }
+    } else add(std::to_string(d.day) + " " + month + " " + std::to_string(ey.year), 0);   // day-month
+    // The era, unless the pattern placed it; its separator goes with the date.
     if (!eraNamed && f.era != "none") {
         const std::string tag = f.era == "full" ? (ey.name.empty() ? ey.abbr : ey.name) : (ey.abbr.empty() ? ey.name : ey.abbr);
-        if (!tag.empty()) date = f.eraPlace == "before" ? tag + f.eraSeparator + date : date + f.eraSeparator + tag;
+        if (!tag.empty()) {
+            if (f.eraPlace == "before") {
+                std::vector<Seg> before{{tag, 1}, {f.eraSeparator, 0}};
+                for (const Seg& sg : segs) {
+                    if (before.back().part == sg.part) before.back().text += sg.text;
+                    else before.push_back(sg);
+                }
+                segs = std::move(before);
+            } else {
+                add(f.eraSeparator, 0);
+                add(tag, 1);
+            }
+        }
     }
-    out.date = date;
     if (!t.empty() && f.time != "hidden") {
         const std::string tt = cal::timeOfDayText(c, t);
         if (!tt.empty()) {
-            if (f.time == "line") out.time = tt;
-            else out.date += ", " + tt;
+            if (f.time == "line") out.timeSegs.push_back({tt, 2});
+            else { add(", ", 0); add(tt, 2); }
         }
     }
+    out.dateSegs = std::move(segs);
+    for (const Seg& sg : out.dateSegs) out.date += sg.text;
+    for (const Seg& sg : out.timeSegs) out.time += sg.text;
+    out.look = f.look;
     return out;
 }
 

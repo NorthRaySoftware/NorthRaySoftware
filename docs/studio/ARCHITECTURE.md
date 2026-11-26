@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.106.0: the date line's look and place, and scene dates (suite 0.183.0, 26 Nov 2026)
+
+Phase 5b (5.3's styling and scenes).
+- **studiocore**: `dates::PartLook {bold, italic, caps as/small/upper}`, `Look {date, era, time, align, position under/header/above, sceneDates}` in `Format` (its JSON, invalid values fall back); `format` now builds `Lines::dateSegs`/`timeSegs` (`Seg {text, part 0 date / 1 era / 2 time}`; the era's separator goes with the date; a pattern's {Era}/{EraName} are era parts) and carries the look; `applyCaps` (upper-casing Latin, Latin-1, Latin Extended-A, Greek and Cyrillic). `Source::Section::dates` holds the lines; a scene section gets its own only where it differs from its chapter's.
+- **Typesetter**: `addDate(section)` sets each line from its parts (`Span` bold, italic, smallCaps, upper-cased text) with the alignment. Under: after the heading. Header: placed at the header's end (`headerEnd`: after a picture or ornament before the title, after a picture with the title over it, else at the heading's start), so before the title. Above: after the heading's space, just before the text. A scene's date after its scene break when `sceneDates`.
+- **Ebook**: `dateHtml` (spans with font-style, font-weight, small-caps or uppercase; the paragraph's text-align); under in the heading, header before the heading inside `withHeader`, above after it; scene dates after `hr.scene`. **Word**: `dateParas` (runs with b, i, smallCaps or caps; jc); the same places; scene dates after the break.
+- **Writing**: `chapterHeadJson` sends `dateParts`/`timeParts` ({t, b, i, c}), `dateAlign`, `datePlace`; the editor draws the parts as spans, aligns `#cdate` and orders it by `date-under/header/above`.
+- **App**: Typesetting › Chapter dates: The date / The era / The time (Italic, Roman, Bold, Bold italic; As written, Small caps, Capitals), Aligned, Where, A scene's own date at its scene break; the example shows case and alignment (the pages beside show it exactly).
+- **Tested:** studiocore 2,648 (parts and their roles, era before, an era in a pattern, the look's JSON and fallbacks, applyCaps; a book with the date under the title, with the header before the title, above the text, a scene's own date after its break and none when not asked; the ebook's spans; the Word file read back); editor 31; cross-compiled. **Not run on Windows.**
+
 ## 0.105.0: chapter dates as formatted text (suite 0.182.0, 26 Nov 2026)
 
 Phase 5a of CJ's combined request (5.1, 5.2, 5.3's format and time, 5.5). 5b (print styling, scene dates at breaks) and 5c (converting typed date lines) follow.

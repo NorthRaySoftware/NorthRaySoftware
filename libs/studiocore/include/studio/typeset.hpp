@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "studio/icons.hpp"
+#include "studio/chapter_dates.hpp"
 
 namespace studio::typeset {
 
@@ -152,6 +153,8 @@ struct Source {
         // Its date line, written in the book's (or its own) date format (phase 5, 0.105): the one text Writing shows and the
         // book, ebook and Word document print. `timeLine` is the time of day when the format puts it on a line of its own.
         std::string dateLine, timeLine;
+        // The same in styled parts with the format's look (5b, 0.106); a scene's only when it differs from its chapter's.
+        dates::Lines dates;
         // The picture or ornament it opens with (0.89), resolved from its own, its viewpoint's and the book's defaults.
         bool hasHeader = false;
         headers::Header header;

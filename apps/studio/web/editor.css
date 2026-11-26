@@ -210,7 +210,11 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
    a click opens When it happens. Not yet on the timeline: a quiet line to give it one. */
 #cdate { order: 3; margin: .7rem 0 0; padding: .1rem .5rem; border: 0; border-radius: 6px; background: none; cursor: pointer;
   font: italic var(--text-size, 1.12rem)/1.5 var(--text-font, var(--serif)); color: var(--ink); text-align: center; }
-#cdate .ctime { display: block; }
+#cdate .ctime, #cdate .cline { display: block; }
+#cdate .cline:not(.ctime) { display: block; }
+#ctop.date-header #cdate { order: 1; margin: 0 0 .6rem; }
+#ctop.date-header #cpic, #ctop.date-header #corn { order: 0; }
+#ctop.date-above #cdate { order: 9; margin: 1.4rem 0 0; }
 #cdate:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 #cdate.empty { font: .82rem/1.4 var(--ui, "Segoe UI", sans-serif); color: var(--faint); font-style: normal; }
 #ctop.title-above #cdate { order: 4; }

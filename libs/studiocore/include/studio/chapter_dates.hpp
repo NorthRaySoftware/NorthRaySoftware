@@ -12,6 +12,21 @@
 
 namespace studio::dates {
 
+// How a part of the date line looks (5b, 0.106): its weight, slant and case ("as", "small" small capitals, "upper").
+struct PartLook {
+    bool bold = false, italic = true;
+    std::string caps = "as";
+    bool operator==(const PartLook& o) const { return bold == o.bold && italic == o.italic && caps == o.caps; }
+};
+// The line's look: each part's, its alignment ("left", "center", "right") and where it goes: "under" the title,
+// "header" with the header picture (above the title), or "above" the text's first line. `sceneDates`: a scene's own
+// date at the scene break before it, when it differs from its chapter's.
+struct Look {
+    PartLook date, era, time;
+    std::string align = "center", position = "under";
+    bool sceneDates = false;
+};
+
 struct Format {
     // "numeric-dmy" 12/03/1450, "numeric-mdy" 03/12/1450, "numeric-ymd" 1450-03-12, "day-month" 12 Harvestmoon 1450,
     // "long" Tuesday, 12 Harvestmoon 1450, "month" Harvestmoon 1450, or "custom" (`pattern`).
@@ -23,14 +38,22 @@ struct Format {
     std::string eraPlace = "after";     // "after" or "before" the date
     std::string eraSeparator = " ";     // between them: " ", " | ", ", ", " · " or the writer's own
     std::string time = "hidden";        // the time of day: "hidden", "appended" (after ", ") or "line" (a line of its own)
+    Look look;
     std::string toJson() const;
     static Format fromJson(const std::string& json);   // the defaults where it says nothing
     bool operator==(const Format& o) const { return toJson() == o.toJson(); }
 };
 const std::vector<std::pair<std::string, std::string>>& styles();   // id -> label ("Numeric, day first")
 
-// The date as the format writes it, and the time of day when it goes on its own line ("" otherwise).
-struct Lines { std::string date, time; };
+// The date as the format writes it, and the time of day when it goes on its own line ("" otherwise); each line also in
+// parts (0 the date, 1 the era, 2 the time) for styling, and the format's look.
+struct Seg { std::string text; int part = 0; };
+struct Lines {
+    std::string date, time;
+    std::vector<Seg> dateSegs, timeSegs;
+    Look look;
+};
+std::string applyCaps(const std::string& text, const std::string& caps);   // "upper": upper-cased (letters with cases)
 Lines format(const cal::Calendar& c, const cal::Date& d, const cal::TimeOfDay& t, const Format& f);
 
 // The book's format and each chapter's own (setting "dates:<book>": {"format": {...}, "chapters": {id: {...}}}).

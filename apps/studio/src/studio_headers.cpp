@@ -245,18 +245,30 @@ nlohmann::json StudioApp::chapterHeadJson(const ManuscriptNode& n) {
     // Its date line (phase 5, 0.105): written in the book's date format or the chapter's own, the same text the book,
     // ebook and Word document print; a scene's only when it differs from its chapter's.
     const auto line = studio::dates::lineFor(*lib_, n);
+    // The line in parts with their looks, its alignment and place (5b, 0.106), for the editor to show as it prints.
+    auto put = [&](const studio::dates::Lines& ln) {
+        j["date"] = ln.date;
+        if (!ln.time.empty()) j["time"] = ln.time;
+        auto segs = [&](const std::vector<studio::dates::Seg>& v) {
+            nlohmann::json a = nlohmann::json::array();
+            for (const auto& sg : v) {
+                const studio::dates::PartLook& pl = sg.part == 1 ? ln.look.era : sg.part == 2 ? ln.look.time : ln.look.date;
+                a.push_back({{"t", sg.text}, {"b", pl.bold}, {"i", pl.italic}, {"c", pl.caps}});
+            }
+            return a;
+        };
+        j["dateParts"] = segs(ln.dateSegs);
+        j["timeParts"] = segs(ln.timeSegs);
+        j["dateAlign"] = ln.look.align;
+        j["datePlace"] = ln.look.position;
+    };
     if (n.kind == NodeKind::Scene) {
         const ManuscriptNode* parent = lib_->node(n.parentId);
         const auto chapterLine = parent ? studio::dates::lineFor(*lib_, *parent) : std::nullopt;
-        if (line && (!chapterLine || chapterLine->date != line->date || chapterLine->time != line->time)) {
-            j["date"] = line->date;
-            if (!line->time.empty()) j["time"] = line->time;
-        }
+        if (line && (!chapterLine || chapterLine->date != line->date || chapterLine->time != line->time)) put(*line);
     } else {
-        if (line) {
-            j["date"] = line->date;
-            if (!line->time.empty()) j["time"] = line->time;
-        } else j["dated"] = false;
+        if (line) put(*line);
+        else j["dated"] = false;
     }
     // Whose eyes it's seen through: their portrait, else their symbol, else initials, ringed in their colour.
     Id pov = n.povId;

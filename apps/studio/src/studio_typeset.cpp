@@ -604,13 +604,66 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
             segmented("side:ts:dtime", {tx0, y, cw, 28}, {L"Hidden", L"After it", L"Own line"}, f.time == "appended" ? 1 : f.time == "line" ? 2 : 0,
                       [f, save](int i) { dt::Format nf = f; nf.time = i == 1 ? "appended" : i == 2 ? "line" : "hidden"; save(nf); });
             y += 36;
-            // The live example, as it prints.
+            // How it looks (5b, 0.106): each part's weight and slant and its case, the alignment and the place.
+            auto partRows = [&](const char* key, const wchar_t* name, dt::PartLook dt::Look::*member) {
+                const dt::PartLook pl = f.look.*member;
+                label(name);
+                const int weight = pl.bold ? (pl.italic ? 3 : 2) : (pl.italic ? 0 : 1);
+                segmented(std::string("side:ts:dw:") + key, {tx0, y, cw, 28}, {L"Italic", L"Roman", L"Bold", L"Bold italic"}, weight,
+                          [f, save, member](int i) {
+                              dt::Format nf = f;
+                              (nf.look.*member).bold = i >= 2;
+                              (nf.look.*member).italic = i == 0 || i == 3;
+                              save(nf);
+                          });
+                y += 32;
+                segmented(std::string("side:ts:dc:") + key, {tx0, y, cw, 28}, {L"As written", L"Small caps", L"Capitals"},
+                          pl.caps == "small" ? 1 : pl.caps == "upper" ? 2 : 0, [f, save, member](int i) {
+                              dt::Format nf = f;
+                              (nf.look.*member).caps = i == 1 ? "small" : i == 2 ? "upper" : "as";
+                              save(nf);
+                          });
+                y += 36;
+            };
+            partRows("date", L"The date", &dt::Look::date);
+            if (f.era != "none") partRows("era", L"The era", &dt::Look::era);
+            if (f.time != "hidden") partRows("time", L"The time", &dt::Look::time);
+            label(L"Aligned");
+            segmented("side:ts:dalign", {tx0, y, cw, 28}, {L"Left", L"Centred", L"Right"}, f.look.align == "left" ? 0 : f.look.align == "right" ? 2 : 1,
+                      [f, save](int i) { dt::Format nf = f; nf.look.align = i == 0 ? "left" : i == 2 ? "right" : "center"; save(nf); });
+            y += 36;
+            label(L"Where");
+            segmented("side:ts:dplace", {tx0, y, cw, 28}, {L"Under the title", L"With the header", L"Above the text"},
+                      f.look.position == "header" ? 1 : f.look.position == "above" ? 2 : 0, [f, save](int i) {
+                          dt::Format nf = f;
+                          nf.look.position = i == 1 ? "header" : i == 2 ? "above" : "under";
+                          save(nf);
+                      });
+            y += 36;
+            check("side:ts:dscene", L"A scene's own date at its scene break", f.look.sceneDates, [f, save] {
+                dt::Format nf = f;
+                nf.look.sceneDates = !nf.look.sceneDates;
+                save(nf);
+            });
+            // The live example, as it prints (the pages beside show it exactly).
             const dt::Lines exLines = dt::format(cc, ex, exTime, f);
             const Rect pv{tx0, y, cw, exLines.time.empty() ? 36.0f : 56.0f};
             gfx_.fillRounded(pv, 8, pal_.dark ? pal_.sunken : hexColor("#FBF8F1"));
             gfx_.strokeRounded(pv, 8, pal_.rule);
-            gfx_.text(w(exLines.date), {pv.x, pv.y + 8, pv.w, 20}, Font::SerifSmall, pal_.ink, {Align::Center, false, true});
-            if (!exLines.time.empty()) gfx_.text(w(exLines.time), {pv.x, pv.y + 28, pv.w, 20}, Font::SerifSmall, pal_.ink, {Align::Center, false, true});
+            {   // Its case and alignment as it prints (weights and small capitals show on the pages beside).
+                auto cased = [&](const std::vector<dt::Seg>& segs) {
+                    std::string t;
+                    for (const dt::Seg& sg : segs) {
+                        const dt::PartLook& pl = sg.part == 1 ? f.look.era : sg.part == 2 ? f.look.time : f.look.date;
+                        t += dt::applyCaps(sg.text, pl.caps);
+                    }
+                    return w(t);
+                };
+                const Align al = f.look.align == "left" ? Align::Left : f.look.align == "right" ? Align::Right : Align::Center;
+                gfx_.text(cased(exLines.dateSegs), {pv.x + 10, pv.y + 8, pv.w - 20, 20}, f.look.date.bold ? Font::BodyStrong : Font::SerifSmall, pal_.ink, {al, false, true});
+                if (!exLines.time.empty())
+                    gfx_.text(cased(exLines.timeSegs), {pv.x + 10, pv.y + 28, pv.w - 20, 20}, Font::SerifSmall, pal_.ink, {al, false, true});
+            }
             y += pv.h + 8;
             y += gfx_.text(L"Writing shows the same line over each chapter. A chapter can have its own format: Chapter tools › Date format.",
                            {tx0, y, cw, 44}, Font::Small, pal_.inkFaint) + 10;

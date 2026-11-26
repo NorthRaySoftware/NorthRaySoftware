@@ -1,5 +1,6 @@
 // Ebook HTML from the manuscript's document model.
 #include "studio/ebook.hpp"
+#include "studio/chapter_dates.hpp"
 #include "studio/fonts.hpp"
 #include "internal.hpp"
 #include <functional>
@@ -222,6 +223,25 @@ static std::string povIconHtml(const icons::Icon& ic, const Style& style, const 
     return "<span class=\"" + cls + "\"" + (css.empty() ? "" : " style=\"" + css + "\"") + aria + ">" + inner + "</span>";
 }
 
+// A date line in its parts' looks (5b, 0.106): bold, italic, small capitals or upper case per part, and its alignment.
+static std::string dateHtml(const dates::Lines& ln) {
+    auto line = [&](const std::vector<dates::Seg>& segs, const char* cls) {
+        std::string inner;
+        for (const dates::Seg& sg : segs) {
+            const dates::PartLook& pl = sg.part == 1 ? ln.look.era : sg.part == 2 ? ln.look.time : ln.look.date;
+            std::string css = std::string("font-style:") + (pl.italic ? "italic" : "normal") + ";font-weight:" + (pl.bold ? "bold" : "normal") + ";";
+            if (pl.caps == "small") css += "font-variant:small-caps;";
+            else if (pl.caps == "upper") css += "text-transform:uppercase;";
+            inner += "<span style=\"" + css + "\">" + escape(sg.text) + "</span>";
+        }
+        return std::string("<p class=\"") + cls + "\" style=\"text-align:" + (ln.look.align == "left" ? "left" : ln.look.align == "right" ? "right" : "center") +
+               "\">" + inner + "</p>\n";
+    };
+    std::string out = line(ln.dateSegs, "chapdate");
+    if (!ln.timeSegs.empty()) out += line(ln.timeSegs, "chapdate chaptime");
+    return out;
+}
+
 Content buildWith(const typeset::Source& src, const Pictures& url, const Style& style) {
     Content c;
     c.title = src.title;
@@ -232,7 +252,10 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
     for (const auto& sec : src.sections) {
         if (sec.kind == NodeKind::Scene && !c.chapters.empty()) {
             // A scene page from an import continues its chapter after a scene break.
-            c.chapters.back().html += "<hr class=\"scene\"/>\n" + docHtml(sec.content, url);
+            c.chapters.back().html += "<hr class=\"scene\"/>\n";
+            // Its own date after the break, where it differs from its chapter's and the format asks (5b, 0.106).
+            if (style.chapterDates && !sec.dateLine.empty() && sec.dates.look.sceneDates) c.chapters.back().html += dateHtml(sec.dates);
+            c.chapters.back().html += docHtml(sec.content, url);
             c.chapters.back().words += sec.words;
             continue;
         }
@@ -267,11 +290,14 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
                 else if (style.povPlace == "before" && open != std::string::npos) heading.insert(open + 1, icon + " ");
                 else if (close != std::string::npos) heading.insert(close, " " + icon);
             }
-            if (style.chapterDates && !sec.dateLine.empty()) {   // the same line as the printed book (0.105)
-                heading += "<p class=\"chapdate\">" + escape(sec.dateLine) + "</p>\n";
-                if (!sec.timeLine.empty()) heading += "<p class=\"chapdate chaptime\">" + escape(sec.timeLine) + "</p>\n";
-            }
+            // The same line as the printed book (0.105), in its look and place (0.106): under the heading, with the header
+            // picture before the title, or above the text.
+            const bool dated = style.chapterDates && !sec.dateLine.empty();
+            const std::string place = sec.dates.look.position;
+            if (dated && place == "under") heading += dateHtml(sec.dates);
+            if (dated && place == "header") heading = dateHtml(sec.dates) + heading;
             heading = withHeader(heading);
+            if (dated && place == "above") heading += dateHtml(sec.dates);
             if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
         }
         ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n" + heading + body + "</section>\n";

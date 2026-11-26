@@ -880,13 +880,41 @@ function setHead(h) {
   // Its date as a line, written as the book prints it (0.105): the same text Typesetting, the ebook and Word use.
   if (chapterHead.date || chapterHead.dated === false) {
     dateLine.className = chapterHead.date ? "" : "empty";
-    dateLine.textContent = chapterHead.date || "Not on the timeline: give it a date";
-    if (chapterHead.time) {
-      const t = document.createElement("span");
-      t.className = "ctime";
-      t.textContent = chapterHead.time;
-      dateLine.append(t);
+    // In parts, each with its look (bold, italic, small capitals or upper case), aligned and placed as it prints (0.106).
+    const partsLine = (parts) => {
+      const line = document.createElement("span");
+      line.className = "cline";
+      for (const p of Array.isArray(parts) ? parts : []) {
+        const s = document.createElement("span");
+        s.textContent = String(p.t || "");
+        s.style.fontWeight = p.b ? "700" : "400";
+        s.style.fontStyle = p.i === false ? "normal" : "italic";
+        if (p.c === "small") s.style.fontVariant = "small-caps";
+        else if (p.c === "upper") s.style.textTransform = "uppercase";
+        line.append(s);
+      }
+      return line;
+    };
+    if (chapterHead.date && Array.isArray(chapterHead.dateParts) && chapterHead.dateParts.length) {
+      dateLine.append(partsLine(chapterHead.dateParts));
+      if (Array.isArray(chapterHead.timeParts) && chapterHead.timeParts.length) {
+        const t = partsLine(chapterHead.timeParts);
+        t.classList.add("ctime");
+        dateLine.append(t);
+      }
+    } else {
+      dateLine.textContent = chapterHead.date || "Not on the timeline: give it a date";
+      if (chapterHead.time) {
+        const t = document.createElement("span");
+        t.className = "ctime";
+        t.textContent = chapterHead.time;
+        dateLine.append(t);
+      }
     }
+    const align = ["left", "center", "right"].includes(chapterHead.dateAlign) ? chapterHead.dateAlign : "center";
+    dateLine.style.textAlign = align;
+    dateLine.style.alignSelf = align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center";
+    top.classList.add("date-" + (["under", "header", "above"].includes(chapterHead.datePlace) ? chapterHead.datePlace : "under"));
     dateLine.title = chapterHead.date ? "When it happens: click to change it" : "Give it a date or a day on the timeline";
     dateLine.onmousedown = (e) => e.preventDefault();
     dateLine.onclick = () => send({ type: "editWhen" });

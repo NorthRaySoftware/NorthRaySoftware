@@ -1907,7 +1907,8 @@ static void testTypeset() {
         CHECK(back.chapterDates);
         // The ebook, the same.
         const auto content = ebook::build(snapshot(*lib, book), {}, ebook::styleFrom(dd));
-        CHECK(!content.chapters.empty() && content.chapters[0].html.find("<p class=\"chapdate\">04/02/2033 The Third Age</p>") != std::string::npos);
+        CHECK(!content.chapters.empty() && content.chapters[0].html.find("<p class=\"chapdate\" style=\"text-align:center\">") != std::string::npos &&
+              content.chapters[0].html.find(">04/02/2033 </span>") != std::string::npos && content.chapters[0].html.find(">The Third Age</span>") != std::string::npos);
         lib->setSetting("timeline:" + book, "");
     }
     // Print-ready PDF/X-1a: PDF 1.3, black text, no RGB, an output intent, trim and bleed boxes.
@@ -6232,7 +6233,137 @@ static void testChapterDates105() {
     fs::remove_all(dir);
 }
 
+// Phase 5b (0.106): the date line's parts and look, its place, and a scene's own date at its break.
+static void testDateLook106() {
+    namespace dt = studio::dates;
+    namespace cal = studio::cal;
+    using namespace studio::typeset;
+    cal::Calendar c = cal::gregorian();
+    c.eras = {{"Second Era", "SE", 1, false}};
+    {
+        dt::Format f;
+        f.style = "day-month";
+        f.eraSeparator = " \xC2\xB7 ";
+        cal::TimeOfDay t;
+        t.minutes = 600;
+        f.time = "appended";
+        const auto ln = dt::format(c, {1450, 2, 12}, t, f);
+        CHECK(ln.date == "12 March 1450 \xC2\xB7 SE, 10:00" && ln.dateSegs.size() == 4);
+        CHECK(ln.dateSegs[0].part == 0 && ln.dateSegs[1].part == 1 && ln.dateSegs[1].text == "SE" && ln.dateSegs[3].part == 2);
+        f.eraPlace = "before";
+        f.time = "line";
+        const auto lb = dt::format(c, {1450, 2, 12}, t, f);
+        CHECK(lb.dateSegs.front().part == 1 && lb.date == "SE \xC2\xB7 12 March 1450" && lb.timeSegs.size() == 1 && lb.timeSegs[0].part == 2);
+        f.style = "custom";
+        f.pattern = "{Era} {Year}";
+        const auto lc = dt::format(c, {1450, 2, 12}, {}, f);
+        CHECK(lc.dateSegs.size() == 2 && lc.dateSegs[0].part == 1 && lc.dateSegs[0].text == "SE");
+        // The look, kept and checked.
+        f.look.date.bold = true;
+        f.look.era.caps = "small";
+        f.look.era.italic = false;
+        f.look.align = "right";
+        f.look.position = "header";
+        f.look.sceneDates = true;
+        const dt::Format back = dt::Format::fromJson(f.toJson());
+        CHECK(back.look.date.bold && back.look.era.caps == "small" && !back.look.era.italic && back.look.align == "right" &&
+              back.look.position == "header" && back.look.sceneDates);
+        CHECK(dt::Format::fromJson(R"({"look":{"align":"sideways","position":"moon","era":{"caps":"tiny"}}})").look.align == "center");
+        CHECK(dt::applyCaps("12 March \xC3\xA9ra", "upper") == "12 MARCH \xC3\x89RA" && dt::applyCaps("x", "small") == "x");
+    }
+    // A book: the date in each place, and a scene's own date after its break.
+    const std::string dir = tempLibrary("dates106");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id book = lib->createBook("Dated", {});
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "The Harbour");
+    const Id s1 = lib->createNode(book, c1, NodeKind::Scene, "First");
+    const Id s2 = lib->createNode(book, c1, NodeKind::Scene, "Second");
+    const std::string words = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Rain on the slates."}]}]})";
+    for (const Id& id : {c1, s1, s2}) lib->saveNodeContent(id, words);
+    const cal::Calendar cc = cal::fromText("Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Bloomtide: 30\nEra: The Third Age (TA) from year 1\n");
+    CHECK(cal::saveBookCalendar(*lib, book, cc));
+    CHECK(lib->setSetting("timeline:" + book, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", cal::toDay(cc, {2033, 0, 1})},
+                                                             {"nodes", {{c1, {{"day", 0}}}, {s2, {{"day", 5}}}}}}.dump()));
+    dt::Format f;
+    f.era = "short";
+    f.look.era.caps = "small";
+    f.look.date.bold = true;
+    f.look.sceneDates = true;
+    dt::setBookFormat(*lib, book, f);
+    const Source src = snapshot(*lib, book);
+    // The chapter, the first scene (its chapter's date: none of its own) and the second (its own).
+    CHECK(src.sections.size() == 3 && src.sections[0].dateLine == "1 Frostmoon 2033 TA" && src.sections[1].dateLine.empty() &&
+          src.sections[2].dateLine == "6 Frostmoon 2033 TA");
+    const Resources res{appFolder("fonts"), appFolder("hyphenation")};
+    Design d = preset("classic").design;
+    d.chapterDates = true;
+    // The text of the opening, in order, with each run's look.
+    auto opening = [&](const Source& s) {
+        const auto tb = typesetBook(s, d, res);
+        std::string o;
+        for (auto& p : tb.pages) {
+            if (p.kind != Page::ChapterOpening) continue;
+            std::vector<const GlyphRun*> rs;
+            for (auto& r : p.runs) rs.push_back(&r);
+            std::stable_sort(rs.begin(), rs.end(), [](const GlyphRun* a, const GlyphRun* b) { return a->y < b->y; });
+            for (auto* r : rs) {
+                for (auto g : r->glyphs) if (auto it = tb.fonts[r->font].toUnicode.find(g); it != tb.fonts[r->font].toUnicode.end()) o += it->second;
+            }
+            break;
+        }
+        return o;
+    };
+    {
+        const std::string o = opening(src);   // under the title
+        const size_t t = o.find("Harbour"), dd = o.find("1 Frostmoon");
+        CHECK(t != std::string::npos && dd != std::string::npos && t < dd);
+        CHECK(o.find("6 Frostmoon") != std::string::npos);   // the second scene's own date after its break
+    }
+    {
+        dt::Format h = f;
+        h.look.position = "header";
+        dt::setBookFormat(*lib, book, h);
+        const std::string o = opening(snapshot(*lib, book));
+        const size_t t = o.find("Harbour"), dd = o.find("1 Frostmoon");
+        CHECK(t != std::string::npos && dd != std::string::npos && dd < t);   // before the title
+    }
+    {
+        dt::Format a = f;
+        a.look.sceneDates = false;
+        a.look.position = "above";
+        dt::setBookFormat(*lib, book, a);
+        const Source sa = snapshot(*lib, book);
+        const std::string o = opening(sa);
+        const size_t t = o.find("Harbour"), dd = o.find("1 Frostmoon"), r = o.find("Rain");
+        CHECK(t < dd && (r == std::string::npos || dd < r));
+        CHECK(o.find("6 Frostmoon") == std::string::npos);   // no scene dates asked for
+        // The ebook and the Word document: the same parts' looks.
+        const auto content = studio::ebook::build(sa, {}, studio::ebook::styleFrom(d));
+        std::string all;
+        for (auto& ch : content.chapters) all += ch.html;
+        CHECK(all.find("font-variant:small-caps;\">TA</span>") != std::string::npos && all.find("font-weight:bold;\">1 Frostmoon 2033") != std::string::npos);
+        studio::publish::DocxOptions o2;
+        o2.design = d;
+        o2.resources = res;
+        const auto dx = studio::publish::buildDocx(sa, o2);
+        CHECK(dx.ok);
+        std::string xml;
+        {
+            studio::import::Plan p = studio::import::readDocx(dx.bytes, "d.docx");
+            CHECK(p.ok);
+        }
+        // The document part, unzipped by the import's reader indirectly: look for the run properties in the raw bytes is not
+        // possible (deflated), so read it back: the date paragraph's text is there.
+        const auto plan = studio::import::readDocx(dx.bytes, "d.docx");
+        for (auto& sct : plan.sections) xml += sct.content;
+        CHECK(xml.find("1 Frostmoon 2033") != std::string::npos);
+    }
+    fs::remove_all(dir);
+}
+
 int main() {
+    testDateLook106();
     testChapterDates105();
     testDocx104();
     testViewpointIcons103();

@@ -1247,6 +1247,17 @@ Source snapshot(const Library& lib, const Id& bookId) {
             const auto all = lib.manuscriptOf(bookId);
             for (const ManuscriptNode* n : all) {
                 Source::Section& sec = s.sections[i++];
+                if (n->kind == NodeKind::Scene) {   // a scene's own date, where it differs from its chapter's (5b, 0.106)
+                    const ManuscriptNode* ch = lib.node(n->parentId);
+                    const auto own = dates::lineFor(lib, *n);
+                    const auto chapter = ch ? dates::lineFor(lib, *ch) : std::nullopt;
+                    if (own && (!chapter || chapter->date != own->date || chapter->time != own->time)) {
+                        sec.dateLine = own->date;
+                        sec.timeLine = own->time;
+                        sec.dates = *own;
+                    }
+                    continue;
+                }
                 if (n->kind != NodeKind::Chapter) continue;
                 std::optional<std::int64_t> day = dayOf(n->id);
                 if (!day)
@@ -1254,7 +1265,7 @@ Source snapshot(const Library& lib, const Id& bookId) {
                         if (m->parentId == n->id && m->kind == NodeKind::Scene)
                             if ((day = dayOf(m->id))) break;
                 if (day) { sec.dated = true; sec.calendarDay = *day; }
-                if (const auto ln = dates::lineFor(lib, *n)) { sec.dateLine = ln->date; sec.timeLine = ln->time; }
+                if (const auto ln = dates::lineFor(lib, *n)) { sec.dateLine = ln->date; sec.timeLine = ln->time; sec.dates = *ln; }
             }
         }
     }
@@ -1617,6 +1628,26 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         return drawPovIcon(set, book, d, pixelSize, missingFor, sec, diam, cx, cy, into);
     };
 
+    // A date line in its parts' looks (5b, 0.106): the date, then its time on a line of its own when it has one.
+    auto addDate = [&](const Source::Section& sec) {
+        const dates::Look& lk = sec.dates.look;
+        for (const auto* segs : {&sec.dates.dateSegs, &sec.dates.timeSegs}) {
+            if (segs->empty()) continue;
+            Block db;
+            db.align = lk.align == "left" ? Align::Left : lk.align == "right" ? Align::Right : Align::Center;
+            db.indent = false;
+            for (const dates::Seg& sg : *segs) {
+                const dates::PartLook& pl = sg.part == 1 ? lk.era : sg.part == 2 ? lk.time : lk.date;
+                Span sp{dates::applyCaps(sg.text, pl.caps)};
+                sp.bold = pl.bold;
+                sp.italic = pl.italic;
+                sp.smallCaps = pl.caps == "small";
+                db.spans.push_back(sp);
+            }
+            addLines(set.paragraph(db, true), true);
+        }
+    };
+
     // The key of viewpoints (0.103): a page listing each viewpoint's icon and name, in the order they first tell a chapter.
     auto addKey = [&]() {
         std::vector<const Source::Section*> who;
@@ -1864,27 +1895,37 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 inlinePov(tl, fs * 1.55f);
                 addLines(std::move(tl), true);
             }
-            // Its date line under the heading (0.85; the book's date format since 0.105), and its time on a line of its own.
-            if (d.chapterDates && !n->dateLine.empty()) {
-                space(1);
-                for (const std::string& text : {n->dateLine, n->timeLine}) {
-                    if (text.empty()) continue;
-                    Block db;
-                    db.align = Align::Center;
-                    db.indent = false;
-                    Span sp{text};
-                    sp.italic = true;
-                    db.spans.push_back(sp);
-                    addLines(set.paragraph(db, true), true);
-                }
+            // Its date line (0.85; the book's date format since 0.105, its look and place since 0.106): under the heading, with
+            // the header picture above the title, or just above the text's first line.
+            const bool dated = d.chapterDates && !n->dateLine.empty();
+            const std::string datePlace = n->dates.look.position;
+            if (dated && datePlace == "under") { space(1); addDate(*n); }
+            // Where the header ends once placed: before the title it's moved to headStart; a title over its picture is in it.
+            size_t headerEnd = headStart;
+            if (head) {
+                const size_t sizeBefore = flow.size();
+                addHeader(n->header, headStart, title);
+                if (n->header.blob.empty() || n->header.title != "over") {
+                    if (n->header.title != "above") headerEnd = headStart + (flow.size() - sizeBefore);
+                } else headerEnd = flow.size();
             }
-            if (head) addHeader(n->header, headStart, title);
-            space(2);
+            if (dated && datePlace == "header") {   // with the header picture or ornament, before the title (0.106)
+                const size_t before = flow.size();
+                addDate(*n);
+                space(1);
+                std::rotate(flow.begin() + (std::ptrdiff_t)std::min(headerEnd, before), flow.begin() + (std::ptrdiff_t)before, flow.end());
+            }
+            if (dated && datePlace == "above") { space(2); addDate(*n); space(1); }
+            else space(2);
             firstInChapter = true;
             afterBreak = true;
         } else if (n->kind == NodeKind::Scene) {
             // A scene page from an import: a scene break between scenes, no title printed.
-            if (!firstInChapter) addSceneBreak(title);
+            if (!firstInChapter) {
+                addSceneBreak(title);
+                // Its own date after the break, where it differs from its chapter's and the format asks (5b, 0.106).
+                if (d.chapterDates && !n->dateLine.empty() && n->dates.look.sceneDates) { addDate(*n); space(1); }
+            }
             afterBreak = true;
         }
         for (const Block& b : blocks) {

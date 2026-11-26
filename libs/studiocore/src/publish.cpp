@@ -12,6 +12,7 @@
 #include "studio/artwork.hpp"
 #include "studio/headers.hpp"
 #include "studio/calendar.hpp"
+#include "studio/chapter_dates.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -1037,6 +1038,26 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
     };
     if (d.povIcon && d.povKey == "front") key();
 
+    // A date line in its parts' looks and alignment (5b, 0.106); `extra` goes in its first paragraph's properties.
+    auto dateParas = [&](const dates::Lines& ln, const std::string& extra = {}) {
+        std::string ex = extra;
+        for (const auto* segs : {&ln.dateSegs, &ln.timeSegs}) {
+            if (segs->empty()) continue;
+            std::string runs;
+            for (const dates::Seg& sg : *segs) {
+                const dates::PartLook& pl = sg.part == 1 ? ln.look.era : sg.part == 2 ? ln.look.time : ln.look.date;
+                std::string rpr;
+                if (pl.bold) rpr += "<w:b/>";
+                rpr += pl.italic ? "<w:i/>" : "<w:i w:val=\"0\"/>";
+                if (pl.caps == "small") rpr += "<w:smallCaps/>";
+                else if (pl.caps == "upper") rpr += "<w:caps/>";
+                runs += Docx::run(sg.text, rpr);
+            }
+            const std::string jc = ln.look.align == "left" ? "left" : ln.look.align == "right" ? "right" : "center";
+            x.para("ChapterDate", runs, ex + "<w:jc w:val=\"" + jc + "\"/>");
+            ex.clear();
+        }
+    };
     int chapterNo = 0;
     bool firstSection = true;
     for (const auto& sec : src.sections) {
@@ -1047,6 +1068,8 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
         firstSection = false;
         if (sec.kind == NodeKind::Scene) {
             x.sceneBreak();
+            // Its own date after the break, where it differs from its chapter's and the format asks (5b, 0.106).
+            if (d.chapterDates && !sec.dateLine.empty() && sec.dates.look.sceneDates) dateParas(sec.dates);
             x.blocks(content, first, 0);
             continue;
         }
@@ -1061,6 +1084,8 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
         if (!t.special && sec.matter == 0) number = t.number ? (chapterNo = t.number) : ++chapterNo;
         const bool pov = d.povIcon && sec.hasPov && sec.matter == 0;
         const std::string told = "Chapter told by " + sec.pov.name;
+        const bool dated = d.chapterDates && !sec.dateLine.empty();
+        const std::string datePlace = sec.dates.look.position;
         // Its header: a picture or an ornament above the heading (the viewpoint's default ornament gives way to the icon).
         std::string headBefore = newPage;
         const bool head = sec.hasHeader && !(pov && sec.headerFrom == "viewpoint" && sec.header.blob.empty());
@@ -1076,6 +1101,10 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
             }
         } else if (head && headers::printableSymbol(sec.header.symbol)) {
             x.para("Ornament", Docx::run(sec.header.symbol), headBefore);
+            headBefore.clear();
+        }
+        if (dated && datePlace == "header") {   // with the header picture, before the title (0.106)
+            dateParas(sec.dates, headBefore);
             headBefore.clear();
         }
         if (pov && d.povPlace == "above") {
@@ -1103,10 +1132,8 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
             x.para("Heading1", titled(t.rest.empty() ? sec.title : t.rest, hs), "<w:spacing w:before=\"0\"/>");
         } else
             x.para("Heading1", titled(sec.title, hs), headBefore);
-        if (d.chapterDates && !sec.dateLine.empty()) {   // the same line as the printed book (0.105)
-            x.para("ChapterDate", Docx::run(sec.dateLine));
-            if (!sec.timeLine.empty()) x.para("ChapterDate", Docx::run(sec.timeLine), "<w:spacing w:before=\"0\"/>");
-        }
+        if (dated && datePlace == "under") dateParas(sec.dates);
+        if (dated && datePlace == "above") { x.para("ChapterDate", "", "<w:spacing w:before=\"240\"/>"); dateParas(sec.dates); }
         x.blocks(content, first, 0);
     }
     if (d.povIcon && d.povKey == "back") key();

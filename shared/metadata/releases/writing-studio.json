@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.106.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Typesetting › Chapter dates now sets how the date line looks: the date, the era and the time each italic, roman, bold or bold italic, as written, in small capitals or in capitals; aligned left, centred or right; and placed under the title, with the header picture (above the title) or just above the text. Writing, the typeset book, the ebook and the Word document all show it the same way.",
+        "A scene's own date at its scene break: when a scene happens on another day or at another time than its chapter, its date can print after the break."
+      ]
+    },
+    {
       "version": "0.105.0",
       "date": "2026-11-26",
       "notes": [
