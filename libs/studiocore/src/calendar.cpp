@@ -1517,10 +1517,62 @@ Calendar calendarOfBook(const Library& lib, const Id& book) {
     return b ? calendarOfWorld(lib, b->worldId) : Calendar{};
 }
 bool saveWorldCalendar(Library& lib, const Id& world, const Calendar& c) {
-    return lib.setSetting(settingKeyForWorld(world), c.empty() ? std::string() : toJson(c));
+    if (!lib.setSetting(settingKeyForWorld(world), c.empty() ? std::string() : toJson(c))) return false;
+    // Plans imported before the calendar, or written for an older version of it, are read again (0.82).
+    if (!c.empty())
+        for (const Book& b : lib.books())
+            if (!b.deleted && b.worldId == world && !bookHasOwnCalendar(lib, b.id)) rereadPlanDates(lib, b.id);
+    return true;
 }
 bool saveBookCalendar(Library& lib, const Id& book, const Calendar& c) {
-    return lib.setSetting(settingKeyForBook(book), c.empty() ? std::string() : toJson(c));
+    if (!lib.setSetting(settingKeyForBook(book), c.empty() ? std::string() : toJson(c))) return false;
+    rereadPlanDates(lib, book);
+    return true;
+}
+
+int rereadPlanDates(Library& lib, const Id& book) {
+    const Calendar c = calendarOfBook(lib, book);
+    if (c.empty()) return 0;
+    json tl = json::parse(lib.setting("timeline:" + book), nullptr, false);
+    if (!tl.is_object() || !tl.contains("nodes") || !tl["nodes"].is_object()) return 0;
+    int changed = 0;
+    for (auto& [id, v] : tl["nodes"].items()) {
+        if (!v.is_object()) continue;
+        std::string date = v.value("date", "");
+        std::string rest;
+        std::optional<Date> d;
+        if (!date.empty()) d = parseDate(c, date);
+        else if (!v.contains("day") && v.contains("when") && v["when"].is_string()) {
+            // The longest start of the words (up to a ";" or "," or the end) that reads as a date, as on import.
+            const std::string words = v["when"].get<std::string>();
+            std::vector<size_t> cuts{words.size()};
+            for (size_t k = 0; k < words.size(); ++k) if (words[k] == ';' || words[k] == ',') cuts.push_back(k);
+            std::sort(cuts.rbegin(), cuts.rend());
+            for (size_t cut : cuts)
+                if ((d = parseDate(c, words.substr(0, cut)))) {
+                    date = trim(words.substr(0, cut));
+                    rest = trim(cut < words.size() ? words.substr(cut + 1) : std::string());
+                    if (rest.empty()) v.erase("when");
+                    else v["when"] = rest;
+                    v["date"] = date;
+                    break;
+                }
+        }
+        if (!d) continue;
+        const std::int64_t abs = toDay(c, *d);
+        if (!tl.value("calendar", false)) {
+            tl["calendar"] = true;
+            if (!tl.contains("start") || !tl["start"].is_number()) tl["start"] = abs;
+            tl["unit"] = "day";
+        }
+        const double day = (double)(abs - (std::int64_t)std::floor(tl["start"].get<double>()));
+        if (!v.contains("day") || !v["day"].is_number() || v["day"].get<double>() != day) {
+            v["day"] = day;
+            ++changed;
+        }
+    }
+    if (changed) lib.setSetting("timeline:" + book, tl.dump());
+    return changed;
 }
 
 }  // namespace studio::cal

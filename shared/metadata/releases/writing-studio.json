@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.82.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Excerpts in the shared bible come only from the chapters and scenes Planning puts a character in (Who's there or the viewpoint). Where such a chapter doesn't name them, its opening lines are used.",
+        "A plan's When dates are read in the world's calendar in any form it reads (4 Bloomtide 2033 TA, 04/04/2033, with or without the era, short or full name). Import or change the calendar after the plan and its dates are read again. A date that can't be read stays as words, off the timeline, and the import's note says which.",
+        "Import planning names the book it's going into, and warns when most of the plan's chapter titles don't match that book's chapters."
+      ]
+    },
+    {
       "version": "0.81.1",
       "date": "2026-11-26",
       "notes": [

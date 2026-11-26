@@ -142,6 +142,10 @@ struct OutlineImport {
     std::vector<Id> made;
     int trashed = 0;                              // empty parts, chapters and scenes the plan doesn't have (0.62)
     std::vector<std::string> keptWithWriting;    // chapters and scenes with writing the plan doesn't have, kept
+    // When lines (0.82): dates read in the book's calendar, and those that look like dates but couldn't be read (as
+    // "Chapter title: the words"), kept as words for when it happens and not put on the timeline.
+    int datesRead = 0;
+    std::vector<std::string> unreadDates;
 };
 // The plan replaces the book's plan (0.62). Parts, chapters and scenes already in the book are matched rather than added
 // again: a part by its title, a chapter by its title or its key (matchKey: numbers, "Chapter 3:" and symbols aside),
@@ -171,6 +175,10 @@ struct PlanningImport {
     bool any() const;
 };
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out);
+// How well a plan's chapters fit a book (0.82), before importing: the plan's chapters, and how many have the title of
+// one of the book's chapters (exactly, or by matchKey; not by number alone), and how many chapters the book has.
+struct PlanFit { int planned = 0, matched = 0, bookChapters = 0; };
+PlanFit planFit(const Library& lib, const Id& book, const std::string& text);
 // The book's whole plan as such a text: the outline (with its beats), its threads, and the structure it follows when
 // it's the author's own.
 std::string planningText(const Library& lib, const Id& book, const std::string& scope);

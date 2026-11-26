@@ -64,6 +64,13 @@ void StudioApp::setStoryTime(const Id& bookId, const Id& nodeId, const StoryTime
     if (!t.when.empty()) v["when"] = t.when;
     if (t.minutes >= 0) v["time"] = t.minutes;
     else if (!t.part.empty()) v["part"] = t.part;
+    // A date from a plan's When line (0.82) stays while the card keeps that day, so a changed calendar reads it again;
+    // moving the card makes its day the author's own.
+    if (j["nodes"].contains(nodeId) && j["nodes"][nodeId].is_object()) {
+        const json& old = j["nodes"][nodeId];
+        if (t.placed && old.contains("date") && old.contains("day") && old["day"].is_number() && old["day"].get<double>() == t.day)
+            v["date"] = old["date"];
+    }
     if (v.empty()) j["nodes"].erase(nodeId);
     else j["nodes"][nodeId] = v;
     lib_->setSetting("timeline:" + bookId, j.dump());
@@ -1388,13 +1395,24 @@ void StudioApp::importPlanText() {
         text = narrow(ws);
     }
     commitFields();
-    // A plan with chapters replaces the book's plan (0.62): said first, when the book has some already.
-    if (!lib_->manuscriptOf(pl_.book).empty() && !plan::parseOutline(text).empty()) {
-        const int a = cjui::messageBox(hwnd(),
-                                       L"This plan replaces the book's plan.\n\nChapters already in the book are matched to it and take its synopsis, "
-                                       L"viewpoint, place, who's there, time, threads and beats, in its order; their titles and writing stay. "
-                                       L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept.",
-                                       L"Import planning", MB_OKCANCEL | MB_ICONINFORMATION);
+    // A plan with chapters replaces the book's plan (0.62). The question names the book (0.82), and warns when most of
+    // the plan's chapter titles aren't the book's, since that plan may be meant for another book.
+    if (!plan::parseOutline(text).empty()) {
+        const Book* bk = lib_->book(pl_.book);
+        const std::wstring title = bk ? L"\u201C" + w(bk->title) + L"\u201D" : L"this book";
+        const plan::PlanFit fit = plan::planFit(*lib_, pl_.book, text);
+        const bool poorFit = fit.bookChapters > 0 && fit.planned >= 2 && fit.matched * 2 < fit.planned;
+        std::wstring q = L"Import this plan into " + title + L"?";
+        if (poorFit)
+            q += L"\n\nOnly " + std::to_wstring(fit.matched) + L" of the plan's " + std::to_wstring(fit.planned) +
+                 L" chapter titles match chapters in " + title + L" (which has " + std::to_wstring(fit.bookChapters) +
+                 L"). It may be meant for another book: choose Cancel, open that book's Planning, and import it there.";
+        if (fit.bookChapters > 0)
+            q += L"\n\nThe plan replaces the book's plan. Chapters already in the book are matched to it and take its synopsis, "
+                 L"viewpoint, place, who's there, time, threads and beats, in its order; their titles and writing stay. "
+                 L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept.";
+        else q += L"\n\nThe book has no chapters yet, so the plan's " + std::to_wstring(fit.planned) + L" chapters are made.";
+        const int a = cjui::messageBox(hwnd(), q, L"Import planning", MB_OKCANCEL | (poorFit ? MB_ICONWARNING : MB_ICONINFORMATION));
         if (a != IDOK) return;
     }
     plan::PlanningImport r;
@@ -1444,6 +1462,19 @@ void StudioApp::importPlanText() {
     };
     if (!o.unknownViewpoints.empty()) msg += L"\n\nNo character of that name, so no viewpoint was set: " + listOf(o.unknownViewpoints) + L".";
     if (!o.unknownBeats.empty()) msg += L"\n\nNot beats of the book's structure: " + listOf(o.unknownBeats) + L".";
+    if (o.datesRead)
+        msg += L"\n\nRead " + plural(o.datesRead, L"date", L"dates") + L" in the world's calendar and put " + (o.datesRead == 1 ? L"it" : L"them") +
+               L" on the timeline.";
+    if (!o.unreadDates.empty()) {
+        // Kept as words, never Day 0 (0.82); a calendar made or changed later reads them again.
+        const bool hasCal = !cal::calendarOfBook(*lib_, pl_.book).empty();
+        msg += L"\n\n" + plural((int)o.unreadDates.size(), L"date wasn't", L"dates weren't") +
+               (hasCal ? L" read in the world's calendar" : L" read, because the world has no calendar yet") +
+               (o.unreadDates.size() == 1 ? L", so it's kept as words and isn't on the timeline: " : L", so they're kept as words and aren't on the timeline: ") +
+               listOf(o.unreadDates) + L"." +
+               (hasCal ? L" Check the month and era names against the calendar; saving the calendar reads them again."
+                       : L" Make or import the calendar and they'll be read then.");
+    }
     if (!o.unknownCast.empty()) msg += L"\n\nNo character or creature of that name, so they weren't added to who's present: " + listOf(o.unknownCast) + L".";
     if (!r.threads.unknown.empty()) msg += L"\n\nThreads named chapters that aren't in the book: " + listOf(r.threads.unknown) + L".";
     if (o.trashed) msg += L"\n\nMoved " + plural(o.trashed, L"empty part, chapter or scene", L"empty parts, chapters and scenes") +

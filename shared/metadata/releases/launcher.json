@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.158.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.82.0: plan dates read in the world's calendar, excerpts from Planning's chapters, and a safer Import planning."
+      ]
+    },
+    {
       "version": "0.157.0",
       "date": "2026-11-26",
       "notes": [

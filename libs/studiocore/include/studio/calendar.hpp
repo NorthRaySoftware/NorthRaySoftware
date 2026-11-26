@@ -229,6 +229,11 @@ std::vector<DatedFact> datedFactsOf(const Calendar& c, const Entry& e);
 struct StorySpan { bool on = false; std::int64_t start = 0; bool any = false; std::int64_t first = 0, last = 0; };
 StorySpan storySpan(const Library& lib, const Id& book);   // first/last: the calendar days of everything placed
 bool setTimelineCalendar(Library& lib, const Id& book, bool on, std::optional<std::int64_t> start = std::nullopt);
+// Reads a book's plan dates again in its calendar (0.82): each chapter or scene whose date came from a plan's When line
+// ("date" in its timeline JSON) is put on that date, and one whose When words weren't read as a date (no calendar
+// then, or one that couldn't read them) is put on the timeline when they now read. The timeline goes into calendar
+// dates the first time. Run when a calendar is saved; returns how many were placed or moved.
+int rereadPlanDates(Library& lib, const Id& book);
 // A story event's time of day on a book's timeline (0.80), kept beside its day.
 TimeOfDay eventTime(const Library& lib, const Id& book, const Id& entry);
 bool setEventTime(Library& lib, const Id& book, const Id& entry, const TimeOfDay& t);

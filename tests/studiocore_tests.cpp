@@ -4608,6 +4608,7 @@ static void testExcerpts() {
     chapter(one, "Morning", "Maren woke first. The sea was calm.");
     chapter(one, "Noon", "Maren ate. Tom laughed.");
     const Id c6 = chapter(one, "Evening", "She walked home alone. Maren Holt was tired.");
+    (void)c2;
     CHECK(plan::setNodeCast(*lib, one, c1, {tom}));
     CHECK(plan::setNodeCast(*lib, one, c2, {maren}));
     {
@@ -4615,31 +4616,36 @@ static void testExcerpts() {
         n.povId = maren;
         CHECK(lib->updateNode(n));
     }
-    chapter(two, "Return", "Years later, Maren came back to Highcliff.");
+    const Id r1 = chapter(two, "Return", "Years later, Maren came back to Highcliff.");
+    const Id r2 = chapter(two, "Flood", "Rain all day. The roads flooded. Nobody came.");
+    CHECK(plan::setNodeCast(*lib, two, r1, {maren}));
+    CHECK(plan::setNodeCast(*lib, two, r2, {tom}));
     bible::Options o{w, {}, false, {}};
     bible::View view(*lib, o);
     std::map<Id, std::string> texts;
+    // Only chapters Planning puts her in (0.82): Who's there in The Storm and Return, the viewpoint in Evening. Night,
+    // Morning and Noon name her but nobody is chosen there, and Arrival names her but has only Tom.
     const auto ex = bible::excerptsOf(*lib, view, *lib->entry(maren), texts);
-    CHECK(ex.size() == 4);   // three from One (the 3-a-book limit), one from Two
-    if (ex.size() == 4) {
+    CHECK(ex.size() == 3);
+    if (ex.size() == 3) {
         CHECK(ex[0].where == "The Storm" && ex[0].text == "Maren tied the boats down. Bluebolt hid.");
-        CHECK(ex[1].where == "Night" && ex[1].text == "Holt could not sleep. The wind howled.");   // her last name alone
-        CHECK(ex[2].where == "Morning");
-        CHECK(ex[3].bookTitle == "Two" && ex[3].text == "Years later, Maren came back to Highcliff.");
+        CHECK(ex[1].where == "Evening" && ex[1].text == "Maren Holt was tired.");
+        CHECK(ex[2].bookTitle == "Two" && ex[2].text == "Years later, Maren came back to Highcliff.");
     }
-    // Chapter 1 names her but Planning says only Tom is there.
-    for (auto& x : ex) CHECK(x.where != "Arrival");
+    // Tom: Arrival, and Flood, whose text doesn't name him, by its opening lines.
     const auto tomEx = bible::excerptsOf(*lib, view, *lib->entry(tom), texts);
-    CHECK(tomEx.size() == 2 && tomEx[0].where == "Arrival" && tomEx[1].where == "Noon");
-    // A creature has them; a place doesn't.
-    CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), texts).empty());   // chapter 2's cast is only Maren
+    CHECK(tomEx.size() == 2 && tomEx[0].where == "Arrival" && tomEx[0].text == "Tom saw Maren at the dock. He waved.");
+    CHECK(tomEx.size() == 2 && tomEx[1].where == "Flood" && tomEx[1].text == "Rain all day. The roads flooded.");
+    // Nobody chose the creature or the place.
+    CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), texts).empty());
     CHECK(bible::excerptsOf(*lib, view, *lib->entry(town), texts).empty());
-    // The viewpoint counts.
-    CHECK(plan::setNodeCast(*lib, one, c2, {}));
+    // Three a book at most.
+    CHECK(plan::setNodeCast(*lib, one, c1, {tom, maren}));
+    for (const ManuscriptNode* n : lib->manuscriptOf(one))
+        if (n->title == "Night" || n->title == "Morning") CHECK(plan::setNodeCast(*lib, one, n->id, {maren}));
     std::map<Id, std::string> t2;
     const auto ex2 = bible::excerptsOf(*lib, view, *lib->entry(maren), t2);
-    CHECK(ex2.size() == 4 && ex2[0].where == "The Storm");   // nothing chosen now: by the text
-    CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), t2).size() == 1);
+    CHECK(ex2.size() == 4 && ex2[0].where == "Arrival" && ex2[1].where == "The Storm" && ex2[2].where == "Night" && ex2[3].bookTitle == "Two");
     // A reader's guide to Book One has no excerpts from Two.
     bible::Options guide{w, {}, true, one};
     bible::View gv(*lib, guide);
@@ -4664,6 +4670,92 @@ static void testExcerpts() {
         bool any = false;
         for (auto& sec : bible::printableSource(*lib, off, "Alvora", "").sections) any |= sec.content.find("In the books") != std::string::npos;
         CHECK(!any);
+    }
+    lib.reset();
+    fs::remove_all(dir);
+}
+
+// A plan's dates read in the world's calendar, again when the calendar comes later or changes, and how well a plan fits
+// a book (0.82).
+static void testPlanCalendarDates() {
+    using json = nlohmann::json;
+    using namespace studio::cal;
+    const std::string calText = "Calendar: The Alvoran Reckoning\nMonths:\n- Frostmere: 30\n- Thawing: 30\n- Rainmoot: 30\n- Bloomtide: 30\n"
+                                "- Highsun: 30\nEra: First Age (FA) from year 1\nEra: Third Age (TA) from year 900\n";
+    const std::string planText = "Chapter 1: Steel and Snow\nWhen: 4 Bloomtide 2033 TA\nChapter 2: Ash\nWhen: 04/04/2033 Third Age, at dusk\n"
+                                 "Chapter 3: Night\nWhen: the next morning\nChapter 4: Smoke\nWhen: 12 Smokemonth 2033 TA\n"
+                                 "Chapter 5: Later\nWhen: 9 Bloomtide 2033 | TA\n";
+    const std::string dir = tempLibrary("plandates");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id shards = lib->createBook("Shards of Light", w), valona = lib->createBook("Alvora: The Fall of Valona", w);
+    const Calendar c = fromText(calText);
+    auto node = [&](const Id& book, const std::string& title) -> Id {
+        for (const ManuscriptNode* n : lib->manuscriptOf(book)) if (n->title == title) return n->id;
+        return {};
+    };
+    auto tl = [&](const Id& book) { return json::parse(lib->setting("timeline:" + book)); };
+    // With the calendar first: every form of date read, words kept, the unreadable one reported and not placed.
+    {
+        CHECK(saveWorldCalendar(*lib, w, c));
+        plan::PlanningImport pi;
+        CHECK(plan::importPlanning(*lib, shards, "world:" + w, planText, pi));
+        CHECK(pi.outline.datesRead == 3);
+        CHECK(pi.outline.unreadDates.size() == 1 && pi.outline.unreadDates[0] == "Chapter 4: Smoke: 12 Smokemonth 2033 TA");
+        const json j = tl(shards);
+        CHECK(j.value("calendar", false));
+        const json& a = j["nodes"][node(shards, "Chapter 1: Steel and Snow")];
+        const json& b = j["nodes"][node(shards, "Chapter 2: Ash")];
+        CHECK(a["day"].get<double>() == 0 && b["day"].get<double>() == 0 && b.value("when", "") == "at dusk");
+        CHECK(j["nodes"][node(shards, "Chapter 5: Later")]["day"].get<double>() == 5);
+        CHECK(!j["nodes"][node(shards, "Chapter 4: Smoke")].contains("day"));
+        CHECK(j["nodes"][node(shards, "Chapter 4: Smoke")].value("when", "") == "12 Smokemonth 2033 TA");
+        CHECK(!j["nodes"][node(shards, "Chapter 3: Night")].contains("day"));
+        // The plan writes them back as dates.
+        const std::string back = plan::planningText(*lib, shards, "world:" + w);
+        CHECK(back.find("When: 4 Bloomtide 2033 TA\n") != std::string::npos);
+        CHECK(back.find("When: 9 Bloomtide 2033 TA\n") != std::string::npos);
+        // A month put in before Bloomtide: the plan's dates are read again, and keep their distance.
+        Calendar c2 = c;
+        c2.months.insert(c2.months.begin() + 3, Month{"Seedfall", 10});
+        CHECK(saveWorldCalendar(*lib, w, c2));
+        const json j2 = tl(shards);
+        const std::int64_t start = (std::int64_t)j2["start"].get<double>();
+        CHECK(formatDate(c2, fromDay(c2, start + (std::int64_t)j2["nodes"][node(shards, "Chapter 1: Steel and Snow")]["day"].get<double>())) ==
+              "4 Bloomtide 2033 TA");
+        CHECK(j2["nodes"][node(shards, "Chapter 5: Later")]["day"].get<double>() -
+                  j2["nodes"][node(shards, "Chapter 1: Steel and Snow")]["day"].get<double>() == 5);
+        // A calendar that learns Smokemonth places that chapter too.
+        Calendar c3 = c2;
+        c3.months.push_back(Month{"Smokemonth", 30});
+        CHECK(saveWorldCalendar(*lib, w, c3));
+        const json j3 = tl(shards);
+        CHECK(j3["nodes"][node(shards, "Chapter 4: Smoke")].contains("day") && !j3["nodes"][node(shards, "Chapter 4: Smoke")].contains("when"));
+        CHECK(rereadPlanDates(*lib, shards) == 0);   // nothing more to do
+    }
+    // The plan first, then the calendar: the dates wait as words, and are read when the calendar is saved.
+    {
+        CHECK(saveWorldCalendar(*lib, w, Calendar{}));
+        plan::PlanningImport pi;
+        CHECK(plan::importPlanning(*lib, valona, "world:" + w, planText, pi));
+        CHECK(pi.outline.datesRead == 0 && pi.outline.unreadDates.size() == 4);
+        CHECK(!tl(valona).value("calendar", false));
+        CHECK(saveWorldCalendar(*lib, w, c));
+        const json j = tl(valona);
+        CHECK(j.value("calendar", false));
+        CHECK(j["nodes"][node(valona, "Chapter 1: Steel and Snow")]["day"].get<double>() == 0);
+        CHECK(j["nodes"][node(valona, "Chapter 2: Ash")].value("when", "") == "at dusk");
+        CHECK(j["nodes"][node(valona, "Chapter 5: Later")]["day"].get<double>() == 5);
+        CHECK(!j["nodes"][node(valona, "Chapter 3: Night")].contains("day"));
+    }
+    // How a plan fits a book: by titles, not chapter numbers.
+    {
+        const auto fit = plan::planFit(*lib, shards, planText);
+        CHECK(fit.planned == 5 && fit.matched == 5 && fit.bookChapters == 5);
+        const Id other = lib->createBook("Other", w);
+        for (const char* t : {"Chapter 1: Embers", "Chapter 2: The Gate", "Chapter 3: Night"}) lib->createNode(other, {}, NodeKind::Chapter, t);
+        const auto f2 = plan::planFit(*lib, other, planText);
+        CHECK(f2.planned == 5 && f2.matched == 1 && f2.bookChapters == 3);
     }
     lib.reset();
     fs::remove_all(dir);
@@ -4713,6 +4805,7 @@ int main() {
     testPlanDates();
     testCalendarTimes();
     testExcerpts();
+    testPlanCalendarDates();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();

@@ -84,9 +84,9 @@ private:
 };
 
 // Excerpts (0.81): for a character or creature, up to three a book (in reading order; a reader's guide stops at its
-// book), each from a chapter or scene Planning's Who's there puts them in or they're the viewpoint of, or, where a
-// chapter or scene has neither chosen, one whose text names them: the sentence that first names them there and the
-// one after it, cut to about 60 words. `texts` keeps each chapter's plain text between calls.
+// book), each from a chapter or scene Planning's Who's there puts them in or they're the viewpoint of (only those,
+// 0.82): the sentence that first names them there and the one after it (its opening lines when it doesn't name
+// them), cut to about 60 words. `texts` keeps each chapter's plain text between calls.
 struct Excerpt { Id book; std::string bookTitle; std::string where; std::string text; };
 std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts);
 // The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.

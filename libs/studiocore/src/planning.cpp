@@ -1131,6 +1131,8 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
                         }
                         const std::int64_t start = (std::int64_t)std::floor(tl["start"].get<double>());
                         v["day"] = (double)(abs - start);
+                        v["date"] = trim(rest.substr(0, cut));   // as written, to be read again if the calendar changes (0.82)
+                        ++out.datesRead;
                         rest = trim(cut < rest.size() ? rest.substr(cut + 1) : std::string());
                         break;
                     }
@@ -1160,6 +1162,18 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
                 break;
             }
             if (!rest.empty()) v["when"] = rest;
+            // Words that look like a date but weren't read as one (no calendar yet, or one that doesn't know them) are
+            // kept as words and said in the import's note (0.82); a calendar saved later reads them again.
+            if (!v.contains("day") && !it.when.empty()) {
+                bool digit = false, mark = false;
+                for (size_t k = 0; k < it.when.size(); ++k) {
+                    const unsigned char ch = (unsigned char)it.when[k];
+                    if (std::isdigit(ch)) digit = true;
+                    else if ((ch == '/' || ch == '-' || ch == '.') && k > 0 && std::isdigit((unsigned char)it.when[k - 1])) mark = true;
+                    else if (std::isalpha(ch)) mark = true;
+                }
+                if (digit && mark) out.unreadDates.push_back(it.title + ": " + it.when);
+            }
             if (!v.empty()) tl["nodes"][id] = v;
         }
     }
@@ -1196,6 +1210,24 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
 }
 
 // ------------------------------------------------------------------ all of it
+
+PlanFit planFit(const Library& lib, const Id& book, const std::string& text) {
+    PlanFit f;
+    std::set<std::string> titles, keys;
+    for (const ManuscriptNode* n : lib.manuscriptOf(book))
+        if (n->kind == NodeKind::Chapter && !n->deleted) {
+            ++f.bookChapters;
+            titles.insert(lower(trim(n->title)));
+            keys.insert(matchKey(n->title));
+        }
+    for (const OutlineItem& it : parseOutline(text)) {
+        if (it.kind != NodeKind::Chapter) continue;
+        ++f.planned;
+        const std::string k = matchKey(it.title);
+        if (titles.count(lower(trim(it.title))) || (!k.empty() && k[0] != '#' && keys.count(k))) ++f.matched;
+    }
+    return f;
+}
 
 std::string structureScope(const Library& lib, const Id& book) {
     const Book* b = lib.book(book);

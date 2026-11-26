@@ -273,15 +273,18 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
         for (const ManuscriptNode* n : lib.manuscriptOf(bk)) {
             if (taken >= 3) break;
             if (n->deleted || n->kind == NodeKind::Part) continue;
+            // Only chapters and scenes Planning puts them in (0.82): Who's there, or the viewpoint.
             const auto c = cast.find(n->id);
-            const bool chosen = (c != cast.end() && !c->second.empty()) || !n->povId.empty();
             const bool inIt = n->povId == e.id || (c != cast.end() && std::find(c->second.begin(), c->second.end(), e.id) != c->second.end());
-            if (chosen && !inIt) continue;   // Planning says who's there, and it isn't them
+            if (!inIt) continue;
             auto t = texts.find(n->id);
             if (t == texts.end()) t = texts.emplace(n->id, doc::plainText(lib.nodeContent(n->id))).first;
+            // The passage that first names them there, or, when the text doesn't name them, its opening lines.
             const auto spans = findNames(t->second, just);
-            if (spans.empty()) continue;
-            const std::string passage = excerptAround(t->second, spans.front().start, spans.front().end);
+            size_t from = 0;
+            while (from < t->second.size() && std::isspace((unsigned char)t->second[from])) ++from;
+            const std::string passage = spans.empty() ? excerptAround(t->second, from, from)
+                                                      : excerptAround(t->second, spans.front().start, spans.front().end);
             if (passage.empty()) continue;
             std::string where = n->title.empty() ? std::string(n->kind == NodeKind::Scene ? "A scene" : "A chapter") : n->title;
             if (n->kind == NodeKind::Scene)
