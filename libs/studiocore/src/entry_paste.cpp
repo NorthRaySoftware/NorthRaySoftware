@@ -1,4 +1,5 @@
 #include "studio/entry_paste.hpp"
+#include "studio/bible_markdown.hpp"
 #include "studio/document.hpp"
 #include "studio/artwork.hpp"
 
@@ -1138,6 +1139,7 @@ bool nameLine(const std::string& raw, std::string& value, bool& bare) {
 }  // namespace
 
 std::vector<Batch> splitPages(const std::string& text, const std::string& defaultKind) {
+    if (isMarkdownExport(text)) return exportPages(text);   // a bible export: its own pages, read exactly (0.95)
     std::vector<std::string> lines;
     {
         std::string cur;
@@ -1294,6 +1296,8 @@ bool clearEntryText(Library& lib, const Id& entryId) {
 
 bool importPages(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
                  Import& out, bool replaceAll, const std::string& baseFolder) {
+    // A bible export (0.95): each page is exactly its entry, so Update and Replace come to the same thing.
+    if (!pages.empty() && pages.front().exact) return importExact(lib, world, book, pages, booksInOrder, out, baseFolder);
     const Id scopeBook = world.empty() ? book : Id{};
     std::vector<Page> parsed;
     for (const Batch& b : pages) parsed.push_back(parse(b.text));

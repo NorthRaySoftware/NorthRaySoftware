@@ -1545,4 +1545,26 @@ std::string planningText(const Library& lib, const Id& book, const std::string& 
     return out;
 }
 
+std::string planningMarkdown(const Library& lib, const Id& book, const std::string& scope) {
+    // The outline's parts, chapters and scenes as headings (0.95): "# Part: …", "## Chapter: …", "### Scene: …", which
+    // parseOutline reads by their word. Everything else is as planningText writes it.
+    std::string outline;
+    {
+        std::istringstream in(outlineText(lib, book));
+        for (std::string l; std::getline(in, l);) {
+            if (l.rfind("Part: ", 0) == 0) l = "# " + l;
+            else if (l.rfind("Chapter: ", 0) == 0) l = "## " + l;
+            else if (l.rfind("Scene: ", 0) == 0) l = "### " + l;
+            outline += l + "\n";
+        }
+    }
+    std::string out = outline;
+    const Threads th = threadsOf(lib, book);
+    if (!th.threads.empty()) out += (out.empty() ? "" : "\n") + threadsText(lib, book, th);
+    const BookStructure bs = bookStructure(lib, book);
+    for (const Structure& s : ownStructures(lib, scope))
+        if (s.id == bs.templateId) out += (out.empty() ? "" : "\n") + structureText(s);
+    return out;
+}
+
 }  // namespace studio::plan

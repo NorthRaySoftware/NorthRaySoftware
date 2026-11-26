@@ -1563,12 +1563,14 @@ void StudioApp::exportPlanText() {
     const Book* b = lib_->book(pl_.book);
     if (!b) return;
     commitFields();
-    std::vector<MenuItem> items{MenuItem::item(L"Save as a text file…", 1), MenuItem::item(L"Copy it", 2)};
+    std::vector<MenuItem> items{MenuItem::item(L"Save as Markdown…", 3), MenuItem::item(L"Save as a text file…", 1), MenuItem::item(L"Copy it", 2)};
     POINT pt;
     GetCursorPos(&pt);
     const UINT how = showMenu(hwnd(), items, pt, pal_);
     if (!how) return;
-    const std::string text = plan::planningText(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book));
+    // Markdown (0.95): the parts, chapters and scenes as headings; both read back the same with Import planning.
+    const std::string text = how == 3 ? plan::planningMarkdown(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book))
+                                      : plan::planningText(*lib_, pl_.book, plan::structureScope(*lib_, pl_.book));
     if (text.empty()) { flash(L"There's nothing planned yet to export.", 5); return; }
     if (how == 2) {
         std::wstring ws = widen(text), crlf;
@@ -1576,10 +1578,12 @@ void StudioApp::exportPlanText() {
         flash(copyToClipboard(hwnd(), crlf) ? L"Copied the plan. Paste it anywhere, or into another book with Import planning." : L"Couldn't copy it.", 5);
         return;
     }
-    const std::wstring path = askSavePath(L"Text", L"*.txt", L"txt", w(b->title) + L" - plan", L"Export the plan");
+    const std::wstring path = how == 3 ? askSavePath(L"Markdown", L"*.md", L"md", w(b->title) + L" - plan", L"Export the plan as Markdown")
+                                       : askSavePath(L"Text", L"*.txt", L"txt", w(b->title) + L" - plan", L"Export the plan");
     if (path.empty()) return;
     std::ofstream out(path.c_str(), std::ios::binary);
-    out << "\xEF\xBB\xBF" << text;
+    if (how != 3) out << "\xEF\xBB\xBF";
+    out << text;
     if (!out) { cjui::messageBox(hwnd(), L"Couldn't save the plan there.", L"Export planning", MB_OK | MB_ICONWARNING); return; }
     flash(L"Saved the plan: outline, plot threads and structure.", 5);
 }

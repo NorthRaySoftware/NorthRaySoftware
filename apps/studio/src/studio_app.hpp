@@ -771,6 +771,7 @@ private:
     void resetBible();        // every entry to the Trash, or everything (studio_paste.cpp)
     bool undoBibleReset();
     void importManyPages(bool fromClipboard);
+    void exportBibleMarkdown();   // 0.95: the bible as Markdown that Import many pages reads back exactly
     void copyBlankPageFor(const std::string& kind);
     void copyBlankPageText(const std::string& kind, const std::vector<std::string>& sections);   // many bible pages from a file or the clipboard (0.39)
     void importPagesText(const std::string& text, const std::wstring& from, const std::string& baseFolder = {});

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.94.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.170.0 |
+| Version at the time of writing | 0.95.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.171.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -116,6 +116,7 @@ Status labels used in this manual:
 - Pasting a whole page puts each part where it belongs. Import many pages at once from text, Markdown, Word or ODT, with templates for every kind, a preview of what changes, and undo.
 - Long import confirmations scroll, so OK and Cancel stay on screen (0.93).
 - For entries already in the bible, a box of its own asks Update (the default) or Replace all their text; the preview lists every section, detail and link each would lose.
+- Bible tools › Export as Markdown: the whole bible, chosen kinds or one entry, with its pictures beside it; Import many pages reads it back exactly (a backup, a record to compare, bulk editing). Appears in, ages and excerpts can be added for reading.
 - Share the bible: a themed static website, a printable PDF, or a reader's guide (cut at a chosen book). It can include excerpts, each book's plan and ages.
 - Sync a world with a private GitHub repository of your own. The token is kept in Windows Credential Manager.
 
@@ -127,7 +128,7 @@ Status labels used in this manual:
   - Threads.
 - Who's there, viewpoint, place and dates on each card.
 - A chapter's own page (0.90): its opening, facts, notes, scene cards, the text folded, ‹ › stepping.
-- Plans imported and exported as plain text that round-trips. Titles match whatever their apostrophes, quotation marks, dashes or spacing; the import question names every new chapter and part. Front or back matter in a plan is always a chapter.
+- Plans imported and exported as plain text that round-trips. Titles match whatever their apostrophes, quotation marks, dashes or spacing; the import question names every new chapter and part. Front or back matter in a plan is always a chapter. The plan also exports as Markdown, with headings for parts, chapters and scenes.
 - Header pictures per chapter.
 
 ### Typesetting, preview, publishing
@@ -167,19 +168,18 @@ Status labels used in this manual:
 
 ### Partial or not verified
 - The editor's behaviour inside the real app (WebView2) on Windows: the right-click menu items (including Draft note), pasting pictures, keys reaching the app, the draft-note look.
-- The named-button boxes of Import many pages (0.94) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
+- The named-button boxes of Import many pages (0.94) and Export as Markdown (0.95) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
 - PDF import: experimental.
 - PDF/X conformance is by construction plus a qpdf check. It has not been run through a preflight validator such as Acrobat's or callas pdfToolbox.
 - Ornament and emoji glyphs in Wine's UI font show as boxes. On Windows the symbol fonts cover them in typeset output; the UI depends on Windows' fonts.
 
 ### Planned (the director's answers; not in the release notes yet)
 
-From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94):
+From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95):
 - Interface zoom and scaling (Ctrl +/−/0, separate writing-page zoom, responsive layouts).
 - Tools always visible as toolbars, customisable, with a command palette.
 - Character portraits, symbols and colours throughout the bible, Writing, Planning and the printed viewpoint icon.
 - Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.
-- Export the bible and the plan as import-ready Markdown that round-trips.
 
 From 15 and 18 Nov 2026:
 - Ambience sounds while writing.

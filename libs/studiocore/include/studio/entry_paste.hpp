@@ -110,6 +110,7 @@ struct Batch {
     std::string kind;    // the entry kind
     std::string name;    // as the page gives it
     std::string text;    // the page, as paste::parse reads it
+    bool exact = false;  // from a bible export (0.95): read exactly, see studio/bible_markdown.hpp
 };
 
 // The pages in text. Pages without a name are left out.

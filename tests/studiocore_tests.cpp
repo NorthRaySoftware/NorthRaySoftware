@@ -2,6 +2,7 @@
 // a fresh temporary folder and reopens the library to prove what was saved.
 #include "studio/artwork.hpp"
 #include "studio/bible_export.hpp"
+#include "studio/bible_markdown.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -667,6 +668,14 @@ static void testPlanRoundTrip() {
     CHECK(plan::importPlanning(*lib, b, "world:" + w, out, again));
     CHECK(planSnapshot(*lib, b) == before);
     CHECK(plan::planningText(*lib, b, "world:" + w) == out);
+    // As Markdown (0.95): headings for parts, chapters and scenes; it reads back the same.
+    {
+        const std::string md = plan::planningMarkdown(*lib, b, "world:" + w);
+        CHECK(md.find("\n## Chapter: The Forge\n") != std::string::npos && md.find("# Part: ") != std::string::npos && md.find("### Scene: ") != std::string::npos);
+        plan::PlanningImport viaMd;
+        CHECK(plan::importPlanning(*lib, b, "world:" + w, md, viaMd));
+        CHECK(planSnapshot(*lib, b) == before && plan::planningText(*lib, b, "world:" + w) == out);
+    }
     CHECK(out.find("Notes: Tom should fail here first.\nNotes: Remember the ledger's smell.\nTom works late.") != std::string::npos);
     CHECK(plan::nodeNote(*lib, b, forge) == "Tom should fail here first.\n\nRemember the ledger's smell.");
     CHECK(lib->node(forge)->synopsis.find("Remember") == std::string::npos);
@@ -5688,7 +5697,135 @@ static void testPrint094() {
     }
 }
 
+// 0.95: the bible as Markdown. Exported, imported into the same bible: nothing changes. Imported into a new library with
+// the same books: exporting that gives the same file. Generated parts are for reading only.
+static void testBibleMarkdown095() {
+    namespace pa = studio::paste;
+    const std::string dir = tempLibrary("md095");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("World");
+    const Id b1 = lib->createBook("First Book", world), b2 = lib->createBook("Second Book", world);
+    const Id ana = lib->createEntry(world, {}, "character", "Ana Vell");
+    const Id bram = lib->createEntry(world, {}, "character", "Bram Vell");
+    const Id city = lib->createEntry(world, {}, "place", "Highcliff");
+    const Id twin = lib->createEntry(world, {}, "place", "Ana Vell");   // the same name, another kind
+    {
+        Entry e = *lib->entry(ana);
+        e.aliases = {"Annie", "The Grey \"Lady\""};
+        e.pronunciation = "AH-na";
+        e.symbol = "\xE2\x9C\xA7";
+        e.summary = "A smith.\n# not a heading\n\\ a backslash line\n*Asterisks* stay as typed.";
+        e.details = "Age: 34\nEyes: grey\n\nA line with no label";
+        e.sections = {{"Appearance & personality", "Tall.\n\nQuiet, mostly."}, {"Details", "A section called Details."}, {"Empty one", ""},
+                      {"History", "Born in Highcliff.\n"}};
+        e.bookNotes = {{b1, "She leaves home."}, {std::string(pa::kLaterBook) + "Third Book", "Returns."}};
+        e.notes = "Private.\n\nSpoilers:\nShe dies.";
+        e.revealed = {{"summary", b2}, {"section:History", b1}};
+        e.imageBlob = lib->storeBlob(pngOf(64, 48));
+        e.gallery = {{lib->storeBlob(pngOf(32, 32)), "Young | old"}, {e.imageBlob, ""}};
+        CHECK(lib->updateEntry(e));
+    }
+    {
+        Entry e = *lib->entry(city);
+        e.mapBlob = lib->storeBlob(pngOf(100, 80));
+        e.pins = {{ana, 0.25, 0.5}, {bram, 0.125, 0.875}};
+        e.summary = "A city on the cliffs.";
+        CHECK(lib->updateEntry(e));
+    }
+    CHECK(lib->addLink(ana, bram, "Sibling of") && lib->addLink(bram, city, "Lives in") && lib->addLink(ana, bram, "Admires"));
+    auto snapshot = [&](Library& l, const Id& w) {
+        std::string o;
+        for (const Entry* e : l.entriesOf(w)) {
+            o += e->kind + "|" + e->name + "|" + e->pronunciation + "|" + e->symbol + "|" + e->summary + "|" + e->details + "|" + e->notes + "|" + e->imageBlob + "|" + e->mapBlob + "\n";
+            for (auto& a : e->aliases) o += " a " + a + "\n";
+            for (auto& [t, x] : e->sections) o += " s " + t + "=" + x + "\n";
+            for (auto& [b, x] : e->bookNotes) { const Book* bk = l.book(b); o += " n " + (bk ? bk->title : b) + "=" + x + "\n"; }
+            for (auto& [k, b] : e->revealed) o += " r " + k + "=" + l.book(b)->title + "\n";
+            for (auto& g : e->gallery) o += " g " + g.blob + "=" + g.caption + "\n";
+            for (auto& pin : e->pins) o += " p " + l.entry(pin.entry)->name + "@" + std::to_string(pin.x) + "," + std::to_string(pin.y) + "\n";
+            std::vector<std::string> links;
+            for (auto& k : l.linksOf(e->id)) if (k.from == e->id) links.push_back(" l " + k.label + ">" + l.entry(k.to)->name + "/" + l.entry(k.to)->kind);
+            std::sort(links.begin(), links.end());
+            for (auto& k : links) o += k + "\n";
+        }
+        return o;
+    };
+    const std::string before = snapshot(*lib, world);
+    const pa::MarkdownExport ex = pa::exportMarkdown(*lib, world, {});
+    CHECK(ex.entries == 4 && pa::isMarkdownExport(ex.text) && ex.pictures.size() == 3);   // a picture used twice is written once
+    CHECK(ex.text.find("\n\\# not a heading\n") != std::string::npos && ex.text.find("\n\\\\ a backslash line\n") != std::string::npos);
+    CHECK(ex.text.find("# Characters\n") != std::string::npos && ex.text.find("# Places\n") != std::string::npos);
+    CHECK(ex.text.find("Appears in") == std::string::npos);
+    // The pictures beside the file, as the app writes them.
+    const fs::path out = fs::temp_directory_path() / ("md095-" + newId().substr(0, 8));
+    fs::create_directories(out / "pictures");
+    for (auto& [blob, rel] : ex.pictures) fs::copy_file(lib->blobPath(blob), out / rel);
+    const auto books = std::vector<Id>{b1, b2};
+    // Into the same bible: nothing changes.
+    {
+        const auto pages = pa::splitPages(ex.text, "character");
+        CHECK(pages.size() == 4 && pages[0].exact);
+        pa::Preview pv;
+        CHECK(pa::previewImport(*lib, world, {}, pages, books, pv, false, out.string()));
+        CHECK(pv.made.empty() && pv.changes.empty() && pv.unchanged == 4);
+        pa::Import im;
+        CHECK(pa::importPages(*lib, world, {}, pages, books, im, false, out.string()));
+        CHECK(im.made.empty() && im.extra.empty() && im.unread.empty() && im.missingPictures.empty());
+        const std::string after = snapshot(*lib, world);
+        if (after != before) std::printf("  before:\n%s  after:\n%s", before.c_str(), after.c_str());
+        CHECK(after == before);
+        CHECK(pa::exportMarkdown(*lib, world, {}).text == ex.text);
+    }
+    // An edit in the file comes in; the rest stays.
+    {
+        std::string edited = ex.text;
+        const size_t at = edited.find("A city on the cliffs.");
+        edited.replace(at, 21, "A city on the white cliffs.");
+        pa::Import im;
+        CHECK(pa::importPages(*lib, world, {}, pa::splitPages(edited, "character"), books, im, false, out.string()));
+        CHECK(lib->entry(city)->summary == "A city on the white cliffs." && im.unchanged == 3);
+        CHECK(pa::importPages(*lib, world, {}, pa::splitPages(ex.text, "character"), books, im, false, out.string()));
+        CHECK(snapshot(*lib, world) == before);
+    }
+    // Into a new library with the same books: the same file comes out.
+    {
+        const std::string dir2 = tempLibrary("md095b");
+        auto lib2 = openOk(dir2);
+        if (lib2) {
+            const Id w2 = lib2->createWorld("World");
+            const Id n1 = lib2->createBook("First Book", w2), n2 = lib2->createBook("Second Book", w2);
+            pa::Import im;
+            CHECK(pa::importPages(*lib2, w2, {}, pa::splitPages(ex.text, "character"), {n1, n2}, im, false, out.string()));
+            CHECK(im.made.size() == 4 && im.extra.empty());
+            CHECK(snapshot(*lib2, w2) == before);
+            CHECK(pa::exportMarkdown(*lib2, w2, {}).text == ex.text);
+        }
+        fs::remove_all(dir2);
+    }
+    // Some kinds, one entry, and the generated parts for reading.
+    {
+        pa::MarkdownOptions o;
+        o.kinds = {"place"};
+        CHECK(pa::exportMarkdown(*lib, world, {}, o).entries == 2);
+        o.kinds.clear();
+        o.entries = {twin};
+        CHECK(pa::exportMarkdown(*lib, world, {}, o).entries == 1);
+        o.entries.clear();
+        o.generated = true;
+        o.picturesFolder.clear();
+        const auto g = pa::exportMarkdown(*lib, world, {}, o);
+        CHECK(g.pictures.empty() && g.text.find("Picture:") == std::string::npos);
+        // Read back without pictures and with generated parts: pictures stay, the generated parts are skipped.
+        pa::Import im;
+        CHECK(pa::importPages(*lib, world, {}, pa::splitPages(g.text, "character"), books, im, false, out.string()));
+        CHECK(im.unread.empty() && snapshot(*lib, world) == before);
+    }
+    fs::remove_all(out);
+}
+
 int main() {
+    testBibleMarkdown095();
     testPrint094();
     testPlanMatching094();
     testHeaders();

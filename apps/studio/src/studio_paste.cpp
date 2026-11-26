@@ -11,6 +11,7 @@
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 #include "studio/entry_paste.hpp"
+#include "studio/bible_markdown.hpp"
 #include "studio/import.hpp"
 
 #include <shobjidl.h>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 
@@ -348,6 +350,80 @@ std::string textFromBytes(const std::string& b) {
 }
 
 }  // namespace
+
+// The bible as Markdown (0.95): every entry in the form Import many pages reads back exactly, with its pictures in a
+// folder beside the file. A backup, a record to compare, and a way to change entries in bulk and import them again.
+void StudioApp::exportBibleMarkdown() {
+    if (!lib_) return;
+    commitFields();
+    paste::MarkdownOptions o;
+    std::vector<std::wstring> scope{L"Whole bible", L"Choose kinds…"};
+    const Entry* open = wb_.entry.empty() ? nullptr : lib_->entry(wb_.entry);
+    if (open) scope.push_back(L"Just " + w(open->name));
+    const int sc = cjui::choiceBox(hwnd(), L"What should the Markdown file hold?", L"Export as Markdown", scope, 0, MB_ICONQUESTION);
+    if (sc < 0) return;
+    if (sc == 2 && open) o.entries = {open->id};
+    if (sc == 1) {
+        // Ticked in a menu that stays until Export these is chosen.
+        std::vector<std::string> picked;
+        if (!wb_.kind.empty()) picked.push_back(wb_.kind);
+        for (;;) {
+            std::vector<cjui::MenuItem> items;
+            const auto& kinds = entryKinds();
+            for (size_t i = 0; i < kinds.size(); ++i)
+                items.push_back(cjui::MenuItem::item(w(entryKindLabel(kinds[i])), 1 + (UINT)i, {}, true,
+                                               std::find(picked.begin(), picked.end(), kinds[i]) != picked.end()));
+            cjui::MenuItem sep;
+            sep.separator = true;
+            items.push_back(sep);
+            items.push_back(cjui::MenuItem::item(L"Export these", 900, {}, !picked.empty()));
+            POINT pt;
+            GetCursorPos(&pt);
+            const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
+            if (!c) return;
+            if (c == 900) break;
+            const std::string k = kinds[c - 1];
+            if (auto it = std::find(picked.begin(), picked.end(), k); it != picked.end()) picked.erase(it);
+            else picked.push_back(k);
+        }
+        o.kinds = picked;
+    }
+    const int gen = cjui::choiceBox(hwnd(),
+                                    L"Only what you wrote imports back exactly. The parts the app works out (Appears in, ages, "
+                                    L"excerpts from the books) can be added for reading; importing the file skips them.",
+                                    L"Export as Markdown", {L"Only what you wrote", L"Add Appears in, ages and excerpts"}, 0, MB_ICONQUESTION);
+    if (gen < 0) return;
+    o.generated = gen == 1;
+    std::wstring name = L"Bible";
+    if (const World* wd = lib_->world(wb_.world)) name = w(wd->name) + L" - bible";
+    else if (const Book* bk = lib_->book(wb_.book)) name = w(bk->title) + L" - bible";
+    if (open && sc == 2) name = w(open->name);
+    const std::wstring path = askSavePath(L"Markdown", L"*.md", L"md", name, L"Export the bible as Markdown");
+    if (path.empty()) return;
+    namespace fs = std::filesystem;
+    const fs::path file(path);
+    o.picturesFolder = narrow(file.stem().wstring()) + " pictures";
+    const paste::MarkdownExport ex = paste::exportMarkdown(*lib_, wb_.world, wb_.world.empty() ? wb_.book : Id{}, o);
+    if (ex.entries == 0) { flash(L"There are no entries of that kind to export.", 5); return; }
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << ex.text;
+        if (!out) { cjui::messageBox(hwnd(), L"Couldn't save the file there.", L"Export as Markdown", MB_OK | MB_ICONWARNING); return; }
+    }
+    int copied = 0, failed = 0;
+    for (const auto& [blob, rel] : ex.pictures) {
+        std::error_code ec;
+        const fs::path to = file.parent_path() / fs::u8path(rel);
+        fs::create_directories(to.parent_path(), ec);
+        fs::copy_file(fs::u8path(lib_->blobPath(blob)), to, fs::copy_options::overwrite_existing, ec);
+        ec ? ++failed : ++copied;
+    }
+    std::wstring msg = L"Exported " + std::to_wstring(ex.entries) + (ex.entries == 1 ? L" entry" : L" entries");
+    if (copied) msg += L" and " + std::to_wstring(copied) + (copied == 1 ? L" picture" : L" pictures") + L" (in “" + widen(o.picturesFolder) + L"” beside it)";
+    msg += L". Import many pages reads it back exactly.";
+    if (failed) msg += L" " + std::to_wstring(failed) + L" pictures couldn't be copied.";
+    flash(msg, 7);
+}
 
 void StudioApp::importManyPages(bool fromClipboard) {
     if (!lib_) return;

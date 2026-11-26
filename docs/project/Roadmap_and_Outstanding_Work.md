@@ -1,8 +1,8 @@
 # NorthRay Roadmap and Outstanding Work
 
-This document consolidates what's planned, as of suite 0.170.0 (26 November 2026).
+This document consolidates what's planned, as of suite 0.171.0 (26 November 2026).
 
-**Writing Studio, the director's combined request (26 Nov):** phase 1 (fixes) is 0.94.0. Planned, in order: phase 2 interface zoom and scaling; phase 3 tools visible at all times; phase 4 character icons; phase 5 chapter dates as formatted text; and the bible and plan as import-ready Markdown. Writing Studio has no DOCX export yet, which phases 4 and 5 mention.
+**Writing Studio, the director's combined request (26 Nov):** phase 1 (fixes) is 0.94.0; the bible and plan as Markdown is 0.95.0. Planned, in order: phase 2 interface zoom and scaling (in cjui, for every app: the director's choice); phase 3 tools visible at all times; phase 4 character icons; phase 5 chapter dates as formatted text; and a DOCX export of the manuscript (the director's choice), which phases 4 and 5 print into.
 
 **Sources:**
 - `docs/ROADMAP-2026-11.md` (14 Nov)

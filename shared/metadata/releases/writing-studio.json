@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.95.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Bible tools › Export as Markdown: the whole bible, chosen kinds or the open entry, in the form Import many pages reads, with its pictures in a folder beside the file. Every part is there: other names, how it's said, symbol, summary, details, sections (empty ones too), notes per book, family, relationships, notes, spoilers, gallery and map pins.",
+        "Importing that file again changes nothing, and an entry changed in the file is all that changes: use it as a backup, to compare versions, or to edit many entries at once. Text comes back exactly as written, asterisks and all.",
+        "Appears in, ages and excerpts from the books can be added for reading; importing skips them.",
+        "Planning › Export the plan › Save as Markdown: parts, chapters and scenes as headings. Import planning reads it back the same."
+      ]
+    },
+    {
       "version": "0.94.0",
       "date": "2026-11-26",
       "notes": [

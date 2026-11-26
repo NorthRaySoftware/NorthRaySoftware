@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.171.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.95.0: the bible and the plan exported as Markdown that imports back exactly."
+      ]
+    },
+    {
       "version": "0.170.0",
       "date": "2026-11-26",
       "notes": [

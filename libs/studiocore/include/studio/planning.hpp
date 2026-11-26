@@ -204,6 +204,8 @@ PlanFit planFit(const Library& lib, const Id& book, const std::string& text);
 // The book's whole plan as such a text: the outline (with its beats), its threads, and the structure it follows when
 // it's the author's own.
 std::string planningText(const Library& lib, const Id& book, const std::string& scope);
+// The same as Markdown (0.95): parts, chapters and scenes as "#", "##" and "###" headings. Imported, it reads the same.
+std::string planningMarkdown(const Library& lib, const Id& book, const std::string& scope);
 // Where the author's own structures for a book are kept.
 std::string structureScope(const Library& lib, const Id& book);
 

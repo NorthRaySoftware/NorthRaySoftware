@@ -707,6 +707,7 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Bringing pages in"));
     t.push_back(ToolItem::item(L"Import many pages…", [this] { importManyPages(false); }));
+    t.push_back(ToolItem::item(L"Export as Markdown…", [this] { exportBibleMarkdown(); }));
     t.push_back(ToolItem::item(L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); }));
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::item(L"Reset the bible…", [this] { resetBible(); }));
