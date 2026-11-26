@@ -270,18 +270,11 @@ nlohmann::json StudioApp::chapterHeadJson(const ManuscriptNode& n) {
         for (const ManuscriptNode* s : lib_->manuscriptOf(n.bookId))
             if (s->parentId == n.id && !s->povId.empty()) { pov = s->povId; break; }
     if (const Entry* e = pov.empty() ? nullptr : lib_->entry(pov); e && !e->deleted) {
-        const cjui::Color c = povColour(e->id);
-        char hex[8];
-        std::snprintf(hex, sizeof hex, "#%02X%02X%02X", (int)std::lround(c.r * 255), (int)std::lround(c.g * 255), (int)std::lround(c.b * 255));
-        nlohmann::json pj = {{"id", e->id}, {"name", e->name}, {"colour", hex}};
-        if (!e->imageBlob.empty()) pj["blob"] = e->imageBlob;
-        else if (!e->symbol.empty() && e->symbol.rfind("icon:", 0) != 0) pj["symbol"] = e->symbol;
-        else {
-            std::string ini;
-            for (const auto& word : {e->name.substr(0, e->name.find(' ')), e->name.find(' ') == std::string::npos ? std::string() : e->name.substr(e->name.rfind(' ') + 1)})
-                if (!word.empty()) ini += (char)std::toupper((unsigned char)word[0]);
-            pj["initials"] = ini;
-        }
+        // The same icon as the bible's (4b, 0.102): its picture with its symbol as a badge, or its symbol or initials
+        // on its colour.
+        nlohmann::json pj = iconJson(*e);
+        pj["id"] = e->id;
+        pj["name"] = e->name;
         j["pov"] = pj;
     }
     return j;

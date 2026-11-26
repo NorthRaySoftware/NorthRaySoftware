@@ -38,6 +38,7 @@ import { analyse } from "./hints.js";
 import * as spell from "./spell.js";
 import { initStyleUi, renderList, renderRules, imported as styleImported, otherWords } from "./style_ui.js";
 import { initNameCard, setEntries, showNameCard, kindClass } from "./namecard.js";
+import { iconFor } from "./icon.js";
 
 // ------------------------------------------------------------------ schema
 
@@ -532,7 +533,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 3, zoom: 1, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true };
+const VIEW_DEFAULTS = { v: 3, zoom: 1, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true, povName: true };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -554,6 +555,7 @@ function applyView() {
   root.dataset.paper = v.paper === "night" ? "night" : "usual";   // warm night paper for writing in the dark (0.35)
   root.classList.toggle("typewriter", !!v.typewriter);
   root.classList.toggle("noheads", v.heads === false);   // the chapter's header picture and date (0.92)
+  root.classList.toggle("nopovname", v.povName === false);   // the viewpoint's icon alone, without the name (0.102)
   if (view) {
     // The Studio's own checker once its dictionary is loaded (it knows the bible's names); the browser's until then.
     view.dom.setAttribute("spellcheck", v.spellcheck && !spell.ready() ? "true" : "false");
@@ -859,22 +861,15 @@ function setHead(h) {
   if (p && typeof p.id === "string" && p.id) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "cchip";
+    b.className = "cchip pov";
     b.title = "Whose eyes it's seen through: open " + (p.name || "their") + "'s page in the bible";
-    if (typeof p.colour === "string" && /^#[0-9a-fA-F]{6}$/.test(p.colour)) b.style.setProperty("--pov", p.colour);
-    if (typeof p.blob === "string" && /^[0-9a-f]{64}$/.test(p.blob)) {
-      const f = document.createElement("img");
-      f.className = "face";
-      f.alt = "";
-      f.src = objectUrl(p.blob);
-      b.append(f);
-    } else {
-      const s = document.createElement("span");
-      s.className = "sym";
-      s.textContent = (p.symbol || p.initials || "").slice(0, 4);
-      b.append(s);
-    }
-    b.append(document.createTextNode(p.name || ""));
+    b.setAttribute("aria-label", "Told by " + (p.name || "a character") + ". Open their page in the bible");
+    // The bible's icon, larger (4b, 0.102); the name beside it unless Aa turns it off.
+    b.append(iconFor(p, p.name));
+    const nm = document.createElement("span");
+    nm.className = "pname";
+    nm.textContent = p.name || "";
+    b.append(nm);
     b.addEventListener("mousedown", (e) => e.preventDefault());
     b.addEventListener("click", () => { flush(); send({ type: "entry", id: p.id }); });
     chips.push(b);

@@ -533,6 +533,9 @@ private:
     // timeline, else its kind's); ink that reads on it; its symbol as a badge on a picture; the size setting's scale.
     cjui::Color entryColour(const studio::Entry& e) const;
     cjui::Color inkOn(cjui::Color c) const;
+    // The same icon for the editor's viewpoint chip and name cards (4b, 0.102): colour, ink, picture, symbol or its
+    // picture, initials, as JSON the editor's icon.js draws.
+    nlohmann::json iconJson(const studio::Entry& e) const;
     void drawSymbolBadge(const studio::Entry& e, const Rect& pic);
     float iconScale() const { return settings_.iconSize == 0 ? 0.8f : settings_.iconSize == 2 ? 1.3f : 1.0f; }
     void chooseEntryColour(const Id& entryId);

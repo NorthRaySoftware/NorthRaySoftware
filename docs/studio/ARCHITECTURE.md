@@ -415,6 +415,14 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.102.0: the icons in Writing and Planning (suite 0.179.0, 26 Nov 2026)
+
+Phase 4b (4.4, 4.5, and 4.1's hover cards).
+- `iconJson(entry)`: {colour, ink, image (unless symbol alone), symbol (not drawn ones), symbolImage, initials}. `chapterHeadJson`'s `pov` is that plus id and name; `sendView`'s names carry it as `icon` for the name cards.
+- Editor `src/icon.js` (new): `iconFor(icon, name)` → `span.nr-icon` (`--c`, `--ink`, `--s`): the picture (`.face`, ringed in the colour) with `.badge`, or the symbol, symbol picture or initials on the disc; a picture that fails to load falls back to the disc. The viewpoint chip (`.cchip.pov`) uses it at 2.4rem with the name in `.pname` (hidden by `nopovname`, from `viewSettings.povName`, Aa › Viewpoint's name beside its icon; an aria-label "Told by …"). `namecard.js` uses it in `.nc-pic`. CSS in `web/editor.css`.
+- `povColour(id)` returns the entry's own colour when set, so lanes, colour-by-viewpoint and icons agree. The corkboard's viewpoint icon is 24 (from 20).
+- **Tested:** the editor's 31 tests; the chip's icons rendered in Chromium in light and dark (initials on blue and amber, an ornament, an emoji, a picture with a badge); cross-compiled. **Not run in the app on Windows** (WebView2).
+
 ## 0.101.0: the bible's character icons (suite 0.178.0, 26 Nov 2026)
 
 Phase 4a of CJ's combined request (4.1–4.3). 4b (Writing and Planning) and 4c (print) follow.

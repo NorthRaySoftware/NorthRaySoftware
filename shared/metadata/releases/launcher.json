@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.179.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.102.0: the bible's character icons over the text in Writing, on name cards and on the corkboard."
+      ]
+    },
+    {
       "version": "0.178.0",
       "date": "2026-11-26",
       "notes": [

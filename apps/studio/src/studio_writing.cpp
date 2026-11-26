@@ -377,8 +377,10 @@ void StudioApp::sendView() {
                 if (!line.empty()) { details += line + "\n"; ++lines; }
                 at = nl + 1;
             }
-            msg["names"].push_back({{"id", e->id}, {"names", names}, {"name", e->name}, {"kind", entryKindLabel(e->kind)},
-                                    {"summary", e->summary.substr(0, 600)}, {"details", details}, {"image", e->imageBlob}});
+            json one = {{"id", e->id}, {"names", names}, {"name", e->name}, {"kind", entryKindLabel(e->kind)},
+                        {"summary", e->summary.substr(0, 600)}, {"details", details}, {"image", e->imageBlob}};
+            one["icon"] = iconJson(*e);   // the bible's icon on the name card (0.102)
+            msg["names"].push_back(std::move(one));
         }
     }
     // Comic scripts: the styles, and where this chapter's page numbers start (pages in the chapters before it).

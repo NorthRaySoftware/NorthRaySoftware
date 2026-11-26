@@ -68,6 +68,22 @@ cjui::Color StudioApp::entryColour(const Entry& e) const {
     return entryKindColor(e.kind, pal_.dark);
 }
 
+nlohmann::json StudioApp::iconJson(const Entry& e) const {
+    auto hex = [](cjui::Color c) {
+        char b[8];
+        std::snprintf(b, sizeof b, "#%02X%02X%02X", (int)std::lround(std::clamp(c.r, 0.0f, 1.0f) * 255), (int)std::lround(std::clamp(c.g, 0.0f, 1.0f) * 255),
+                      (int)std::lround(std::clamp(c.b, 0.0f, 1.0f) * 255));
+        return std::string(b);
+    };
+    const cjui::Color c = entryColour(e);
+    nlohmann::json j = {{"colour", hex(c)}, {"ink", hex(inkOn(c))}, {"initials", narrow(initialsOf(e.name))}};
+    const bool symbolAlone = e.iconStyle == "symbol" && !e.symbol.empty();
+    if (!symbolAlone && !e.imageBlob.empty()) j["image"] = e.imageBlob;
+    if (e.symbol.rfind("blob:", 0) == 0) j["symbolImage"] = e.symbol.substr(5);
+    else if (!e.symbol.empty() && e.symbol.rfind("icon:", 0) != 0) j["symbol"] = e.symbol;   // the drawn symbols are the app's alone
+    return j;
+}
+
 // Dark ink on a light colour, white on a dark one (the colour's relative luminance, sRGB).
 cjui::Color StudioApp::inkOn(cjui::Color c) const {
     auto lin = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };

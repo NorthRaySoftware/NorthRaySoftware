@@ -69,6 +69,9 @@ std::int64_t StudioApp::bookTarget(const Id& bookId) const {
 // A viewpoint character's colour (0.35), from their id so it never changes: one of ten that stay apart from each
 // other and from the status colours, a little lighter in the dark theme.
 Color StudioApp::povColour(const Id& id) const {
+    // A colour chosen on its bible page (0.101) everywhere: lanes, cards coloured by viewpoint, icons (0.102).
+    if (lib_)
+        if (const Entry* e = lib_->entry(id); e && e->colour.size() == 7 && e->colour[0] == '#') return cjui::hexColor(e->colour.c_str());
     static const char* light[] = {"#3B7DD8", "#D2513A", "#2E9E6B", "#9B59B6", "#D48A1F", "#1F9CA8", "#C2417E", "#6C7A2E", "#5B5FD6", "#A0522D"};
     static const char* dark[] = {"#6FA6F0", "#F07C64", "#5CC995", "#C08EDA", "#F0B252", "#52C6D2", "#E77CB0", "#A6B85A", "#8C90F2", "#D08A5E"};
     std::uint32_t h = 2166136261u;
@@ -839,9 +842,9 @@ void StudioApp::drawPlanBoard(const Rect& r) {
                 const size_t most = faces.size() > 4 ? 3 : faces.size();
                 const float facesW = most ? 16 + 11.0f * (float)(most - 1) + (faces.size() > most ? 22 : 0) : 0;
                 if (const Entry* pov = entryName(n->povId)) {
-                    drawPortrait(*pov, {ix, whoY - 1, 20, 20}, 10);
-                    gfx_.strokeRounded({ix - 1.5f, whoY - 2.5f, 23, 23}, 11.5f, pc, 1.6f);
-                    wx += 26;
+                    drawPortrait(*pov, {ix, whoY - 3, 24, 24}, 12);   // larger, the bible's icon (4b, 0.102)
+                    gfx_.strokeRounded({ix - 1.5f, whoY - 4.5f, 27, 27}, 13.5f, pc, 1.6f);
+                    wx += 30;
                     gfx_.text(w(pov->name), {wx, whoY, iw - (wx - ix) - facesW - 6, 18}, Font::Small, pal_.ink, {Align::Left, false, true, true});
                 } else if (faces.empty())
                     gfx_.text(who, {wx, whoY, iw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});

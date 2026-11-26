@@ -2,6 +2,8 @@
 // (a dotted underline in the text) shows who or what it is: the picture, name,
 // kind, other names, summary and the first few details, with a way to open it.
 
+import { iconFor } from "./icon.js";
+
 const OBJECTS = "https://objects.nrstudio.localhost/";
 let entries = new Map();   // id -> {id, name, kind, names, summary, details, image}
 let send = () => {};
@@ -27,9 +29,11 @@ function entryBlock(e, compact) {
   box.className = "nc-entry " + kindClass(e.kind);
   const top = document.createElement("div");
   top.className = "nc-top";
+  // The bible's icon (4b, 0.102): its picture with its symbol as a badge, or its symbol or initials on its colour.
   const pic = document.createElement("div");
   pic.className = "nc-pic" + (compact ? " nc-small" : "");
-  if (/^[0-9a-f]{64}$/.test(e.image || "")) {
+  if (e.icon) pic.append(iconFor(e.icon, e.name));
+  else if (/^[0-9a-f]{64}$/.test(e.image || "")) {
     const img = document.createElement("img");
     img.src = OBJECTS + e.image.slice(0, 2) + "/" + e.image.slice(2);
     img.alt = "";
