@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.9.5",
+      "date": "2026-11-26",
+      "notes": [
+        "On a narrow window, or at a large interface size, the Bookmarks page's Export, Import and New folder buttons go on their own row under the title instead of running into it."
+      ]
+    },
+    {
       "version": "0.9.4",
       "date": "2026-11-26",
       "notes": [

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Capture (`NorthRayCapture.exe`) |
-| Version at the time of writing | 0.21.4 (`apps/capture/VERSION`) |
+| Version at the time of writing | 0.22.0 (`apps/capture/VERSION`) |
 | Status | **In development**. Released as an early version. Recording and streaming are built but **not yet tried on real hardware or a real platform** |
 | Source | `apps/capture/` (C++20; Direct3D 11, Media Foundation, WASAPI; UI in `libs/cjui`) |
 | Architecture notes | `apps/capture/docs/ARCHITECTURE.md`: decisions (§0), systems, and one section per milestone or release (§8 to §69) |
@@ -43,6 +43,7 @@ The full list is in `shared/metadata/apps/capture.json` (features) and the relea
 ### Implemented
 
 - **Interface size** (0.21.3; since 0.21.4 the body only, the top bar and the bottom strip keeping their size): 50–200%, from Settings › Appearance (presets and a slider) or Ctrl with + / − / 0 and Ctrl with the wheel. Kept on this PC (cjui).
+- **Panels that follow the window** (0.22): when the panels under the preview can't each have about 230 points across (200 in compact layout), they go into rows, filled evenly in their order, and the panel area grows to give each row room (up to 70% of the space). Dividers show only in a single row; in rows, dragging a panel's title onto another swaps them.
 **Video sources**
 - A whole display: Desktop Duplication, with Windows Graphics Capture and a compatibility mode as fallbacks.
 - One window, even when covered (WGC). It's found again when the program restarts.
@@ -141,7 +142,7 @@ The full list is in `shared/metadata/apps/capture.json` (features) and the relea
 
 ### Not yet verified (built, but not run for real)
 
-- **Interface size (0.172):** built and cross-compiled, not yet run on Windows (Wine would not start in the build environment).
+- **Interface size (0.172) and panels in rows (0.22):** built and cross-compiled (the row rule is unit-tested), not yet run on Windows (Wine would not start in the build environment).
 **Recording with a real hardware encoder.** Checked only as far as the file format, against ffmpeg (`tools/check-mkv.sh`, `capture_mkv_check`).
 
 **Streaming and multistreaming against real platforms.** Checked against a local test server (`tools/check-rtmp.sh`, `capture_rtmp_check`, `tools/check-destinations.sh`).

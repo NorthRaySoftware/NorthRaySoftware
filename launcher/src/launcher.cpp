@@ -1144,18 +1144,27 @@ float Launcher::pageLibrary(const Rect& r) {
     {
         int installed = 0, updates = 0;
         for (auto& a : model_.apps) { if (a.inst.found) ++installed; if (a.updateAvailable()) ++updates; }
-        const Rect hero{r.x, y, r.w, 164};
+        // Narrow (suite 0.176): the counts and Update all go under the words instead of beside them.
+        const bool narrowHero = r.w < 640;
+        const Rect hero{r.x, y, r.w, narrowHero ? (updates ? 252.0f : 214.0f) : 164.0f};
         nightSky(gfx_, hero, 12, 1.0f, 3, pal_.paper);
         const float hx = hero.x + 30;
         gfx_.text(L"NORTHRAY SOFTWARE", {hx, hero.y + 28, hero.w - 60, 16}, Font::Label, kAuroraGreen, {Align::Left, false});
         gfx_.text(L"Your library", {hx, hero.y + 48, hero.w - 60, 40}, Font::Title, kNightInk, {Align::Left, false});
         gfx_.text(L"Install, update and open NorthRay apps. Each one also installs and runs on its own.",
-                  {hx, hero.y + 94, std::min(hero.w - 300, 520.0f), 44}, Font::Body, kNightMuted);
-        const float sx = hero.right() - 230;
-        gfx_.text(std::to_wstring(installed) + L" installed", {sx, hero.y + 34, 200, 24}, Font::Heading, kNightInk, {Align::Right, false});
-        gfx_.text(updates ? std::to_wstring(updates) + (updates == 1 ? L" update ready" : L" updates ready") : L"Everything up to date",
-                  {sx, hero.y + 62, 200, 20}, Font::Small, updates ? kAuroraGreen : kNightMuted, {Align::Right, false});
-        if (updates) nightButton("lib:updall", {hero.right() - 160, hero.y + 98, 130, 34}, L"Update all", [this] { updateAll(); });
+                  {hx, hero.y + 94, narrowHero ? hero.w - 60 : std::min(hero.w - 300, 520.0f), 44}, Font::Body, kNightMuted);
+        const std::wstring inst = std::to_wstring(installed) + L" installed";
+        const std::wstring upd = updates ? std::to_wstring(updates) + (updates == 1 ? L" update ready" : L" updates ready") : L"Everything up to date";
+        if (narrowHero) {
+            gfx_.text(inst, {hx, hero.y + 146, hero.w - 60, 24}, Font::Heading, kNightInk, {Align::Left, false});
+            gfx_.text(upd, {hx, hero.y + 174, hero.w - 60, 20}, Font::Small, updates ? kAuroraGreen : kNightMuted, {Align::Left, false});
+            if (updates) nightButton("lib:updall", {hx, hero.y + 202, 130, 34}, L"Update all", [this] { updateAll(); });
+        } else {
+            const float sx = hero.right() - 230;
+            gfx_.text(inst, {sx, hero.y + 34, 200, 24}, Font::Heading, kNightInk, {Align::Right, false});
+            gfx_.text(upd, {sx, hero.y + 62, 200, 20}, Font::Small, updates ? kAuroraGreen : kNightMuted, {Align::Right, false});
+            if (updates) nightButton("lib:updall", {hero.right() - 160, hero.y + 98, 130, 34}, L"Update all", [this] { updateAll(); });
+        }
         y += hero.h + 28;
     }
 
@@ -1335,15 +1344,22 @@ float Launcher::pageApp(const Rect& r) {
     }
     actionArea(a, {r.x, y, std::min(r.w, 520.0f), 36}, "page:", false);
     if (a.inst.found && !jobs_.busy(e.id)) {
-        const float ux = r.x + std::min(r.w, 520.0f) + 18;
-        linkText("page:uninstall", ux, y + 10, L"Uninstall", [this, id = e.id] { uninstall(id); });
+        if (r.w < 640) {   // narrow (suite 0.176): under the buttons rather than off the page's edge
+            y += 46;
+            linkText("page:uninstall", r.x, y, L"Uninstall", [this, id = e.id] { uninstall(id); });
+            y -= 16;
+        } else {
+            const float ux = r.x + std::min(r.w, 520.0f) + 18;
+            linkText("page:uninstall", ux, y + 10, L"Uninstall", [this, id = e.id] { uninstall(id); });
+        }
     }
     y += 60;
 
     // Screenshots: a row of pictures; one opens large.
     if (!a.screenshots.empty()) {
         y += sectionLabel(r.x, y, r.w, L"Screenshots");
-        const int cols = std::min<int>(3, (int)a.screenshots.size());
+        const int fit = r.w < 560 ? 1 : r.w < 860 ? 2 : 3;   // fewer, larger pictures on a narrow page (suite 0.176)
+        const int cols = std::min<int>(fit, (int)a.screenshots.size());
         const float gap = 14, sw = (r.w - gap * (cols - 1)) / cols, sh = sw * 10 / 16;
         float rowH = 0;
         for (size_t i = 0; i < a.screenshots.size(); ++i) {

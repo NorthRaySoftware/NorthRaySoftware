@@ -32,6 +32,12 @@ struct Layout {
     void move(int panel, int delta);
     // Moves the divider after the `index`-th shown panel by `fraction` of the row (taking it from the next).
     void resizeDivider(int index, float fraction);
+    // Where the shown panels go in a dock `w` by `h` (DIPs, from 0,0; `gap` between them), suite 0.176: one row at
+    // their widths when each gets at least `minW`; on a narrower dock they wrap into rows (as few as fit at `minW`,
+    // filled evenly, in order), the rows sharing the height and each row's panels sharing its width by their widths.
+    struct Box { int panel = 0; float x = 0, y = 0, w = 0, h = 0; };
+    struct Arrangement { std::vector<Box> boxes; int rows = 1; bool wrapped = false; };
+    Arrangement arrange(float w, float h, float gap, float minW) const;
     std::string toJson() const;
     static Layout fromJson(const std::string& json);   // the default layout if it isn't one
     static const char* panelName(int panel);

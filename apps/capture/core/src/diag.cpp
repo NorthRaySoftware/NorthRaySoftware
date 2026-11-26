@@ -147,6 +147,45 @@ void Layout::resizeDivider(int index, float fraction) {
     b = total - na;
 }
 
+Layout::Arrangement Layout::arrange(float w, float h, float gap, float minW) const {
+    Arrangement a;
+    const size_t n = order.size();
+    if (n == 0 || w <= 0 || h <= 0) return a;
+    auto widthOf = [&](int p) { return p >= 0 && (size_t)p < widths.size() ? std::max(widths[(size_t)p], 0.01f) : 0.25f; };
+    // Lays out `count` panels from `first` across one row at `y`, sharing `w` by their widths (the last takes what's left).
+    auto row = [&](size_t first, size_t count, float y, float rh) {
+        float sum = 0;
+        for (size_t i = first; i < first + count; ++i) sum += widthOf(order[i]);
+        const float usable = w - gap * (float)(count - 1);
+        float x = 0;
+        for (size_t i = first; i < first + count; ++i) {
+            const bool last = i + 1 == first + count;
+            const float bw = last ? w - x : std::floor(usable * widthOf(order[i]) / sum);
+            a.boxes.push_back({order[i], x, y, bw, rh});
+            x += bw + gap;
+        }
+    };
+    row(0, n, 0, h);
+    bool fits = true;
+    for (const Box& b : a.boxes) fits = fits && b.w >= minW;
+    if (fits || n == 1) return a;
+    // Too narrow: as many per row as fit at minW, the rows filled evenly.
+    a.boxes.clear();
+    const size_t fitPerRow = (size_t)std::max(1.0f, std::floor((w + gap) / (std::max(minW, 1.0f) + gap)));
+    const size_t rows = (n + fitPerRow - 1) / fitPerRow;
+    const float rh = std::floor((h - gap * (float)(rows - 1)) / (float)rows);
+    size_t next = 0;
+    for (size_t r = 0; r < rows; ++r) {
+        const size_t count = (n - next + (rows - r) - 1) / (rows - r);   // what's left, shared over the rows left
+        const float y = (float)r * (rh + gap);
+        row(next, count, y, r + 1 == rows ? h - y : rh);
+        next += count;
+    }
+    a.rows = (int)rows;
+    a.wrapped = rows > 1;
+    return a;
+}
+
 std::string Layout::toJson() const {
     nlohmann::json j = {{"order", order}, {"widths", widths}, {"dockHeight", dockHeight}, {"preview", previewVisible}};
     return j.dump();

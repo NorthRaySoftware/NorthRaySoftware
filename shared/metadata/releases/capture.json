@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.22.0",
+      "date": "2026-11-26",
+      "notes": [
+        "On a narrow window, or at a large interface size, the panels under the preview go into two (or more) rows instead of getting too thin to use. The panel area grows to give each row room, and dragging a panel's title onto another swaps them. With room, they stay in one row with their dividers, as before."
+      ]
+    },
+    {
       "version": "0.21.4",
       "date": "2026-11-26",
       "notes": [

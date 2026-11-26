@@ -233,3 +233,7 @@ The roadmap's "sync: none, local only (export/import file)".
   tab into a new window and closing each window. **Needs the engine (check on Windows)**: the page pictures in
   previews, the speaker and muting, per-site zoom, Copy link, site icons arriving on the bookmarks bar, the dark
   background before a page paints, and smooth scrolling.
+
+## 12. Narrow pages (0.9.5, suite 0.176.0)
+
+Phase 2c (responsive layouts). The browser's own pages were already one column (Start 900, History and Downloads 960, Bookmarks 1080, reference boards 1180 across) with tile and board grids working out their columns, and Bookmarks drops its folder tree under 760. New: when the title, "Bookmarks", and the three actions don't fit on one line, the actions go on a row under the count (`actionsUnder`). Cross-compiled; not run on Windows.

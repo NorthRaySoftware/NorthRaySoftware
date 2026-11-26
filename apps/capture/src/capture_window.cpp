@@ -756,7 +756,21 @@ void CaptureWindow::onMouseMove(float x, float y, bool leftDown) {
         SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         invalidate();
     } else if (drag_ == Drag::Panel) {
-        // Over a neighbour's middle: trade places.
+        // Over a neighbour's middle: trade places. In rows (suite 0.176), over another panel: take its place.
+        if (dockWrapped_) {
+            int from = -1, to = -1;
+            for (size_t i = 0; i < panelRects_.size(); ++i) {
+                if (panelRects_[i].first == dragPanel_) from = (int)i;
+                else if (panelRects_[i].second.contains(x, y)) to = (int)i;
+            }
+            if (from >= 0 && to >= 0) {
+                layout_.move(dragPanel_, to - from);
+                dragPanelX_ = x;
+                cancelPress();
+                invalidate();
+            }
+            return;
+        }
         for (size_t i = 0; i < panelRects_.size(); ++i) {
             const auto& [p, r] = panelRects_[i];
             if (p == dragPanel_ || !r.contains(x, r.y + 1)) continue;
@@ -1050,6 +1064,12 @@ void CaptureWindow::drawFrame(float W, float H) {
         const Rect area{body.x + pad, body.y + pad, body.w - pad * 2, body.h - pad * 2};
         float dockH = layout_.previewVisible ? std::floor(area.h * layout_.dockHeight) : area.h;
         dockH = std::clamp(dockH, std::min(150.0f, area.h), area.h);
+        // Responsive (suite 0.176): too narrow for the panels side by side, they wrap into rows; the dock grows to give
+        // each row room (up to 70% of the space), taking it from the preview. Decided in the zoomed size.
+        const float minPanelW = compact_ ? 200.0f : 230.0f, minRowH = compact_ ? 170.0f : 200.0f;
+        const int dockRows = layout_.arrange(area.w, 1000, kSplit, minPanelW).rows;
+        if (dockRows > 1 && layout_.previewVisible)
+            dockH = std::max(dockH, std::min(minRowH * (float)dockRows + kSplit * (float)(dockRows - 1), std::floor(area.h * 0.7f)));
         if (layout_.previewVisible) {
             previewRect_ = {area.x, area.y, area.w, area.h - dockH - kSplit};
             hSplit_ = {area.x, previewRect_.bottom(), area.w, kSplit};
@@ -1062,25 +1082,21 @@ void CaptureWindow::drawFrame(float W, float H) {
             drawBorderEditor(dockRect_);   // the Camera Border maker, in place of the panels
         } else {
         borderFor_.clear();
-        // The panels, left to right, with a divider between each.
-        const size_t n = layout_.order.size();
-        const float usable = dockRect_.w - kSplit * (float)(n - 1);
-        float x = dockRect_.x;
-        for (size_t i = 0; i < n; ++i) {
-            const int p = layout_.order[i];
-            const float w = i + 1 == n ? dockRect_.right() - x : std::floor(usable * layout_.widths[(size_t)p]);
-            const Rect r{x, dockRect_.y, w, dockRect_.h};
+        // The panels, left to right, with a divider between each; in rows when the dock is narrow (no dividers then:
+        // the rows share the width evenly by the panels' widths, and dragging a header still reorders them).
+        const auto arr = layout_.arrange(dockRect_.w, dockRect_.h, kSplit, minPanelW);
+        dockWrapped_ = arr.wrapped;
+        for (size_t i = 0; i < arr.boxes.size(); ++i) {
+            const auto& bx = arr.boxes[i];
+            const int p = bx.panel;
+            const Rect r{dockRect_.x + bx.x, dockRect_.y + bx.y, bx.w, bx.h};
             panelRects_.push_back({p, r});
             drawPanel(p, r);
             const std::string fk = "#panelfade" + std::to_string(p);
             if (!lastPanels_.count(p)) setAnim(fk, 0.0f);
             const float in = anim(fk, 1.0f, 9.0f);
             if (in < 0.995f) gfx_.fillRounded(r, 10, pal_.paper.withAlpha(1.0f - in));
-            x += w;
-            if (i + 1 < n) {
-                vSplits_.push_back({x, dockRect_.y, kSplit, dockRect_.h});
-                x += kSplit;
-            }
+            if (!arr.wrapped && i + 1 < arr.boxes.size()) vSplits_.push_back({r.right(), dockRect_.y, kSplit, dockRect_.h});
         }
         lastPanels_.clear();
         for (auto& [p, r] : panelRects_) lastPanels_.insert(p);

@@ -498,11 +498,16 @@ void BrowserWindow::drawBookmarksPage(const Rect& r) {
     gfx_.text(L"Bookmarks", {x, y, w, 36}, Font::Title, pal_.ink, {Align::Left, false});
     const size_t n = bookmarks_->count();
     gfx_.text(n == 1 ? L"1 bookmark" : std::to_wstring(n) + L" bookmarks", {x, y + 38, w, 20}, Font::Small, pal_.inkMuted);
-    float bx = x + w;
+    // Narrow (suite 0.176): the actions go on their own row under the count, from the left, rather than over the title.
+    const float actionsW = gfx_.measureWidth(L"Export...", Font::Body) + gfx_.measureWidth(L"Import...", Font::Body) +
+                           gfx_.measureWidth(L"New folder", Font::Body) + 3 * 28 + 16;
+    const bool actionsUnder = actionsW + gfx_.measureWidth(L"Bookmarks", Font::Title) + 24 > w;
+    float bx = actionsUnder ? x + actionsW : x + w;
+    const float by = actionsUnder ? y + 66 : y + 4;
     auto action = [&](const std::string& id, const std::wstring& label, std::function<void()> act) {
         const float bw = gfx_.measureWidth(label, Font::Body) + 28;
         bx -= bw;
-        button(id, {bx, y + 4, bw, 34}, label, std::move(act));
+        button(id, {bx, by, bw, 34}, label, std::move(act));
         bx -= 8;
     };
     action("bmp:export", L"Export...", [this] { exportBookmarks(); });
@@ -513,7 +518,7 @@ void BrowserWindow::drawBookmarksPage(const Rect& r) {
         if (id) { pageFolder_ = parent; pageQuery_.clear(); startRename(id); }
         invalidate();
     });
-    y += 74;
+    y += actionsUnder ? 116 : 74;
 
     // Search.
     const Rect sb{x, y, std::min(420.0f, w), 38};

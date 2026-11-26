@@ -1,6 +1,6 @@
 # NorthRay Development Handover
 
-**Written:** 26 November 2026. Last updated at suite **0.175.0** (Writing Studio 0.99.0, Browser 0.9.4, Files 0.9.4, Capture 0.21.4).
+**Written:** 26 November 2026. Last updated at suite **0.176.0** (Writing Studio 0.99.0, Browser 0.9.5, Files 0.9.4, Capture 0.22.0).
 
 **Purpose:** everything needed to resume NorthRay development in a fresh conversation, with no access to earlier chats.
 
@@ -21,11 +21,11 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 | App | Version | Status | Health |
 |---|---|---|---|
-| NorthRay Launcher | 0.175.0 | Preview, released | Stable. Tray and notifications not checked on real Windows |
+| NorthRay Launcher | 0.176.0 | Preview, released | Stable. Tray and notifications not checked on real Windows |
 | NorthRay Writing Studio | 0.99.0 | Preview, released | Very active. Core tests 2,543 pass and editor tests 31 pass. Editor features need checking on Windows |
-| NorthRay Browser | 0.9.4 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
+| NorthRay Browser | 0.9.5 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
 | NorthRay Files | 0.9.4 | Preview, released | Stable. 373 tests pass |
-| NorthRay Capture | 0.21.4 | In development | Feature-rich. **Recording and streaming are unverified on real hardware or platforms.** 45,641 tests pass |
+| NorthRay Capture | 0.22.0 | In development | Feature-rich. **Recording and streaming are unverified on real hardware or platforms.** 45,641 tests pass |
 | SkillSwap | none | **Abandoned** (26 Nov 2026) | Dormant rules and metadata only; delete when agreed |
 | Community launcher and radio app | none | Removed in 0.131 | History only |
 
@@ -65,7 +65,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 ## 5. Outstanding tasks
 
-Writing Studio 0.94.0 (phase 1 of the director's combined request of 26 Nov) and 0.95.0 (the bible and plan as Markdown) are released. Interface zoom (phase 2a, suite 0.172.0) is published, but **hasn't run on Windows yet** (Wine wouldn't start in the build environment); the director tests it from the Launcher or `H:\NorthRay_Project\Test_Builds\0.172.0`. Standing instruction (26 Nov): every release is published (steps 6 and 7), not only pushed. Phase 2b, the writing page's own zoom and Auto width, is 0.97.0; since 0.98.0 (suite 0.174.0) interface size changes only what's between the bars, at the director's word. Phase 2c (responsive layouts) started with Writing Studio 0.99.0 (suite 0.175.0): on a narrow window or a large interface size the outline is a drawer behind an Outline button and details cards sit under the page; the Library's shelves widen on a wide screen. Not run on Windows. Next: 2c for Capture, Files, the Launcher and the Browser, then phase 3 visible tools, phase 4 character icons, phase 5 chapter dates as formatted text, and a **DOCX export** (he chose to add one) for phases 4 and 5. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
+Writing Studio 0.94.0 (phase 1 of the director's combined request of 26 Nov) and 0.95.0 (the bible and plan as Markdown) are released. Interface zoom (phase 2a, suite 0.172.0) is published, but **hasn't run on Windows yet** (Wine wouldn't start in the build environment); the director tests it from the Launcher or `H:\NorthRay_Project\Test_Builds\0.172.0`. Standing instruction (26 Nov): every release is published (steps 6 and 7), not only pushed. Phase 2b, the writing page's own zoom and Auto width, is 0.97.0; since 0.98.0 (suite 0.174.0) interface size changes only what's between the bars, at the director's word. Phase 2c (responsive layouts) started with Writing Studio 0.99.0 (suite 0.175.0): on a narrow window or a large interface size the outline is a drawer behind an Outline button and details cards sit under the page; the Library's shelves widen on a wide screen. Suite 0.176.0 finishes 2c: Capture 0.22.0 puts its panels in rows on a narrow dock (the rule is `Layout::arrange`, unit-tested), the Launcher's banner and app page stack when narrow, Browser 0.9.5's Bookmarks actions go under the title; Files already gave way. None of 2c has run on Windows. Next: phase 3 visible tools, phase 4 character icons, phase 5 chapter dates as formatted text, and a **DOCX export** (he chose to add one) for phases 4 and 5. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
 
 ## 6. Important technical decisions (summary; full list in `Decision_Log.md`)
 

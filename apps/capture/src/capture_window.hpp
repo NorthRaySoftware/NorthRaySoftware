@@ -281,6 +281,7 @@ private:
 
     // Geometry from the last frame.
     cjui::Rect previewRect_{}, dockRect_{};
+    bool dockWrapped_ = false;   // the panels in rows on a narrow dock (suite 0.176)
     cjui::Rect hSplit_{};                                  // between the preview and the panels
     std::vector<std::pair<int, cjui::Rect>> panelRects_;   // shown panels, left to right
     std::vector<cjui::Rect> vSplits_;                      // between panels

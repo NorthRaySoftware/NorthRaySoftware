@@ -531,6 +531,32 @@ static void testDiagnostics() {
     CHECK(l.widths[(size_t)l.order[1]] >= 0.08f - 1e-6f);
     const Layout r = Layout::fromJson(l.toJson());
     CHECK(r.order == l.order && r.dockHeight == l.dockHeight);
+    {   // Responsive dock (suite 0.176): one row while every panel gets minW, rows when not.
+        Layout d;   // Scenes 0.2, Sources 0.25, Mixer 0.35, Controls 0.2
+        const auto wide = d.arrange(1400, 300, 8, 200);
+        CHECK(!wide.wrapped && wide.rows == 1 && wide.boxes.size() == 4);
+        CHECK(wide.boxes[0].x == 0 && wide.boxes[3].x + wide.boxes[3].w == 1400 && wide.boxes[2].w > wide.boxes[0].w);
+        CHECK(wide.boxes[1].x == wide.boxes[0].w + 8);
+        const auto mid = d.arrange(700, 400, 8, 200);   // Scenes would get about 138
+        CHECK(mid.wrapped && mid.rows == 2 && mid.boxes.size() == 4);
+        CHECK(mid.boxes[0].y == 0 && mid.boxes[1].y == 0 && mid.boxes[2].y > 0 && mid.boxes[3].y == mid.boxes[2].y);
+        CHECK(mid.boxes[1].x + mid.boxes[1].w == 700 && mid.boxes[3].x + mid.boxes[3].w == 700);
+        CHECK(mid.boxes[2].y + mid.boxes[2].h == 400 && mid.boxes[0].h + 8 + mid.boxes[2].h == 400);
+        bool ordered = true;
+        for (size_t i = 0; i < 4; ++i) ordered = ordered && mid.boxes[i].panel == d.order[i];
+        CHECK(ordered);
+        const auto thin = d.arrange(300, 800, 8, 200);   // one per row
+        CHECK(thin.rows == 4 && thin.boxes[3].w == 300 && thin.boxes[3].y + thin.boxes[3].h == 800);
+        d.show(Layout::Chat);   // five panels in 3 per row: 3 then 2
+        const auto five = d.arrange(680, 300, 8, 200);
+        CHECK(five.rows == 2 && five.boxes[2].y == 0 && five.boxes[3].y > 0);
+        Layout one;
+        one.order = {Layout::Scenes};
+        one.normalise();
+        const auto single = one.arrange(120, 200, 8, 200);   // a lone panel never wraps
+        CHECK(!single.wrapped && single.boxes.size() == 1 && single.boxes[0].w == 120);
+        CHECK(Layout{}.arrange(0, 100, 8, 200).boxes.empty());
+    }
     const Layout junk = Layout::fromJson(R"({"order":[9,9,1,1],"widths":[1],"dockHeight":5})");
     CHECK(junk.order == std::vector<int>{1} && junk.dockHeight <= 0.8f && junk.widths.size() == (size_t)Layout::kPanels);
     // A layout saved before the Chat panel: its widths stay, Chat is hidden until shown.

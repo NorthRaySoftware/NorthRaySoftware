@@ -136,3 +136,7 @@ Investigated, not built. The brief wants apps to stay technically independent. T
 ## Stars clear of text (0.27.3)
 
 `cjui::Gfx` records the ink rectangle of every `text()` call in a frame (`lastTextRects()`, the previous frame's), and `northray::nightSky` skips stars within 5 DIPs of any of them, so words on the night sky (title bars, sidebars, side tabs) are never crossed by a star. Layouts are stable from frame to frame (the twinkle redraws continuously), so the previous frame's text is where this frame's goes.
+
+## A page that follows the window (suite 0.176.0)
+
+Phase 2c (responsive layouts), decided in the zoomed page's width: the library's banner (`narrowHero` under 640) puts the installed count, the updates line and Update all under its words; an app's page puts Uninstall under the action buttons under 640 and shows screenshots one to a row under 560, two under 860 (at most three). App cards already put their buttons underneath under 700. Cross-compiled; not run on Windows.

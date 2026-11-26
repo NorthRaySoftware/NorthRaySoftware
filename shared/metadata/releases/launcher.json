@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.176.0",
+      "date": "2026-11-26",
+      "notes": [
+        "On a narrow window, or at a large interface size, the library's banner puts the installed count and Update all under its words, an app's page puts Uninstall under its buttons, and screenshots show one or two to a row. Brings Capture 0.22.0, whose panels go into rows when narrow, and Browser 0.9.5."
+      ]
+    },
+    {
       "version": "0.175.0",
       "date": "2026-11-26",
       "notes": [
