@@ -97,7 +97,7 @@ These were tested in Wine but still need checking on Windows:
 - The tray icon's progress bar and tooltip.
 - The tray submenus.
 
-The installers are **not code-signed**, so SmartScreen may warn.
+The installers are **not code-signed** (the route is undecided), so SmartScreen may warn.
 
 ### Planned (from the 18 Nov 2026 answers, not built)
 

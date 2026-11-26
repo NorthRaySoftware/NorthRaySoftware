@@ -2,7 +2,7 @@
 
 Status: NorthRay Launcher, NorthRay Writing Studio, NorthRay Browser, NorthRay Files and NorthRay Capture. Last updated 22 November 2026.
 
-**Identity (13 Nov 2026, final).** The software is developed by the **NorthRay Software project**, a separate development identity (`shared/metadata/brand/identity.json`). Never invent developers, partnerships or company history. Legal notices must state the real ownership accurately when they're written. At launch: no subscriptions, paid tiers, adverts, mandatory accounts or upgrade prompts, and nothing claims the apps are permanently free or nonprofit. **SkillSwap is postponed**: its core stays in `libs/cjcore`, but it isn't listed or installed; the safety and payment notes about it below are kept for if it returns. **The community and radio apps were removed in 0.131.0 (22 Nov 2026)**: their code, installers, catalogue entries, release notes and website section are gone; copies already installed elsewhere aren't uninstalled and get no more updates. The Studio has its own architecture document: `docs/studio/ARCHITECTURE.md`.
+**Identity (13 Nov 2026, final).** The software is developed by the **NorthRay Software project**, a separate development identity (`shared/metadata/brand/identity.json`). Never invent developers, partnerships or company history. Legal notices must state the real ownership accurately when they're written. At launch: no subscriptions, paid tiers, adverts, mandatory accounts or upgrade prompts, and nothing claims the apps are permanently free or nonprofit. **SkillSwap is abandoned** (26 Nov 2026): its dormant rules stay in `libs/cjcore`, but it isn't listed, installed or coming back; the notes about it below are history. **Legal owner and operator: CJ Philip** (26 Nov 2026), for legal notices and the privacy policy when they're written; the apps still say "Developed by the NorthRay Software project". **The community and radio apps were removed in 0.131.0 (22 Nov 2026)**: their code, installers, catalogue entries, release notes and website section are gone; copies already installed elsewhere aren't uninstalled and get no more updates. The Studio has its own architecture document: `docs/studio/ARCHITECTURE.md`.
 
 This document records the decisions made so far, why they were made, and what is deliberately left for later. Anything marked *recommended* is a proposal that still needs agreement before it's built.
 
@@ -102,6 +102,8 @@ The brief asked for C++, a native-feeling, customisable interface, and no websit
 - **Electron/Tauri/WebView2.** Ruled out by the brief's "not a website in a window".
 
 **Decision (12 Nov 2026): stay native Win32/Direct2D** ("proper Windows app"). All three apps share `libs/cjui` (drawing, window base, controls, focus and keyboard handling). Screen-reader support (UI Automation) is still to do, and it's the largest accessibility gap. Switching only replaces `launcher/src/gfx.*`, `launcher.*` and `pages.cpp`; `cjcore`, the metadata and the website are unaffected. I lean towards Qt if macOS or Linux versions are likely within a couple of years, and towards staying on Win32 if Windows is the long-term target.
+
+**Confirmed (26 Nov 2026): Windows only.** CJ: macOS and Linux versions are not a goal, so the suite stays on Win32/Direct2D and Qt isn't needed.
 
 ## Embedding apps inside the launcher
 

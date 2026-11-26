@@ -6,6 +6,10 @@ Important decisions, newest first. Each links to its source. The director's own 
 
 | Date | Decision | Source |
 |---|---|---|
+| 26 Nov 2026 | **Legal owner and operator: CJ Philip.** The developer line stays "Developed by the NorthRay Software project" | The director's answers after the archive |
+| 26 Nov 2026 | **SkillSwap abandoned** (not coming back); its broken build option removed | The director's answers after the archive |
+| 26 Nov 2026 | **Windows only.** macOS and Linux versions aren't a goal, so the suite stays on Win32/Direct2D | The director's answers after the archive |
+| 26 Nov 2026 | Code signing: undecided. Capture milestones 11–14: unknown, to be defined afresh | The director's answers after the archive |
 | 26 Nov 2026 | Long question boxes scroll inside the box and always fit the screen. This applies to every app through cjui | Suite 0.169.0; `docs/studio/ARCHITECTURE.md` §0.93 |
 | 23 Nov 2026 | Calm controls for every app: one button style with icons, WCAG AA faint text, a deeper light-theme green | Suite 0.140; Browser 0.9.1, Files 0.9.1, Capture 0.21.1 |
 | 23 Nov 2026 | Every app links to NorthRay's website | Suite 0.141 |
@@ -15,9 +19,9 @@ Important decisions, newest first. Each links to its source. The director's own 
 | 14 Nov 2026 | The roadmap's ten-question decisions per app | `docs/ROADMAP-2026-11.md` |
 | 14 Nov 2026 | The apps draw their own window frames; the Launcher runs in the tray | `docs/ARCHITECTURE.md` (0.19.0) |
 | 13 Nov 2026 | **Identity:** "Developed by the NorthRay Software project". No invented people or history. No subscriptions, ads or mandatory accounts at launch | `docs/ARCHITECTURE.md`; `README.md` |
-| 13 Nov 2026 | **SkillSwap postponed** | `shared/metadata/postponed/README.md` |
+| 13 Nov 2026 | SkillSwap postponed (abandoned 26 Nov) | `shared/metadata/postponed/README.md` |
 | 13 Nov 2026 | The NorthRay look (night sky and aurora) | `docs/ARCHITECTURE.md` (0.17.0) |
-| 12 Nov 2026 | **Native Win32 + Direct2D**, not Qt, WinUI or Electron. Revisit if macOS or Linux becomes a goal | `docs/ARCHITECTURE.md` "UI framework" |
+| 12 Nov 2026 | **Native Win32 + Direct2D**, not Qt, WinUI or Electron (confirmed 26 Nov: Windows only) | `docs/ARCHITECTURE.md` "UI framework" |
 | Standing | No menu bars, no scroll bars, no status bars. No fake functionality. Secrets only in Credential Manager. No telemetry. No AI-generated artwork. NorthRay independence from the director's personal works | Project instructions |
 
 ## Writing Studio

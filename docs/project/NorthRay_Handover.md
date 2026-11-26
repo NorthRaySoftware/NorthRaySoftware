@@ -26,7 +26,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 | NorthRay Browser | 0.9.2 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
 | NorthRay Files | 0.9.2 | Preview, released | Stable. 373 tests pass |
 | NorthRay Capture | 0.21.2 | In development | Feature-rich. **Recording and streaming are unverified on real hardware or platforms.** 45,641 tests pass |
-| SkillSwap | none | Postponed | Core rules only; the app source is missing from the repository |
+| SkillSwap | none | **Abandoned** (26 Nov 2026) | Dormant rules and metadata only; delete when agreed |
 | Community launcher and radio app | none | Removed in 0.131 | History only |
 
 ## 3. Important file locations
@@ -58,10 +58,9 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
    - Rewrite `docs/DESIGN.md`.
    - Refresh `docs/studio/FORMAT.md`.
    - Update `writing-studio.json` (description, features, version).
-   - Fix or remove the SkillSwap build option.
    - Delete the stray `ed1.png`.
 4. **The Writing Studio user manual:** replace the personal-world examples with generic ones (NorthRay independence).
-5. **Code signing and UI Automation**, which affect every app.
+5. **UI Automation**, which affects every app. Code signing when the director decides on a route (undecided).
 6. **Feature work**, in each app's agreed priorities (`Roadmap_and_Outstanding_Work.md`).
 
 ## 5. Outstanding tasks
@@ -95,12 +94,11 @@ There are no half-finished code changes: the working tree was committed and push
 
 See `ISSUES_AND_MISSING_INFO.md`. The main ones:
 - Verification gaps (Capture hardware; Writing Studio editor; Browser engine).
-- The SkillSwap build option points at a missing folder.
 - Outdated `DESIGN.md` and `FORMAT.md`.
 - Stale Writing Studio metadata.
-- Unsigned installers.
+- Unsigned installers (route undecided).
 - No UI Automation.
-- No legal pages yet; the owner and operator need to be stated by the director.
+- No legal pages yet. The legal owner and operator is CJ Philip.
 
 ## 8. Dependencies and setup
 

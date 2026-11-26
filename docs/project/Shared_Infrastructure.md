@@ -7,7 +7,7 @@ Everything more than one NorthRay app depends on. Checked against the code on 26
 | Library | Path | Portable? | Used by | What it holds |
 |---|---|---|---|---|
 | **cjui** | `libs/cjui` | No (Windows) | Launcher, Writing Studio, Browser, Files, Capture | The UI toolkit; see below |
-| **cjcore** | `libs/cjcore` | Yes (Linux, Windows, macOS) | Launcher, Browser, Files, Capture (and cjui) | `registry` (the app metadata format), `time` (UK time and formatting), `medialib` (the NorthRay media library), `json_safe.hpp` (`cj::valueOr`, defensive JSON reads), `skillswap` (rules for the postponed SkillSwap app) |
+| **cjcore** | `libs/cjcore` | Yes (Linux, Windows, macOS) | Launcher, Browser, Files, Capture (and cjui) | `registry` (the app metadata format), `time` (UK time and formatting), `medialib` (the NorthRay media library), `json_safe.hpp` (`cj::valueOr`, defensive JSON reads), `skillswap` (dormant rules for the abandoned SkillSwap app) |
 | **studiocore** | `libs/studiocore` | Yes | Writing Studio only | The library format, the manuscript, the bible, planning, typesetting, publishing, import and sync. See the Writing Studio manual |
 | App cores | `apps/browser/core` (`nrb/`), `apps/files/core` (`nrf/`), `apps/capture/core` (`ncap/`) | Yes | One app each | Logic kept out of Windows code so it can be unit-tested on Linux |
 
@@ -55,7 +55,7 @@ The single source of truth for the Launcher and the website.
 | `community/links.json` | `catalogueUrl` and `downloadPage` (GitHub Pages) |
 | `icons/`, `screenshots/` | App icons; screenshots with captions, taken from an invented demo library (`studio_seed_demo`) |
 | `demo/` | Demonstration content, always flagged `"demo": true` |
-| `postponed/` | SkillSwap's metadata (not listed) |
+| `postponed/` | SkillSwap's metadata (abandoned, not listed) |
 | `skillswap/` | SkillSwap categories |
 
 Validate the metadata with `node tools/validate-metadata.mjs` (current result: "Metadata OK: 4 application(s)").
@@ -110,5 +110,5 @@ Both are passed on to an already-running copy with `WM_COPYDATA`.
 
 ## 8. Postponed and removed
 
-- **SkillSwap**, postponed. Its rules live in `libs/cjcore` (`skillswap.cpp`) and its metadata in `shared/metadata/postponed` and `skillswap/`. **Issue:** `-DCJ_BUILD_SKILLSWAP=ON` adds `apps/skillswap`, which doesn't exist in this repository (it was never committed here), so turning the option on breaks the build.
+- **SkillSwap**, abandoned (26 Nov 2026). Its dormant rules live in `libs/cjcore` (`skillswap.cpp`, still tested) and its metadata in `shared/metadata/postponed`, `skillswap/` and `demo/`. The build option that pointed at the never-committed `apps/skillswap` was removed.
 - **The community launcher and the radio app** were removed in suite 0.131 (22 Nov 2026) at the director's request. Their code is only in git history, before commit `638652c`.

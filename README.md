@@ -9,7 +9,7 @@ Don't add invented developers, staff, partnerships or company history anywhere. 
 - **NorthRay Writing Studio** (`apps/studio`): writing and publishing for authors; see `docs/studio/`.
 - **NorthRay Browser** (`apps/browser`), **NorthRay Files** (`apps/files`) and **NorthRay Capture** (`apps/capture`), each with its own docs folder.
 
-SkillSwap is postponed. Its core is kept (off by default) but it isn't part of the launch; see `shared/metadata/postponed/`.
+SkillSwap is abandoned (26 Nov 2026): it isn't part of NorthRay. Its dormant rules and metadata remain; see `shared/metadata/postponed/`.
 
 ## Layout
 

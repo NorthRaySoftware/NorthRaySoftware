@@ -289,7 +289,7 @@ After milestone 10:
 - 0.20: the Writing card.
 - 0.21: themes.
 
-**Missing information:** the brief's exact list of milestones 11 to 14 isn't written in the repository. The architecture document names only Milestone 12 (performance measurement against OBS) and 14 (Release).
+**Milestones 11 to 14** from the original brief aren't recorded, and the director doesn't have them (26 Nov 2026). The architecture document names only Milestone 12 (performance against OBS) and 14 (release). Define the next milestones from the outstanding list below.
 
 **Outstanding**
 - Real-hardware verification of recording and streaming. This is the top priority before calling it stable.

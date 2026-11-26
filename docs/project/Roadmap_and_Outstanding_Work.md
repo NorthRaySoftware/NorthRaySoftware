@@ -16,9 +16,9 @@ This document consolidates what's planned, as of suite 0.169.0 (26 November 2026
 
 1. **Verify Capture on real hardware.** Recording with a hardware encoder, streaming to a real platform, multistreaming, per-program audio and cameras. These are built but have only been checked against ffmpeg and a local server.
 2. **Verify the Writing Studio editor inside the real app on Windows.** WebView2 isn't available in the test environment. This covers the right-click items, pasted pictures, chapter openings, keys reaching the app, the gliding cursor and similar.
-3. **Code signing and a signed catalogue.** Installers currently trigger SmartScreen warnings.
+3. **Code signing and a signed catalogue**, once the director picks a route (undecided on 26 Nov). Installers currently trigger SmartScreen warnings.
 4. **Accessibility: a UI Automation provider in cjui.** It benefits every app.
-5. **Housekeeping from the issues list** (`ISSUES_AND_MISSING_INFO.md`): `docs/DESIGN.md`, `docs/studio/FORMAT.md`, the stale `writing-studio.json` metadata, the SkillSwap build option.
+5. **Housekeeping from the issues list** (`ISSUES_AND_MISSING_INFO.md`): `docs/DESIGN.md`, `docs/studio/FORMAT.md`, the stale `writing-studio.json` metadata.
 6. Then feature work, in the director's per-app priorities below.
 
 ## 2. NorthRay Launcher
@@ -102,9 +102,9 @@ This document consolidates what's planned, as of suite 0.169.0 (26 November 2026
 | Import scenes from OBS; back up everything to one file; draw on stream | Not confirmed built |
 | Dedicated Stream Deck plug-in; auto-framing; WebM export | Not built |
 | Performance measurement against OBS on the target PC (Milestone 12) | Not done |
-| Milestones 11–14 of the original brief | **Not documented in the repository** |
+| Milestones 11–14 of the original brief | **Unknown** (not in the repository, and the director doesn't have them). Define new milestones from this table |
 | Virtual camera, live captions, live bitrate graph, TikTok, Twitch/YouTube sign-in | Decided against or parked |
 
-## 7. Postponed
+## 7. Abandoned
 
-**SkillSwap.** Its core rules are in `libs/cjcore`. The app source isn't in this repository, and the build option points at a missing folder. To revive it, the app would have to be rewritten or recovered from elsewhere. The safety and payment notes in `docs/ARCHITECTURE.md` would apply.
+**SkillSwap: abandoned** (26 Nov 2026). Not coming back. The broken build option was removed; dormant rules and metadata remain until deleted.

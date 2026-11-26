@@ -38,7 +38,7 @@ Principles, drawn from `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `README.md` and
 5. **Honest identity.**
    - The software is "Developed by the NorthRay Software project".
    - Never invent developers, staff, partnerships or company history.
-   - Legal notices must state the real owner accurately; that is the director's decision.
+   - Legal notices state the real owner and operator: **CJ Philip** (26 Nov 2026).
 6. **Permissive licences only.** No GPL or AGPL code linked or bundled.
 7. **Safety with secrets.**
    - Stream keys and tokens live only in Windows Credential Manager, never in files or logs.
@@ -61,7 +61,7 @@ Principles, drawn from `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `README.md` and
 | **NorthRay Browser** | `NorthRayBrowser.exe` | 0.9.2 | Preview, released | A WebView2 browser with reference boards, a colour picker and a video pop-out |
 | **NorthRay Files** | `NorthRayFiles.exe` | 0.9.2 | Preview, released | A file manager with labels, tags, collections and art-file previews |
 | **NorthRay Capture** | `NorthRayCapture.exe` | 0.21.2 | **In development**; released early | Streaming and recording: per-program audio, multistreaming, overlays. Recording and streaming are **not yet verified on real hardware** |
-| SkillSwap | none | none | **Postponed** | Only its core rules (`libs/cjcore`) and metadata remain. The app folder isn't in the repository |
+| SkillSwap | none | none | **Abandoned** (26 Nov 2026) | Not coming back. Dormant rules (`libs/cjcore`) and metadata remain |
 | Community launcher and radio app | none | none | **Removed** (suite 0.131, 22 Nov 2026) | Removed at the director's request; only in git history |
 
 **Shared infrastructure** (detail in `docs/project/Shared_Infrastructure.md`):
@@ -228,11 +228,11 @@ Principles, drawn from `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `README.md` and
 - **Browser:** screenshots, reader view, tab groups and workspaces.
 - **Files:** zip, picture tools, duplicates.
 - **Release engineering** (proposed in the architecture documents):
-  - Code signing (Azure Trusted Signing).
+  - Code signing (route undecided; Azure Trusted Signing is the cheapest option).
   - A signed release manifest.
   - CI builds on a Windows runner.
-- **Cross-platform:** only the core libraries are portable today. A macOS or Linux version would need a new UI layer. The architecture document records Qt 6 as the likely route if that becomes a goal.
-- **SkillSwap:** postponed. The safety and payment notes in `docs/ARCHITECTURE.md` stay for if it returns.
+- **Platform:** Windows only (confirmed 26 Nov 2026). macOS and Linux versions aren't a goal, so the suite stays on Win32/Direct2D.
+- **SkillSwap:** abandoned; not coming back.
 
 ## 9. Where to look next
 
