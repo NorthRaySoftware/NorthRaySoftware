@@ -243,6 +243,13 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .ProseMirror p.s-verse { text-indent: 0; margin-left: 2.5em; }
 .ProseMirror p.s-letter { text-indent: 0; margin: 0 2em .5em; }
 .ProseMirror p.s-note { text-indent: 0; font-size: .9em; color: var(--muted); margin: .6em 0; }
+/* Draft notes (0.94): yours alone. Never printed or exported, so they look unlike the book: muted, marked with a
+   dashed rule and a label, not by colour alone. */
+.ProseMirror p.s-draft { text-indent: 0; font-family: system-ui, "Segoe UI", sans-serif; font-size: .86em; color: var(--muted);
+  margin: .7em 0; padding: .15em 0 .15em .8em; border-left: 2px dashed var(--faint); }
+.ProseMirror p.s-draft::before { content: "DRAFT NOTE"; display: block; font-size: .72em; letter-spacing: .08em; color: var(--faint); }
+.ProseMirror span.draft { color: var(--muted); background: color-mix(in srgb, var(--faint) 14%, transparent);
+  text-decoration: underline dashed var(--faint); text-underline-offset: .2em; border-radius: 2px; }
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { font-family: var(--serif); font-weight: 600; margin: 1.6em 0 .7em; line-height: 1.3; }
 .ProseMirror h1 { font-size: 1.45em; text-align: center; } .ProseMirror h2 { font-size: 1.2em; } .ProseMirror h3 { font-size: 1.05em; font-style: italic; }
 .ProseMirror blockquote { margin: 1em 2.2em; }

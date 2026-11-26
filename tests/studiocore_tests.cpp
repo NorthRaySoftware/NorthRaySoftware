@@ -1881,11 +1881,11 @@ static void testTypeset() {
         CHECK(openings(dd).find("2033") == std::string::npos);   // off by default
         dd.chapterDates = true;
         const std::string on = openings(dd);
-        // (Spaces aren't glyphs, so the page's text runs together.)
-        CHECK(on.find("4Bloomtide2033TA") != std::string::npos && on.find("4Frostmoon2034TA") != std::string::npos);
+        // Spaces are in the text since 0.94 (so the PDF copies and reads aloud as words).
+        CHECK(on.find("4 Bloomtide 2033 TA") != std::string::npos && on.find("4 Frostmoon 2034 TA") != std::string::npos);
         dd.dateForm = "numbers";
         dd.dateEra = "name";
-        CHECK(openings(dd).find("04/02/2033TheThirdAge") != std::string::npos);
+        CHECK(openings(dd).find("04/02/2033 The Third Age") != std::string::npos);
         const Design back = designFromJson(designToJson(dd));
         CHECK(back.chapterDates && back.dateForm == "numbers" && back.dateEra == "name");
         // The ebook, the same.
@@ -2058,7 +2058,7 @@ static void testEbookHtml() {
     CHECK(c.chapters[0].part && c.chapters[0].html.find("<section class=\"part\">") == 0);
     const std::string& h = c.chapters[1].html;
     CHECK(h.find("<h1>Tom &amp; Jerry &lt;1&gt;</h1>") != std::string::npos);
-    CHECK(h.find("<p class=\"first\">Once <em>upon</em><span class=\"sc\"> a time</span></p>") != std::string::npos);  // first after the title
+    CHECK(h.find("<p class=\"first opening\">Once <em>upon</em><span class=\"sc\"> a time</span></p>") != std::string::npos);  // first after the title
     CHECK(h.find("a &lt; b &amp; &quot;c&quot;") != std::string::npos);
     CHECK(h.find("<hr class=\"scene\"/>") != std::string::npos);
     CHECK(h.find("javascript") == std::string::npos && h.find("<a href=\"https://example.com\">good</a>") != std::string::npos);
@@ -2227,10 +2227,10 @@ static void testPublish() {
         // Lead-in alone: the first three words.
         ebook::Style ls;
         ls.leadIn = true;
-        CHECK(ebook::markOpening("<p class=\"first\">The wind came over the hill.</p>", ls) ==
+        CHECK(ebook::markOpening("<p class=\"first opening\">The wind came over the hill.</p>", ls) ==
               "<p class=\"first opening\"><span class=\"leadin\">The wind came</span> over the hill.</p>");
         ls.dropCap = true;
-        CHECK(ebook::markOpening("<p class=\"first\">A wind came over.</p>", ls) ==
+        CHECK(ebook::markOpening("<p class=\"first opening\">A wind came over.</p>", ls) ==
               "<p class=\"first opening\"><span class=\"leadin\">A wind came</span> over.</p>");   // a one-letter word: no drop cap
         CHECK(ebook::chapterHeading("Chapter 7: Rain", 7, "", "Rain", [] { ebook::Style n; n.chapterStyle = "numeral"; return n; }()) ==
               "<h1 class=\"numeral\"><span class=\"numeral\">7</span><span class=\"chaptitle\">Rain</span></h1>\n");
@@ -4917,7 +4917,11 @@ static void testPlanReplaces() {
     namespace plan = studio::plan;
     CHECK(plan::matchKey("1. \xF0\x9F\x97\xA1 Steel and Snow") == "steel and snow" && plan::matchKey("Steel and Snow") == "steel and snow");
     CHECK(plan::matchKey("2. \xE2\x9C\xA7 The Canyon") == "the canyon" && plan::matchKey("13. Chapter 13") == "#13" && plan::matchKey("Chapter 13") == "#13");
-    CHECK(plan::matchKey("19. \xF0\x9F\x97\xA1") == "#19" && plan::matchKey("Sah'ra's Café") == "sah'ra's caf\xC3\xA9");
+    CHECK(plan::matchKey("19. \xF0\x9F\x97\xA1") == "#19" && plan::matchKey("Sah'ra's Café") == "sahras caf\xC3\xA9");
+    // 0.94: apostrophe and quotation-mark styles, dashes and spacing don't stop a match.
+    CHECK(plan::matchKey("Sah\u2019ra\u2019s  Caf\u00E9") == plan::matchKey("Sah'ra's Café"));
+    CHECK(plan::matchKey("\u201CThe\u201D Wall \u2014 North") == plan::matchKey("\"The\" Wall - North") && plan::matchKey("Readers\u2019 Guide") == plan::matchKey("Reader's Guide"));
+    CHECK(plan::matchKey("The\u00A0Long\tRoad") == "the long road");
     const std::string words = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Snow fell on the forge."}]}]})";
     const Id soul = lib->createNode(book, {}, NodeKind::Part, "I. Soul");
     const Id c1 = lib->createNode(book, soul, NodeKind::Chapter, "1. \xF0\x9F\x97\xA1 Steel and Snow");
@@ -5343,7 +5347,7 @@ static void testHeaders() {
             if (!r.glyphs.empty() && r.y > pAshes->pictures[0].y && r.y < pAshes->pictures[0].y + pAshes->pictures[0].h) inside = true;
         CHECK(inside);
         // The part: over a darkened picture, in white.
-        CHECK(pPart->pictures.size() == 1 && pPart->pictures[0].tone == 1 && textOf(*pPart, true).find("PartOne") != std::string::npos);
+        CHECK(pPart->pictures.size() == 1 && pPart->pictures[0].tone == 1 && textOf(*pPart, true).find("Part One") != std::string::npos);
         CHECK(pWall->pictures.empty());                                            // opted out
         CHECK(pPro->pictures.empty() && textOf(*pPro, false).find("\xE2\x9D\xA6") != std::string::npos);   // an ornament, set as type
         CHECK(pWatch->pictures.empty() && textOf(*pWatch, false).find("\xE2\x9C\xA7") != std::string::npos);
@@ -5490,7 +5494,203 @@ static void testHeaders() {
     }
 }
 
+// 0.94 fixes: plans match titles whatever their apostrophes, quotes or spacing; front and back matter given as a part
+// in a plan of headings is that chapter; the preview names what will be added; a big book's chapters all match.
+static void testPlanMatching094() {
+    const std::string dir = tempLibrary("plan094");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    namespace plan = studio::plan;
+    const Id world = lib->createWorld("World");
+    const Id book = lib->createBook("The Book", world);
+    const std::string body = R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Some words here."}]}]})";
+    const Id start = lib->createNode(book, {}, NodeKind::Chapter, "The Start");
+    const Id guide = lib->createNode(book, {}, NodeKind::Chapter, "Reader's Guide");
+    { ManuscriptNode n = *lib->node(guide); n.matter = 2; CHECK(lib->updateNode(n)); }
+    CHECK(lib->saveNodeContent(guide, body));
+    auto count = [&](const std::string& t) { int c = 0; for (auto* n : lib->manuscriptOf(book)) if (plan::matchKey(n->title) == plan::matchKey(t)) ++c; return c; };
+    // A curly apostrophe and doubled space: matched, nothing added, still back matter.
+    {
+        const std::string p = "Chapter: The  Start\n\nChapter: Reader’s Guide\nMatter: back\n";
+        const auto fit = plan::planFit(*lib, book, p);
+        CHECK(fit.newChapters.empty() && fit.newParts.empty() && fit.matched == 2);
+        plan::OutlineImport oi;
+        plan::importOutline(*lib, book, p, oi);
+        CHECK(oi.chapters == 0 && oi.parts == 0 && count("Reader's Guide") == 1 && lib->node(guide)->matter == 2 && count("The Start") == 1);
+    }
+    // A plan of headings: "# Reader's Guide" with Matter: back is the chapter, not a part, with or without the Matter line.
+    for (const char* p : {"# Part One\n## The Start\n### A scene\n# Reader's Guide\nMatter: back\n", "# Part One\n## The Start\n### A scene\n# “Reader's” Guide\n"}) {
+        const auto fit = plan::planFit(*lib, book, p);
+        CHECK(fit.newChapters.empty());
+        CHECK(fit.newParts.size() <= 1);   // Part One the first time only
+        plan::OutlineImport oi;
+        plan::importOutline(*lib, book, p, oi);
+        int guideParts = 0;
+        for (auto* n : lib->manuscriptOf(book)) if (n->kind == NodeKind::Part && plan::matchKey(n->title) == plan::matchKey("Reader's Guide")) ++guideParts;
+        CHECK(oi.chapters == 0 && guideParts == 0 && count("Reader's Guide") == 1 && lib->node(guide)->matter == 2 && lib->node(guide)->parentId.empty());
+        const ManuscriptNode* holder = lib->node(lib->node(start)->parentId);
+        CHECK(holder && holder->kind == NodeKind::Part && holder->title == "Part One");
+    }
+    // Parsing: Matter: back on a part makes it a chapter standing outside any part; Matter: story on a part is ignored.
+    {
+        const auto items = plan::parseOutline("Part: Glossary\nMatter: back\n\nPart: Two\nMatter: story\n");
+        CHECK(items.size() == 2 && items[0].kind == NodeKind::Chapter && items[0].matter == 2 && items[0].outsidePart);
+        CHECK(items[1].kind == NodeKind::Part && items[1].matter == -1);
+    }
+    // The preview names a chapter the book doesn't have, and the import adds just that one.
+    {
+        const std::string p = "Chapter: The Start\n\nChapter: A New One\n\nChapter: Reader's Guide\nMatter: back\n";
+        const auto fit = plan::planFit(*lib, book, p);
+        CHECK(fit.newChapters.size() == 1 && fit.newChapters[0] == "A New One");
+        plan::OutlineImport oi;
+        plan::importOutline(*lib, book, p, oi);
+        CHECK(oi.chapters == 1 && count("A New One") == 1 && count("Reader's Guide") == 1);
+    }
+    // A big book: the import makes things as it goes, and every chapter already there is still matched.
+    {
+        const Id big = lib->createBook("Big", world);
+        std::string p = "Part: Opening\n\n";
+        for (int i = 1; i <= 70; ++i) {
+            const std::string t = "Chapter " + std::to_string(i) + ": Title’s " + std::to_string(i);
+            const Id c = lib->createNode(big, {}, NodeKind::Chapter, "Title's " + std::to_string(i));
+            CHECK(lib->saveNodeContent(c, body));
+            p += "Chapter: " + t + "\n\nScene: Scene " + std::to_string(i) + "\n\n";
+        }
+        const auto fit = plan::planFit(*lib, big, p);
+        CHECK(fit.newChapters.empty() && fit.newParts.size() == 1);
+        plan::OutlineImport oi;
+        plan::importOutline(*lib, big, p, oi);
+        CHECK(oi.chapters == 0 && oi.updatedChapters == 70 && oi.scenes == 70 && oi.keptWithWriting.empty());
+        int chapters = 0;
+        for (auto* n : lib->manuscriptOf(big)) if (n->kind == NodeKind::Chapter) ++chapters;
+        CHECK(chapters == 70);
+    }
+}
+
+// 0.94 print fixes: draft notes never print; a heading repeating the title is printed once; a part holding only the
+// back matter of its own name isn't printed or listed; the PDF's text has real spaces; the opening skips date lines in
+// print and the ebook alike, and never goes on back matter; excerpts skip date lines and headings; bracket checks.
+static void testPrint094() {
+    namespace ts = studio::typeset;
+    const std::string dir = tempLibrary("print094");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("World");
+    const Id book = lib->createBook("The Book", world);
+    auto para = [](const std::string& t, const std::string& style = "") {
+        std::string a = style.empty() ? "" : R"("attrs":{"style":")" + style + R"("},)";
+        return "{\"type\":\"paragraph\"," + a + "\"content\":[{\"type\":\"text\",\"text\":\"" + t + "\"}]}";
+    };
+    auto docOfBlocks = [](const std::vector<std::string>& b) {
+        std::string o = R"({"type":"doc","content":[)";
+        for (size_t i = 0; i < b.size(); ++i) o += (i ? "," : "") + b[i];
+        return o + "]}";
+    };
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "The Ring");
+    CHECK(lib->saveNodeContent(c1, docOfBlocks({para("12 Harvestmoon 1450 SE", "centered"),
+        R"({"type":"paragraph","content":[{"type":"text","text":"He lifted his sapphire ring "},{"type":"text","marks":[{"type":"draft"}],"text":"[check the stone]"},{"type":"text","text":" to the light, and the old smith nodded slowly at the craft of it, turning it once."}]})",
+        para("[More to go here]", "draft"), para("Then [TODO] the night fell.")})));
+    const Id c2 = lib->createNode(book, {}, NodeKind::Chapter, "Chapter Two");
+    CHECK(lib->saveNodeContent(c2, docOfBlocks({para("Day 3"), para("Snow fell on the forge for the whole of the morning and into the long afternoon.")})));
+    const Id gp = lib->createNode(book, {}, NodeKind::Part, "Reader’s Guide");
+    const Id guide = lib->createNode(book, gp, NodeKind::Chapter, "Reader's Guide");
+    { ManuscriptNode n = *lib->node(guide); n.matter = 2; CHECK(lib->updateNode(n)); }
+    CHECK(lib->saveNodeContent(guide, docOfBlocks({R"({"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"Reader’s  Guide"}]})",
+                                                   para("Questions to talk about after reading the book together.")})));
+    // Draft notes and saving: the mark and the style survive the library's own clean-up.
+    CHECK(lib->nodeContent(c1).find("\"draft\"") != std::string::npos);
+    const ts::Source src = ts::snapshot(*lib, book);
+    std::string all;
+    for (auto& sec : src.sections) all += sec.content;
+    CHECK(all.find("check the stone") == std::string::npos && all.find("More to go here") == std::string::npos);
+    {
+        std::string text;
+        for (auto& sec : src.sections) text += doc::plainText(sec.content);
+        CHECK(text.find("ring to the light") != std::string::npos);   // one space where the note was
+    }
+    int parts = 0, guides = 0;
+    for (auto& sec : src.sections) { if (sec.kind == NodeKind::Part) ++parts; if (sec.title == "Reader's Guide") ++guides; }
+    CHECK(parts == 0 && guides == 1);
+    for (auto& sec : src.sections) if (sec.title == "Reader's Guide") CHECK(sec.content.find("\"heading\"") == std::string::npos);
+    // The printed book: listed once, titled once, no numbers on back matter, real spaces, the opening past the date.
+    ts::Design d = ts::preset("classic").design;
+    d.chapterStyle = "number";
+    d.leadIn = true;
+    const ts::Resources res{appFolder("fonts"), appFolder("hyphenation")};
+    const ts::Book b = ts::typesetBook(src, d, res);
+    CHECK(b.ok);
+    auto pageText = [&](const ts::Page& p) {
+        std::string o;
+        for (auto& r : p.runs) for (auto g : r.glyphs) { auto it = b.fonts[r.font].toUnicode.find(g); o += it == b.fonts[r.font].toUnicode.end() ? "" : it->second; }
+        return o;
+    };
+    std::string contents, openings;
+    for (auto& p : b.pages) {
+        if (p.kind == ts::Page::Contents) contents += pageText(p);
+        if (p.kind == ts::Page::ChapterOpening) openings += pageText(p) + "|";
+    }
+    auto count = [](const std::string& h, const std::string& n) { int c = 0; for (size_t a = h.find(n); a != std::string::npos; a = h.find(n, a + 1)) ++c; return c; };
+    CHECK(count(contents, "Reader's Guide") == 1);
+    CHECK(count(openings, "Reader") == 1 && openings.find("Chapter Three") == std::string::npos && openings.find("C H A P T E R   T H R E E") == std::string::npos);
+    if (openings.find("sapphire ring") == std::string::npos) std::printf("  openings: %s\n", openings.c_str());
+    CHECK(openings.find("sapphire ring to") != std::string::npos);  // real spaces, not "sapphireringto"
+    CHECK(openings.find("12 Harvestmoon 1450 SE") != std::string::npos);
+    // The small capitals are on the first words of prose, not the date: in small caps a font without them sets capitals.
+    {
+        bool leadOnDate = false, leadOnProse = false;
+        for (auto& p : b.pages)
+            if (p.kind == ts::Page::ChapterOpening && pageText(p).find("Harvestmoon") != std::string::npos) {
+                const std::string t = pageText(p);
+                leadOnDate = t.find("HARVESTMOON") != std::string::npos;
+                leadOnProse = t.find("HE LIFTED HIS") != std::string::npos || t.find("he lifted his") == std::string::npos;
+            }
+        CHECK(!leadOnDate && leadOnProse);
+    }
+    // The ebook marks the same paragraph, and never back matter's.
+    {
+        ebook::Style st;
+        st.leadIn = true;
+        const auto c = ebook::build(src, nullptr, st);
+        std::string ring, guideHtml, two;
+        for (auto& ch : c.chapters) {
+            if (ch.title == "The Ring") ring = ch.html;
+            if (ch.title == "Reader's Guide") guideHtml = ch.html;
+            if (ch.title == "Chapter Two") two = ch.html;
+        }
+        CHECK(ring.find("<p class=\"centered\">12 Harvestmoon 1450 SE</p>") != std::string::npos);
+        CHECK(ring.find("<p class=\"first opening\"><span class=\"leadin\">He lifted his</span>") != std::string::npos);
+        CHECK(two.find("<p class=\"first opening\"><span class=\"leadin\">Snow fell on</span>") != std::string::npos);   // past "Day 3"
+        CHECK(guideHtml.find("leadin") == std::string::npos && count(guideHtml, "Reader") == 1);
+    }
+    // Date lines told from prose.
+    for (const char* yes : {"12 Harvestmoon 1450 SE", "Day 3", "Highcliff, 3 Frostmoon 1204", "Spring, 1450", "04/02/2033", "Midsummer Day"})
+        CHECK(ts::looksLikeDateLine(yes));
+    for (const char* no : {"He was 12.", "Snow fell on the forge for the whole of the morning.", "“Twelve days,” she said.", "They waited 3 days for the ship to come back."})
+        CHECK(!ts::looksLikeDateLine(no));
+    // Excerpts quote the story's words, never the date line or a heading.
+    {
+        const std::string q = studio::bible::quotableText(lib->nodeContent(c2));
+        CHECK(q.find("Day 3") == std::string::npos && q.rfind("Snow fell", 0) == 0);
+        CHECK(studio::bible::quotableText(lib->nodeContent(c1)).find("check the stone") == std::string::npos);
+    }
+    // Publishing's checks: the bracketed note left in the text is named, the draft notes are not.
+    {
+        bool found = false;
+        for (const auto& c : studio::publish::preflight(src, nullptr))
+            if (c.title.find("square brackets") != std::string::npos) found = c.title.rfind("1 note", 0) == 0 && c.detail.find("[TODO]") != std::string::npos && c.detail.find("The Ring") != std::string::npos;
+        CHECK(found);
+    }
+    // The PDF itself: spaces are in its text, mapped to U+0020.
+    {
+        std::string err;
+        const std::string pdf = ts::pdfBytes(b, err);
+        CHECK(err.empty() && pdf.size() > 1000);
+    }
+}
+
 int main() {
+    testPrint094();
+    testPlanMatching094();
     testHeaders();
     testPlanReplaces();
     testWorldSync();

@@ -141,6 +141,9 @@ std::string titleCore(const std::string& title);
 // What titles are matched by when a plan comes in (0.62): the core without numbers, marks or symbols ("1. 🗡 Steel and
 // Snow" and "Steel and Snow" are "steel and snow"), or "#13" for a title that's only a number ("13. Chapter 13").
 std::string matchKey(const std::string& title);
+// Punctuation and spacing made plain for matching (0.94): apostrophes and quotation marks of any style left out, dashes as
+// hyphens, runs of spaces of any kind as one ("Reader’s  Guide" -> "Readers Guide").
+std::string plainPunctuation(const std::string& s);
 std::string outlineText(const Library& lib, const Id& book);
 struct OutlineImport {
     int parts = 0, chapters = 0, scenes = 0, threads = 0, beats = 0;   // made
@@ -192,7 +195,11 @@ struct PlanningImport {
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out);
 // How well a plan's chapters fit a book (0.82), before importing: the plan's chapters, and how many have the title of
 // one of the book's chapters (exactly, or by matchKey; not by number alone), and how many chapters the book has.
-struct PlanFit { int planned = 0, matched = 0, bookChapters = 0; };
+struct PlanFit {
+    int planned = 0, matched = 0, bookChapters = 0;
+    // The parts and chapters the import will make because nothing in the book matches them (0.94), as the plan titles them.
+    std::vector<std::string> newParts, newChapters;
+};
 PlanFit planFit(const Library& lib, const Id& book, const std::string& text);
 // The book's whole plan as such a text: the outline (with its beats), its threads, and the structure it follows when
 // it's the author's own.

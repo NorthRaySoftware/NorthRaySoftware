@@ -2,6 +2,7 @@
 #include "studio/document.hpp"
 #include "studio/artwork.hpp"
 
+#include <cctype>
 #include <cmath>
 
 #include <nlohmann/json.hpp>
@@ -16,6 +17,7 @@ const std::vector<StyleInfo> kParagraphStyles = {
     {"body", "Body"},         {"first", "First paragraph (no indent)"}, {"centered", "Centred"},
     {"epigraph", "Epigraph"}, {"attribution", "Attribution"},           {"verse", "Verse"},
     {"letter", "Letter"},     {"note", "Note"},
+    {"draft", "Draft note"},   // 0.94: never printed or exported
     // Comic scripts
     {"page", "Page"},         {"panel", "Panel"},                       {"dialogue", "Dialogue"},
     {"caption", "Caption"},   {"sfx", "SFX"},
@@ -28,7 +30,8 @@ bool knownStyle(const std::string& s) {
     return false;
 }
 
-const std::set<std::string> kMarks = {"em", "strong", "underline", "smallcaps", "strike", "sup", "sub", "code", "link"};
+const std::set<std::string> kMarks = {"em", "strong", "underline", "smallcaps", "strike", "sup", "sub", "code", "link",
+                                      "draft"};   // draft: a note to yourself, never printed or exported (0.94)
 
 // UTF-8 decode one code point; advances i. Invalid bytes become U+FFFD.
 char32_t nextCp(const std::string& s, size_t& i) {
@@ -316,6 +319,67 @@ std::string outlineText(const std::string& docJson, int extraLevel) {
 }
 
 std::int64_t wordCount(const std::string& docJson) { return countWords(plainText(docJson)); }
+
+namespace {
+bool isDraftText(const json& n) {
+    if (!n.is_object() || n.value("type", "") != "text" || !n.contains("marks") || !n["marks"].is_array()) return false;
+    for (const json& m : n["marks"]) if (m.is_object() && m.value("type", "") == "draft") return true;
+    return false;
+}
+bool isDraftBlock(const json& n) {
+    return n.is_object() && n.value("type", "") == "paragraph" && n.contains("attrs") && n["attrs"].is_object() &&
+           n["attrs"].value("style", "") == "draft";
+}
+// Takes draft notes out of a list of nodes; true when anything was taken. A paragraph left with nothing but spaces
+// after its notes went is taken out too, so a note on a line of its own leaves no blank line behind.
+bool dropDrafts(json& content) {
+    if (!content.is_array()) return false;
+    bool any = false;
+    json kept = json::array();
+    for (json& n : content) {
+        if (isDraftBlock(n) || isDraftText(n)) { any = true; continue; }
+        if (n.is_object() && n.contains("content") && dropDrafts(n["content"])) {
+            any = true;
+            // Spaces either side of a note taken out of a sentence ("the wall [check] fell"): one space, not two.
+            json& c = n["content"];
+            for (size_t i = 0; i + 1 < c.size(); ++i)
+                if (c[i].value("type", "") == "text" && c[i + 1].value("type", "") == "text") {
+                    std::string a = c[i].value("text", ""), b = c[i + 1].value("text", "");
+                    if (!a.empty() && a.back() == ' ' && !b.empty() && b.front() == ' ') c[i + 1]["text"] = b.substr(1);
+                }
+            const std::string t = n.value("type", "");
+            if ((t == "paragraph" || t == "heading") ) {
+                bool blank = true;
+                for (const json& x : c) {
+                    if (x.value("type", "") != "text") { blank = false; break; }
+                    for (char ch : x.value("text", "")) if (!std::isspace((unsigned char)ch)) { blank = false; break; }
+                    if (!blank) break;
+                }
+                if (blank) continue;
+                // A note at the end of a sentence leaves no space behind.
+                if (!c.empty() && c.back().value("type", "") == "text") {
+                    std::string e = c.back().value("text", "");
+                    while (!e.empty() && e.back() == ' ') e.pop_back();
+                    c.back()["text"] = e;
+                }
+            }
+            if ((t == "blockquote" || t == "bullet_list" || t == "ordered_list" || t == "list_item") && c.empty()) continue;
+        }
+        kept.push_back(std::move(n));
+    }
+    content = std::move(kept);
+    return any;
+}
+}  // namespace
+
+std::string withoutDraftNotes(const std::string& docJson) {
+    if (docJson.find("\"draft\"") == std::string::npos) return docJson;
+    json d = json::parse(docJson, nullptr, false);
+    if (!d.is_object() || !d.contains("content")) return docJson;
+    if (!dropDrafts(d["content"])) return docJson;
+    if (d["content"].empty()) d["content"] = json::array({json{{"type", "paragraph"}}});
+    return d.dump();
+}
 
 // ------------------------------------------------------------------ Builder
 

@@ -29,7 +29,7 @@
 namespace studio::doc {
 
 struct StyleInfo { const char* id; const char* label; };
-// body, first (no indent), centered, epigraph, attribution, verse, letter, note
+// body, first (no indent), centered, epigraph, attribution, verse, letter, note, draft (never printed)
 extern const std::vector<StyleInfo> kParagraphStyles;
 
 std::string emptyDoc();
@@ -41,6 +41,9 @@ std::string plainText(const std::string& docJson);   // paragraphs separated by 
 // Like plainText, with headings as Markdown ("## Title" for a level 1 heading, one # more than its level when
 // `extraLevel`) and list items as "- " lines.
 std::string outlineText(const std::string& docJson, int extraLevel = 0);
+// The document without its draft notes (0.94): paragraphs in the Draft note style and words marked as a draft note,
+// for printing, exporting and quoting. Unchanged when it has none.
+std::string withoutDraftNotes(const std::string& docJson);
 // Words in a piece of plain UTF-8 text (letters and digits, joined by ' and -).
 std::int64_t countWords(const std::string& text);
 

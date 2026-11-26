@@ -8,9 +8,11 @@
 #include "studio/planning.hpp"
 #include "studio/calendar.hpp"
 #include "studio/headers.hpp"
+#include "studio/typeset.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -276,6 +278,38 @@ std::vector<std::pair<std::string, std::string>> agesOfEntry(const Library& lib,
     return out;
 }
 
+namespace {
+// A chapter's text as excerpts may quote it (0.94): its paragraphs only, one per line, without headings, scene-break
+// marks, picture captions, draft notes or date lines ("12 Harvestmoon 1450"), so a passage is always the story's words.
+void quotableParas(const nlohmann::json& n, std::string& out) {
+    const std::string t = n.value("type", "");
+    if (t == "paragraph") {
+        std::string line;
+        std::function<void(const nlohmann::json&)> text = [&](const nlohmann::json& x) {
+            if (x.value("type", "") == "text") line += x.value("text", "");
+            else if (x.value("type", "") == "hard_break") line += " ";
+            if (x.contains("content") && x["content"].is_array()) for (const auto& c : x["content"]) text(c);
+        };
+        text(n);
+        if (line.find_first_not_of(" \t") == std::string::npos || typeset::looksLikeDateLine(line)) return;
+        if (!out.empty()) out += "\n\n";
+        out += line;
+    } else if (t == "heading" || t == "scene_break" || t == "image") {
+        return;
+    } else if (n.contains("content") && n["content"].is_array()) {
+        for (const auto& c : n["content"]) quotableParas(c, out);
+    }
+}
+}  // namespace
+
+std::string quotableText(const std::string& docJson) {
+    const nlohmann::json d = nlohmann::json::parse(doc::withoutDraftNotes(docJson), nullptr, false);
+    std::string out;
+    if (d.is_object() && d.contains("content") && d["content"].is_array())
+        for (const auto& c : d["content"]) quotableParas(c, out);
+    return out;
+}
+
 bool excerptsFromText(const Library& lib, const Id& book) { return lib.setting("excerpts-from-text:" + book) == "1"; }
 bool setExcerptsFromText(Library& lib, const Id& book, bool on) { return lib.setSetting("excerpts-from-text:" + book, on ? "1" : ""); }
 
@@ -306,7 +340,7 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
             const bool nobody = n->povId.empty() && (c == cast.end() || c->second.empty());
             if (!inIt && !(fromText && nobody)) continue;
             auto t = texts.find(n->id);
-            if (t == texts.end()) t = texts.emplace(n->id, doc::plainText(lib.nodeContent(n->id))).first;
+            if (t == texts.end()) t = texts.emplace(n->id, quotableText(lib.nodeContent(n->id))).first;
             // The passage that first names them there, or, when the text doesn't name them, its opening lines.
             const auto spans = findNames(t->second, just);
             if (!inIt && spans.empty()) continue;

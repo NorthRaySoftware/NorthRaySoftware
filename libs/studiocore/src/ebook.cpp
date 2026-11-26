@@ -100,6 +100,8 @@ void blocksHtml(const json& content, std::string& out, const Pictures& url, bool
             static const char* known[] = {"body", "first", "centered", "epigraph", "attribution", "verse", "letter", "note"};
             if (std::find_if(std::begin(known), std::end(known), [&](const char* k) { return style == k; }) == std::end(known)) style = "body";
             if (style == "body" && afterBreak) style = "first";
+            // The chapter's opening paragraph, as marked for print too (0.94): markOpening sets its lead-in and drop cap.
+            if (depth == 0 && attrs.value("opening", false)) style = "first opening";
             std::string inner;
             inlineHtml(n.value("content", json::array()), inner);
             if (inner.empty()) { out += "<p class=\"" + style + " empty\">&#160;</p>\n"; continue; }
@@ -219,7 +221,7 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
         ch.title = sec.title;
         ch.part = sec.kind == NodeKind::Part;
         ch.words = sec.words;
-        std::string body = docHtml(sec.content, url);
+        std::string body = docHtml(sec.kind == NodeKind::Chapter ? typeset::withOpening(sec.content) : sec.content, url);
         std::string heading = "<h1>" + escape(sec.title) + "</h1>\n";
         auto withHeader = [&](const std::string& h) {
             if (!sec.hasHeader) return h;
@@ -331,10 +333,11 @@ std::string chapterHeading(const std::string& title, int number, const std::stri
 
 std::string markOpening(const std::string& html, const Style& style) {
     if (!style.leadIn && !style.dropCap) return html;
-    const std::string open = "<p class=\"first\">";
+    // The paragraph marked as the opening (0.94; the typesetter uses the same one), else none: not a date line, an
+    // epigraph or a paragraph after a scene break.
+    const std::string open = "<p class=\"first opening\">";
     const size_t at = html.find(open);
     if (at == std::string::npos) return html;
-    // Only when nothing but other first-paragraph kinds (an epigraph, a heading) comes before it.
     const size_t start = at + open.size();
     size_t stop = html.find('<', start);
     if (stop == std::string::npos) stop = html.size();

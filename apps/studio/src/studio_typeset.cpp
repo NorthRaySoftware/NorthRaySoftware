@@ -417,6 +417,11 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     check("side:ts:contents", L"Contents page", ts_.design.contents, [this, changed] { ts_.design.contents = !ts_.design.contents; changed(); });
     check("side:ts:lead", L"First words in small capitals", ts_.design.leadIn, [this, changed] { ts_.design.leadIn = !ts_.design.leadIn; changed(); });
     check("side:ts:drop", L"Drop cap", ts_.design.dropCap, [this, changed] { ts_.design.dropCap = !ts_.design.dropCap; changed(); });
+    // Where they go (0.94), the same in print and the ebook.
+    if (ts_.design.leadIn || ts_.design.dropCap)
+        y += gfx_.text(L"On every chapter's first paragraph of prose, after any date line, epigraph, heading or picture. "
+                       L"Not on front or back matter.",
+                       {tx0 + 28, y - 4, cw - 28, 60}, Font::Small, pal_.inkFaint, {Align::Left, false, true}) + 10;
     check("side:ts:roman", L"Front matter in roman numerals", ts_.design.frontRoman,
           [this, changed] { ts_.design.frontRoman = !ts_.design.frontRoman; changed(); });
     // Each chapter's date from Planning's timeline under its heading, in a chosen style (0.85).

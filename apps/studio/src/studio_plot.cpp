@@ -1460,6 +1460,23 @@ void StudioApp::importPlanText() {
                  L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept. Plot threads the plan "
                  L"doesn't list are removed, and so is the book's structure when the plan names none.";
         else q += L"\n\nThe book has no chapters yet, so the plan's " + std::to_wstring(fit.planned) + L" chapters are made.";
+        // What it will add (0.94), by name, so a title that didn't match (a different apostrophe, a typo) shows up here
+        // before it becomes a second, empty copy of a chapter.
+        if (fit.bookChapters > 0 && (!fit.newChapters.empty() || !fit.newParts.empty())) {
+            auto list = [](const std::vector<std::string>& names) {
+                std::wstring s;
+                const size_t shown = std::min<size_t>(names.size(), 12);
+                for (size_t i = 0; i < shown; ++i) s += L"\n   • " + w(names[i]);
+                if (names.size() > shown) s += L"\n   • and " + std::to_wstring(names.size() - shown) + L" more";
+                return s;
+            };
+            if (!fit.newChapters.empty())
+                q += L"\n\nNew chapter" + std::wstring(fit.newChapters.size() == 1 ? L"" : L"s") + L" it will add (nothing in the book has " +
+                     (fit.newChapters.size() == 1 ? L"this title" : L"these titles") + L"):" + list(fit.newChapters);
+            if (!fit.newParts.empty())
+                q += L"\n\nNew part" + std::wstring(fit.newParts.size() == 1 ? L"" : L"s") + L" it will add:" + list(fit.newParts);
+            q += L"\n\nIf one of these is a chapter you already have under a slightly different title, choose Cancel and make the titles match.";
+        }
         const int a = cjui::messageBox(hwnd(), q, L"Import planning", MB_OKCANCEL | (poorFit ? MB_ICONWARNING : MB_ICONINFORMATION));
         if (a != IDOK) return;
     }

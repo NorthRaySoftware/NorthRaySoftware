@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.94.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Importing a plan matches chapter titles whatever their apostrophes, quotation marks, dashes or spacing (Reader’s Guide is Reader's Guide), so it no longer adds an empty second copy of a chapter. Before importing, the question lists by name every new chapter and part the plan will add.",
+        "In a plan written as headings, front or back matter at the parts' level (with Matter: back, or already back matter in the book) is that chapter, never a part of its own. A part that only holds the back matter of the same name isn't printed or listed, and a heading at the top of a chapter's text that repeats its title prints once. Back matter is never numbered.",
+        "Importing a plan into a long book matches every chapter it should: before, the matching could fail part way through and add duplicates.",
+        "Draft notes: the Draft note style for a whole paragraph, and Ctrl+Shift+D or right-click › Draft note (not printed) for words in a sentence. They show muted and dashed while you write and are never printed, exported, sent in review copies or quoted. Publishing's checks warn about any other [bracketed text] left in chapters, naming where.",
+        "Exported PDFs have real spaces between words, so text copied from a justified line, searched or read aloud by a screen reader comes out as words.",
+        "The chapter's opening (first words in small capitals, drop cap) follows one rule in print and the ebook: the first paragraph of prose, after any date line, epigraph, heading or picture, and never on front or back matter. Typesetting says so under the switches.",
+        "The bible's excerpts from the books skip date lines, headings, scene-break marks and draft notes.",
+        "Import many pages, for entries already in the bible, asks in a box of its own: Update (the default, recommended) or Replace all their text, each explained. The next box lists every section, detail and link each entry would lose, and from Replace, Update instead is one click."
+      ]
+    },
+    {
       "version": "0.93.0",
       "date": "2026-11-26",
       "notes": [

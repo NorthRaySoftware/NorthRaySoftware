@@ -1,6 +1,6 @@
 # NorthRay Development Handover
 
-**Written:** 26 November 2026, at the end of the session that released suite **0.169.0** (Writing Studio 0.93.0).
+**Written:** 26 November 2026. Last updated at suite **0.170.0** (Writing Studio 0.94.0), committed but **not yet pushed or published**: see section 5.
 
 **Purpose:** everything needed to resume NorthRay development in a fresh conversation, with no access to earlier chats.
 
@@ -21,8 +21,8 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 | App | Version | Status | Health |
 |---|---|---|---|
-| NorthRay Launcher | 0.169.0 | Preview, released | Stable. Tray and notifications not checked on real Windows |
-| NorthRay Writing Studio | 0.93.0 | Preview, released | Very active. Core tests 2,384 pass and editor tests 28 pass. Editor features need checking on Windows |
+| NorthRay Launcher | 0.170.0 | Preview (0.169.0 released) | Stable. Tray and notifications not checked on real Windows |
+| NorthRay Writing Studio | 0.94.0 | Preview (0.93.0 released) | Very active. Core tests 2,511 pass and editor tests 28 pass. Editor features need checking on Windows |
 | NorthRay Browser | 0.9.2 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
 | NorthRay Files | 0.9.2 | Preview, released | Stable. 373 tests pass |
 | NorthRay Capture | 0.21.2 | In development | Feature-rich. **Recording and streaming are unverified on real hardware or platforms.** 45,641 tests pass |
@@ -65,7 +65,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 ## 5. Outstanding tasks
 
-There are no half-finished code changes: the working tree was committed and pushed at 0.169.0, and this handover's documents were committed after it. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
+Suite 0.170.0 (Writing Studio 0.94.0, phase 1 of the director's combined request of 26 Nov) is committed on `source` locally but was **not pushed**: the session couldn't get write access to the repository. A git bundle of the commits was put in the director's project folder (`10_Git_History/`); push it, then build, package and publish as usual. Phases 2 to 5 of that request (interface zoom, visible tools, character icons, chapter dates as formatted text) and the Markdown export of the bible and plan are planned, with questions to the director open. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
 
 ## 6. Important technical decisions (summary; full list in `Decision_Log.md`)
 

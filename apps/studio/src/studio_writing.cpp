@@ -113,6 +113,9 @@ void StudioApp::ensureEditor() {
         std::string name = selection.empty() ? contextWord_ : narrow(selection);
         while (!name.empty() && (name.back() == ' ' || name.back() == '\n' || name.back() == '\r')) name.pop_back();
         while (!name.empty() && name.front() == ' ') name.erase(0, 1);
+        // Words chosen as a note to yourself (0.94): never printed or exported. Again on a note takes it off.
+        if (!selection.empty())
+            items.push_back({L"Draft note (not printed)", [this] { editor_.send(R"({"type":"command","name":"draftNote"})"); }});
         // The chapter's header picture (0.92), whatever is under the pointer.
         if (lib_)
             if (const ManuscriptNode* cn = lib_->node(currentNode_); cn && cn->kind != NodeKind::Scene)

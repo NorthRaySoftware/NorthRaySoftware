@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.170.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.94.0: plan imports that match titles and list what they add, draft notes that never print, real spaces in PDFs, one rule for chapter openings, and safer bible imports. Message boxes can name their buttons."
+      ]
+    },
+    {
       "version": "0.169.0",
       "date": "2026-11-26",
       "notes": [

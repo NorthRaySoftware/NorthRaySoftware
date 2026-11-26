@@ -4,6 +4,7 @@
 
 #include "internal.hpp"
 #include "studio/document.hpp"
+#include "studio/planning.hpp"
 
 #include <algorithm>
 #include <set>
@@ -109,6 +110,7 @@ struct Block {
     int spaceBefore = 0, spaceAfter = 0;   // blank lines
     bool keepWithNext = false;
     bool heading = false;
+    bool opening = false;          // the chapter's opening paragraph: lead-in and drop cap go here (0.94)
     bool breakBefore = false;      // starts a new page (a comic script's PAGE)
     // Drop cap: the letter(s) set large in the first lines (taken out of spans).
     std::string drop;
@@ -160,6 +162,7 @@ void collectBlocks(const json& content, std::vector<Block>& out, const Block& ct
             else if (st == "letter") { b.indent = false; b.leftEm += 1.5; b.rightEm += 1.5; }
             else if (st == "note") { b.indent = false; b.scale *= 0.88; }
             if (ctx.italic) base.italic = true;
+            b.opening = depth == 0 && attrs.value("opening", false);
             inlineSpans(n.value("content", json::array()), b.spans, base);
             out.push_back(std::move(b));
         } else if (t == "heading") {
@@ -861,9 +864,22 @@ public:
             if (b.align == Align::Center) x += (target - natural) / 2;
             else if (b.align == Align::Right) x += target - natural;
             SetLine line;
+            int lastSpan = -1;
             for (auto& p : pieces) {
-                if (p.span < 0) { x += p.natural + (p.space ? extra : 0); continue; }
+                if (p.span < 0) {
+                    // A real space between the words (0.94): invisible, but in the PDF's text, so a justified line copies,
+                    // searches and reads aloud as words, not "hissapphire". The next word is still placed where justifying
+                    // puts it. Never underlined or struck through: the gap wasn't before.
+                    if (p.space && lastSpan >= 0) {
+                        Style gap = styles[lastSpan];
+                        gap.underline = gap.strike = false;
+                        emit(line, gap, " ", (float)x);
+                    }
+                    x += p.natural + (p.space ? extra : 0);
+                    continue;
+                }
                 emit(line, styles[p.span], p.text, (float)x);
+                lastSpan = p.span;
                 x += p.natural;
             }
             line.lines = 1;
@@ -961,6 +977,129 @@ ChapterTitle chapterTitleParts(const std::string& title) {
 }
 std::string spelledNumber(int n) { return spelled(n); }
 
+namespace {
+// A title as compared for repeats: punctuation and spacing made plain, in lower case, without closing marks.
+std::string titleKey(const std::string& t) {
+    std::string k = plan::plainPunctuation(t);
+    for (auto& c : k) c = (char)std::tolower((unsigned char)c);
+    while (!k.empty() && (k.back() == '.' || k.back() == ':' || k.back() == ' ')) k.pop_back();
+    return k;
+}
+std::string nodeText(const json& n) {
+    if (!n.is_object()) return {};
+    if (n.value("type", "") == "text") return n.value("text", "");
+    std::string o;
+    if (n.contains("content") && n["content"].is_array()) for (const json& c : n["content"]) o += nodeText(c);
+    return o;
+}
+// What every printed and exported copy leaves out (0.94): draft notes; a heading at the top of a chapter's text that
+// repeats its title (the heading prints it already); and a part made only to hold the front or back matter chapter
+// of the same name ("Reader's Guide" holding "Reader's Guide"), which would print the title twice and list it twice.
+void tidyForPrint(Source& s) {
+    for (Source::Section& sec : s.sections) {
+        sec.content = doc::withoutDraftNotes(sec.content);
+
+        if (sec.kind == NodeKind::Scene || sec.content.find("\"heading\"") == std::string::npos) continue;
+        json d = json::parse(sec.content, nullptr, false);
+        if (!d.is_object() || !d.contains("content") || !d["content"].is_array() || d["content"].empty()) continue;
+        json& first = d["content"][0];
+        if (first.value("type", "") != "heading" || titleKey(nodeText(first)) != titleKey(sec.title) || titleKey(sec.title).empty()) continue;
+        d["content"].erase(d["content"].begin());
+        if (d["content"].empty()) d["content"] = json::array({json{{"type", "paragraph"}}});
+        sec.content = d.dump();
+    }
+    std::vector<Source::Section> kept;
+    for (size_t i = 0; i < s.sections.size(); ++i) {
+        const Source::Section& sec = s.sections[i];
+        if (sec.kind == NodeKind::Part && i + 1 < s.sections.size()) {
+            const Source::Section& next = s.sections[i + 1];
+            if (next.kind == NodeKind::Chapter && next.matter != 0 && titleKey(next.title) == titleKey(sec.title) &&
+                doc::plainText(sec.content).find_first_not_of(" \n\r\t") == std::string::npos)
+                continue;
+        }
+        kept.push_back(sec);
+    }
+    s.sections = std::move(kept);
+}
+}  // namespace
+
+
+bool looksLikeDateLine(const std::string& raw) {
+    std::string t = plan::plainPunctuation(raw);
+    if (t.empty() || t.size() > 80) return false;
+    std::string low;
+    for (char c : t) low += (char)std::tolower((unsigned char)c);
+    // Words, and what they say.
+    std::vector<std::string> words;
+    {
+        std::string w;
+        for (char c : low) {
+            if (std::isalnum((unsigned char)c) || (unsigned char)c >= 0x80 || c == '/' || c == '-') w += c;
+            else if (!w.empty()) { words.push_back(w); w.clear(); }
+        }
+        if (!w.empty()) words.push_back(w);
+    }
+    if (words.empty() || words.size() > 10) return false;
+    const char last = t.back();
+    if (last == '?' || last == '!' || last == '"') return false;
+    if (last == '.' && words.size() > 6) return false;
+    static const std::set<std::string> sentence = {"i", "he", "she", "they", "we", "you", "it", "was", "were", "is", "are", "am", "had",
+                                                   "has", "have", "said", "says", "did", "does", "will", "would", "could", "should",
+                                                   "his", "her", "their", "my", "our", "your", "him", "them", "me", "us", "not", "never"};
+    bool digit = false, dateWord = false;
+    static const std::set<std::string> when = {"day", "days", "year", "years", "month", "week", "spring", "summer", "autumn", "fall",
+                                               "winter", "dawn", "dusk", "midnight", "noon", "morning", "evening", "night", "era", "age",
+                                               "january", "february", "march", "april", "may", "june", "july", "august", "september",
+                                               "october", "november", "december", "monday", "tuesday", "wednesday", "thursday",
+                                               "friday", "saturday", "sunday", "bc", "bce", "ad", "ce", "ac", "am", "pm"};
+    for (const std::string& w : words) {
+        if (sentence.count(w)) return false;
+        for (char c : w) if (std::isdigit((unsigned char)c)) digit = true;
+        if (when.count(w)) dateWord = true;
+    }
+    return digit || (dateWord && words.size() <= 5);
+}
+
+int openingParagraph(const std::string& docJson) {
+    const json d = json::parse(docJson, nullptr, false);
+    if (!d.is_object() || !d.contains("content") || !d["content"].is_array()) return -1;
+    const json& c = d["content"];
+    for (size_t i = 0; i < c.size(); ++i) {
+        const json& n = c[i];
+        const std::string t = n.value("type", "");
+        if (t == "scene_break") return -1;
+        if (t != "paragraph") continue;   // headings, pictures, quotations, lists
+        const std::string style = n.contains("attrs") && n["attrs"].is_object() ? n["attrs"].value("style", "body") : "body";
+        if (style != "body" && style != "first") continue;
+        std::string text = nodeText(n);
+        if (text.find_first_not_of(" \t\r\n ") == std::string::npos) continue;
+        if (looksLikeDateLine(text)) continue;
+        // A whole paragraph in italics or small capitals at the top is set apart, like a date or a heading.
+        bool allMarked = true;
+        for (const json& x : n.value("content", json::array())) {
+            if (x.value("type", "") != "text") continue;
+            bool marked = false;
+            for (const json& m : x.value("marks", json::array())) {
+                const std::string mt = m.value("type", "");
+                if (mt == "em" || mt == "smallcaps" || mt == "strong") marked = true;
+            }
+            if (!marked && x.value("text", "").find_first_not_of(" ") != std::string::npos) { allMarked = false; break; }
+        }
+        if (allMarked && text.size() < 120) continue;
+        return (int)i;
+    }
+    return -1;
+}
+
+std::string withOpening(const std::string& docJson) {
+    if (docJson.find("\"opening\":true") != std::string::npos) return docJson;
+    const int at = openingParagraph(docJson);
+    if (at < 0) return docJson;
+    json d = json::parse(docJson, nullptr, false);
+    d["content"][(size_t)at]["attrs"]["opening"] = true;
+    return d.dump();
+}
+
 Source snapshot(const Library& lib, const Id& bookId) {
     Source s;
     const studio::Book* b = lib.book(bookId);
@@ -1057,6 +1196,7 @@ Source snapshot(const Library& lib, const Id& bookId) {
             }
         }
     }
+    tidyForPrint(s);
     return s;
 }
 
@@ -1375,7 +1515,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
     for (const Source::Section& sec : src.sections) {
         const Source::Section* n = &sec;
         const std::string& title = sec.title;
-        const json docj = json::parse(sec.content, nullptr, false);
+        const json docj = json::parse(sec.kind == NodeKind::Chapter ? withOpening(sec.content) : sec.content, nullptr, false);
         std::vector<Block> blocks;
         if (docj.is_object()) {
             if (d.comicScript) comicBlocks(docj.value("content", json::array()), blocks, comicPage);
@@ -1532,7 +1672,10 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             bool loose = false;
             Block lead;
             const Block* use = &b;
-            if (d.leadIn && n->kind == NodeKind::Chapter && firstInChapter && !b.heading && b.align == Align::Justify) {
+            // The opening (0.94): on the paragraph snapshot() marked, the same one the ebook uses, in the story's chapters
+            // (a prologue too, not front or back matter); never on a date line, an epigraph or a heading.
+            const bool opening = b.opening && n->kind == NodeKind::Chapter && n->matter == 0;
+            if (d.leadIn && opening) {
                 // The chapter's first words (up to the first three) in small capitals.
                 lead = b;
                 std::vector<Span> spans;
@@ -1560,7 +1703,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 lead.spans = spans;
                 use = &lead;
             }
-            if (d.dropCap && n->kind == NodeKind::Chapter && firstInChapter && !b.heading && b.align == Align::Justify) {
+            if (d.dropCap && opening) {
                 // The first letter (with any opening quotation mark) comes out of the text and is set large.
                 if (use != &lead) { lead = b; use = &lead; }
                 for (auto& s : lead.spans) {

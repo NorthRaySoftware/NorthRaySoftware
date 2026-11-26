@@ -469,92 +469,115 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         q += L"\n\n" + std::to_wstring(existing) + (existing == 1 ? L" of them has the name of an entry already in the bible: its"
                                                                  : L" of them have the names of entries already in the bible: their") +
              L" parts on the page replace what's there, as a paste does.";
-    // Entries already there: update what the pages have, or replace all their text (their pictures kept) (0.46).
+    // Entries already there: update what the pages have, or replace all their text (their pictures kept) (0.46). Asked
+    // in a box of its own, in words, with Update first and chosen for Enter (0.94): never a menu that can be clicked past.
     bool replaceAll = false;
     if (existing > 0) {
-        std::vector<cjui::MenuItem> how{
-            cjui::MenuItem::item(L"Update entries already in the bible: each part on a page replaces that part, the rest is kept", 1),
-            cjui::MenuItem::item(L"Replace all their text with the pages (keep their pictures, gallery and map)", 2)};
-        POINT pt;
-        GetCursorPos(&pt);
-        const UINT c = cjui::showMenu(hwnd(), how, pt, pal_);
-        if (!c) return;
-        replaceAll = c == 2;
-        if (replaceAll) {
+        const std::wstring ask =
+            std::to_wstring(existing) + (existing == 1 ? L" of these pages is for an entry already in the bible. What should it do to that entry?"
+                               : L" of these pages are for entries already in the bible. What should they do to those entries?") +
+            L"\n\nUPDATE (recommended)\nOnly the parts each page has change. A section, detail or link the page doesn't mention stays "
+            L"as it is.\n\nREPLACE ALL THEIR TEXT\nEverything written on the entry (other names, summary, details, sections, notes, "
+            L"spoilers, family and relationships) is thrown away and replaced by the page. Anything the page doesn't have is lost. "
+            L"Pictures, galleries and maps stay.\n\nThe next box lists exactly what each entry would lose, before anything is done.";
+        const int c = cjui::choiceBox(hwnd(), ask, L"Import many pages", {L"Update", L"Replace all their text"}, 0, MB_ICONQUESTION);
+        if (c < 0) return;
+        replaceAll = c == 1;
+    }
+
+    const std::wstring q0 = q, n = std::to_wstring(existing);
+    // Asked again, worked out afresh, when Replace all their text turns into Update instead.
+    for (;;) {
+        q = q0;
+        if (existing > 0) {
             const size_t at = q.rfind(L"\n\n");
-            q = q.substr(0, at) + L"\n\n" + std::to_wstring(existing) +
-                (existing == 1 ? L" of them is already in the bible: all its text" : L" of them are already in the bible: all their text") +
-                L" (other names, summary, details, sections, notes, spoilers, family and relationships) is replaced by the page. Pictures, galleries and maps stay.";
+            q = q.substr(0, at) + L"\n\n" +
+                (replaceAll ? L"REPLACE ALL THEIR TEXT: " + n +
+                                  (existing == 1 ? L" entry already in the bible has all its text replaced by its page."
+                                                 : L" entries already in the bible have all their text replaced by their pages.") +
+                                  L" What a page doesn't have is lost (listed below). Pictures, galleries and maps stay."
+                            : L"UPDATE: " + n +
+                                  (existing == 1 ? L" entry already in the bible takes the parts its page has; the rest of it stays."
+                                                 : L" entries already in the bible take the parts their pages have; the rest of them stays."));
         }
-    }
-    // Pages that remove or merge entries, said before anything is done (0.55).
-    {
-        int removes = 0, merges = 0, renames = 0;
-        for (auto& b : pages) {
-            const paste::Page pg = paste::parse(b.text);
-            removes += pg.remove;
-            merges += !pg.mergeInto.empty() ? 1 : (int)pg.mergeFrom.size();
-            renames += !pg.formerly.empty();
-        }
-        std::vector<std::wstring> what;
-        if (renames) what.push_back(std::to_wstring(renames) + (renames == 1 ? L" page renames an entry by its “Formerly” line" : L" pages rename entries by their “Formerly” lines"));
-        if (merges) what.push_back(std::to_wstring(merges) + (merges == 1 ? L" entry is merged into another" : L" entries are merged into others"));
-        if (removes) what.push_back(std::to_wstring(removes) + (removes == 1 ? L" page removes its entry" : L" pages remove their entries"));
-        if (!what.empty()) {
-            q += L"\n\n";
-            for (size_t i = 0; i < what.size(); ++i) q += (i ? (i + 1 == what.size() ? L" and " : L", ") : L"") + what[i];
-            q += L". Merged and removed entries go to the Trash.";
-        }
-    }
-    // What the import would do, worked out on a copy of the library (0.84): new pages, and for each entry already in
-    // the bible the sections, details and links it would lose.
-    if (existing > 0) {
-        paste::Preview pv;
-        if (!paste::previewImport(*lib_, wb_.world, scopeBook, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), pv, replaceAll, baseFolder)) {
-            q += L"\n\nThe preview couldn't be worked out (" + w(pv.error) + L"), so the changes aren't listed here.";
-        } else {
-            auto listOf = [](const std::vector<std::string>& v, size_t most) {
-                std::wstring s;
-                for (size_t i = 0; i < v.size() && i < most; ++i) s += (i ? L", " : L"") + w(v[i]);
-                if (v.size() > most) s += L" and " + std::to_wstring(v.size() - most) + L" more";
-                return s;
-            };
-            std::wstring pre = L"\n\nWhat changes:";
-            if (!pv.made.empty()) pre += L"\n\u2022 New (" + std::to_wstring(pv.made.size()) + L"): " + listOf(pv.made, 10) + L".";
-            if (!pv.extra.empty())
-                pre += L"\n\u2022 Made for names the pages mention (" + std::to_wstring(pv.extra.size()) + L"): " + listOf(pv.extra, 10) + L".";
-            const size_t shown = 500;   // every entry: the box scrolls (0.93)
-            for (size_t i = 0; i < pv.changes.size() && i < shown; ++i) {
-                const auto& c = pv.changes[i];
-                std::wstring line = L"\n\u2022 " + w(c.name);
-                std::vector<std::wstring> bits;
-                if (c.removed) bits.push_back(L"put in the Trash");
-                if (c.merged) bits.push_back(L"merged into another entry");
-                if (!c.renamedTo.empty()) bits.push_back(L"renamed " + w(c.renamedTo));
-                if (!c.sectionsRemoved.empty())
-                    bits.push_back((c.sectionsRemoved.size() == 1 ? L"loses the section " : L"loses the sections ") + listOf(c.sectionsRemoved, 4));
-                if (!c.detailsRemoved.empty())
-                    bits.push_back((c.detailsRemoved.size() == 1 ? L"loses the detail " : L"loses the details ") + listOf(c.detailsRemoved, 4));
-                if (!c.linksRemoved.empty())
-                    bits.push_back((c.linksRemoved.size() == 1 ? L"loses the link " : L"loses the links ") + listOf(c.linksRemoved, 4));
-                if (bits.empty()) bits.push_back(L"changes, losing nothing");
-                for (size_t j = 0; j < bits.size(); ++j) line += (j ? L"; " : L": ") + bits[j];
-                pre += line + L".";
+        // Pages that remove or merge entries, said before anything is done (0.55).
+        {
+            int removes = 0, merges = 0, renames = 0;
+            for (auto& b : pages) {
+                const paste::Page pg = paste::parse(b.text);
+                removes += pg.remove;
+                merges += !pg.mergeInto.empty() ? 1 : (int)pg.mergeFrom.size();
+                renames += !pg.formerly.empty();
             }
-            if (pv.changes.size() > shown) pre += L"\n\u2022 and " + std::to_wstring(pv.changes.size() - shown) + L" more entries change.";
-            if (pv.unchanged) pre += L"\n\u2022 " + std::to_wstring(pv.unchanged) + (pv.unchanged == 1 ? L" page is already in the bible as it is." : L" pages are already in the bible as they are.");
-            if (pv.linksKept)
-                pre += L"\n\u2022 " + std::to_wstring(pv.linksKept) +
-                       (pv.linksKept == 1 ? L" link one page makes is kept, though a later page doesn't list it."
-                                          : L" links pages make are kept, though later pages don't list them.");
-            if (!pv.unread.empty())
-                pre += L"\n\u2022 " + std::to_wstring(pv.unread.size()) + (pv.unread.size() == 1 ? L" line can't be read" : L" lines can't be read") +
-                       L" (listed after importing).";
-            q += pre;
+            std::vector<std::wstring> what;
+            if (renames) what.push_back(std::to_wstring(renames) + (renames == 1 ? L" page renames an entry by its “Formerly” line" : L" pages rename entries by their “Formerly” lines"));
+            if (merges) what.push_back(std::to_wstring(merges) + (merges == 1 ? L" entry is merged into another" : L" entries are merged into others"));
+            if (removes) what.push_back(std::to_wstring(removes) + (removes == 1 ? L" page removes its entry" : L" pages remove their entries"));
+            if (!what.empty()) {
+                q += L"\n\n";
+                for (size_t i = 0; i < what.size(); ++i) q += (i ? (i + 1 == what.size() ? L" and " : L", ") : L"") + what[i];
+                q += L". Merged and removed entries go to the Trash.";
+            }
         }
+        // What the import would do, worked out on a copy of the library (0.84): new pages, and for each entry already in
+        // the bible the sections, details and links it would lose.
+        if (existing > 0) {
+            paste::Preview pv;
+            if (!paste::previewImport(*lib_, wb_.world, scopeBook, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), pv, replaceAll, baseFolder)) {
+                q += L"\n\nThe preview couldn't be worked out (" + w(pv.error) + L"), so the changes aren't listed here.";
+            } else {
+                auto listOf = [](const std::vector<std::string>& v, size_t most) {
+                    std::wstring s;
+                    for (size_t i = 0; i < v.size() && i < most; ++i) s += (i ? L", " : L"") + w(v[i]);
+                    if (v.size() > most) s += L" and " + std::to_wstring(v.size() - most) + L" more";
+                    return s;
+                };
+                std::wstring pre = L"\n\nWhat changes:";
+                if (!pv.made.empty()) pre += L"\n\u2022 New (" + std::to_wstring(pv.made.size()) + L"): " + listOf(pv.made, 10) + L".";
+                if (!pv.extra.empty())
+                    pre += L"\n\u2022 Made for names the pages mention (" + std::to_wstring(pv.extra.size()) + L"): " + listOf(pv.extra, 10) + L".";
+                const size_t shown = 500;   // every entry: the box scrolls (0.93)
+                for (size_t i = 0; i < pv.changes.size() && i < shown; ++i) {
+                    const auto& c = pv.changes[i];
+                    std::wstring line = L"\n\u2022 " + w(c.name);
+                    std::vector<std::wstring> bits;
+                    if (c.removed) bits.push_back(L"put in the Trash");
+                    if (c.merged) bits.push_back(L"merged into another entry");
+                    if (!c.renamedTo.empty()) bits.push_back(L"renamed " + w(c.renamedTo));
+                    // Every one, by name (0.94): the box scrolls, and a loss shouldn't hide behind "and 3 more".
+                    if (!c.sectionsRemoved.empty())
+                        bits.push_back((c.sectionsRemoved.size() == 1 ? L"LOSES the section " : L"LOSES the sections ") + listOf(c.sectionsRemoved, 10000));
+                    if (!c.detailsRemoved.empty())
+                        bits.push_back((c.detailsRemoved.size() == 1 ? L"LOSES the detail " : L"LOSES the details ") + listOf(c.detailsRemoved, 10000));
+                    if (!c.linksRemoved.empty())
+                        bits.push_back((c.linksRemoved.size() == 1 ? L"LOSES the link " : L"LOSES the links ") + listOf(c.linksRemoved, 10000));
+                    if (bits.empty()) bits.push_back(L"changes, losing nothing");
+                    for (size_t j = 0; j < bits.size(); ++j) line += (j ? L"; " : L": ") + bits[j];
+                    pre += line + L".";
+                }
+                if (pv.changes.size() > shown) pre += L"\n\u2022 and " + std::to_wstring(pv.changes.size() - shown) + L" more entries change.";
+                if (pv.unchanged) pre += L"\n\u2022 " + std::to_wstring(pv.unchanged) + (pv.unchanged == 1 ? L" page is already in the bible as it is." : L" pages are already in the bible as they are.");
+                if (pv.linksKept)
+                    pre += L"\n\u2022 " + std::to_wstring(pv.linksKept) +
+                           (pv.linksKept == 1 ? L" link one page makes is kept, though a later page doesn't list it."
+                                              : L" links pages make are kept, though later pages don't list them.");
+                if (!pv.unread.empty())
+                    pre += L"\n\u2022 " + std::to_wstring(pv.unread.size()) + (pv.unread.size() == 1 ? L" line can't be read" : L" lines can't be read") +
+                           L" (listed after importing).";
+                q += pre;
+            }
+        }
+        q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
+        if (existing > 0) {
+            // The buttons say which it is (0.94); going back to Update is one click from Replace.
+            const std::vector<std::wstring> go = replaceAll ? std::vector<std::wstring>{L"Replace all their text", L"Update instead"}
+                                                            : std::vector<std::wstring>{L"Import and update"};
+            const int c = cjui::choiceBox(hwnd(), q, L"Import many pages", go, replaceAll ? 1 : 0, replaceAll ? MB_ICONWARNING : MB_ICONQUESTION);
+            if (c < 0) return;
+            if (replaceAll && c == 1) { replaceAll = false; continue; }   // Update instead: the box again, worked out for updating
+        } else if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+        break;
     }
-    q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
-    if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     std::string err;
     if (!lib_->backup(err, 20)) {
         cjui::messageBox(hwnd(), w("The backup couldn't be made, so nothing was imported.\n\n" + err).c_str(), L"Import many pages", MB_OK | MB_ICONWARNING);

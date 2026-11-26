@@ -718,8 +718,37 @@ std::string titleCore(const std::string& title) {
 
 // What a title is matched by (0.62): its core with any marks or symbols around it taken off ("1. 🗡 Steel and Snow" and
 // "Steel and Snow" are both "steel and snow"), or "#13" when it's only a number ("13. Chapter 13", "Chapter 13").
+// A title's punctuation and spacing made plain (0.94): curly and straight apostrophes and quotation marks are one
+// (and left out, so "Readers' Guide" is "Reader's Guide"), dashes are hyphens, and any run of spaces (non-breaking,
+// thin, tabs) is one space. Only for matching; titles themselves are never changed.
+std::string plainPunctuation(const std::string& s) {
+    std::string o;
+    o.reserve(s.size());
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = (unsigned char)s[i];
+        unsigned cp = c;
+        size_t len = 1;
+        if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) { len = 2; cp = ((c & 0x1Fu) << 6) | (s[i + 1] & 0x3F); }
+        else if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) { len = 3; cp = ((c & 0x0Fu) << 12) | ((s[i + 1] & 0x3Fu) << 6) | (s[i + 2] & 0x3F); }
+        else if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) len = 4;
+        const bool quote = cp == '\'' || cp == '"' || cp == '`' || cp == 0x00B4 || cp == 0x02BC || cp == 0x00AB || cp == 0x00BB ||
+                           (cp >= 0x2018 && cp <= 0x201F) || cp == 0x2032 || cp == 0x2033 || cp == 0x2039 || cp == 0x203A;
+        const bool dash = (cp >= 0x2010 && cp <= 0x2015) || cp == 0x2212;
+        const bool space = cp == ' ' || cp == '\t' || cp == '\r' || cp == '\n' || cp == 0x00A0 || (cp >= 0x2000 && cp <= 0x200B) ||
+                           cp == 0x202F || cp == 0x205F || cp == 0x3000;
+        if (quote) {}
+        else if (dash) o += '-';
+        else if (space) { if (!o.empty() && o.back() != ' ') o += ' '; }
+        else o.append(s, i, len);
+        i += len;
+    }
+    while (!o.empty() && o.back() == ' ') o.pop_back();
+    if (!o.empty() && o.front() == ' ') o.erase(0, 1);
+    return o;
+}
+
 std::string matchKey(const std::string& title) {
-    std::string t = trim(title);
+    std::string t = plainPunctuation(title);
     for (int round = 0; round < 3; ++round) {
         const int num = titleNumber(t);
         std::string core = titleCore(t);
@@ -851,9 +880,16 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             // Notes (0.90): a line each paragraph.
             if (!v.empty()) it.notes += (it.notes.empty() ? "" : "\n\n") + v;
         }
-        else if (it.kind == NodeKind::Chapter && field(l, {"matter"}, v) &&
-                 (lower(v) == "front" || lower(v) == "back" || lower(v) == "story" || lower(v) == "front matter" || lower(v) == "back matter"))
+        else if (it.kind != NodeKind::Scene && field(l, {"matter"}, v) &&
+                 (lower(v) == "front" || lower(v) == "back" || lower(v) == "story" || lower(v) == "front matter" || lower(v) == "back matter")) {
             it.matter = lower(v).rfind("front", 0) == 0 ? 1 : lower(v).rfind("back", 0) == 0 ? 2 : 0;
+            // Front and back matter are always chapters (0.94). In a plan of headings, "# Reader's Guide" at the parts'
+            // level with "Matter: back" is that chapter, standing outside any part, never a part of its own.
+            if (it.kind == NodeKind::Part) {
+                if (it.matter == 0) it.matter = -1;
+                else { it.kind = NodeKind::Chapter; it.outsidePart = true; }
+            }
+        }
         else if (field(l, {"characters", "characters present", "present", "cast", "who", "who's there", "in it", "creatures"}, v)) {
             for (auto& x : splitList(v)) it.cast.push_back(x);
         } else {
@@ -974,6 +1010,73 @@ std::string outlineText(const Library& lib, const Id& book) {
     return out;
 }
 
+namespace {
+// How a plan's parts, chapters and scenes are matched to the book's (0.54, 0.62; shared by the import and its preview
+// in 0.94). By title, or by its key ("1. 🗡 Steel and Snow" is "Steel and Snow"; "Reader’s Guide" is "Reader's Guide";
+// "13. Chapter 13" is "Chapter 13"), the copy with most written first; else a chapter by its number among the story's
+// chapters, when its title names no other chapter.
+struct PlanMatcher {
+    // Copies, not pointers into the library: the import makes parts and chapters as it goes, and the library's list of
+    // them can move in memory when it grows (0.94; before, a big book's later chapters could fail to match).
+    struct Had { Id id; std::string title; int matter = 0; };
+    std::vector<Had> partsHad, chaptersHad, storyChapters;   // titles match any chapter; numbers count the story's
+    std::set<Id> used;
+    std::map<Id, std::int64_t> words;   // words in each, with everything inside it: among copies, the one with writing wins
+    PlanMatcher(const Library& lib, const Id& book) {
+        const auto all = lib.manuscriptOf(book);
+        for (const ManuscriptNode* n : all) {
+            if (n->kind == NodeKind::Part) partsHad.push_back({n->id, n->title, 0});
+            else if (n->kind == NodeKind::Chapter) {
+                chaptersHad.push_back({n->id, n->title, n->matter});
+                if (n->matter == 0) storyChapters.push_back(chaptersHad.back());
+            }
+        }
+        for (auto it = all.rbegin(); it != all.rend(); ++it) {
+            words[(*it)->id] += (*it)->wordCount;
+            if (!(*it)->parentId.empty()) words[(*it)->parentId] += words[(*it)->id];
+        }
+    }
+    static std::vector<Had> copies(const std::vector<const ManuscriptNode*>& nodes) {
+        std::vector<Had> v;
+        for (const ManuscriptNode* n : nodes) v.push_back({n->id, n->title, n->matter});
+        return v;
+    }
+    Id match(const std::vector<Had>& pool, const std::string& title, bool byNumber) {
+        const std::vector<Had>& numbered = &pool == &chaptersHad ? storyChapters : pool;
+        const std::string want = lower(trim(title)), key = matchKey(title);
+        const Had* best = nullptr;
+        bool bestExact = false;
+        for (const Had& n : pool) {
+            if (used.count(n.id)) continue;
+            const bool exact = lower(trim(n.title)) == want;
+            if (!exact && (key.empty() || matchKey(n.title) != key)) continue;
+            if (!best || words[n.id] > words[best->id] || (words[n.id] == words[best->id] && exact && !bestExact)) { best = &n; bestExact = exact; }
+        }
+        if (best) return best->id;
+        if (byNumber)
+            if (const int num = titleNumber(title); num > 0 && num <= (int)numbered.size() && !used.count(numbered[(size_t)num - 1].id)) {
+                // By number only when the title names no other chapter of the book.
+                bool namesAnother = false;
+                const std::string core = key.empty() || key[0] == '#' ? std::string() : key;
+                if (!core.empty())
+                    for (const Had& n : pool) namesAnother = namesAnother || matchKey(n.title) == core;
+                if (!namesAnother) return numbered[(size_t)num - 1].id;
+            }
+        return {};
+    }
+    // A part in the plan that the book has as front or back matter (0.94): "# Reader's Guide" in a plan of headings
+    // without a Matter: line, when the book has no part of that name. It's that chapter, so no part is made for it.
+    bool isMatterChapter(const OutlineItem& it) {
+        if (it.kind != NodeKind::Part) return false;
+        const std::string want = lower(trim(it.title)), key = matchKey(it.title);
+        auto same = [&](const Had& n) { return !used.count(n.id) && (lower(trim(n.title)) == want || (!key.empty() && matchKey(n.title) == key)); };
+        for (const Had& n : partsHad) if (same(n)) return false;
+        for (const Had& n : chaptersHad) if (n.matter != 0 && same(n)) return true;
+        return false;
+    }
+};
+}  // namespace
+
 bool importOutline(Library& lib, const Id& book, const std::string& text, OutlineImport& out, const std::string& scopeIn) {
     const Book* b = lib.book(book);
     if (!b) return false;
@@ -1055,51 +1158,14 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     const cal::Calendar calendar = cal::calendarOfBook(lib, book);   // dates in "When:" lines (0.75)
     if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
     const bool hadUnit = tl.contains("unit");
-    // Parts, chapters and scenes already in the book are matched and filled in rather than added again (0.54): by title
-    // (with or without a "Chapter 3:" before it), else a chapter by its number among the story's chapters.
-    std::vector<const ManuscriptNode*> partsHad, chaptersHad, storyChapters;   // titles match any chapter; numbers count the story's
-    for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
-        if (n->kind == NodeKind::Part) partsHad.push_back(n);
-        else if (n->kind == NodeKind::Chapter) {
-            chaptersHad.push_back(n);
-            if (n->matter == 0) storyChapters.push_back(n);
-        }
-    }
-    std::set<Id> used;
-    // Words in a part, chapter or scene with everything inside it: among copies of one chapter, the one with writing wins.
-    std::map<Id, std::int64_t> words;
-    {
-        const auto all = lib.manuscriptOf(book);
-        for (auto it = all.rbegin(); it != all.rend(); ++it) {
-            words[(*it)->id] += (*it)->wordCount;
-            if (!(*it)->parentId.empty()) words[(*it)->parentId] += words[(*it)->id];
-        }
-    }
-    // Matched by title, or by its key ("1. 🗡 Steel and Snow" is "Steel and Snow"; "13. Chapter 13" is "Chapter 13"), the one
-    // with most written first; else a chapter by its number among the story's chapters (0.54, 0.62).
-    auto matchIn = [&](const std::vector<const ManuscriptNode*>& pool, const std::string& title, bool byNumber) -> Id {
-        const std::vector<const ManuscriptNode*>& numbered = &pool == &chaptersHad ? storyChapters : pool;
-        const std::string want = lower(trim(title)), key = matchKey(title);
-        const ManuscriptNode* best = nullptr;
-        bool bestExact = false;
-        for (const ManuscriptNode* n : pool) {
-            if (used.count(n->id)) continue;
-            const bool exact = lower(trim(n->title)) == want;
-            if (!exact && (key.empty() || matchKey(n->title) != key)) continue;
-            if (!best || words[n->id] > words[best->id] || (words[n->id] == words[best->id] && exact && !bestExact)) { best = n; bestExact = exact; }
-        }
-        if (best) return best->id;
-        if (byNumber)
-            if (const int num = titleNumber(title); num > 0 && num <= (int)numbered.size() && !used.count(numbered[(size_t)num - 1]->id)) {
-                // By number only when the title names no other chapter of the book.
-                bool namesAnother = false;
-                const std::string core = key.empty() || key[0] == '#' ? std::string() : key;
-                if (!core.empty())
-                    for (const ManuscriptNode* n : pool) namesAnother = namesAnother || matchKey(n->title) == core;
-                if (!namesAnother) return numbered[(size_t)num - 1]->id;
-            }
-        return {};
+    PlanMatcher matcher(lib, book);
+    auto matchIn = [&](const std::vector<PlanMatcher::Had>& pool, const std::string& title, bool byNumber) -> Id {
+        return matcher.match(pool, title, byNumber);
     };
+    const auto& partsHad = matcher.partsHad;
+    const auto& chaptersHad = matcher.chaptersHad;
+    auto& used = matcher.used;
+    auto& words = matcher.words;
     // The plan replaces the book's plan (0.62): its threads, beats, places, who's there and times are set afresh from it.
     const auto before = lib.manuscriptOf(book);
     for (const ManuscriptNode* n : before) th.nodes.erase(n->id);
@@ -1107,7 +1173,9 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     bsChanged = true;
     std::vector<std::pair<Id, Id>> placed;   // each planned node and its parent, in the plan's order
     Id part, chapter;
-    for (const OutlineItem& it : items) {
+    for (const OutlineItem& planned : items) {
+        OutlineItem it = planned;
+        if (matcher.isMatterChapter(it)) { it.kind = NodeKind::Chapter; it.outsidePart = true; }
         Id parent;
         if (it.kind == NodeKind::Chapter && it.outsidePart) { part.clear(); chapter.clear(); }
         if (it.kind == NodeKind::Chapter) parent = part;
@@ -1115,7 +1183,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         Id id;
         if (it.kind == NodeKind::Part) id = matchIn(partsHad, it.title, false);
         else if (it.kind == NodeKind::Chapter) id = matchIn(chaptersHad, it.title, true);
-        else if (!parent.empty()) id = matchIn(lib.childrenOf(book, parent), it.title, false);
+        else if (!parent.empty()) id = matchIn(PlanMatcher::copies(lib.childrenOf(book, parent)), it.title, false);
         const bool isNew = id.empty();
         if (isNew) {
             id = lib.createNode(book, parent, it.kind, it.title);
@@ -1305,7 +1373,15 @@ PlanFit planFit(const Library& lib, const Id& book, const std::string& text) {
             titles.insert(lower(trim(n->title)));
             keys.insert(matchKey(n->title));
         }
-    for (const OutlineItem& it : parseOutline(text)) {
+    // What the import will make (0.94): matched the same way, in the same order, so the list is what will happen.
+    PlanMatcher matcher(lib, book);
+    for (const OutlineItem& planned : parseOutline(text)) {
+        OutlineItem it = planned;
+        if (matcher.isMatterChapter(it)) it.kind = NodeKind::Chapter;
+        if (it.kind == NodeKind::Scene) continue;
+        const Id id = it.kind == NodeKind::Part ? matcher.match(matcher.partsHad, it.title, false) : matcher.match(matcher.chaptersHad, it.title, true);
+        if (id.empty()) (it.kind == NodeKind::Part ? f.newParts : f.newChapters).push_back(it.title);
+        else matcher.used.insert(id);
         if (it.kind != NodeKind::Chapter) continue;
         ++f.planned;
         const std::string k = matchKey(it.title);

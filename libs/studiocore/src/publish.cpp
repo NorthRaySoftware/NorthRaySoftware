@@ -1,5 +1,6 @@
 // Publishing: EPUB 3 packaging, pre-flight checks, spine width.
 #include "studio/publish.hpp"
+#include "studio/document.hpp"
 #include "studio/fonts.hpp"
 
 #include "studio/ebook.hpp"
@@ -759,6 +760,39 @@ std::vector<Check> preflight(const typeset::Source& src, const typeset::Book* pr
     if (src.sections.empty()) add(Check::Problem, "Manuscript", "The manuscript is empty", "Write or import the book first.");
     else if (empty) add(Check::Advice, "Manuscript", std::to_string(empty) + (empty == 1 ? " chapter has no text" : " chapters have no text"),
                         "Empty chapters still get a heading in print and in the ebook.");
+    // Bracketed notes left in the text (0.94): "[More to go here]", "[check the date]". Draft notes are gone by now
+    // (the snapshot leaves them out), so whatever's still in brackets will print.
+    {
+        int count = 0;
+        std::vector<std::string> where;
+        std::string example;
+        for (const auto& s : src.sections) {
+            if (s.kind == NodeKind::Part && s.content.find('[') == std::string::npos) continue;
+            const std::string text = doc::plainText(s.content);
+            int here = 0;
+            for (size_t a = text.find('['); a != std::string::npos; a = text.find('[', a + 1)) {
+                const size_t b = text.find(']', a + 1);
+                if (b == std::string::npos || b - a < 2 || b - a > 300) continue;
+                const std::string inside = text.substr(a + 1, b - a - 1);
+                if (inside.find('\n') != std::string::npos || inside.find('[') != std::string::npos) continue;
+                ++here;
+                if (example.empty()) example = "[" + inside.substr(0, 60) + (inside.size() > 60 ? "…" : "") + "]";
+            }
+            if (here) {
+                count += here;
+                if (where.size() < 3) where.push_back(s.title);
+            }
+        }
+        if (count) {
+            std::string list;
+            for (size_t i = 0; i < where.size(); ++i) list += (i ? (i + 1 == where.size() ? " and " : ", ") : "") + where[i];
+            add(Check::Advice, "Manuscript",
+                std::to_string(count) + (count == 1 ? " note in square brackets will print" : " notes in square brackets will print"),
+                "For example " + example + " in " + list + (where.size() < 3 ? "" : " and elsewhere") +
+                    ". If it's a note to yourself, select it in Writing and make it a draft note (right-click › Draft note, or the "
+                    "Draft note style for a whole paragraph): draft notes are never printed or exported.");
+        }
+    }
 
     // Cover (the ebook's: a print cover is a separate file made to the printer's template).
     if (printEdition) {

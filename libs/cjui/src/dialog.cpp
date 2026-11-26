@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 namespace cjui {
@@ -215,39 +216,25 @@ LRESULT CALLBACK dialogProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 
 }  // namespace
 
-int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, UINT flags) {
+namespace {
+void registerDialogClass() {
     static bool registered = false;
-    if (!registered) {
-        WNDCLASSEXW wc{sizeof wc};
-        wc.style = CS_DROPSHADOW;
-        wc.lpfnWndProc = dialogProc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = kDialogClass;
-        registered = RegisterClassExW(&wc) != 0;
-    }
-    Dialog d;
-    d.owner = owner ? GetAncestor(owner, GA_ROOT) : nullptr;
-    d.pal = menuPalette();
-    d.title = title;
-    d.text = text;
-    const UINT icon = flags & MB_ICONMASK;
-    d.icon = icon == MB_ICONINFORMATION ? 1 : icon == MB_ICONQUESTION ? 2 : icon == MB_ICONWARNING ? 3 : icon == MB_ICONERROR ? 4 : 0;
-    switch (flags & MB_TYPEMASK) {
-        case MB_OKCANCEL: d.buttons = {{L"OK", IDOK, {}}, {L"Cancel", IDCANCEL, {}}}; break;
-        case MB_YESNO: d.buttons = {{L"Yes", IDYES, {}}, {L"No", IDNO, {}}}; d.cancelResult = IDNO; break;
-        case MB_YESNOCANCEL: d.buttons = {{L"Yes", IDYES, {}}, {L"No", IDNO, {}}, {L"Cancel", IDCANCEL, {}}}; break;
-        case MB_RETRYCANCEL: d.buttons = {{L"Try again", IDRETRY, {}}, {L"Cancel", IDCANCEL, {}}}; break;
-        default: d.buttons = {{L"OK", IDOK, {}}}; d.cancelResult = IDOK; break;
-    }
-    const UINT defb = flags & MB_DEFMASK;
-    d.def = std::min((int)d.buttons.size() - 1, defb == MB_DEFBUTTON2 ? 1 : defb == MB_DEFBUTTON3 ? 2 : 0);
-
+    if (registered) return;
+    WNDCLASSEXW wc{sizeof wc};
+    wc.style = CS_DROPSHADOW;
+    wc.lpfnWndProc = dialogProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kDialogClass;
+    registered = RegisterClassExW(&wc) != 0;
+}
+// Shows a box whose buttons are set, and waits for its answer. `fallback` answers when it can't be drawn.
+int runBox(Dialog& d, HWND /*owner*/, const std::wstring& /*text*/, const std::wstring& title, UINT icon, const std::function<int()>& fallback) {
     d.hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME & 0, kDialogClass, title.c_str(), WS_POPUP, 0, 0, 10, 10, d.owner, nullptr,
                              GetModuleHandleW(nullptr), nullptr);
     if (!d.hwnd || !d.gfx.init(d.hwnd)) {   // couldn't draw: Windows' own box still answers
         if (d.hwnd) DestroyWindow(d.hwnd);
-        return MessageBoxW(owner, text.c_str(), title.c_str(), flags);
+        return fallback();
     }
     SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
     UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
@@ -302,6 +289,55 @@ int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, 
     DestroyWindow(d.hwnd);
     if (d.owner) SetForegroundWindow(d.owner);
     return d.result;
+}
+
+}  // namespace
+
+int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, UINT flags) {
+    registerDialogClass();
+    Dialog d;
+    d.owner = owner ? GetAncestor(owner, GA_ROOT) : nullptr;
+    d.pal = menuPalette();
+    d.title = title;
+    d.text = text;
+    const UINT icon = flags & MB_ICONMASK;
+    d.icon = icon == MB_ICONINFORMATION ? 1 : icon == MB_ICONQUESTION ? 2 : icon == MB_ICONWARNING ? 3 : icon == MB_ICONERROR ? 4 : 0;
+    switch (flags & MB_TYPEMASK) {
+        case MB_OKCANCEL: d.buttons = {{L"OK", IDOK, {}}, {L"Cancel", IDCANCEL, {}}}; break;
+        case MB_YESNO: d.buttons = {{L"Yes", IDYES, {}}, {L"No", IDNO, {}}}; d.cancelResult = IDNO; break;
+        case MB_YESNOCANCEL: d.buttons = {{L"Yes", IDYES, {}}, {L"No", IDNO, {}}, {L"Cancel", IDCANCEL, {}}}; break;
+        case MB_RETRYCANCEL: d.buttons = {{L"Try again", IDRETRY, {}}, {L"Cancel", IDCANCEL, {}}}; break;
+        default: d.buttons = {{L"OK", IDOK, {}}}; d.cancelResult = IDOK; break;
+    }
+    const UINT defb = flags & MB_DEFMASK;
+    d.def = std::min((int)d.buttons.size() - 1, defb == MB_DEFBUTTON2 ? 1 : defb == MB_DEFBUTTON3 ? 2 : 0);
+
+    return runBox(d, owner, text, title, icon, [&] { return MessageBoxW(owner, text.c_str(), title.c_str(), flags); });
+}
+
+int choiceBox(HWND owner, const std::wstring& text, const std::wstring& title, const std::vector<std::wstring>& choices, int defaultChoice,
+              UINT icon) {
+    if (choices.empty()) return -1;
+    registerDialogClass();
+    Dialog d;
+    d.owner = owner ? GetAncestor(owner, GA_ROOT) : nullptr;
+    d.pal = menuPalette();
+    d.title = title;
+    d.text = text;
+    icon &= MB_ICONMASK;
+    d.icon = icon == MB_ICONINFORMATION ? 1 : icon == MB_ICONQUESTION ? 2 : icon == MB_ICONWARNING ? 3 : icon == MB_ICONERROR ? 4 : 0;
+    for (size_t i = 0; i < choices.size(); ++i) d.buttons.push_back({choices[i], 1000 + (int)i, {}});
+    d.buttons.push_back({L"Cancel", IDCANCEL, {}});
+    d.cancelResult = IDCANCEL;
+    d.def = std::clamp(defaultChoice, 0, (int)choices.size() - 1);
+    const int r = runBox(d, owner, text, title, icon, [&] {
+        // Windows' own box has only its own buttons: Yes for the first choice, No for the second.
+        std::wstring t = text + L"\n\nYes: " + choices[0] + (choices.size() > 1 ? L"\nNo: " + choices[1] : L"");
+        const int a = MessageBoxW(owner, t.c_str(), title.c_str(), (choices.size() > 1 ? MB_YESNOCANCEL : MB_OKCANCEL) | icon |
+                                                                     (defaultChoice == 1 ? MB_DEFBUTTON2 : 0));
+        return a == IDYES || a == IDOK ? 1000 : a == IDNO ? 1001 : IDCANCEL;
+    });
+    return r >= 1000 && r < 1000 + (int)choices.size() ? r - 1000 : -1;
 }
 
 bool askText(HWND owner, const std::wstring& title, const std::wstring& text, std::wstring& value, const std::wstring& okLabel) {

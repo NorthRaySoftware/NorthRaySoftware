@@ -188,7 +188,7 @@ std::string makeReviewCopy(const Library& lib, const Id& bookId, const std::stri
     const headers::BookHeaders heads = headers::read(lib, bookId);
     for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
         if (!n || n->deleted) continue;
-        const std::string html = ebook::documentHtml(lib.nodeContent(n->id), inside);
+        const std::string html = ebook::documentHtml(doc::withoutDraftNotes(lib.nodeContent(n->id)), inside);   // draft notes stay home (0.94)
         if (n->kind == NodeKind::Scene && html.empty()) continue;
         json ch = {{"node", n->id}, {"title", n->title.empty() ? std::string(label(n->kind)) : n->title},
                    {"part", n->kind == NodeKind::Part}, {"html", html}};

@@ -99,6 +99,9 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
 std::vector<std::pair<std::string, std::string>> agesOfEntry(const Library& lib, const View& view, const Entry& e);
 bool excerptsFromText(const Library& lib, const Id& book);
 bool setExcerptsFromText(Library& lib, const Id& book, bool on);
+// A chapter's words as excerpts quote them (0.94): paragraphs only, without headings, scene breaks, captions, draft
+// notes or date lines.
+std::string quotableText(const std::string& docJson);
 // The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.
 std::string excerptAround(const std::string& text, size_t start, size_t end, int maxWords = 60);
 

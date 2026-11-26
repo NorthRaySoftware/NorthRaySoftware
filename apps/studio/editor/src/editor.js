@@ -43,6 +43,7 @@ import { initNameCard, setEntries, showNameCard, kindClass } from "./namecard.js
 export const STYLES = [
   ["body", "Body"], ["first", "First paragraph"], ["centered", "Centred"], ["epigraph", "Epigraph"],
   ["attribution", "Attribution"], ["verse", "Verse"], ["letter", "Letter"], ["note", "Note"],
+  ["draft", "Draft note"],   // 0.94: a paragraph to yourself, never printed or exported
 ];
 // Comic scripts (a book marked as a comic): numbered for the writer as they type.
 export const COMIC_STYLES = [["page", "Page"], ["panel", "Panel"], ["dialogue", "Dialogue"], ["caption", "Caption"], ["sfx", "SFX"]];
@@ -110,6 +111,8 @@ export const schema = new Schema({
     sup: { excludes: "sub", parseDOM: [{ tag: "sup" }], toDOM: () => ["sup", 0] },
     sub: { excludes: "sup", parseDOM: [{ tag: "sub" }], toDOM: () => ["sub", 0] },
     code: { parseDOM: [{ tag: "code" }], toDOM: () => ["code", 0] },
+    // A note to yourself in the middle of the text, "[check this date]" (0.94): shown here, never printed or exported.
+    draft: { parseDOM: [{ tag: "span.draft" }], toDOM: () => ["span", { class: "draft", title: "Draft note: not printed or exported" }, 0] },
     // A world's own typeface on these words: runes, symbols, a character's handwriting (0.41). By the family's id.
     font: {
       attrs: { family: {} },
@@ -479,7 +482,7 @@ const keys = {
   "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
   "Mod-Backspace": deleteWord(-1), "Mod-Delete": deleteWord(1),
   "Mod-b": toggleMark(M.strong), "Mod-i": toggleMark(M.em), "Mod-u": toggleMark(M.underline),
-  "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-Alt-k": toggleLink, "Mod-Alt-m": addComment,
+  "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-Shift-d": toggleMark(M.draft), "Mod-Alt-k": toggleLink, "Mod-Alt-m": addComment,
   // The app's own: go anywhere (Ctrl+K) and the shortcuts sheet (Ctrl+/) (0.35).
   "Mod-k": () => { flush(); send({ type: "appCommand", name: "jump" }); return true; },
   "Mod-/": () => { send({ type: "appCommand", name: "shortcuts" }); return true; },
@@ -1689,7 +1692,7 @@ function insertImage(blob, alt, width) {
 // The Format menu.
 const COMMANDS = {
   bold: () => toggleMark(M.strong), italic: () => toggleMark(M.em), underline: () => toggleMark(M.underline),
-  smallcaps: () => toggleMark(M.smallcaps), link: () => toggleLink,
+  smallcaps: () => toggleMark(M.smallcaps), link: () => toggleLink, draftNote: () => toggleMark(M.draft),
   body: () => setStyle("body"), h1: () => setBlockType(S.heading, { level: 1 }), h2: () => setBlockType(S.heading, { level: 2 }),
   h3: () => setBlockType(S.heading, { level: 3 }), quote: () => wrapIn(S.blockquote),
   bullets: () => wrapInList(S.bullet_list), numbers: () => wrapInList(S.ordered_list),

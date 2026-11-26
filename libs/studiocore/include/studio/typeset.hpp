@@ -156,6 +156,16 @@ struct ChapterTitle {
 };
 ChapterTitle chapterTitleParts(const std::string& title);
 std::string spelledNumber(int n);   // 3 -> "Three", 21 -> "Twenty-One"
+// A paragraph that reads as a typed date line rather than prose (0.94): short, with a number or a day, month or year
+// word, and no sign of a sentence ("12 Harvestmoon 1450 SE", "Highcliff, Day 3", "Spring, 1450"; not "He was 12.").
+// Used to keep the chapter's opening, quotes and date conversion off it.
+bool looksLikeDateLine(const std::string& text);
+// The paragraph a chapter's opening (lead-in, drop cap) goes on (0.94), as an index into the document's top-level
+// content, or -1: the first paragraph of prose before any scene break, past headings, pictures, empty lines,
+// paragraphs in another style (centred, epigraph, verse...), quotations, lists and date lines.
+int openingParagraph(const std::string& docJson);
+// The document with that paragraph marked (`"opening": true` in its attrs), for the typesetter and the ebook alike.
+std::string withOpening(const std::string& docJson);
 
 struct Book {
     double width = 0, height = 0;       // pt
