@@ -287,6 +287,7 @@ private:
     // A name from the text into the bible: asks what kind, never makes a second copy, relinks the editor.
     Id addNameToBible(const Id& bookId, const std::string& name);
     void drawNewNames(const Rect& c, float& y);   // Writing's panel: names in this chapter not in the bible yet
+    std::string pendingHeaderNode_;   // "Choose header picture…" chosen in the text's right-click menu (0.92)
     std::string contextWord_, pendingBibleName_;  // the word right-clicked in the text; the one to add
     std::vector<studio::review::NameIssue> liveNames_;
     std::string liveNamesKey_;
@@ -509,6 +510,12 @@ private:
     std::vector<Id> planPageOrder() const;
     void stepPlanPage(int dir);
     void drawPlanPage(const Rect& r);
+    // The chapter's opening in Writing (0.92): its header picture, date and viewpoint, for the editor.
+    nlohmann::json chapterHeadJson(const studio::ManuscriptNode& n);
+    void sendHead(bool always = false);
+    std::string lastHead_;
+    std::vector<ToolItem> headerTools(const Id& node);
+    void editWhenInWriting();
     // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).

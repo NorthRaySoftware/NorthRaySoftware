@@ -113,6 +113,13 @@ void StudioApp::ensureEditor() {
         std::string name = selection.empty() ? contextWord_ : narrow(selection);
         while (!name.empty() && (name.back() == ' ' || name.back() == '\n' || name.back() == '\r')) name.pop_back();
         while (!name.empty() && name.front() == ' ') name.erase(0, 1);
+        // The chapter's header picture (0.92), whatever is under the pointer.
+        if (lib_)
+            if (const ManuscriptNode* cn = lib_->node(currentNode_); cn && cn->kind != NodeKind::Scene)
+                items.push_back({L"Choose header picture\u2026", [this, id = cn->id] {
+                    pendingHeaderNode_ = id;   // after the menu has closed
+                    SetTimer(hwnd(), 12, 10, nullptr);
+                }});
         if (name.empty() || name.size() > 60 || name.find('\n') != std::string::npos || !lib_) return items;
         const studio::Book* bk = lib_->book(writingBook_);
         if (!bk) return items;
@@ -171,6 +178,8 @@ void StudioApp::sendLoad() {
     }
     msg["doc"] = json::parse(lib_->nodeContent(n->id), nullptr, false);
     if (msg["doc"].is_discarded()) msg["doc"] = json::parse(doc::emptyDoc());
+    msg["head"] = chapterHeadJson(*n);   // its header picture, date and viewpoint, over the text (0.92)
+    lastHead_ = msg["head"].dump();
     editor_.send(msg.dump());
     sendComments();
     if (!pendingComment_.empty()) {
@@ -269,6 +278,8 @@ void StudioApp::editorMessage(const std::string& text) {
     } else if (type == "contextWord") {
         contextWord_ = m.value("text", "");
         return;
+    } else if (type == "editWhen") {
+        editWhenInWriting();
     } else if (type == "entry") {
         // Ctrl+click on a name from the bible: its page in Worldbuilding.
         if (const Entry* e = lib_->entry(m.value("id", "")); e && !e->deleted) {
@@ -938,6 +949,14 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
         }
     });
     y = panelField(c, y, L"Synopsis", FSynopsis, 150);
+    // When it happens (0.92): the date shown over the text opens these.
+    if (n->kind != NodeKind::Part) {
+        panelHeading(c, y, L"WHEN IN THE STORY", false);
+        const bool inCal = timelineInCalendar(n->bookId);
+        y = panelField(c, y, inCal ? L"Date (blank: not on the timeline)" : L"Story day (blank: not on the timeline)", FStoryDay);
+        if (inCal) y = panelField(c, y, L"Time of day (14:30, dawn, evening)", FTimeOfDay);
+        y = panelField(c, y, L"When, in words", FWhen);
+    }
     if (n->id == currentNode_) drawNewNames(c, y);
 
     // Counts.
@@ -1354,6 +1373,10 @@ std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
         saveSettings();
     }));
     t.push_back(ToolItem::item(L"Plan it on the corkboard", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; selectCard(id); }));
+    if (n->kind != NodeKind::Part)
+        t.push_back(ToolItem::item(L"Open its page in Planning", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; openPlanPage(id); }));
+    if (n->kind != NodeKind::Scene) t.push_back(ToolItem::menu(L"Header picture", headerTools(n->id)));
+    t.push_back(ToolItem::item(L"When it happens…", [this] { editWhenInWriting(); }));
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Add"));
     t.push_back(ToolItem::item(L"New chapter", [this] { addNode(NodeKind::Chapter); }));
@@ -1372,6 +1395,7 @@ std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
 void StudioApp::drawWritingBar(const Rect& r) {
     const ManuscriptNode* n = lib_->node(currentNode_);
     if (!n) return;
+    sendHead();   // keeps the opening over the text in step with Planning and the details (only when it changed)
     gfx_.fill(r, pal_.paper);
     gfx_.line(r.x, r.bottom() - 0.5f, r.right(), r.bottom() - 0.5f, pal_.rule);
     const float pad = r.w > 900 ? 28 : 18;

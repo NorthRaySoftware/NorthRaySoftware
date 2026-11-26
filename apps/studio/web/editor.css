@@ -198,6 +198,39 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 @media (prefers-reduced-motion: reduce) { article { animation: none; } #scroller { scroll-behavior: auto; } }
 #title { font: 600 calc(var(--text-size, 1.12rem) * 1.43)/1.25 var(--text-font, var(--serif)); text-align: center; margin: 0 0 2.4rem; color: var(--ink); }
 #title:empty { display: none; }
+/* The chapter's opening, as the book sets it (0.92): its header picture or ornament, then its date and viewpoint. Display
+   only: none of it is in the text. */
+#ctop { display: flex; flex-direction: column; align-items: center; margin: 0 0 2.4rem; }
+#ctop #title { margin: 0; order: 2; }
+#cpic { order: 1; width: 100%; margin: 0 0 1.4rem; line-height: 0; border-radius: 8px; overflow: hidden; }
+#cpic img { display: block; width: 100%; }
+#corn { order: 1; font-size: calc(var(--text-size, 1.12rem) * 2.2); line-height: 1.2; margin: 0 0 .6rem; color: var(--ink); }
+#cmeta { order: 3; margin-top: .9rem; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+#ctop.title-above #cpic, #ctop.title-above #corn { order: 3; margin: 1.2rem 0 0; }
+#ctop.title-above #cmeta { order: 4; }
+#ctop.size-band #cpic img { aspect-ratio: 3.2 / 1; object-fit: cover; }
+#ctop.size-ornament #cpic { width: 28%; }
+#ctop.size-full #cpic img { max-height: 24rem; object-fit: cover; }
+#ctop.title-over { display: grid; }
+#ctop.title-over #cpic, #ctop.title-over #title { grid-area: 1 / 1; }
+#ctop.title-over #cpic { margin: 0; }
+#ctop.title-over #cpic img { min-height: 9rem; height: 100%; object-fit: cover; }
+#ctop.title-over #title { align-self: center; justify-self: center; z-index: 1; padding: 0 1rem; }
+#ctop.title-over.tone-dark #cpic img { filter: brightness(.42); }
+#ctop.title-over.tone-dark #title { color: #fff; }
+#ctop.title-over.tone-fade #cpic img { opacity: .3; }
+#ctop.title-over #cmeta { grid-area: 2 / 1; justify-self: center; }
+.cchip { display: inline-flex; align-items: center; gap: .45rem; font: 500 .82rem/1 var(--ui, "Segoe UI", sans-serif); color: var(--muted);
+  background: var(--page); border: 1px solid var(--rule); border-radius: 999px; padding: .3rem .75rem .3rem .35rem; cursor: pointer; }
+.cchip.plain { padding-left: .75rem; }
+.cchip:hover { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 50%, var(--rule)); }
+.cchip .face { width: 1.45rem; height: 1.45rem; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--pov, var(--accent)); }
+.cchip .sym { width: 1.45rem; height: 1.45rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 2px var(--pov, var(--accent)); font-size: .8rem; font-weight: 600; color: var(--ink); }
+.cchip.empty { color: var(--faint); border-style: dashed; }
+.noheads #cpic, .noheads #corn, .noheads #cmeta { display: none !important; }
+.noheads #ctop.title-over { display: flex; }
+.noheads #ctop.title-over #title { color: var(--ink); }
 
 .ProseMirror { outline: none; font: var(--text-size, 1.12rem)/var(--line, 1.65) var(--text-font, var(--serif)); hyphens: manual; overflow-wrap: break-word; word-break: normal; white-space: pre-wrap; caret-color: var(--accent); }
 .ProseMirror ::selection { background: var(--sel); }

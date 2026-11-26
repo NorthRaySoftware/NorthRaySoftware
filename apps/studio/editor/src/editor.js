@@ -527,7 +527,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 3, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal" };
+const VIEW_DEFAULTS = { v: 3, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -549,6 +549,7 @@ function applyView() {
   root.classList.toggle("focus-mode", !!v.focus);
   root.dataset.paper = v.paper === "night" ? "night" : "usual";   // warm night paper for writing in the dark (0.35)
   root.classList.toggle("typewriter", !!v.typewriter);
+  root.classList.toggle("noheads", v.heads === false);   // the chapter's header picture and date (0.92)
   if (view) {
     // The Studio's own checker once its dictionary is loaded (it knows the bible's names); the browser's until then.
     view.dom.setAttribute("spellcheck", v.spellcheck && !spell.ready() ? "true" : "false");
@@ -818,6 +819,75 @@ function nextHint(key) {
   const max = view.state.doc.content.size;
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, Math.min(h.from, max), Math.min(h.to, max))).scrollIntoView());
   view.focus();
+}
+
+// ------------------------------------------- the chapter's opening (0.92)
+// What the app sends with a chapter: {header: {blob, symbol, size, title, tone, alt}, date, pov: {id, name, colour, blob,
+// symbol, initials}, dated: bool}. Shown above the text and never part of it: the date opens its When in the app, the
+// viewpoint their bible page.
+let chapterHead = null;
+function setHead(h) {
+  chapterHead = h && typeof h === "object" ? h : null;
+  const top = document.getElementById("ctop"), pic = document.getElementById("cpic"), img = pic.querySelector("img");
+  const orn = document.getElementById("corn"), meta = document.getElementById("cmeta");
+  top.className = "";
+  pic.hidden = true;
+  orn.hidden = true;
+  meta.hidden = true;
+  meta.replaceChildren();
+  if (!chapterHead) return;
+  const hd = chapterHead.header;
+  const pick = (v, list, d) => (list.includes(v) ? v : d);
+  if (hd && typeof hd.blob === "string" && /^[0-9a-f]{64}$/.test(hd.blob)) {
+    img.src = objectUrl(hd.blob);
+    img.alt = hd.alt || "";
+    pic.hidden = false;
+    const placement = pick(hd.title, ["above", "below", "over"], "below");
+    top.classList.add("size-" + pick(hd.size, ["full", "band", "ornament"], "band"), "title-" + placement);
+    if (placement === "over") top.classList.add(hd.tone === "fade" ? "tone-fade" : "tone-dark");
+  } else if (hd && typeof hd.symbol === "string" && hd.symbol) {
+    orn.textContent = hd.symbol;
+    orn.hidden = false;
+    top.classList.add("title-" + (hd.title === "above" ? "above" : "below"));
+  }
+  const chips = [];
+  const p = chapterHead.pov;
+  if (p && typeof p.id === "string" && p.id) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cchip";
+    b.title = "Whose eyes it's seen through: open " + (p.name || "their") + "'s page in the bible";
+    if (typeof p.colour === "string" && /^#[0-9a-fA-F]{6}$/.test(p.colour)) b.style.setProperty("--pov", p.colour);
+    if (typeof p.blob === "string" && /^[0-9a-f]{64}$/.test(p.blob)) {
+      const f = document.createElement("img");
+      f.className = "face";
+      f.alt = "";
+      f.src = objectUrl(p.blob);
+      b.append(f);
+    } else {
+      const s = document.createElement("span");
+      s.className = "sym";
+      s.textContent = (p.symbol || p.initials || "").slice(0, 4);
+      b.append(s);
+    }
+    b.append(document.createTextNode(p.name || ""));
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", () => { flush(); send({ type: "entry", id: p.id }); });
+    chips.push(b);
+  }
+  if (chapterHead.date || chapterHead.dated === false) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cchip plain" + (chapterHead.date ? "" : " empty");
+    b.textContent = chapterHead.date || "Not on the timeline";
+    b.title = chapterHead.date ? "When it happens: click to change it" : "Give it a date or a day on the timeline";
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", () => send({ type: "editWhen" }));
+    chips.push(b);
+  }
+  if (chips.length) { meta.append(...chips); meta.hidden = false; }
+  requestAnimationFrame(() => placeCaret());   // the text moved down or up
+  img.onload = () => placeCaret();
 }
 
 // The View panel: the "Aa" button in the toolbar.
@@ -1448,6 +1518,7 @@ function load(msg) {
   spell.load(document.documentElement.lang, (ok) => { if (ok && view) { applyView(); rehintNow(); } });
   document.getElementById("title").textContent = msg.title || "";
   setChapName(msg.title);
+  setHead(msg.head);
   if (Array.isArray(msg.chapters)) chapters = msg.chapters;
   const state = makeState(msg.doc, readOnly ? null : msg.id);
   if (!readOnly) rememberVersion(msg.id, state.doc.toJSON(), true);   // how it was when opened, to undo back to later
@@ -1631,6 +1702,7 @@ function receive(msg) {
   else if (msg.type === "flush") { flush(); send({ type: "flushed" }); }
   else if (msg.type === "title") { document.getElementById("title").textContent = msg.title || ""; setChapName(msg.title); }
   else if (msg.type === "theme") setTheme(!!msg.dark);
+  else if (msg.type === "head") setHead(msg.head);
   else if (msg.type === "image") insertImage(msg.blob, msg.alt, msg.width);
   else if (msg.type === "setPicture") setPicture(msg.pos, msg.attrs || {});
   else if (msg.type === "removePicture") removePicture(msg.pos);

@@ -38,6 +38,7 @@ static const UINT_PTR kTypesetTimer = 4; // a pause after a design change: set t
 static const UINT_PTR kBackupTimer = 5;  // every 30 minutes: a backup if anything changed
 static const UINT_PTR kNameTimer = 6;    // "Add to the bible" chosen in the text's right-click menu
 static const UINT_PTR kSyncTimer = 7;    // every minute: worlds kept in GitHub that are due a sync (0.61)
+static const UINT_PTR kHeaderTimer = 12; // "Choose header picture…" chosen in the text's right-click menu (0.92)
 
 
 enum Cmd {
@@ -1399,6 +1400,13 @@ void StudioApp::onTimer(UINT_PTR id) {
         const std::string nm = pendingBibleName_;
         pendingBibleName_.clear();
         if (!nm.empty()) addNameToBible(writingBook_, nm);
+        return;
+    }
+    if (id == kHeaderTimer) {
+        KillTimer(hwnd(), kHeaderTimer);
+        const Id node = pendingHeaderNode_;
+        pendingHeaderNode_.clear();
+        if (!node.empty()) showTools(headerTools(node), (float)mouseX(), (float)mouseY());
         return;
     }
     if (id == kBackupTimer) { backupTick(); return; }

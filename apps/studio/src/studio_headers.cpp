@@ -8,6 +8,7 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 
 namespace nrs {
@@ -225,6 +226,130 @@ void StudioApp::chooseViewpointHeader(const Id& entry) {
     lib_->updateEntry(u);
     flashUndo(L"Chapters seen through " + w(u.name) + L"'s eyes now open with this picture, unless they choose their own.",
               [this, before] { lib_->updateEntry(before); invalidate(); }, 8);
+    invalidate();
+}
+
+// ------------------------------------------------- the opening over the text in Writing (0.92)
+
+nlohmann::json StudioApp::chapterHeadJson(const ManuscriptNode& n) {
+    nlohmann::json j = nlohmann::json::object();
+    const headers::BookHeaders hb = headers::read(*lib_, n.bookId);
+    if (const auto h = headers::resolve(*lib_, n, hb)) {
+        nlohmann::json hj = {{"size", h->header.size}, {"title", h->header.title}, {"tone", h->header.tone}};
+        if (!h->header.blob.empty()) { hj["blob"] = h->header.blob; hj["alt"] = h->header.alt; }
+        else if (headers::printableSymbol(h->header.symbol)) hj["symbol"] = h->header.symbol;
+        if (hj.contains("blob") || hj.contains("symbol")) j["header"] = hj;
+    }
+    if (n.kind == NodeKind::Part) return j;
+    // Its date, written as the book's Dates setting says; a scene's only when it differs from its chapter's.
+    const auto times = storyTimes(n.bookId);
+    auto textOf = [&](const Id& id) -> std::string {
+        auto it = times.find(id);
+        if (it == times.end() || !it->second.placed) return {};
+        std::string t;
+        const cal::Calendar cc = cal::calendarOfBook(*lib_, n.bookId);
+        if (timelineInCalendar(n.bookId) && !cc.empty()) {
+            const typeset::Design d = typeset::designFromJson(lib_->setting("typeset:" + n.bookId));
+            const std::int64_t day = cal::storySpan(*lib_, n.bookId).start + (std::int64_t)std::floor(it->second.day);
+            t = cal::formatDateStyled(cc, cal::fromDay(cc, day), d.dateForm, d.dateEra);
+        } else t = narrow(storyDayText(n.bookId, it->second.day));
+        if (it->second.minutes >= 0 || !it->second.part.empty())
+            t += ", " + cal::timeOfDayText(cc.empty() ? cal::gregorian() : cc, {it->second.minutes, it->second.part});
+        return t;
+    };
+    const std::string date = textOf(n.id);
+    if (n.kind == NodeKind::Scene) {
+        if (!date.empty() && date != textOf(n.parentId)) j["date"] = date;
+    } else {
+        if (!date.empty()) j["date"] = date;
+        else j["dated"] = false;
+    }
+    // Whose eyes it's seen through: their portrait, else their symbol, else initials, ringed in their colour.
+    Id pov = n.povId;
+    if (pov.empty() && n.kind == NodeKind::Chapter)
+        for (const ManuscriptNode* s : lib_->manuscriptOf(n.bookId))
+            if (s->parentId == n.id && !s->povId.empty()) { pov = s->povId; break; }
+    if (const Entry* e = pov.empty() ? nullptr : lib_->entry(pov); e && !e->deleted) {
+        const cjui::Color c = povColour(e->id);
+        char hex[8];
+        std::snprintf(hex, sizeof hex, "#%02X%02X%02X", (int)std::lround(c.r * 255), (int)std::lround(c.g * 255), (int)std::lround(c.b * 255));
+        nlohmann::json pj = {{"id", e->id}, {"name", e->name}, {"colour", hex}};
+        if (!e->imageBlob.empty()) pj["blob"] = e->imageBlob;
+        else if (!e->symbol.empty() && e->symbol.rfind("icon:", 0) != 0) pj["symbol"] = e->symbol;
+        else {
+            std::string ini;
+            for (const auto& word : {e->name.substr(0, e->name.find(' ')), e->name.find(' ') == std::string::npos ? std::string() : e->name.substr(e->name.rfind(' ') + 1)})
+                if (!word.empty()) ini += (char)std::toupper((unsigned char)word[0]);
+            pj["initials"] = ini;
+        }
+        j["pov"] = pj;
+    }
+    return j;
+}
+
+void StudioApp::sendHead(bool always) {
+    if (!editor_.ready() || currentNode_.empty()) return;
+    const ManuscriptNode* n = lib_->node(currentNode_);
+    if (!n) return;
+    const std::string now = chapterHeadJson(*n).dump();
+    if (!always && now == lastHead_) return;
+    lastHead_ = now;
+    editor_.send(nlohmann::json{{"type", "head"}, {"head", nlohmann::json::parse(now)}}.dump());
+}
+
+// The chapter's header picture, from Writing's Chapter tools and the text's right-click menu.
+std::vector<StudioApp::ToolItem> StudioApp::headerTools(const Id& node) {
+    std::vector<ToolItem> t;
+    const ManuscriptNode* n = lib_->node(node);
+    if (!n) return t;
+    const headers::BookHeaders hb = headers::read(*lib_, n->bookId);
+    const auto own = hb.nodes.find(node);
+    const bool chosen = own != hb.nodes.end();
+    auto save = [this, node, book = n->bookId](std::function<void(headers::Header&)> change) {
+        headers::BookHeaders b = headers::read(*lib_, book);
+        headers::Header h = b.nodes.count(node) ? b.nodes[node] : headers::Header{};
+        h.none = false;
+        change(h);
+        if (h.none || !h.empty()) b.nodes[node] = h;
+        else b.nodes.erase(node);
+        headers::write(*lib_, book, b);
+        sendHead(true);
+        invalidate();
+    };
+    t.push_back(ToolItem::item(chosen && !own->second.blob.empty() ? L"Change the picture…" : L"Choose header picture…", [this, save] {
+        const std::string blob = pickPicture(L"A header picture");
+        if (blob.empty()) return;
+        save([blob](headers::Header& h) { h.blob = blob; h.symbol.clear(); if (h.size == "ornament") h.size = "band"; });
+    }));
+    t.push_back(ToolItem::item(L"An ornament or symbol…", [this, save, cur = chosen ? own->second.symbol : std::string()] {
+        chooseSymbol(cur, L"No symbol", [save](const std::string& s) {
+            save([s](headers::Header& h) { h.symbol = s; if (!s.empty()) { h.blob.clear(); h.size = "ornament"; if (h.title == "over") h.title = "below"; } });
+        }, false);
+    }));
+    if (chosen) t.push_back(ToolItem::item(L"Remove (use the default)", [this, node, book = n->bookId] {
+        headers::BookHeaders b = headers::read(*lib_, book);
+        b.nodes.erase(node);
+        headers::write(*lib_, book, b);
+        sendHead(true);
+    }));
+    if (!(chosen && own->second.none))
+        t.push_back(ToolItem::item(L"No header for this one", [save](void) { save([](headers::Header& h) { h = headers::Header{}; h.none = true; }); }));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Size, title and the rest…", [this, bid = n->bookId, node] {
+        openPlanning(bid);
+        pl_.view = 0;
+        openPlanPage(node);
+    }));
+    return t;
+}
+
+// The date over the text clicked: the chapter's details, with its date ready to change.
+void StudioApp::editWhenInWriting() {
+    if (currentNode_.empty()) return;
+    setFocus({Focus::Node, currentNode_, {}});
+    settings_.writingDetails = true;
+    saveSettings();
+    focusFieldSoon_ = FStoryDay;
     invalidate();
 }
 

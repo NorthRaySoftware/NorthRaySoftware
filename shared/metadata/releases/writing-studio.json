@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.92.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Writing shows each chapter's opening above its text, as the book sets it: the header picture with the title under, above or over it (or its ornament), then whose eyes it's seen through (their portrait, symbol or initials, ringed in their colour) and its date, written the way the book's Dates setting says, with the time of day. A scene shows its own date when it differs from its chapter's.",
+        "Click the date to change when it happens: the chapter's details open at When in the story (new there), kept in step with Planning. Click the viewpoint to open their bible page.",
+        "Chapter tools has Header picture (choose a picture or an ornament, remove it, no header for this one, or open its page in Planning for the size and title), When it happens… and Open its page in Planning; the text's right-click menu has Choose header picture….",
+        "Aa › Show dates and header pictures turns them off for just the text. They're shown only: word counts, Checks, quotes, exports and imports never see them."
+      ]
+    },
+    {
       "version": "0.91.0",
       "date": "2026-11-26",
       "notes": [
