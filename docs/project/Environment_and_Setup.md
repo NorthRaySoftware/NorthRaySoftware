@@ -9,8 +9,7 @@ How to build, test and release NorthRay from a fresh copy. **No secrets are stor
 - `10_Git_History/northray.bundle` has the full git history. Restore it with:
 
 ```
-git clone 10_Git_History/northray.bundle NorthRay
-cd NorthRay && git checkout source
+git clone -b source 10_Git_History/northray.bundle NorthRay
 ```
 
 **From GitHub**

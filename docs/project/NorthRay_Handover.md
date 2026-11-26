@@ -123,7 +123,7 @@ See `Environment_and_Setup.md`.
 3. Give the new conversation `08_Claw_Instructions/CLAUDE_PROJECT_INSTRUCTIONS.md`. Paste it into the project instructions, or attach it.
 4. **To work on code:**
    - Either clone the GitHub repository (branch `source`), which is the live copy,
-   - or restore `10_Git_History/northray.bundle` with `git clone northray.bundle NorthRay && cd NorthRay && git checkout source`.
+   - or restore `10_Git_History/northray.bundle` with `git clone -b source northray.bundle NorthRay`.
    - `03_Application_Projects/NorthRay-source/` is the same tree without history or build outputs, for reading.
 5. Follow the continuity procedure in the instructions: identify the app, read its manual, check the roadmap and issues, inspect the source, confirm the state (`VERSION`, release notes, run the tests), then continue.
 6. At the end of the session, update the manuals, the architecture document, the release notes and this handover.
