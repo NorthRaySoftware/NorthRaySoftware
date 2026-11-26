@@ -222,6 +222,9 @@ struct Entry {
     std::string mapBlob;
     std::vector<Pin> pins;
     std::string pronunciation;                             // how its name is said ("ZAH-mez"), for the glossary
+    // Its symbol (0.87), shown where it has no picture yet: an emoji or a character ("🐉"), or "icon:<name>" for one of
+    // the app's drawn symbols ("icon:paw"). "" = its initials.
+    std::string symbol;
     // Spoilers: facts revealed in a book, so they're kept out of what readers of earlier books see. The key
     // is "detail:<label>", "section:<title>", "summary" or "entry" (the whole entry); the value a book.
     std::vector<std::pair<std::string, Id>> revealed;

@@ -79,30 +79,13 @@ static std::wstring linesOf(cjui::Gfx& g, const std::wstring& text, float width,
     return out;
 }
 
-static std::wstring initials(const std::string& name) {
-    std::wstring out;
-    bool start = true;
-    for (wchar_t c : w(name)) {
-        if (iswspace(c)) { start = true; continue; }
-        if (start && iswalnum(c) && out.size() < 2) out += (wchar_t)towupper(c);
-        start = false;
-    }
-    return out.empty() ? L"?" : out;
-}
 
 // ------------------------------------------------------------- gender and place types
 // Kept as a line of the entry's details ("Gender: Female", "Type: City"), so what writers have
 // already written counts, and it's still plain text they can edit.
 
 // Each kind's colour (the editor's links and name cards use the same ones).
-static cjui::Color kindColor(const std::string& kind, bool dark) {
-    struct K { const char* k; const char* light; const char* dark; };
-    static const K ks[] = {{"character", "#3E7BD6", "#7AA9F0"}, {"creature", "#C26A2E", "#E69A5F"}, {"place", "#2E9A6C", "#5BC99A"}, {"race", "#6B8E23", "#A5C76A"}, {"realm", "#5B5FC7", "#9A9DF0"},
-                           {"group", "#7D5BD0", "#AE93F2"},     {"thing", "#B08A1E", "#E0BE55"},    {"lore", "#1E97A6", "#55C6D4"},
-                           {"magic", "#B3439E", "#E37FD0"},     {"event", "#C9476A", "#F07C98"}};
-    for (auto& x : ks) if (kind == x.k) return cjui::hexColor(dark ? x.dark : x.light);
-    return cjui::hexColor(dark ? "#7AA9F0" : "#3E7BD6");
-}
+static cjui::Color kindColor(const std::string& kind, bool dark) { return entryKindColor(kind, dark); }
 
 struct Facet {
     std::string key;                    // "gender"
@@ -844,6 +827,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 t.on = wb_.kind == k;
                 t.dot = kindColor(k, pal_.dark);
                 t.hasDot = true;
+                t.icon = entryKindIcon(k);   // each kind's symbol (0.87)
                 t.act = [this, k] { wb_.kind = k; wb_.facet.clear(); wb_.scroll = 0; openEntry({}); };
                 (n || t.on ? tabs : more).push_back(t);
             }
@@ -1249,10 +1233,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     gfx_.fill({cr.x + 1, cr.y + 6, 3, cr.h - 12}, kc);
                     const float indent = std::min(depth, 4) * 18.0f;
                     const Rect pic{cr.x + 14 + indent, cr.y + 6, 32, 32};
-                    if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-                        gfx_.fillRounded(pic, 16, kc.withAlpha(pal_.dark ? 0.20f : 0.13f));
-                        gfx_.text(initials(x->name), pic, Font::Small, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
-                    }
+                    drawPortrait(*x, pic, 16);   // its picture in a circle, else its symbol or initials (0.87)
+                    drawKindMark(x->kind, {pic.right() - 11, pic.bottom() - 11, 14, 14});
                     const float nx = pic.right() + 12;
                     const float nameW = std::min(260.0f, (cr.right() - nx) * 0.34f);
                     gfx_.text(w(x->name), {nx, cr.y, nameW, cr.h}, Font::BodyStrong, pal_.ink, {Align::Left, false, true, true});
@@ -1280,21 +1262,20 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.fillRounded({cr.x + 5, cr.y + 12, 3, cr.h - 24}, 1.5f, kc);
                 // The picture (a portrait's top), or the initials in a ring of the kind's colour.
                 const Rect pic{cr.x + 14, cr.y + 14, 72, 90};
-                if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-                    const Rect ring{pic.x + 4, pic.y + 13, 64, 64};
-                    gfx_.fillRounded(ring, 32, kc.withAlpha(pal_.dark ? 0.20f : 0.13f));
-                    gfx_.strokeRounded(ring.inset(0.75f), 31.25f, kc.withAlpha(0.45f), 1.2f);
-                    gfx_.text(initials(x->name), ring, Font::Heading, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
+                if (x->imageBlob.empty() || !gfx_.drawImageRounded(w(lib_->blobPath(x->imageBlob)), pic, 6)) {
+                    drawPortrait(*x, {pic.x + 4, pic.y + 13, 64, 64}, 32);   // its symbol or initials (0.87)
                 } else {
-                    gfx_.stroke({pic.x - 0.5f, pic.y - 0.5f, pic.w + 1, pic.h + 1}, pal_.rule, 1);
+                    gfx_.strokeRounded(pic, 6, pal_.rule, 1);
                 }
                 const float tx = pic.right() + 14, tw = cr.right() - 14 - tx;
                 {
+                    // The kind's symbol before its name (0.87), so the kind reads at a glance.
+                    drawKindMark(x->kind, {tx, cr.y + 12, 16, 16}, "wb:kind:" + x->id);
                     std::wstring label = upper(w(entryKindLabel(x->kind)));
                     for (const Facet* f : facetsFor(x->kind))
                         if (f->key != "gender" && f->key != "sexuality")
                             if (const std::string v = facetOf(*x, *f); !v.empty()) label += L"  \u00B7  " + upper(w(v));
-                    gfx_.text(label, {tx, cr.y + 13, tw - 20, 16}, Font::Label, kc, {Align::Left, false, true});
+                    gfx_.text(label, {tx + 21, cr.y + 13, tw - 41, 16}, Font::Label, kc, {Align::Left, false, true});
                 }
                 // A character's gender or sex: its sign in the card's corner, in the group's colour; its sexuality beside it
                 // as a small banded mark (0.62).
@@ -1540,8 +1521,15 @@ void StudioApp::drawWorldPage(const Rect& r) {
             } else {
                 gfx_.fillRounded(pr, 12, pal_.surface.mix(pal_.sunken, 0.3f + 0.4f * hv));
                 gfx_.strokeRounded(pr, 12, pal_.rule.mix(pal_.inkFaint, 0.5f * hv), 1.2f);
-                cjui::drawIcon(gfx_, cjui::Icon::Picture, {pr.x + pr.w / 2 - 14, pr.y + pr.h / 2 - 26, 28, 28}, pal_.inkFaint, 1.4f);
-                gfx_.text(L"Add a picture", {pr.x, pr.y + pr.h / 2 + 8, pr.w, 20}, Font::Small, pal_.inkMuted, {Align::Center, false, true});
+                if (!e->symbol.empty()) {
+                    // Its chosen symbol until it has a picture (0.87).
+                    const float ds = std::min(pr.w, pr.h) * 0.5f;
+                    drawPortrait(*e, {pr.x + (pr.w - ds) / 2, pr.y + pr.h / 2 - ds / 2 - 12, ds, ds}, ds / 2);
+                    gfx_.text(L"Add a picture", {pr.x, pr.y + pr.h / 2 + ds / 2 - 2, pr.w, 20}, Font::Small, pal_.inkMuted, {Align::Center, false, true});
+                } else {
+                    cjui::drawIcon(gfx_, cjui::Icon::Picture, {pr.x + pr.w / 2 - 14, pr.y + pr.h / 2 - 26, 28, 28}, pal_.inkFaint, 1.4f);
+                    gfx_.text(L"Add a picture", {pr.x, pr.y + pr.h / 2 + 8, pr.w, 20}, Font::Small, pal_.inkMuted, {Align::Center, false, true});
+                }
             }
             if (focused("wb:pic")) focusRing(pr);
             y += ph;
@@ -2018,10 +2006,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.fillRounded(mr, 6, pal_.surface);
                 gfx_.strokeRounded(mr, 6, pal_.rule.mix(kc, 0.4f * hv), 1);
                 const Rect pic{mr.x + 8, mr.y + 8, 32, 32};
-                if (o->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(o->imageBlob)), pic, true)) {
-                    gfx_.fillRounded(pic, 16, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-                    gfx_.text(initials(o->name), pic, Font::SmallStrong, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
-                }
+                drawPortrait(*o, pic, 16);
                 gfx_.text(w(o->name), {pic.right() + 10, mr.y + 6, mr.w - 70, 20}, Font::SmallStrong, pal_.ink, {Align::Left, false, true});
                 std::wstring sub = w(entryKindLabel(o->kind));
                 if (const std::string g = facetOf(*o, *findFacet("gender")); !g.empty() && o->kind == "character") sub += L" \u00B7 " + w(g);
@@ -2045,6 +2030,8 @@ void StudioApp::drawWorldPage(const Rect& r) {
         gfx_.text(L"RELATIONSHIPS", {m.x, y, cw, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
         linkText("wb:addrel", m.right() - gfx_.measureWidth(L"+ Add a relationship", Font::Small), y - 2, L"+ Add a relationship",
                  [this] { addRelationship(); });
+        // As a list, or as a web of portraits (0.87).
+        segmented("wb:relview", {m.x + 150, y - 6, 150, 26}, {L"List", L"Web"}, wb_.relView, [this](int i) { wb_.relView = i; invalidate(); });
         y += 28;
         std::vector<EntryLink> links;
         // A character's parents, partners, brothers and sisters and children are under Family, not again here (0.48.4).
@@ -2071,6 +2058,98 @@ void StudioApp::drawWorldPage(const Rect& r) {
             y += gfx_.text(L"None yet: link this entry to the people, places and things around it.", {m.x, y, cw, 20}, Font::Small,
                            pal_.inkFaint) + 12;
         }
+        // Each kind of link has a colour (the same everywhere: by its words), and is written on its line too.
+        auto linkColour = [&](const std::string& label) {
+            static const char* light[] = {"#C0392B", "#2471A3", "#1E8449", "#B9770E", "#7D3C98", "#148F77", "#A04000", "#2E4053", "#B03A2E", "#5B2C6F"};
+            static const char* dark[] = {"#EC7063", "#5DADE2", "#58D68D", "#F5B041", "#BB8FCE", "#48C9B0", "#E59866", "#AEB6BF", "#F1948A", "#C39BD3"};
+            unsigned h = 2166136261u;
+            for (char c : label) h = (h ^ (unsigned char)std::tolower((unsigned char)c)) * 16777619u;
+            return cjui::hexColor((pal_.dark ? dark : light)[h % 10]);
+        };
+        if (wb_.relView == 1 && !links.empty()) {
+            // The web: this page in the middle, each linked page round it, joined by a line in its link's colour with the
+            // link's words on it. Chips above leave a kind of link out, or bring it back.
+            std::map<std::string, int> counts;
+            for (const EntryLink& l : links) ++counts[readAs(l)];
+            float fx = m.x;
+            for (auto& [label, n] : counts) {
+                const bool off = wb_.relHidden.count(label) > 0;
+                const std::wstring t = w(label) + L"  " + std::to_wstring(n);
+                const float cwid = gfx_.measureWidth(t, Font::Small) + 34;
+                if (fx + cwid > m.right() && fx > m.x) { fx = m.x; y += 34; }
+                const Rect chip{fx, y, cwid, 26};
+                const std::string id = "wb:relf:" + label;
+                addHit(id, chip, [this, label] {
+                    if (!wb_.relHidden.erase(label)) wb_.relHidden.insert(label);
+                    invalidate();
+                });
+                tooltip(id, off ? L"Show these links in the web" : L"Leave these links out of the web");
+                const cjui::Color lc = linkColour(label);
+                gfx_.fillRounded(chip, 13, off ? pal_.paper : lc.withAlpha(pal_.dark ? 0.18f : 0.10f));
+                gfx_.strokeRounded(chip, 13, off ? pal_.rule : lc.withAlpha(0.7f), 1.2f);
+                if (off) gfx_.circle(chip.x + 13, chip.y + 13, 4.5f, pal_.inkFaint, false, 1.4f);
+                else gfx_.circle(chip.x + 13, chip.y + 13, 4.5f, lc, true);
+                gfx_.text(t, {chip.x + 24, chip.y, chip.w - 28, chip.h}, Font::Small, off ? pal_.inkFaint : pal_.ink, {Align::Left, false, true, true, off});
+                if (focused(id)) focusRing(chip);
+                fx += cwid + 8;
+            }
+            y += 40;
+            std::vector<const EntryLink*> shown;
+            for (const EntryLink& l : links) if (!wb_.relHidden.count(readAs(l))) shown.push_back(&l);
+            const float webH = std::clamp(220.0f + 18.0f * shown.size(), 300.0f, 560.0f);
+            const Rect board{m.x, y, cw, webH};
+            gfx_.fillRounded(board, 12, pal_.sunken.withAlpha(0.45f));
+            const float cx = board.x + board.w / 2, cyy = board.y + board.h / 2;
+            const size_t n = shown.size();
+            const float rx = std::min(board.w / 2 - 70, 120 + 9.0f * n), ry = board.h / 2 - 52;
+            std::vector<std::pair<float, float>> at(n);
+            for (size_t i = 0; i < n; ++i) {
+                const float a = -3.14159265f / 2 + 2 * 3.14159265f * (float)i / (float)std::max<size_t>(1, n);
+                // Two rings when crowded, so neighbours don't sit on each other.
+                const float k = n > 12 && i % 2 ? 0.66f : 1.0f;
+                at[i] = {cx + rx * k * std::cos(a), cyy + ry * k * std::sin(a)};
+            }
+            // Lines first, labels on them, then the portraits over everything.
+            for (size_t i = 0; i < n; ++i) {
+                const cjui::Color lc = linkColour(readAs(*shown[i]));
+                gfx_.line(cx, cyy, at[i].first, at[i].second, lc.withAlpha(0.8f), 2);
+            }
+            for (size_t i = 0; i < n; ++i) {
+                const std::wstring t = w(readAs(*shown[i]));
+                const float tw2 = gfx_.measureWidth(t, Font::Label) + 12;
+                const float lxm = cx + (at[i].first - cx) * 0.55f, lym = cyy + (at[i].second - cyy) * 0.55f;
+                const Rect pill{lxm - tw2 / 2, lym - 9, tw2, 18};
+                const cjui::Color lc = linkColour(readAs(*shown[i]));
+                gfx_.fillRounded(pill, 9, pal_.surface);
+                gfx_.strokeRounded(pill, 9, lc.withAlpha(0.8f), 1);
+                gfx_.text(t, pill, Font::Label, pal_.ink, {Align::Center, false, true, true});
+            }
+            const float ps = n > 16 ? 38 : 46;
+            for (size_t i = 0; i < n; ++i) {
+                const EntryLink& l = *shown[i];
+                const Entry* other = lib_->entry(l.from == e->id ? l.to : l.from);
+                if (!other) continue;
+                const Rect pr{at[i].first - ps / 2, at[i].second - ps / 2, ps, ps};
+                const std::string id = "wb:web:" + other->id + l.label;
+                addHit(id, {pr.x - 20, pr.y, ps + 40, ps + 20}, [this, oid = other->id] { openEntry(oid); });
+                tooltip(id, w(other->name) + L" (" + w(entryKindLabel(other->kind)) + L"): " + w(readAs(l)));
+                const float hv = hoverAmount(id);
+                if (hv > 0.01f) softShadow(pr, ps / 2, hv);
+                drawPortrait(*other, pr, ps / 2);
+                gfx_.strokeRounded(pr.inset(-2), ps / 2 + 2, linkColour(readAs(l)).withAlpha(0.6f + 0.4f * hv), 2);
+                drawKindMark(other->kind, {pr.right() - 12, pr.bottom() - 12, 15, 15});
+                gfx_.text(w(other->name), {pr.x - 50, pr.bottom() + 3, ps + 100, 16}, Font::Label, pal_.ink, {Align::Center, false, true, true});
+                if (focused(id)) focusRing(pr);
+            }
+            const float cs = 64;
+            drawPortrait(*e, {cx - cs / 2, cyy - cs / 2, cs, cs}, cs / 2);
+            gfx_.strokeRounded({cx - cs / 2 - 3, cyy - cs / 2 - 3, cs + 6, cs + 6}, cs / 2 + 3, pal_.ribbon, 2.5f);
+            if (n == 0)
+                gfx_.text(L"Every kind of link is left out. Click a chip above to bring one back.", {board.x, board.bottom() - 34, board.w, 20},
+                          Font::Small, pal_.inkFaint, {Align::Center, false, true});
+            y += webH + 22;
+            links.clear();   // drawn as the web, not again as the list
+        }
         for (const EntryLink& l : links) {
             const bool mine = l.from == e->id;
             const Entry* other = lib_->entry(mine ? l.to : l.from);
@@ -2081,8 +2160,12 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.text(w(readLabel), {m.x, y, 160, 24}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
             }
             lastLabel = readLabel;
-            linkText("wb:rel:" + other->id + l.label, m.x + 170, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
-            gfx_.text(w(entryKindLabel(other->kind)), {m.x + 170, y, cw - 170 - 80, 24}, Font::Small, pal_.inkFaint,
+            // Its portrait and kind's symbol before the name (0.87); the label's colour beside it, as on the web.
+            gfx_.circle(m.x + 162, y + 12, 3.5f, linkColour(readLabel), true);
+            drawPortrait(*other, {m.x + 170, y + 1, 22, 22}, 11);
+            linkText("wb:rel:" + other->id + l.label, m.x + 200, y + 4, w(other->name), [this, oid = other->id] { openEntry(oid); }, Font::Body);
+            drawKindMark(other->kind, {m.right() - gfx_.measureWidth(L"Remove", Font::Small) - 40, y + 4, 16, 16}, "wb:relk:" + other->id + l.label);
+            gfx_.text(w(entryKindLabel(other->kind)), {m.x + 200, y, cw - 200 - 84, 24}, Font::Small, pal_.inkFaint,
                       {Align::Right, false, true, true});
             linkText("wb:unrel:" + other->id + l.label, m.right() - gfx_.measureWidth(L"Remove", Font::Small), y + 4, L"Remove",
                      [this, l] { lib_->removeLink(l.from, l.to, l.label); invalidate(); });
@@ -2229,6 +2312,7 @@ std::vector<StudioApp::ToolItem> StudioApp::entryTools(const Entry& e) {
     std::vector<ToolItem> t;
     t.push_back(ToolItem::heading(L"What it is"));
     t.push_back(ToolItem::item(L"Kind: " + w(entryKindLabel(e.kind)) + L"…", [this] { entryKindChoice(); }));
+    t.push_back(ToolItem::item(L"Symbol (until it has a picture)…", [this, id = e.id] { chooseEntrySymbol(id); }));
     if (e.kind == "creature" || e.kind == "character") {
         const Entry* parent = nullptr;
         for (const EntryLink& l : lib_->linksOf(e.id))
@@ -2878,11 +2962,7 @@ float StudioApp::drawCreatureTree(const Rect& m, float y) {
         gfx_.strokeRounded(cr, 4, pal_.rule.mix(kc, 0.35f * hv), 1);
         gfx_.fill({cr.x + 1, cr.y + 4, 3, cr.h - 8}, kc);
         const Rect pic{cr.x + 14, cr.y + 14, 100, 100};
-        if (e->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(e->imageBlob)), pic, true)) {
-            gfx_.fillRounded(pic, 50, kc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-            gfx_.strokeRounded(pic.inset(0.75f), 49.25f, kc.withAlpha(0.45f), 1.5f);
-            gfx_.text(initials(e->name), pic, Font::Title, kc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
-        }
+        drawPortrait(*e, pic, 50);
         const float tx = pic.right() + 14, tw = cr.right() - 12 - tx;
         std::wstring label = isNamed ? upper(w(entryKindLabel(e->kind))) : here ? L"KIND OF " + upper(w(here->name)) : std::wstring(L"SPECIES");
         if (isNamed)
@@ -3631,10 +3711,7 @@ void StudioApp::drawFamilyTree(const Rect& r) {
         gfx_.fill({cr.x + 1, cr.y + 8 * s, 3, cr.h - 16 * s}, p.inLaw ? gc.withAlpha(0.45f) : gc);
         const float ps = cr.h - 18 * s;
         const Rect pic{cr.x + 12 * s, cr.y + 9 * s, ps, ps};
-        if (x->imageBlob.empty() || !gfx_.drawImage(w(lib_->blobPath(x->imageBlob)), pic, true)) {
-            gfx_.fillRounded(pic, ps / 2, gc.withAlpha(pal_.dark ? 0.22f : 0.16f));
-            gfx_.text(initials(x->name), pic, Font::SmallStrong, gc.mix(pal_.ink, 0.35f), {Align::Center, false, false, true});
-        }
+        drawPortrait(*x, pic, ps / 2);   // round, like the rest of the bible's portraits (0.87)
         const float tx = pic.right() + 10 * s, tw = cr.right() - 8 - tx;
         // The name on up to two lines.
         {
@@ -4356,7 +4433,7 @@ void StudioApp::drawChecks(const Rect& r) {
         float lx = m.x;
         for (const Entry* e : list) {
             const std::wstring nm = w(e->name);
-            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 52;
+            const float lw2 = gfx_.measureWidth(nm, Font::Small) + 56;
             if (lx + lw2 > m.right() && lx > m.x) { lx = m.x; y += 36; }
             const Rect chip{lx, y, lw2, 28};
             const std::string id = "ck:un:" + e->id;
@@ -4366,8 +4443,8 @@ void StudioApp::drawChecks(const Rect& r) {
             const cjui::Color kc = kindColor(e->kind, pal_.dark);
             gfx_.fillRounded(chip, 14, pal_.surface.mix(pal_.sunken, 0.4f * hv));
             gfx_.strokeRounded(chip, 14, pal_.rule.mix(kc, 0.4f + 0.6f * hv));
-            gfx_.circle(chip.x + 13, chip.y + 14, 4, kc, true);
-            gfx_.text(nm, {chip.x + 22, chip.y, chip.w - 48, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+            drawKindMark(e->kind, {chip.x + 6, chip.y + 6, 16, 16});   // its kind's symbol (0.87)
+            gfx_.text(nm, {chip.x + 26, chip.y, chip.w - 52, chip.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
             const float cx = chip.right() - 14, cy = chip.y + 14;
             gfx_.line(cx - 4, cy - 4, cx + 4, cy + 4, xv > 0.01f ? pal_.ink : pal_.inkFaint, 1.3f);
             gfx_.line(cx + 4, cy - 4, cx - 4, cy + 4, xv > 0.01f ? pal_.ink : pal_.inkFaint, 1.3f);

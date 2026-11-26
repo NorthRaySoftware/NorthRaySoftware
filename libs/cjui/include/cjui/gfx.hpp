@@ -106,6 +106,8 @@ public:
     // (centre); otherwise the whole image fits inside dst. Returns false if the
     // file can't be read; nothing is drawn then.
     bool drawImage(const std::wstring& path, const Rect& dst, bool cover = true, float opacity = 1.0f);
+    // The same, filling a rounded rectangle (a circle when `radius` is half the side): portraits in lists (0.87).
+    bool drawImageRounded(const std::wstring& path, const Rect& dst, float radius, float opacity = 1.0f);
     // Pixel size of the original file (0x0 if unreadable).
     std::pair<unsigned, unsigned> imageSize(const std::wstring& path);
     void forgetImage(const std::wstring& path);
@@ -141,7 +143,10 @@ private:
     ID2D1SolidColorBrush* brush_ = nullptr;
     std::map<Font, IDWriteTextFormat*> formats_;
     std::map<int, IDWriteTextFormat*> sized_;   // by size in tenths, negative for semibold
-    struct CachedImage { ID2D1Bitmap* bitmap = nullptr; unsigned w = 0, h = 0; bool failed = false; };
+    // `small` (0.87): a copy at most 192 px on its long side, drawn when the picture is shown small (a portrait in a
+    // list), so a page of them isn't scaled down from full-size bitmaps every frame.
+    struct CachedImage { ID2D1Bitmap* bitmap = nullptr; ID2D1Bitmap* small = nullptr; unsigned w = 0, h = 0; bool failed = false; };
+    ID2D1Bitmap* bitmapFor(CachedImage& img, const Rect& dst);
     std::map<std::wstring, CachedImage> images_;
     IWICImagingFactory* wic_ = nullptr;
     CachedImage* loadImage(const std::wstring& path);

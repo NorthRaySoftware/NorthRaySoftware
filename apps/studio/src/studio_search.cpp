@@ -93,14 +93,15 @@ std::vector<StudioApp::SearchHit> StudioApp::searchHits() const {
             add({nodeLabel(*n), n->kind == NodeKind::Scene ? L"scene" : n->kind == NodeKind::Part ? L"part" : L"chapter", 0, n->id, 0,
                  cjui::Icon::Writing});
         for (const Entry* e : lib_->entriesOf(book->worldId, book->worldId.empty() ? book->id : Id{})) {
-            std::wstring right = w(e->kind);
-            add({w(e->name), right, 1, e->id, 0, cjui::Icon::World});
-            for (const std::string& o : e->aliases) add({w(o), right + L"  (" + w(e->name) + L")", 1, e->id, 0, cjui::Icon::World});
+            std::wstring right = lower(w(entryKindLabel(e->kind)));
+            add({w(e->name), right, 1, e->id, 0, entryKindIcon(e->kind)});
+            for (const std::string& o : e->aliases) add({w(o), right + L"  (" + w(e->name) + L")", 1, e->id, 0, entryKindIcon(e->kind)});
         }
     }
     if (!book)   // no book in hand: every world's bible
         for (const World* wd : lib_->liveWorlds())
-            for (const Entry* e : lib_->entriesOf(wd->id, Id{})) add({w(e->name), w(e->kind) + L" in " + w(wd->name), 1, e->id, 0, cjui::Icon::World});
+            for (const Entry* e : lib_->entriesOf(wd->id, Id{}))
+                add({w(e->name), lower(w(entryKindLabel(e->kind))) + L" in " + w(wd->name), 1, e->id, 0, entryKindIcon(e->kind)});
     for (const Book* b : lib_->liveBooks()) add({w(b->title), L"book", 2, b->id, 0, cjui::Icon::Book});
     for (const World* wd : lib_->liveWorlds()) add({w(wd->name), L"world", 5, wd->id, 0, cjui::Icon::World});
     return hits;
@@ -194,7 +195,15 @@ void StudioApp::drawSearchResults() {
         const SearchHit hit = hits[i];
         addHit(id, r, [this, hit] { runSearchHit(hit); }, false);
         if (hovered(id) && topSel_ != (int)i) gfx_.fillRounded(r, 8, pal_.ink.withAlpha(0.04f));
-        cjui::drawIcon(gfx_, hit.icon, {r.x + 10, r.y + (rowH - 16) / 2, 16, 16}, (int)i == topSel_ ? pal_.ink : pal_.inkMuted, 1.4f);
+        if (hit.kind == 1) {
+            // A bible page: its portrait, with its kind's symbol (0.87).
+            if (const Entry* e = lib_ ? lib_->entry(hit.id) : nullptr) {
+                const float ps = std::min(26.0f, rowH - 6);
+                drawPortrait(*e, {r.x + 6, r.y + (rowH - ps) / 2, ps, ps}, ps / 2);
+                drawKindMark(e->kind, {r.x + 6 + ps - 10, r.y + (rowH + ps) / 2 - 11, 12, 12});
+            }
+        } else
+            cjui::drawIcon(gfx_, hit.icon, {r.x + 10, r.y + (rowH - 16) / 2, 16, 16}, (int)i == topSel_ ? pal_.ink : pal_.inkMuted, 1.4f);
         const float rw = std::min(gfx_.measureWidth(hit.right, Font::Small) + 8, r.w * 0.45f);
         gfx_.text(hit.label, {r.x + 36, r.y, r.w - 48 - rw, rowH}, (int)i == topSel_ ? Font::BodyStrong : Font::Body, pal_.ink,
                   {Align::Left, false, true, true});

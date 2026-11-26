@@ -284,6 +284,15 @@ void AppWindow::calmFace(const std::string& id, const Rect& r, const std::wstrin
     if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
     else if (text.size() > 1 && text[0] == L'\u2039') text.erase(0, text.size() > 1 && text[1] == L' ' ? 2 : 1);
     if (text.size() <= 1) ic = Icon::None;   // "+" and "-" on their own are already the symbol
+    // The writer's choice of how commands show (0.87): icons alone (their words as a tooltip), or words alone.
+    if (labelStyle() == LabelStyle::WordsOnly) ic = Icon::None;
+    if (labelStyle() == LabelStyle::IconsOnly && ic != Icon::None) {
+        const float isz = std::min(16.0f, b.h - 8);
+        drawIcon(gfx_, ic, {b.x + (b.w - isz) / 2, b.y + (b.h - isz) / 2, isz, isz}, enabled ? pal_.ink.mix(pal_.inkMuted, 0.2f * (1 - h)) : pal_.inkFaint, 1.5f);
+        if (!id.empty() && id[0] != '#') tooltip(id, text);
+        if (enabled && focused(id)) focusRing(b);
+        return;
+    }
     float isz = ic == Icon::None ? 0 : std::min(15.0f, b.h - 8);
     if (isz && gfx_.measureWidth(text, f) + isz + 6 + 10 > b.w) isz = 0;   // no room: the words come first
     const float tw = std::min(gfx_.measureWidth(text, f), b.w - (isz ? isz + 16 : 14));
@@ -292,6 +301,15 @@ void AppWindow::calmFace(const std::string& id, const Rect& r, const std::wstrin
     if (isz) drawIcon(gfx_, ic, {x0, b.y + (b.h - isz) / 2, isz, isz}, enabled ? pal_.inkMuted.mix(pal_.ink, h) : pal_.inkFaint, 1.4f);
     gfx_.text(text, {x0 + (isz ? isz + 6 : 0), b.y, tw + 2, b.h}, f, ink, {Align::Left, false, true, true});
     if (enabled && focused(id)) focusRing(b);
+}
+
+float AppWindow::buttonWidth(const std::wstring& label, Font f) {
+    std::wstring text = label;
+    if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+    Icon ic = text.size() <= 1 ? Icon::None : iconFor(label);
+    if (labelStyle() == LabelStyle::WordsOnly) ic = Icon::None;
+    if (labelStyle() == LabelStyle::IconsOnly && ic != Icon::None) return 36;
+    return gfx_.measureWidth(text, f) + 26 + (ic == Icon::None ? 0 : 21);
 }
 
 bool AppWindow::button(const std::string& id, const Rect& r, const std::wstring& label, std::function<void()> action,

@@ -102,6 +102,8 @@ struct Settings {
     bool typesetDesign = true;    // Typesetting's design choices shown in a card (0.71)
     bool previewChoices = true;   // Preview's device and reader's settings shown in a card (0.71)   // Writing shows the chapter's details in a card (0.70; F4)
     bool entryList = false;   // Worldbuilding shows entries as a list of rows rather than cards (0.59)
+    // How buttons and menus show commands (0.87): "both" (icons with words), "icons" (icons, words as tooltips), "words".
+    std::string labels = "both";
     // Books written in lately, newest first, each with the chapter it was on (0.58): NorthRay Launcher's Jump back in.
     std::vector<std::pair<std::string, std::string>> recentBooks;
     // The editor's writing view (font, size, width, focus, typewriter, spellcheck, hints, names), kept as the editor sends it.
@@ -124,9 +126,15 @@ struct StudioTimer {
     long long start;
 };
 
+// The bible's kinds at a glance (0.87): each kind's colour (the editor's links and name cards use the same ones) and
+// its symbol (a person, a paw, a house, a mountain, a shield, a gem, a scroll, a star, a flag, a speech bubble).
+cjui::Color entryKindColor(const std::string& kind, bool dark);
+cjui::Icon entryKindIcon(const std::string& kind);
+
 class StudioApp : public AppWindow {
 public:
-    struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; bool hasDot = false; };
+    // `icon` (0.87): drawn in the dot's colour in place of the dot.
+    struct PageTab { std::wstring label; int count = -1; bool on = false; std::function<void()> act; Color dot{}; bool hasDot = false; cjui::Icon icon = cjui::Icon::None; };
     // A row of tabs (the chosen one in strong ink over the accent); tabs that don't fit before `right` go in "More".
     // Returns the row's height.
     float pageTabs(const std::string& id, float x, float y, float right, const std::vector<PageTab>& tabs, const std::vector<PageTab>& more = {});
@@ -474,6 +482,17 @@ private:
     void chooseMapPicture(const Id& entryId);
     // Checks (studio_world.cpp): names spelt like a bible name, facts that disagree, entries never named.
     void drawChecks(const Rect& r);
+    // Pictures for pages (0.87): the page's picture filling `r` with corners of `radius` (a circle when it's half the
+    // side), else its chosen symbol (an emoji or a drawn one) or its initials, on its kind's colour.
+    void drawPortrait(const studio::Entry& e, const Rect& r, float radius);
+    // The kind's symbol on a disc of its colour, `r` square; with a tooltip naming the kind when `tipId` is given.
+    void drawKindMark(const std::string& kind, const Rect& r, const std::string& tipId = {});
+    // Choose a page's symbol: emoji, drawn symbols, or none (its initials).
+    void chooseEntrySymbol(const Id& entryId);
+    // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
+    void drawMoonDisc(float cx, float cy, float rad, double phase);
+    // A small calendar page: the month's name over the day, for a date on a card (0.87).
+    void drawDateChip(const Rect& r, int day, const std::wstring& month);
     void checkIsFine(const std::string& key);
     void drawGlossary(const Rect& r);   // every name in the bible, A to Z, with how it's said
     void shareBible();                  // a website or a printable PDF: everything, or a reader's guide
@@ -930,6 +949,9 @@ private:
         std::vector<std::pair<std::wstring, float>> anchors;   // an entry page's sections and where they start (0.48.4), for the jump row       // Places as an outline (0.48.3): continents > nations > cities, dragged to nest
         std::set<Id> collapsed;    // creature tree: families closed
         Id entry;                  // the entry open ("" = the cards)
+        // An entry's relationships as a list or a web of portraits (0.87), and the kinds of link the web leaves out.
+        int relView = 0;
+        std::set<std::string> relHidden;
         std::string section;       // the page section being written in the panel
         Id noteBook;               // whose notes the panel shows ("" = the book open in Writing, or the first)
         bool editTemplate = false; // the panel edits the kind's page template

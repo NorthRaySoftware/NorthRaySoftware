@@ -150,6 +150,8 @@ protected:
                 bool primary = false);
     void disabledButton(const Rect& r, const std::wstring& label);
     void calmFace(const std::string& id, const Rect& r, const std::wstring& label, Font f, bool enabled);
+    // The width a calm button needs for `label` in the current label style (0.87): words with their icon, or the icon alone.
+    float buttonWidth(const std::wstring& label, Font f = Font::Body);
     bool linkText(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> action,
                   Font f = Font::Small);
     void segmented(const std::string& id, const Rect& r, const std::vector<std::wstring>& options, int selected,

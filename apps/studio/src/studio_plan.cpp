@@ -635,6 +635,17 @@ void StudioApp::drawPlanBoard(const Rect& r) {
     if (pl_.cardEdit >= 0 && (pl_.node.empty() || !lib_->node(pl_.node))) pl_.cardEdit = -1;
     bool editPlaced = false;
 
+    // What the cards show as pictures (0.87): each one's place, and its date in the calendar with the first moon's phase.
+    const std::map<Id, Id> places = plan::nodePlaces(*lib_, pl_.book);
+    const cal::Calendar cardCal = cal::calendarOfBook(*lib_, pl_.book);
+    const cal::StorySpan cardSpan = cal::storySpan(*lib_, pl_.book);
+    const nlohmann::json cardTl = nlohmann::json::parse(lib_->setting("timeline:" + pl_.book), nullptr, false);
+    auto cardDay = [&](const Id& nid) -> std::optional<std::int64_t> {
+        if (!cardSpan.on || cardCal.empty() || !cardTl.is_object() || !cardTl.contains("nodes") || !cardTl["nodes"].contains(nid)) return std::nullopt;
+        const auto& v = cardTl["nodes"][nid];
+        if (!v.is_object() || !v.contains("day") || !v["day"].is_number()) return std::nullopt;
+        return cardSpan.start + (std::int64_t)std::floor(v["day"].get<double>());
+    };
     // One card, drawn and made live at `cr`.
     auto drawCard = [&](const ManuscriptNode* n, const Rect& cr, int chapterNo, int sceneNo) {
         if (pl_.node == n->id) pl_.selCard = cr;
@@ -709,8 +720,28 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             invalidate();
         });
         tooltip(sid, L"Change its status");
-        if (hoverAmount(sid) > 0.01f) gfx_.fillRounded(stR, 4, statusColour(n->status).withAlpha(0.12f * hoverAmount(sid)));
-        gfx_.text(st, {ix, cr.y + 12, iw, 16}, Font::Label, statusColour(n->status), {Align::Right, false});
+        // A badge in the status's colour, with its word (0.87).
+        gfx_.fillRounded(stR, 11, statusColour(n->status).withAlpha((pal_.dark ? 0.22f : 0.13f) + 0.12f * hoverAmount(sid)));
+        gfx_.strokeRounded(stR, 11, statusColour(n->status).withAlpha(0.55f), 1);
+        gfx_.text(st, stR, Font::Label, statusColour(n->status).mix(pal_.ink, 0.25f), {Align::Center, false, false, true});
+        // Its date as a little calendar page, with the moon (0.87).
+        if (const auto day = cardDay(n->id)) {
+            const cal::Date d = cal::fromDay(cardCal, *day);
+            const float kw = gfx_.measureWidth(kicker, Font::Label);
+            const Rect chip{ix + kw + 10, cr.y + 7, 24, 24};
+            if (chip.right() + (cardCal.moons.empty() ? 0 : 16) < stR.x - 4) {
+                drawDateChip(chip, d.day, w(cal::monthLabel(cardCal, d.month)));
+                const std::string did = "pl:card:" + n->id + "|date";
+                addHit(did, chip, nullptr, false);
+                std::wstring tip = w(cal::formatDate(cardCal, d));
+                if (!cardCal.moons.empty()) {
+                    const double ph = cal::moonPhase(cardCal, cardCal.moons[0], *day);
+                    drawMoonDisc(chip.right() + 9, chip.y + 12, 5.5f, ph);
+                    tip += L"  \u00B7  " + w(cardCal.moons[0].name + ": " + cal::phaseName(ph));
+                }
+                tooltip(did, tip);
+            }
+        }
         // The title: click to rename it here.
         const Rect titleR{ix - 4, cr.y + 27, iw + 6, 24};
         const bool editingTitle = sel && pl_.cardEdit == FName;
@@ -787,8 +818,28 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (who.empty() && (sel || vh > 0.01f)) who = L"Choose a viewpoint…";
             if (!who.empty()) {
                 float wx = ix;
-                if (hasPov) { gfx_.circle(ix + 4, whoY + 9, 4, pc, true); wx += 13; }
-                gfx_.text(who, {wx, whoY, iw - (wx - ix), 18}, Font::Small, hasPov ? pal_.ink : pal_.inkFaint, {Align::Left, false, true});
+                // The viewpoint's portrait, ringed in its colour; who's there as small portraits at the right (0.87).
+                std::vector<const Entry*> faces;
+                for (const Id& eid : chosen.empty() ? (pl_.appearances.count(n->id) ? pl_.appearances[n->id] : std::vector<Id>{}) : chosen)
+                    if (const Entry* e = entryName(eid); e && eid != n->povId && (e->kind == "character" || e->kind == "creature")) faces.push_back(e);
+                const size_t most = faces.size() > 4 ? 3 : faces.size();
+                const float facesW = most ? 16 + 11.0f * (float)(most - 1) + (faces.size() > most ? 22 : 0) : 0;
+                if (const Entry* pov = entryName(n->povId)) {
+                    drawPortrait(*pov, {ix, whoY - 1, 20, 20}, 10);
+                    gfx_.strokeRounded({ix - 1.5f, whoY - 2.5f, 23, 23}, 11.5f, pc, 1.6f);
+                    wx += 26;
+                    gfx_.text(w(pov->name), {wx, whoY, iw - (wx - ix) - facesW - 6, 18}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+                } else if (faces.empty())
+                    gfx_.text(who, {wx, whoY, iw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+                float fx = ix + iw - facesW;
+                for (size_t k = 0; k < most; ++k) {
+                    drawPortrait(*faces[k], {fx, whoY + 1, 16, 16}, 8);
+                    gfx_.strokeRounded({fx - 1, whoY, 18, 18}, 9, paperCard, 1.5f);
+                    fx += 11;
+                }
+                if (faces.size() > most)
+                    gfx_.text(L"+" + std::to_wstring(faces.size() - most), {fx + 7, whoY, 22, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
+                tooltip(vid, who.rfind(L"Choose", 0) == 0 ? L"Choose whose eyes it's seen through" : who + L"\nClick to choose the viewpoint");
             }
         }
         // Its plot threads, as tags.
@@ -813,6 +864,28 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (i < it->second.size())
                 gfx_.text(L"+" + std::to_wstring(it->second.size() - i), {tx, ty, 30, 17}, Font::Small, pal_.inkFaint, {Align::Left, false, false, true});
         }
+        // Its threads as coloured stripes along the foot of the card (0.87).
+        if (auto it = threads.nodes.find(n->id); it != threads.nodes.end() && !it->second.empty()) {
+            std::vector<Color> cs;
+            for (auto& tid : it->second) if (const plan::Thread* t = threads.find(tid)) cs.push_back(cjui::hexColor(t->colour.c_str()));
+            if (!cs.empty()) {
+                const float sw = (cr.w - 6) / cs.size();
+                for (size_t k = 0; k < cs.size(); ++k) gfx_.fill({cr.x + 3 + sw * k, cr.bottom() - 5, sw - (k + 1 < cs.size() ? 2 : 0), 4}, cs[k]);
+            }
+        }
+        // Where it happens: the place's symbol and name at the foot, right (0.87).
+        float placeW = 0;
+        if (auto pit = places.find(n->id); pit != places.end())
+            if (const Entry* pe = entryName(pit->second)) {
+                const std::wstring pn = w(pe->name);
+                placeW = std::min(iw * 0.5f, gfx_.measureWidth(pn, Font::Small) + 20);
+                const float py = cr.bottom() - 22;
+                drawKindMark(pe->kind, {ix + iw - placeW, py + 1, 14, 14});
+                gfx_.text(pn, {ix + iw - placeW + 18, py, placeW - 18, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
+                const std::string plid = "pl:card:" + n->id + "|place";
+                addHit(plid, {ix + iw - placeW, py, placeW, 18}, nullptr, false);
+                tooltip(plid, L"Where it happens: " + pn);
+            }
         // Length against the target.
         const float fy = cr.bottom() - 22;
         std::int64_t words = n->wordCount;
@@ -825,7 +898,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             gfx_.fillRounded({ix, fy - 6, iw, 3}, 1.5f, pal_.rule);
             if (f > 0) gfx_.fillRounded({ix, fy - 6, std::max(3.0f, iw * f), 3}, 1.5f, words >= n->targetWords ? pal_.ink : pal_.ribbon);
         }
-        gfx_.text(len, {ix, fy, iw, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+        gfx_.text(len, {ix, fy, iw - placeW - 6, 18}, Font::Small, pal_.inkFaint, {Align::Left, false, true, true});
         if (focused(id)) focusRing(cr);
     };
 

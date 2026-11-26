@@ -183,9 +183,109 @@ void drawIcon(Gfx& g, Icon icon, const Rect& box, Color c, float width) {
             L(8, 1.5f, 8, 5), L(8, 11, 8, 14.5f), L(1.5f, 8, 5, 8), L(11, 8, 14.5f, 8);
             L(3.5f, 3.5f, 5.5f, 5.5f), L(10.5f, 10.5f, 12.5f, 12.5f), L(12.5f, 3.5f, 10.5f, 5.5f), L(5.5f, 10.5f, 3.5f, 12.5f);
             break;
+        case Icon::Calendar:
+            R(2, 3, 12, 11, 1.5f), L(2, 6.5f, 14, 6.5f), L(5, 1.5f, 5, 4.5f), L(11, 1.5f, 11, 4.5f);
+            D(5.5f, 9.3f, 0.85f), D(8, 9.3f, 0.85f), D(10.5f, 9.3f, 0.85f), D(5.5f, 11.8f, 0.85f), D(8, 11.8f, 0.85f);
+            break;
+        case Icon::Moon:   // a crescent: the outer arc, and an inner one through its ends
+            A(8, 8, 6, kPi * 0.4f, kPi * 1.6f), A(12.5f, 8, 6.29f, kPi * 0.638f, kPi * 1.362f);
+            break;
+        case Icon::Clock: C(8, 8, 6), L(8, 8, 8, 4.3f), L(8, 8, 10.6f, 9.6f); break;
+        case Icon::Flag: L(3.5f, 14.5f, 3.5f, 1.5f), L(3.5f, 2, 12.5f, 2), L(12.5f, 2, 10.3f, 5), L(10.3f, 5, 12.5f, 8), L(12.5f, 8, 3.5f, 8); break;
+        case Icon::Scroll:   // lore: a scroll with writing
+            R(3.5f, 2, 9, 12, 1), C(3.5f, 3.5f, 1.5f), C(12.5f, 12.5f, 1.5f);
+            L(5.8f, 5, 10.2f, 5), L(5.8f, 7.5f, 10.2f, 7.5f), L(5.8f, 10, 9, 10);
+            break;
+        case Icon::Paw: D(8, 10.6f, 2.8f), D(3.9f, 6.6f, 1.45f), D(6.5f, 3.9f, 1.45f), D(9.5f, 3.9f, 1.45f), D(12.1f, 6.6f, 1.45f); break;
+        case Icon::House:   // a place
+            L(1.8f, 7.5f, 8, 2), L(8, 2, 14.2f, 7.5f), L(3.5f, 6.2f, 3.5f, 14), L(12.5f, 6.2f, 12.5f, 14), L(3.5f, 14, 12.5f, 14);
+            R(6.5f, 9.5f, 3, 4.5f, 0.5f);
+            break;
+        case Icon::Mountain:   // a realm
+            L(1, 13.5f, 6, 5), L(6, 5, 9, 10), L(8, 8.4f, 10.5f, 4.5f), L(10.5f, 4.5f, 15, 13.5f), L(1, 13.5f, 15, 13.5f);
+            C(3.8f, 2.8f, 1.2f);
+            break;
+        case Icon::Shield:   // a group or faction
+            L(8, 1.5f, 13.5f, 3.5f), L(13.5f, 3.5f, 13, 9), L(13, 9, 8, 14.5f), L(8, 14.5f, 3, 9), L(3, 9, 2.5f, 3.5f), L(2.5f, 3.5f, 8, 1.5f);
+            L(8, 4, 8, 12);
+            break;
+        case Icon::Gem:   // a thing
+            L(4, 2.5f, 12, 2.5f), L(12, 2.5f, 14.5f, 6), L(14.5f, 6, 8, 14), L(8, 14, 1.5f, 6), L(1.5f, 6, 4, 2.5f), L(1.5f, 6, 14.5f, 6);
+            L(6, 6, 8, 14), L(10, 6, 8, 14);
+            break;
+        case Icon::Star: {   // magic
+            float px[10], py[10];
+            for (int i = 0; i < 10; ++i) {
+                const float a = -kPi / 2 + kPi * i / 5, rr = i % 2 ? 2.7f : 6.5f;
+                px[i] = 8 + rr * std::cos(a), py[i] = 8.6f + rr * std::sin(a);
+            }
+            for (int i = 0; i < 10; ++i) L(px[i], py[i], px[(i + 1) % 10], py[(i + 1) % 10]);
+            break;
+        }
+        case Icon::Speech:   // a language
+            R(1.5f, 2, 13, 9.5f, 2), L(4.5f, 11.5f, 3.5f, 14.5f), L(3.5f, 14.5f, 7.5f, 11.5f);
+            L(5.2f, 9, 8, 4), L(8, 4, 10.8f, 9), L(6.2f, 7.4f, 9.8f, 7.4f);
+            break;
+        case Icon::People:   // a race
+            C(5.3f, 5, 2.2f), A(5.3f, 14, 4.6f, -kPi * 0.95f, -kPi * 0.05f);
+            C(11.2f, 5.8f, 1.9f), A(11.2f, 14, 3.9f, -kPi * 0.9f, -kPi * 0.1f);
+            break;
+        case Icon::Tree:   // a family tree
+            C(8, 3, 1.8f), C(3.5f, 12.8f, 1.8f), C(12.5f, 12.8f, 1.8f);
+            L(8, 4.8f, 8, 8), L(3.5f, 8, 12.5f, 8), L(3.5f, 8, 3.5f, 11), L(12.5f, 8, 12.5f, 11);
+            break;
+        case Icon::Web:   // relationships
+            C(8, 8, 1.9f), C(2.8f, 3.3f, 1.5f), C(13.2f, 3.3f, 1.5f), C(2.8f, 12.7f, 1.5f), C(13.2f, 12.7f, 1.5f);
+            L(6.6f, 6.7f, 3.9f, 4.3f), L(9.4f, 6.7f, 12.1f, 4.3f), L(6.6f, 9.3f, 3.9f, 11.7f), L(9.4f, 9.3f, 12.1f, 11.7f);
+            L(4.3f, 3.3f, 11.7f, 3.3f);
+            break;
+        case Icon::Thread: L(1.5f, 11.5f, 5, 5), L(5, 5, 9, 11.5f), L(9, 11.5f, 14.5f, 4); break;
+        case Icon::Warning:
+            L(8, 2, 14.5f, 13.5f), L(14.5f, 13.5f, 1.5f, 13.5f), L(1.5f, 13.5f, 8, 2), L(8, 6, 8, 9.5f);
+            D(8, 11.6f, 0.85f);
+            break;
+        case Icon::Timeline:
+            L(1.5f, 11, 14.5f, 11), D(3.5f, 11, 1.4f), D(12.5f, 11, 1.4f), D(8, 11, 1.4f);
+            L(8, 11, 8, 3), L(8, 3, 12, 4.4f), L(12, 4.4f, 8, 5.8f);
+            break;
     }
     (void)F;
 }
+
+namespace {
+LabelStyle gLabels = LabelStyle::Both;
+struct Named { Icon icon; const char* name; };
+const std::vector<Named>& names() {
+    static const std::vector<Named> n{
+        {Icon::Person, "person"}, {Icon::People, "people"}, {Icon::Paw, "paw"}, {Icon::House, "house"}, {Icon::Mountain, "mountain"},
+        {Icon::Shield, "shield"}, {Icon::Gem, "gem"}, {Icon::Scroll, "scroll"}, {Icon::Star, "star"}, {Icon::Flag, "flag"},
+        {Icon::Speech, "speech"}, {Icon::Moon, "moon"}, {Icon::Spark, "spark"}, {Icon::Book, "book"}, {Icon::Map, "map"},
+        {Icon::Pin, "pin"}, {Icon::Eye, "eye"}, {Icon::Target, "target"}, {Icon::Clock, "clock"}, {Icon::Calendar, "calendar"},
+        {Icon::Tree, "tree"}, {Icon::Web, "web"}, {Icon::Thread, "thread"}, {Icon::Warning, "warning"}, {Icon::Timeline, "timeline"},
+        {Icon::Camera, "camera"}, {Icon::Picture, "picture"}, {Icon::Font, "font"}, {Icon::Link, "link"}, {Icon::World, "world"},
+        {Icon::Writing, "pen"}, {Icon::Comment, "comment"}, {Icon::Archive, "chest"}, {Icon::Settings, "gear"}};
+    return n;
+}
+}  // namespace
+
+const char* iconName(Icon icon) {
+    for (auto& n : names()) if (n.icon == icon) return n.name;
+    return "";
+}
+Icon iconNamed(const std::string& name) {
+    for (auto& n : names()) if (name == n.name) return n.icon;
+    return Icon::None;
+}
+const std::vector<Icon>& symbolIcons() {
+    static const std::vector<Icon> v = [] {
+        std::vector<Icon> out;
+        for (auto& n : names()) out.push_back(n.icon);
+        return out;
+    }();
+    return v;
+}
+void setLabelStyle(LabelStyle s) { gLabels = s; }
+LabelStyle labelStyle() { return gLabels; }
 
 Icon iconFor(const std::wstring& label) {
     std::wstring t;
@@ -222,6 +322,21 @@ Icon iconFor(const std::wstring& label) {
     if (starts(L"move")) return Icon::Folder;
     if (has(L"pdf") || has(L"print")) return Icon::Typeset;
     if (has(L"epub") || has(L"ebook")) return Icon::Book;
+    // 0.87: more of the Studio's own commands.
+    if (has(L"calendar") || starts(L"date") || has(L" date") || has(L"dates")) return Icon::Calendar;
+    if (has(L"timeline")) return Icon::Timeline;
+    if (has(L"relationship")) return Icon::Web;
+    if (has(L"language")) return Icon::Speech;
+    if (has(L"glossary")) return Icon::Book;
+    if (starts(L"check") || has(L"checks")) return Icon::Warning;
+    if (has(L"thread")) return Icon::Thread;
+    if (has(L"structure") || has(L"beat")) return Icon::Target;
+    if (has(L"chapter") || has(L"scene")) return Icon::Typeset;
+    if (has(L"plan")) return Icon::Planning;
+    if (has(L"bible") || has(L"entry")) return Icon::World;
+    if (has(L"review")) return Icon::Review;
+    if (has(L"target") || has(L"goal")) return Icon::Target;
+    if (has(L"tools")) return Icon::More;
     return Icon::None;
 }
 

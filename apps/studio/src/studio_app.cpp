@@ -125,6 +125,9 @@ void StudioApp::loadSettings() {
     settings_.lastNode = cj::valueOr(j, "lastNode", "");
     settings_.lastInWriting = cj::valueOr(j, "lastInWriting", false);
     settings_.entryList = cj::valueOr(j, "entryList", false);
+    settings_.labels = cj::valueOr(j, "labels", std::string("both"));
+    cjui::setLabelStyle(settings_.labels == "icons" ? cjui::LabelStyle::IconsOnly : settings_.labels == "words" ? cjui::LabelStyle::WordsOnly
+                                                                                                              : cjui::LabelStyle::Both);
     settings_.writingDetails = cj::valueOr(j, "writingDetails", false);
     settings_.typesetDesign = cj::valueOr(j, "typesetDesign", true);
     settings_.previewChoices = cj::valueOr(j, "previewChoices", true);
@@ -154,6 +157,7 @@ void StudioApp::saveSettings() {
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
     j["entryList"] = settings_.entryList;
+    j["labels"] = settings_.labels;
     j["writingDetails"] = settings_.writingDetails;
     j["typesetDesign"] = settings_.typesetDesign;
     j["previewChoices"] = settings_.previewChoices;

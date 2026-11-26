@@ -73,7 +73,7 @@ bool Gfx::createTarget() {
 }
 
 void Gfx::discardTarget() {
-    for (auto& [p, img] : images_) release(img.bitmap);
+    for (auto& [p, img] : images_) { release(img.bitmap); release(img.small); }
     images_.clear();  // bitmaps belong to the render target
     release(brush_);
     release(rt_);
@@ -127,19 +127,63 @@ Gfx::CachedImage* Gfx::loadImage(const std::wstring& path) {
                                         WICBitmapPaletteTypeMedianCut)) &&
              SUCCEEDED(rt_->CreateBitmapFromWicBitmap(conv, nullptr, &img.bitmap));
     }
+    // The small copy (0.87), for pictures much bigger than a portrait.
+    if (ok && std::max(img.w, img.h) > 288) {
+        IWICBitmapScaler* sc = nullptr;
+        IWICFormatConverter* cv = nullptr;
+        const double k = 192.0 / std::max(img.w, img.h);
+        if (SUCCEEDED(wic_->CreateBitmapScaler(&sc)) &&
+            SUCCEEDED(sc->Initialize(frame, (UINT)std::max(1.0, img.w * k), (UINT)std::max(1.0, img.h * k), WICBitmapInterpolationModeFant)) &&
+            SUCCEEDED(wic_->CreateFormatConverter(&cv)) &&
+            SUCCEEDED(cv->Initialize(sc, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeMedianCut)))
+            rt_->CreateBitmapFromWicBitmap(cv, nullptr, &img.small);
+        release(cv);
+        release(sc);
+    }
     release(conv);
     release(scaler);
     release(frame);
     release(dec);
-    if (!ok) { release(img.bitmap); return nullptr; }
+    if (!ok) { release(img.bitmap); release(img.small); return nullptr; }
     img.failed = false;
     return &img;
+}
+
+ID2D1Bitmap* Gfx::bitmapFor(CachedImage& img, const Rect& dst) {
+    if (img.small) {
+        const D2D1_SIZE_F ss = img.small->GetSize();
+        // Shown no bigger than the small copy holds (in pixels), it's as sharp and much cheaper.
+        if (std::max(dst.w, dst.h) * dpiScale() <= std::max(ss.width, ss.height) * 1.05f) return img.small;
+    }
+    return img.bitmap;
+}
+
+bool Gfx::drawImageRounded(const std::wstring& path, const Rect& dst, float radius, float opacity) {
+    CachedImage* img = loadImage(path);
+    if (!img || !img->bitmap || dst.w <= 0 || dst.h <= 0 || !rt_) return false;
+    ID2D1Bitmap* bm = bitmapFor(*img, dst);
+    const D2D1_SIZE_F bs = bm->GetSize();
+    // Cover: the centre of the picture, cropped to the shape's proportions.
+    float sx = 0, sy = 0, sw = bs.width, sh = bs.height;
+    const float ia = bs.width / bs.height, da = dst.w / dst.h;
+    if (ia > da) { sw = bs.height * da; sx = (bs.width - sw) / 2; }
+    else { sh = bs.width / da; sy = (bs.height - sh) / 4; }   // a portrait: nearer the top, where faces are
+    ID2D1BitmapBrush* br = nullptr;
+    if (FAILED(rt_->CreateBitmapBrush(bm, &br)) || !br) return false;
+    br->SetInterpolationMode(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    br->SetOpacity(opacity);
+    br->SetTransform(D2D1::Matrix3x2F::Translation(-sx, -sy) * D2D1::Matrix3x2F::Scale(dst.w / sw, dst.h / sh) *
+                     D2D1::Matrix3x2F::Translation(dst.x, dst.y));
+    rt_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(dst.x, dst.y, dst.right(), dst.bottom()), radius, radius), br);
+    br->Release();
+    return true;
 }
 
 bool Gfx::drawImage(const std::wstring& path, const Rect& dst, bool cover, float opacity) {
     CachedImage* img = loadImage(path);
     if (!img || !img->bitmap || dst.w <= 0 || dst.h <= 0) return false;
-    const D2D1_SIZE_F bs = img->bitmap->GetSize();
+    ID2D1Bitmap* bm = bitmapFor(*img, dst);
+    const D2D1_SIZE_F bs = bm->GetSize();
     D2D1_RECT_F srcR = D2D1::RectF(0, 0, bs.width, bs.height);
     D2D1_RECT_F dstR = D2D1::RectF(dst.x, dst.y, dst.right(), dst.bottom());
     const float ia = bs.width / bs.height, da = dst.w / dst.h;
@@ -150,7 +194,7 @@ bool Gfx::drawImage(const std::wstring& path, const Rect& dst, bool cover, float
         if (ia > da) { const float h = dst.w / ia; dstR.top = dst.y + (dst.h - h) / 2; dstR.bottom = dstR.top + h; }
         else { const float w = dst.h * ia; dstR.left = dst.x + (dst.w - w) / 2; dstR.right = dstR.left + w; }
     }
-    rt_->DrawBitmap(img->bitmap, dstR, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcR);
+    rt_->DrawBitmap(bm, dstR, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcR);
     return true;
 }
 
@@ -190,7 +234,14 @@ void Gfx::forgetImage(const std::wstring& path) {
     auto it = images_.find(path);
     if (it == images_.end()) return;
     release(it->second.bitmap);
+    release(it->second.small);
     images_.erase(it);
+}
+
+// Text in colour fonts (emoji: a page's symbol, 0.87) is drawn in its own colours (D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+// Windows 8.1 and later; older headers don't name it).
+static D2D1_DRAW_TEXT_OPTIONS textOptions(bool clip) {
+    return (D2D1_DRAW_TEXT_OPTIONS)((clip ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE) | 0x00000004);
 }
 
 ID2D1SolidColorBrush* Gfx::brush(Color c) {
@@ -419,7 +470,7 @@ float Gfx::textSized(const std::wstring& s, const Rect& r, float size, bool stro
     if (!tl) return 0;
     DWRITE_TEXT_METRICS m{};
     tl->GetMetrics(&m);
-    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), o.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
+    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
     tl->Release();
     return m.height;
 }
@@ -464,8 +515,7 @@ float Gfx::text(const std::wstring& s, const Rect& r, Font f, Color c, TextOpts 
     if (!tl) return 0;
     DWRITE_TEXT_METRICS m{};
     tl->GetMetrics(&m);
-    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c),
-                        o.ellipsis ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
+    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
     tl->Release();
     if (text_.size() < 4000) text_.push_back({r.x + m.left, r.y + m.top, std::min(m.width, r.w), m.height});
     return m.height;

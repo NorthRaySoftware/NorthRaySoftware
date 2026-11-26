@@ -627,8 +627,11 @@ void StudioApp::drawRail(const Rect& r) {
         if (!on && hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 3, b.w - 4, b.h - 6}, 10, pal_.ink.withAlpha(0.05f * hv));
         const Color c = on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv);
         const float lift = 2.0f * hv;
-        cjui::drawIcon(gfx_, icon, {b.x + (b.w - 22) / 2, b.y + 8 - lift, 22, 22}, on ? pal_.ribbon.mix(pal_.ink, pal_.dark ? 0.1f : 0.35f) : c, 1.6f);
-        gfx_.text(label, {b.x, b.y + 33 - lift, b.w, 16}, on ? Font::SmallStrong : Font::Small, c, {Align::Center, false, true});
+        // Icons only (0.87): the icon centred, its name in the tooltip.
+        const bool iconsOnly = cjui::labelStyle() == cjui::LabelStyle::IconsOnly;
+        const float iy0 = iconsOnly ? b.y + (b.h - 24) / 2 - lift : b.y + 8 - lift;
+        cjui::drawIcon(gfx_, icon, {b.x + (b.w - 22) / 2, iy0, 22, 22}, on ? pal_.ribbon.mix(pal_.ink, pal_.dark ? 0.1f : 0.35f) : c, 1.6f);
+        if (!iconsOnly) gfx_.text(label, {b.x, b.y + 33 - lift, b.w, 16}, on ? Font::SmallStrong : Font::Small, c, {Align::Center, false, true});
         if (focused(id)) focusRing(b.inset(2));
     };
     for (int i = 0; i < tabCount(); ++i) {
@@ -1068,7 +1071,7 @@ float StudioApp::pageTabs(const std::string& id, float x, float y, float right, 
     auto widthOf = [&](const PageTab& t) {
         float tw = gfx_.measureWidth(t.label, t.on ? Font::BodyStrong : Font::Body) + 24;
         if (t.count >= 0) tw += gfx_.measureWidth(std::to_wstring(t.count), Font::Small) + 7;
-        if (t.hasDot) tw += 14;
+        if (t.hasDot) tw += t.icon != cjui::Icon::None ? 20 : 14;
         return tw;
     };
     // What fits; the rest (and those given as "more") under More.
@@ -1096,7 +1099,10 @@ float StudioApp::pageTabs(const std::string& id, float x, float y, float right, 
         const float hv = hoverAmount(tid);
         if (!t.on && hv > 0.01f) gfx_.fillRounded({b.x + 2, b.y + 5, b.w - 4, b.h - 10}, 7, pal_.ink.withAlpha(0.05f * hv));
         float lx = b.x + 12;
-        if (t.hasDot) { gfx_.circle(lx + 3.5f, b.y + h / 2, 3.5f, t.dot, true); lx += 14; }
+        if (t.hasDot && t.icon != cjui::Icon::None) {
+            cjui::drawIcon(gfx_, t.icon, {lx, b.y + h / 2 - 7.5f, 15, 15}, t.dot, 1.4f);
+            lx += 20;
+        } else if (t.hasDot) { gfx_.circle(lx + 3.5f, b.y + h / 2, 3.5f, t.dot, true); lx += 14; }
         const Font f = t.on ? Font::BodyStrong : Font::Body;
         const float lw = gfx_.measureWidth(t.label, f);
         gfx_.text(t.label, {lx, b.y, lw + 2, h}, f, t.on ? pal_.ink : pal_.inkMuted.mix(pal_.ink, hv), {Align::Left, false, false, true});
@@ -1247,9 +1253,7 @@ void StudioApp::editableArea(const std::string& id, const Rect& r, const std::ws
 
 bool StudioApp::smallButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> act, float* outW) {
     // As wide as the words, with room for the icon its words give it (the calm controls, 0.64).
-    std::wstring text = label;
-    if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
-    const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
+    const float bw = buttonWidth(label);   // icons and words, or the icon alone (0.87)
     if (outW) *outW = bw;
     return button(id, {x, y, bw, 30}, label, std::move(act));
 }
@@ -1258,9 +1262,7 @@ bool StudioApp::smallButton(const std::string& id, float x, float y, const std::
 float StudioApp::actionRow(float x, float y, float maxW, const std::vector<Action>& actions) {
     float bx = x, by = y;
     for (const Action& a : actions) {
-        std::wstring text = a.label;
-        if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
-        const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(a.label) == cjui::Icon::None ? 0 : 21);
+        const float bw = buttonWidth(a.label);
         if (bx > x && bx + bw > x + maxW) bx = x, by += 38;
         smallButton(a.id, bx, by, a.label, a.act, nullptr);
         bx += bw + 8;
@@ -1547,7 +1549,7 @@ float StudioApp::emptyState(const Rect& area, cjui::Icon icon, const std::wstrin
     if (!label.empty()) {
         std::wstring text = label;
         if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
-        const float bw = gfx_.measureWidth(text, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
+        const float bw = buttonWidth(label);
         button("empty:act", {cx - bw / 2, y, bw, 30}, label, std::move(act));
         y += 30;
     }
@@ -2218,7 +2220,7 @@ float StudioApp::pageBook(const Rect& r) {
             card(rr, 12);
             gfx_.text(title, {rr.x + 18, rr.y + 14, rr.w - 260, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
             gfx_.text(about, {rr.x + 18, rr.y + 38, rr.w - 260, 34}, Font::Small, pal_.inkMuted);
-            const float lw = gfx_.measureWidth(label, Font::Body) + 26 + (cjui::iconFor(label) == cjui::Icon::None ? 0 : 21);
+            const float lw = buttonWidth(label);
             smallButton(id, rr.right() - 18 - lw, rr.y + 23, label, std::move(act));
             y += 76 + 12;
         };
@@ -2660,6 +2662,17 @@ float StudioApp::pageSettings(const Rect& r0) {
         });
     }
     y += 40;
+    rowLabel(L"Buttons and menus show");   // (0.87)
+    segmented("set:labels", {cx, y, cw, 28}, {L"Icons and words", L"Icons", L"Words"},
+              settings_.labels == "icons" ? 1 : settings_.labels == "words" ? 2 : 0, [this](int i) {
+                  settings_.labels = i == 1 ? "icons" : i == 2 ? "words" : "both";
+                  cjui::setLabelStyle(i == 1 ? cjui::LabelStyle::IconsOnly : i == 2 ? cjui::LabelStyle::WordsOnly : cjui::LabelStyle::Both);
+                  saveSettings();
+                  invalidate();
+              });
+    y += 34;
+    y += gfx_.text(L"With icons only, each button's words show when the pointer rests on it, and menus keep their words.",
+                   {cx, y, cw, 40}, Font::Small, pal_.inkFaint) + 12;
     rowLabel(L"Chapter details in Writing");   // (the other workspaces show details where they're needed, 0.71)
     segmented("set:panel", {cx, y, cw, 28}, {L"Shown", L"Hidden"}, settings_.writingDetails ? 0 : 1, [this](int i) {
         settings_.writingDetails = i == 0; saveSettings();

@@ -1,4 +1,5 @@
 #include "cjui/menu.hpp"
+#include "cjui/icons.hpp"
 
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -198,6 +199,12 @@ struct Session {
                 const Color c = m.enabled ? pal.ribbon : pal.inkFaint;
                 L.gfx.line(cx - 5, cy, cx - 1.5f, cy + 3.5f, c, 1.6f);
                 L.gfx.line(cx - 1.5f, cy + 3.5f, cx + 5, cy - 4, c, 1.6f);
+            } else if (labelStyle() != LabelStyle::WordsOnly) {
+                // The command's icon in the gutter (0.87); menus keep their words whatever the style.
+                if (const Icon ic = iconFor(m.label); ic != Icon::None) {
+                    const float isz = std::min(14.0f, r.h - 10);
+                    drawIcon(L.gfx, ic, {r.x + (kGutter - isz) / 2, r.y + (r.h - isz) / 2, isz, isz}, m.enabled ? pal.inkMuted : pal.inkFaint, 1.3f);
+                }
             }
             const float tx = r.x + kGutter;
             L.gfx.text(m.label, {tx, r.y, r.right() - tx - 8, r.h}, Font::Body, ink, {Align::Left, false, true, true});
