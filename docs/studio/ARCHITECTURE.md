@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.81.1: wider days for times of day (26 Nov 2026)
+
+CJ: a time of day moving a card along its day wasn't noticeable enough (a fitted day could be 36 px, under a card's width). He chose wider days.
+
+- `drawPlanTimeline`: `anyTimed` is set when a placed card (calendar dates, a clock or named time) or a placed story event has a time of day; then the fitted width of a day is at least three cards and their gaps (`3 * cardW + 24`, 420 px) instead of 36–220, and the timeline scrolls along (Shift+wheel) when it's longer than the page. Zooming still overrides it.
+- Tested in Wine: The Grey Wanderer's days fitted at 420 px, a chapter at 14:30 drawn 60% of the way across its day, one with no time at its start.
+
 ## 0.81.0: excerpts in the shared bible; times of day on the timeline (23 Nov 2026)
 
 CJ asked for short excerpts from the books where characters appear, based on Planning, in the bible's PDF and website (answers in the project doc `studio-bible-excerpts-answers-2026-11-23.md`: Who's there with the text as a fallback, the naming sentence and the next up to about 60 words, up to 3 a book, a reader's guide up to its book), and for a time of day to nudge a card along its day on the timeline.

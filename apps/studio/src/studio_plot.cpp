@@ -246,6 +246,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const plan::Threads threads = plan::threadsOf(*lib_, pl_.book);
     const auto places = plan::nodePlaces(*lib_, pl_.book);
     struct Item { const ManuscriptNode* n; double day; int order; std::wstring label; };
+    bool anyTimed = false;   // a card or event has a time of day: days are drawn wide enough to show it (0.81)
     std::vector<Item> placed;
     std::vector<const ManuscriptNode*> unplaced;
     int chapterNo = 0, sceneNo = 0, order = 0;
@@ -260,7 +261,10 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         if (pl_.tlDrag.active && pl_.tlDrag.id == n->id && pl_.tlDrag.kind == 0) day = pl_.tlDrag.day;
         // In calendar dates its time of day nudges it along its day (0.80): dawn early, night late. Only where it's drawn:
         // the day it's kept on stays whole.
-        if (!std::isnan(day) && calOn && it != times.end()) day += dayFraction(it->second.minutes, it->second.part);
+        if (!std::isnan(day) && calOn && it != times.end() && (it->second.minutes >= 0 || !it->second.part.empty())) {
+            day += dayFraction(it->second.minutes, it->second.part);
+            anyTimed = true;
+        }
         if (std::isnan(day)) unplaced.push_back(n);
         else placed.push_back({n, day, order++, lbl});
     }
@@ -277,6 +281,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         if (it != eventDays.end()) {
             const cal::TimeOfDay et = calOn ? cal::eventTime(*lib_, pl_.book, e->id) : cal::TimeOfDay{};
             placedEvents.push_back({e, it->second + dayFraction(et.minutes, et.part)});
+            anyTimed |= !et.empty();
         }
         else unplacedEvents.push_back(e);
     }
@@ -328,7 +333,10 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     const float avail = cw - labelW;
     const double span = std::max(1.0, hi - lo);
     const float tail = placedEvents.empty() ? 0.0f : 170.0f;   // room for an event's flag after the last day
-    const float fit = std::clamp((float)((avail - cardW - 16 - tail) / span), 36.0f, 220.0f);
+    // With times of day, a day is at least three cards wide, so dawn, midday and night sit clearly apart; the timeline
+    // then scrolls along (Shift+wheel) when it's longer than the page.
+    const float fit = anyTimed ? std::max(3 * cardW + 24, (float)((avail - cardW - 16 - tail) / span))
+                               : std::clamp((float)((avail - cardW - 16 - tail) / span), 36.0f, 220.0f);
     const float px = pl_.tlZoom > 0 ? pl_.tlZoom : fit;
     pl_.tlPx = px;
     pl_.tlDay0 = lo;

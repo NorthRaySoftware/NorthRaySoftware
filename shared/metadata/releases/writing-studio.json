@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.81.1",
+      "date": "2026-11-26",
+      "notes": [
+        "On Planning's timeline, when cards or story events have times of day, each day is drawn at least three cards wide, so dawn, midday and night sit clearly apart along it. Shift and the mouse wheel move along a longer timeline."
+      ]
+    },
+    {
       "version": "0.81.0",
       "date": "2026-11-23",
       "notes": [

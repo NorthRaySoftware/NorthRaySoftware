@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.157.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.81.1: wider days on the timeline for times of day."
+      ]
+    },
+    {
       "version": "0.156.0",
       "date": "2026-11-23",
       "notes": [
