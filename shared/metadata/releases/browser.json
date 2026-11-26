@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.9.3",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size: Ctrl+Alt and + or −, or the menu's Interface size, make the browser's own tabs, buttons and menus larger or smaller, from 50% to 200%; Ctrl+Alt+0 goes back to 100%. Ctrl and + or − still zoom the web page. Menus and message boxes follow the window's size. Zooming in makes the window bigger if it would be too small for its layout, as far as the screen allows. The size is kept for this app on this PC."
+      ]
+    },
+    {
       "version": "0.9.2",
       "date": "2026-11-23",
       "notes": [

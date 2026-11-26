@@ -15,15 +15,17 @@ Everything more than one NorthRay app depends on. Checked against the code on 26
 
 | Header | What it provides |
 |---|---|
-| `window.hpp` | `AppWindow`: the custom frame and caption buttons, per-monitor DPI, hit areas, focus and keyboard, buttons (calm style), segmented controls, links, toasts with Undo, animations, `drawCaptionButtons`, `linkButton`, `setLabelStyle` |
+| `window.hpp` | `AppWindow`: the custom frame and caption buttons, per-monitor DPI, the interface zoom (0.172: `setInterfaceZoom`, `zoomStep`, `zoomControl`, the `ownZoomAt`/`ctrlZoomKeysAreApps`/`onInterfaceZoomChanged` hooks; `interfaceZoomOf(hwnd)`, `zoomSteps()`), hit areas, focus and keyboard, buttons (calm style), segmented controls, links, toasts with Undo, animations, `drawCaptionButtons`, `linkButton`, `setLabelStyle` |
 | `gfx.hpp` | `Gfx`: Direct2D and DirectWrite drawing, a text layout cache, clip stack and culling (0.88), images (`CachedImage`, rounded), `drawPixels`, arcs, gradients drawn as solid bands |
 | `menu.hpp` | `showMenu` and `trackMenu`: themed pop-up menus with keyboard control, submenus, icons, and type-to-search for lists of 13 or more (capped and scrolling) |
-| `dialog.hpp` | `messageBox`: themed question and message boxes. Since 0.93, long text scrolls inside the box and the box always fits the screen. `askText` is a one-line text prompt |
+| `dialog.hpp` | `messageBox`: themed question and message boxes. Since 0.93, long text scrolls inside the box and the box always fits the screen. `choiceBox` (0.170) has buttons named for what they do, a default and Cancel. `askText` is a one-line text prompt. Boxes follow the owner's interface zoom (0.172) |
 | `icons.hpp` | About 66 line icons drawn with `Gfx`; `iconFor(label)` picks one from a command's words |
 | `northray.hpp` | The NorthRay palette (`northray::palette`), the night sky with twinkling stars kept clear of text, the aurora band, `kWebsite` and `openWebsite(page)` |
 | `http.hpp` | WinHTTP requests (any method, headers zeroed after sending) |
 | `packages.hpp` | Finding installed apps (`findInstalledApp`), package verification, running state (named mutex), the crash report (`installCrashReport`) and `northRayDataDir()` |
 | `format.hpp` | Dates and numbers in the UK style (`formatShortDay` and similar) |
+
+**Interface zoom (0.172).** `AppWindow` draws at the display's DPI times `zoom_` (50–200%): `Gfx::setDpi` takes a float, and every conversion between DIPs and pixels goes through `gfx_.dpiScale()`, so layout, hit-testing and child windows follow. A zoomed window has fewer DIPs to lay out in, like a narrower window. Keys: Ctrl+Alt with + / − / 0 always; Ctrl with them after the app's `onKeyDown` has declined them, unless `ctrlZoomKeysAreApps()` (the Browser). Ctrl+wheel zooms unless `ownZoomAt(x, y)`. The smallest window size grows with the zoom, capped at the screen, and a window that is too small grows when the zoom goes up. The zoom is a window property (`NorthRay.InterfaceZoom`, thousandths) read by `showMenu` and the dialogs. It is stored in `interface.ini` under the window class. Native controls that make their own fonts from the DPI must multiply by `interfaceZoom()`.
 
 **House rules enforced in cjui.** No scroll bars anywhere (scrolling is by wheel or keys, with fades and markers). No menu bars. No status bars (messages appear as a toast near the bottom).
 
@@ -71,6 +73,7 @@ These are one-way. Each file has one writer, and readers never write to it.
 | `%LOCALAPPDATA%\NorthRay\Library\` | Capture (the NorthRay media library) | Capture now; meant for the suite |
 | `%LOCALAPPDATA%\NorthRay\profile.json` | Capture's designer | Templates (shared details) |
 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NorthRay.<id>` | Each installer | `cjui::findInstalledApp` (Launcher) |
+| `%LOCALAPPDATA%\NorthRay\interface.ini` (`[Zoom]`, one line per window class) | Each app's own line, by cjui (0.172) | That app only |
 
 **Command-line hand-offs**
 - `WritingStudio.exe --open-book <id> --chapter <id> --library <folder>`.

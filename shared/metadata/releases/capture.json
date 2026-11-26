@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.21.3",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size: Ctrl and + or −, or Ctrl with the mouse wheel, make the window larger or smaller, from 50% to 200%; Ctrl+0 goes back to 100%. Settings › Appearance has Interface size, with presets and a slider. Menus and message boxes follow the window's size. Zooming in makes the window bigger if it would be too small for its layout, as far as the screen allows. The size is kept for this app on this PC."
+      ]
+    },
+    {
       "version": "0.21.2",
       "date": "2026-11-23",
       "notes": [

@@ -32,6 +32,8 @@ public:
     void setObjectsFolder(const std::wstring& dir);
     void place(const RECT& bounds);   // parent client pixels
     void hide();
+    // The page's zoom (suite 0.172: the interface zoom, so the writing bar and text grow with the window).
+    void setZoom(double factor);
     bool send(const std::string& json);  // false if not ready yet
     bool ready() const;
     bool created() const { return (bool)impl_; }

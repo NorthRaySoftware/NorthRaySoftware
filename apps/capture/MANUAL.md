@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Capture (`NorthRayCapture.exe`) |
-| Version at the time of writing | 0.21.2 (`apps/capture/VERSION`) |
+| Version at the time of writing | 0.21.3 (`apps/capture/VERSION`) |
 | Status | **In development**. Released as an early version. Recording and streaming are built but **not yet tried on real hardware or a real platform** |
 | Source | `apps/capture/` (C++20; Direct3D 11, Media Foundation, WASAPI; UI in `libs/cjui`) |
 | Architecture notes | `apps/capture/docs/ARCHITECTURE.md`: decisions (§0), systems, and one section per milestone or release (§8 to §69) |
@@ -42,6 +42,7 @@ The full list is in `shared/metadata/apps/capture.json` (features) and the relea
 
 ### Implemented
 
+- **Interface size** (0.21.3): the window at 50–200%, from Settings › Appearance (presets and a slider) or Ctrl with + / − / 0 and Ctrl with the wheel. Kept on this PC (cjui).
 **Video sources**
 - A whole display: Desktop Duplication, with Windows Graphics Capture and a compatibility mode as fallbacks.
 - One window, even when covered (WGC). It's found again when the program restarts.
@@ -140,6 +141,7 @@ The full list is in `shared/metadata/apps/capture.json` (features) and the relea
 
 ### Not yet verified (built, but not run for real)
 
+- **Interface size (0.172):** built and cross-compiled, not yet run on Windows (Wine would not start in the build environment).
 **Recording with a real hardware encoder.** Checked only as far as the file format, against ffmpeg (`tools/check-mkv.sh`, `capture_mkv_check`).
 
 **Streaming and multistreaming against real platforms.** Checked against a local test server (`tools/check-rtmp.sh`, `capture_rtmp_check`, `tools/check-destinations.sh`).

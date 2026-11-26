@@ -59,9 +59,9 @@ void Gfx::shutdown() {
     release(d2d_);
 }
 
-void Gfx::setDpi(UINT dpi) {
-    dpi_ = dpi ? dpi : 96;
-    if (rt_) rt_->SetDpi((float)dpi_, (float)dpi_);
+void Gfx::setDpi(float dpi) {
+    dpi_ = dpi > 1 ? dpi : 96;
+    if (rt_) rt_->SetDpi(dpi_, dpi_);
 }
 
 bool Gfx::createTarget() {
@@ -69,7 +69,7 @@ bool Gfx::createTarget() {
     RECT rc;
     GetClientRect(hwnd_, &rc);
     D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
-    props.dpiX = props.dpiY = (float)dpi_;
+    props.dpiX = props.dpiY = dpi_;
     HRESULT hr = d2d_->CreateHwndRenderTarget(
         props, D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top)), &rt_);
     if (FAILED(hr)) return false;

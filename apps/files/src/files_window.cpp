@@ -69,6 +69,7 @@ bool isTextNameImpl(const std::wstring& name) {
 
 enum NavIcon { IconBack, IconForward, IconUp, IconRefresh, IconDetails, IconTiles, IconMenu, IconPanes, IconPreview, IconGallery };
 
+constexpr UINT kCmdZoomBase = 9000;   // + the zoom step (suite 0.172)
 enum : UINT {
     CmdViewDetails = 100, CmdViewIcons, CmdSortName, CmdSortDate, CmdSortType, CmdSortSize, CmdSortAsc, CmdSortDesc,
     CmdHidden, CmdProtected, CmdThemeSystem, CmdThemeLight, CmdThemeDark, CmdAbout, CmdOpen, CmdCopyPath, CmdRefresh,
@@ -1217,6 +1218,14 @@ void FilesWindow::showMenu() {
         MenuItem::item(L"Show protected operating system files", CmdProtected, {}, true, settings_.showProtected),
         MenuItem::item(L"Clear saved thumbnails", CmdClearThumbs),
         MenuItem::sep(),
+        MenuItem::sub(L"Interface size", [&] {
+            std::vector<MenuItem> z;   // suite 0.172
+            const auto& steps = cjui::zoomSteps();
+            for (size_t i = 0; i < steps.size(); ++i)
+                z.push_back(MenuItem::item(std::to_wstring((int)std::lround(steps[i] * 100)) + L"%" + (steps[i] == 1.0f ? L" (default)" : L""),
+                                           kCmdZoomBase + (UINT)i, i == 5 ? L"Ctrl+0" : L"", true, std::fabs(steps[i] - interfaceZoom()) < 0.005f));
+            return z;
+        }()),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
@@ -1267,7 +1276,10 @@ void FilesWindow::showMenu() {
                         L"operations, so they behave as in File Explorer and deleted items go to the Recycle Bin.",
                         L"About NorthRay Files", MB_OK | MB_ICONINFORMATION);
             break;
-        default: break;
+        default:
+            // Interface size (suite 0.172).
+            if (cmd >= kCmdZoomBase && cmd < kCmdZoomBase + (UINT)cjui::zoomSteps().size()) setInterfaceZoom(cjui::zoomSteps()[cmd - kCmdZoomBase]);
+            break;
     }
     invalidate();
 }

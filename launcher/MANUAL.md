@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Launcher (`NorthRayLauncher.exe`) |
-| Version at the time of writing | 0.169.0. The launcher's version is the suite version, from `/VERSION` |
+| Version at the time of writing | 0.172.0. The launcher's version is the suite version, from `/VERSION` |
 | Status | **Preview**, released. The online catalogue is live on GitHub Pages |
 | Source | `launcher/` (C++20, Win32 + Direct2D via `libs/cjui`) |
 | Release notes | `shared/metadata/releases/launcher.json` |
@@ -37,6 +37,7 @@ Status labels used in this manual:
 
 ### Implemented
 
+- **Interface size** (0.172): the window at 50–200%, from Settings › Appearance or Ctrl with + / − / 0 and the wheel; menus and boxes follow it. Kept on this PC. The same engine is in every app (cjui).
 **Library (home page)**
 - Big app cards: art, version, Open and Update. They show "updated <date>" from the installed program's file date, and an update badge on the art's corner.
 - Cards can be dragged into a new order, saved as `Settings::appOrder`.
@@ -90,6 +91,7 @@ Status labels used in this manual:
 
 ### Partial or not verified on real Windows
 
+- **Interface size (0.172):** built and cross-compiled, not yet run on Windows (Wine would not start in the build environment).
 These were tested in Wine but still need checking on Windows:
 - Windows 11 snap layouts.
 - Real toast notifications.

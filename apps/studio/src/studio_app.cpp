@@ -2002,9 +2002,25 @@ void StudioApp::createFields() {
     layoutFont();
 }
 
+// Ctrl and the wheel keep their own meaning over Planning's corkboard (card size) and timeline, a family tree and a
+// map; anywhere else they change the interface's size (suite 0.172).
+bool StudioApp::ownZoomAt(float x, float y) {
+    if (ws_ == Workspace::Planning && pl_.page.empty() && pageRect_.contains(x, y) && (pl_.view == 0 || pl_.view == 1)) return true;
+    if (ws_ == Workspace::Worldbuilding && !wb_.mapView.empty() && wb_.mapBoard.contains(x, y)) return true;
+    if (ws_ == Workspace::Worldbuilding && !wb_.familyRoot.empty() && pageRect_.contains(x, y)) return true;
+    return false;
+}
+
+void StudioApp::onInterfaceZoomChanged() {
+    layoutFont();
+    editor_.setZoom(interfaceZoom());
+    loadedFocus_ = {Focus::None, "-", ""};   // the fields are placed again at the new size
+}
+
 void StudioApp::layoutFont() {
     if (fieldFont_) DeleteObject(fieldFont_);
-    const UINT dpi = GetDpiForWindow(hwnd()) ? GetDpiForWindow(hwnd()) : 96;
+    // The display's DPI times the interface zoom (0.172): the fields' text grows with everything else.
+    const UINT dpi = (UINT)std::lround((GetDpiForWindow(hwnd()) ? GetDpiForWindow(hwnd()) : 96) * interfaceZoom());
     fieldFont_ = CreateFontW(-MulDiv(14, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     for (HWND h : fields_) if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(fieldFont_), TRUE);

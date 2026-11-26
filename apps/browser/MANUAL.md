@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Browser (`NorthRayBrowser.exe`) |
-| Version at the time of writing | 0.9.2 (`apps/browser/VERSION`) |
+| Version at the time of writing | 0.9.3 (`apps/browser/VERSION`) |
 | Status | **Preview**, released |
 | Source | `apps/browser/` (C++20; Microsoft Edge WebView2; UI in `libs/cjui`) |
 | Architecture notes | `apps/browser/docs/ARCHITECTURE.md` |
@@ -36,8 +36,9 @@ Status labels used in this manual:
 
 ## 2. Features
 
-### Implemented (0.1 to 0.9.2)
+### Implemented (0.1 to 0.9.3)
 
+- **Interface size** (0.9.3): the browser's own tabs, buttons and menus at 50–200%, from the menu's Interface size or Ctrl+Alt with + / − / 0; Ctrl with + / − / 0 still zoom the web page. Kept on this PC (cjui).
 **Tabs and windows**
 - Open, close and reopen tabs; middle-click closes. The wheel over the strip switches tabs.
 - Hover preview with a page picture. Close tabs to the right.
@@ -94,6 +95,7 @@ Status labels used in this manual:
 
 ### Needs checking on Windows (built, engine-dependent)
 
+- **Interface size (0.172):** built and cross-compiled, not yet run on Windows (Wine would not start in the build environment).
 - Page pictures in tab previews.
 - The speaker and mute.
 - Per-site zoom.

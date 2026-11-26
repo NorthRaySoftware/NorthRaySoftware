@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.172.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size in Settings › Appearance (Ctrl and + or −, Ctrl+0 for 100%), with menus and boxes following it. Brings Writing Studio 0.96.0, Browser 0.9.3, Files 0.9.3 and Capture 0.21.3 with the same."
+      ]
+    },
+    {
       "version": "0.171.0",
       "date": "2026-11-26",
       "notes": [

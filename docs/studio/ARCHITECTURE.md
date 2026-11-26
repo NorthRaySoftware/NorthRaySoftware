@@ -415,6 +415,14 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.96.0: interface size (suite 0.172.0, 26 Nov 2026)
+
+Phase 2a of CJ's combined request: the zoom engine is in cjui for every app (see `docs/project/Shared_Infrastructure.md`).
+- **Writing Studio's part.** `ownZoomAt` is true over Planning's corkboard and timeline (pageRect, view 0 or 1, no chapter page open), a map's board, and an open family tree, so Ctrl+wheel keeps its old meaning there. `onInterfaceZoomChanged` calls `layoutFont` (the fields' and title fonts, from `GetDpiForWindow` × `interfaceZoom()`, also right on `WM_DPICHANGED`) and puts the fields back. `WebPane::setZoom` sets the editor's `ZoomFactor` to the interface zoom, at creation too, so the writing bar and text grow with the window. Settings › Appearance › Interface size is `zoomControl`.
+- Other apps: the Browser (`ctrlZoomKeysAreApps`, the menu's Interface size submenu, the tab-strip box's font), Files (`ownZoomAt` over the files in Icons and Gallery, the menu's Interface size), Capture (Settings › Appearance), the Launcher (Settings › Appearance).
+- **Tested:** the whole suite cross-compiles with MinGW; the native and editor tests pass (unchanged code). Wine would not start in the build environment (it aborts in `wineboot`), so **none of it has been run**; zoom needs checking on Windows: the keys and wheel, the presets and slider, menus and boxes, the window growing, native fields and the writing page at 150% and 200%.
+- Still to come: 2b (the writing page's own zoom and a wider column) and 2c (responsive layouts that stack and wrap on narrow windows and use wide ones).
+
 ## 0.95.0: the bible and the plan as Markdown (26 Nov 2026)
 
 CJ (project doc `claude/studio-combined-request-2026-11-26.md`): Bible tools › Export as Markdown in the form Import many pages reads, Plan › Export as Markdown, whole or chosen kinds or entries, generated parts optional (his choice: off by default), a lossless round trip.

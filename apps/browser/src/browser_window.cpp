@@ -44,7 +44,7 @@ enum Icon { IconBack, IconForward, IconReload, IconStop, IconHome, IconMenu };
 // Menu command ids.
 enum : UINT {
     CmdNewTab = 100, CmdReopen, CmdPrint, CmdDevTools, CmdAbout, CmdFullscreen,
-    CmdThemeSystem = 200, CmdThemeLight, CmdThemeDark,
+    CmdThemeSystem = 200, CmdThemeLight, CmdThemeDark, CmdZoomBase = 900,
     CmdEngineFirst = 300,   // + index in builtInSearchEngines()
     CmdTabReload = 400, CmdTabDuplicate, CmdTabClose, CmdTabCloseOthers, CmdTabCloseRight, CmdTabMute,
     CmdPwSave = 500, CmdPwForms, CmdPwClear, CmdPwAbout,
@@ -1439,6 +1439,15 @@ void BrowserWindow::showMenu() {
         MenuItem::sub(L"Search engine", searchItems),
         MenuItem::item(L"Tabs down the side", CmdSideTabs, {}, true, settings_.verticalTabs),
         MenuItem::item(L"Block ads and trackers", CmdBlock, {}, true, settings_.blockTrackers),
+        MenuItem::sub(L"Interface size", [&] {
+            // Suite 0.172: the browser's own buttons, tabs and menus; Ctrl +/- still zoom the web page.
+            std::vector<MenuItem> z;
+            const auto& steps = cjui::zoomSteps();
+            for (size_t i = 0; i < steps.size(); ++i)
+                z.push_back(MenuItem::item(std::to_wstring((int)std::lround(steps[i] * 100)) + L"%" + (steps[i] == 1.0f ? L" (default)" : L""),
+                                           CmdZoomBase + (UINT)i, i == 5 ? L"Ctrl+Alt+0" : L"", true, std::fabs(steps[i] - interfaceZoom()) < 0.005f));
+            return z;
+        }()),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
                                  MenuItem::item(L"Light", CmdThemeLight, {}, true, settings_.theme == Theme::Light),
                                  MenuItem::item(L"Dark", CmdThemeDark, {}, true, settings_.theme == Theme::Dark)}),
@@ -1456,6 +1465,7 @@ void BrowserWindow::showMenu() {
     ClientToScreen(hwnd(), &pt);
     const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_, cjui::MenuAnchor::TopRight);
     const std::wstring& settingsPath = settingsPath_;
+    if (cmd >= CmdZoomBase && cmd < CmdZoomBase + (UINT)cjui::zoomSteps().size()) { setInterfaceZoom(cjui::zoomSteps()[cmd - CmdZoomBase]); return; }
     if (cmd == CmdNewTab) newTab(L"", true, false);
     else if (cmd == CmdReopen) reopenClosedTab();
     else if (cmd == CmdHistory) showHistoryPage();
@@ -2163,6 +2173,9 @@ void BrowserWindow::drawAddressBar(const Rect& r) {
     }
 }
 
+// The interface zoom changed (suite 0.172): the address box's font now; the pages are placed again as it's drawn.
+void BrowserWindow::onInterfaceZoomChanged() { layoutAddressFont(); }
+
 void BrowserWindow::layoutAddressFont() {
     editScale_ = gfx_.dpiScale();
     if (editFont_) DeleteObject(editFont_);
@@ -2240,7 +2253,7 @@ LRESULT CALLBACK noteProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         const int len = GetWindowTextLengthW(h);
         std::wstring t((size_t)len, L'\0');
         if (len) GetWindowTextW(h, t.data(), len + 1);
-        const UINT dpi = GetDpiForWindow(h);
+        const UINT dpi = (UINT)std::lround(GetDpiForWindow(h) * cjui::interfaceZoomOf(h));   // with the interface zoom (0.172)
         HFONT f = CreateFontW(-MulDiv(14, (int)dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         HGDIOBJ old = SelectObject(dc, f);

@@ -85,6 +85,7 @@ struct WebPane::Impl {
     ICoreWebView2* web = nullptr;
     bool ready = false;
     bool shown = false;
+    double zoom = 1.0;
     RECT bounds{};
     std::wstring webFolder, fontsFolder, objectsFolder, url;
     Receiver receiver;
@@ -166,6 +167,7 @@ bool WebPane::create(HWND parent, const std::wstring& exeDir, const std::wstring
                     if (FAILED(hr2) || !controller) { s->fail(); return S_OK; }
                     s->controller = controller;
                     controller->AddRef();
+                    if (s->zoom != 1.0) controller->put_ZoomFactor(s->zoom);
                     controller->get_CoreWebView2(&s->web);
                     if (!s->web) { s->fail(); return S_OK; }
                     ICoreWebView2Settings* settings = nullptr;
@@ -367,6 +369,12 @@ void WebPane::setObjectsFolder(const std::wstring& dir) {
     if (!impl_) return;
     impl_->objectsFolder = dir;
     impl_->mapObjects();
+}
+
+void WebPane::setZoom(double factor) {
+    if (!impl_) return;
+    impl_->zoom = factor > 0 ? factor : 1.0;
+    if (impl_->controller) impl_->controller->put_ZoomFactor(impl_->zoom);
 }
 
 void WebPane::place(const RECT& b) {

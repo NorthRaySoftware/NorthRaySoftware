@@ -4,6 +4,7 @@
 
 #include <dwmapi.h>
 #include <windowsx.h>
+#include <shlobj.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -68,6 +69,112 @@ LRESULT CALLBACK AppWindow::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+// ---------------------------------------------------------- interface zoom
+
+namespace {
+const wchar_t* kZoomProp = L"NorthRay.InterfaceZoom";   // on the window, in thousandths, for its menus and boxes
+
+// %LOCALAPPDATA%\NorthRay\interface.ini: [Zoom] <window class>=1.25. Per app, on this PC only.
+std::wstring zoomFile() {
+    PWSTR p = nullptr;
+    std::wstring dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p))) dir = p;
+    if (p) CoTaskMemFree(p);
+    if (dir.empty()) return {};
+    dir += L"\\NorthRay";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\interface.ini";
+}
+float clampZoom(float z) { return std::clamp(z, 0.5f, 2.0f); }
+}  // namespace
+
+const std::vector<float>& zoomSteps() {
+    static const std::vector<float> s{0.5f, 0.67f, 0.75f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.5f, 1.75f, 2.0f};
+    return s;
+}
+
+float interfaceZoomOf(HWND window) {
+    if (!window) return 1.0f;
+    const HWND root = GetAncestor(window, GA_ROOT);
+    const auto v = reinterpret_cast<INT_PTR>(GetPropW(root ? root : window, kZoomProp));
+    return v > 0 ? clampZoom(v / 1000.0f) : 1.0f;
+}
+
+UINT AppWindow::displayDpi() const {
+    const UINT d = hwnd_ ? GetDpiForWindow(hwnd_) : 0;
+    return d ? d : 96;
+}
+
+void AppWindow::setInterfaceZoom(float zoom, bool announce) {
+    zoom = clampZoom(zoom);
+    if (std::fabs(zoom - 1.0f) < 0.005f) zoom = 1.0f;
+    const bool changed = std::fabs(zoom - zoom_) > 0.001f;
+    zoom_ = zoom;
+    if (!hwnd_) return;
+    SetPropW(hwnd_, kZoomProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(std::lround(zoom_ * 1000))));
+    gfx_.setDpi(displayDpi() * zoom_);
+    if (!changed) return;
+    if (const std::wstring f = zoomFile(); !f.empty()) {
+        wchar_t v[16];
+        swprintf(v, 16, L"%.2f", zoom_);
+        WritePrivateProfileStringW(L"Zoom", spec_.className, v, f.c_str());
+    }
+    // Room for the layout: a window smaller than its smallest size at this zoom grows, as far as the screen allows.
+    {
+        RECT wr{}, cr{};
+        GetWindowRect(hwnd_, &wr);
+        GetClientRect(hwnd_, &cr);
+        MONITORINFO mi{sizeof mi};
+        GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi);
+        const float s = gfx_.dpiScale();
+        const int needW = (int)std::lround(spec_.minWidth * s), needH = (int)std::lround(spec_.minHeight * s);
+        if (!maximized() && (cr.right < needW || cr.bottom < needH)) {
+            const int w = std::min<int>(std::max<int>(wr.right - wr.left, needW + (wr.right - wr.left - cr.right)), mi.rcWork.right - mi.rcWork.left);
+            const int h = std::min<int>(std::max<int>(wr.bottom - wr.top, needH + (wr.bottom - wr.top - cr.bottom)), mi.rcWork.bottom - mi.rcWork.top);
+            const int x = std::clamp<int>(wr.left, mi.rcWork.left, mi.rcWork.right - w), y = std::clamp<int>(wr.top, mi.rcWork.top, mi.rcWork.bottom - h);
+            SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+    onInterfaceZoomChanged();
+    if (announce) flash(L"Interface size " + std::to_wstring((int)std::lround(zoom_ * 100)) + L"%. " +
+                        (ctrlZoomKeysAreApps() ? L"Ctrl+Alt+0" : L"Ctrl+0") + L" goes back to 100%.", 3);
+    invalidate();
+}
+
+void AppWindow::zoomStep(int direction) {
+    if (direction == 0) { setInterfaceZoom(1.0f); return; }
+    const auto& s = zoomSteps();
+    float next = zoom_;
+    if (direction > 0) { for (float v : s) if (v > zoom_ + 0.004f) { next = v; break; } }
+    else for (auto it = s.rbegin(); it != s.rend(); ++it) if (*it < zoom_ - 0.004f) { next = *it; break; }
+    setInterfaceZoom(next);
+}
+
+float AppWindow::zoomControl(const std::string& id, float x, float y, float w) {
+    const float y0 = y;
+    struct Preset { const wchar_t* name; float zoom; };
+    static const Preset presets[] = {{L"Small", 0.9f}, {L"Default", 1.0f}, {L"Large", 1.25f}, {L"Extra large", 1.5f}};
+    int sel = -1;
+    for (int i = 0; i < 4; ++i) if (std::fabs(presets[i].zoom - zoom_) < 0.005f) sel = i;
+    segmented(id + ":presets", {x, y, std::min(w, 440.0f), 30}, {presets[0].name, presets[1].name, presets[2].name, presets[3].name}, sel,
+              [this](int i) { setInterfaceZoom(presets[i].zoom); });
+    y += 40;
+    const float pct = 0.68f * std::min(w, 440.0f);
+    // 50% to 200%, in steps of 5%.
+    slider(id + ":slider", {x, y, pct, 26}, (zoom_ - 0.5f) / 1.5f, [this](float v) {
+        const float z = std::round((0.5f + v * 1.5f) * 20.0f) / 20.0f;
+        setInterfaceZoom(z, false);
+    });
+    gfx_.text(std::to_wstring((int)std::lround(zoom_ * 100)) + L"%", {x + pct + 14, y, 80, 26}, Font::BodyStrong, pal_.ink,
+              {Align::Left, false, true, true});
+    y += 34;
+    const std::wstring keys = ctrlZoomKeysAreApps() ? L"Ctrl+Alt and + or − change it too, and Ctrl+Alt+0 goes back to 100%."
+                                                    : L"Ctrl and + or −, or Ctrl with the mouse wheel, change it too; Ctrl+0 goes back to 100%.";
+    y += gfx_.text(keys + L" On top of Windows' display scaling; kept for this app on this PC.", {x, y, w, 60}, Font::Small,
+                   pal_.inkFaint, {Align::Left, false, true}) + 4;
+    return y - y0;
+}
+
 bool AppWindow::createWindow(const WindowSpec& spec) {
     spec_ = spec;
     WNDCLASSEXW wc{sizeof wc};
@@ -86,7 +193,19 @@ bool AppWindow::createWindow(const WindowSpec& spec) {
                             spec.instance, this);
     if (!hwnd_) return false;
     if (!gfx_.init(hwnd_)) return false;
-    gfx_.setDpi(GetDpiForWindow(hwnd_));
+    // The interface zoom kept for this app on this PC (suite 0.172).
+    {
+        float z = 1.0f;
+        if (const std::wstring f = zoomFile(); !f.empty()) {
+            wchar_t v[32] = {0};
+            GetPrivateProfileStringW(L"Zoom", spec.className, L"1", v, 32, f.c_str());
+            z = (float)_wtof(v);
+            if (!(z > 0)) z = 1.0f;
+        }
+        zoom_ = clampZoom(z);
+        SetPropW(hwnd_, kZoomProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(std::lround(zoom_ * 1000))));
+    }
+    gfx_.setDpi(GetDpiForWindow(hwnd_) * zoom_);
     readAnimationSetting();
     captionHeight_ = spec.captionHeight;
     // Recalculate the frame now that WM_NCCALCSIZE is handled: the title bar goes.
@@ -799,7 +918,7 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             invalidate();
             return 0;
         case WM_DPICHANGED: {
-            gfx_.setDpi(HIWORD(wp));
+            gfx_.setDpi(HIWORD(wp) * zoom_);
             const RECT* r = reinterpret_cast<RECT*>(lp);
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
@@ -810,7 +929,12 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             UINT dpi = GetDpiForWindow(hwnd);
             if (!dpi) dpi = 96;
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
-            mmi->ptMinTrackSize = {MulDiv(spec_.minWidth, dpi, 96), MulDiv(spec_.minHeight, dpi, 96)};
+            // The smallest size grows with the interface zoom, but never past the screen it's on.
+            MONITORINFO mi{sizeof mi};
+            GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+            const int wMax = mi.rcWork.right - mi.rcWork.left, hMax = mi.rcWork.bottom - mi.rcWork.top;
+            mmi->ptMinTrackSize = {std::min<int>((int)std::lround(spec_.minWidth * dpi / 96.0f * zoom_), wMax > 0 ? wMax : 1 << 20),
+                                   std::min<int>((int)std::lround(spec_.minHeight * dpi / 96.0f * zoom_), hMax > 0 ? hMax : 1 << 20)};
             return 0;
         }
         case WM_SETTINGCHANGE:
@@ -905,6 +1029,17 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         }
         case WM_MOUSEWHEEL: {
+            // Ctrl and the wheel: the interface's size, unless what's under the pointer has its own zoom (0.172).
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                ScreenToClient(hwnd, &pt);
+                const float s = gfx_.dpiScale();
+                if (!ownZoomAt(pt.x / s, pt.y / s)) {
+                    const short d = GET_WHEEL_DELTA_WPARAM(wp);
+                    if (d) zoomStep(d > 0 ? 1 : -1);
+                    return 0;
+                }
+            }
             UINT lines = 3;
             SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
             {
@@ -931,7 +1066,13 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         return 0;
                     }
             }
+            // Interface zoom (0.172): Ctrl+Alt with + / - / 0 always; Ctrl alone when the app hasn't used the key itself.
+            const bool zoomKey = wp == VK_OEM_PLUS || wp == VK_ADD || wp == VK_OEM_MINUS || wp == VK_SUBTRACT || wp == '0' || wp == VK_NUMPAD0;
+            const int zoomDir = wp == VK_OEM_PLUS || wp == VK_ADD ? 1 : (wp == VK_OEM_MINUS || wp == VK_SUBTRACT) ? -1 : 0;
+            const bool alt = GetKeyState(VK_MENU) & 0x8000;
+            if (zoomKey && ctrl && alt) { zoomStep(zoomDir); return 0; }
             if (onKeyDown(wp, ctrl, shift)) { invalidate(); return 0; }
+            if (zoomKey && ctrl && !shift && !ctrlZoomKeysAreApps()) { zoomStep(zoomDir); return 0; }
             switch (wp) {
                 case VK_TAB: moveFocus(shift ? -1 : 1); return 0;
                 case VK_RETURN: case VK_SPACE: activateFocused(); return 0;

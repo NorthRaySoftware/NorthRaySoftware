@@ -71,7 +71,7 @@ public:
     bool init(HWND hwnd);
     void shutdown();
     void resize(UINT pxWidth, UINT pxHeight);
-    void setDpi(UINT dpi);
+    void setDpi(float dpi);   // the display's DPI times the interface zoom
     float dpiScale() const { return dpi_ / 96.0f; }
 
     bool begin();   // false if the target couldn't be created
@@ -140,7 +140,7 @@ private:
     void discardTarget();
 
     HWND hwnd_ = nullptr;
-    UINT dpi_ = 96;
+    float dpi_ = 96;
     ID2D1Factory* d2d_ = nullptr;
     IDWriteFactory* dw_ = nullptr;
     ID2D1HwndRenderTarget* rt_ = nullptr;

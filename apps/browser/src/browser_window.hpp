@@ -65,6 +65,9 @@ protected:
     bool onMouseUp(float x, float y) override;
     bool onRightClick(float x, float y) override;
     bool onWheel(float x, float y, float deltaLines) override;
+    // Ctrl +/-/0 zoom the web page, as in every browser; Ctrl+Alt +/-/0 the browser's own interface (suite 0.172).
+    bool ctrlZoomKeysAreApps() const override { return true; }
+    void onInterfaceZoomChanged() override;
     const char* navPrefix() const override { return "tb:"; }
 
 private:

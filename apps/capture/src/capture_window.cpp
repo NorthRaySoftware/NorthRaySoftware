@@ -1679,6 +1679,11 @@ void CaptureWindow::drawSettings(const Rect& area) {
             applyTheme();
         });
         y += std::max(h, 34.0f) + 14;
+        // Interface size (suite 0.172): on top of Windows' scaling, for Capture on this PC.
+        {
+            const float hz = row(L"Interface size", L"", 300);
+            y += std::max(hz, zoomControl("set:zoom", x + colW - 440, y - 2, 440)) + 14;
+        }
         const float h2 = row(L"Compact layout", L"Tighter rows and buttons, so more fits on a laptop screen. Automatic uses it when the window is smaller than about 1500 \u00D7 860.", 300);
         segmented("set:compact", {x + colW - 300, y - 2, 300, 32}, {L"Automatic", L"On", L"Off"}, settings_.compactLayout, [this](int i) {
             settings_.compactLayout = i;

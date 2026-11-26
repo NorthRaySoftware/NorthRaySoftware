@@ -51,6 +51,8 @@ protected:
     bool onMouseDown(float x, float y) override;
     bool onRightClick(float x, float y) override;
     bool onWheel(float x, float y, float deltaLines) override;
+    // Ctrl and the wheel over the files in Icons or Gallery size the tiles; elsewhere they size the interface (suite 0.172).
+    bool ownZoomAt(float x, float y) override { return settings_.view != ViewMode::Details && !here_.thisPC && listClip_.contains(x, y); }
     void onMouseMove(float x, float y, bool leftDown) override;
     bool onMouseUp(float x, float y) override;
     const char* navPrefix() const override { return "tb:"; }

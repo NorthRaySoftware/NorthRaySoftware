@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.96.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size: Ctrl and + or −, or Ctrl with the mouse wheel, make the whole window larger or smaller, from 50% to 200%, on top of Windows' display scaling; Ctrl+0 goes back to 100%. Settings › Appearance › Interface size has Small, Default, Large and Extra large and a slider. Menus and message boxes follow the window's size. Zooming in makes the window bigger if it would be too small for its layout, as far as the screen allows. The size is kept for this app on this PC.",
+        "Over Planning's corkboard and timeline, a family tree or a map, Ctrl and the wheel keep their own meaning (card size, the timeline's zoom, the tree's and the map's). The text boxes and the writing page grow with the interface."
+      ]
+    },
+    {
       "version": "0.95.0",
       "date": "2026-11-26",
       "notes": [

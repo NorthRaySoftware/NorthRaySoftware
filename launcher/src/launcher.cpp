@@ -1532,6 +1532,9 @@ float Launcher::pageSettings(const Rect& r) {
         applyTheme();
     });
     y += 46;
+    // Interface size (suite 0.172).
+    y += gfx_.text(L"Interface size", {r.x, y, w2, 24}, Font::BodyStrong, pal_.ink, {Align::Left, false, true}) + 6;
+    y += zoomControl("set:zoom", r.x, y, w2) + 18;
     checkbox("set:today", {r.x, y, w2, 26}, L"Show Today on the home page", model_.settings.showToday, [this] {
         model_.settings.showToday = !model_.settings.showToday;
         model_.saveSettings();

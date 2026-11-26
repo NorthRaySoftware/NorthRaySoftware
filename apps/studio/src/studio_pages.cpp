@@ -2677,6 +2677,9 @@ float StudioApp::pageSettings(const Rect& r0) {
 
     section(L"APPEARANCE");
     const float cx = r.x + 200, cw = std::min(360.0f, r.w - 200);
+    // Interface size (suite 0.172): the whole window larger or smaller, on top of Windows' scaling.
+    rowLabel(L"Interface size");
+    y += zoomControl("set:zoom", cx, y, std::min(460.0f, r.w - 200)) + 12;
     rowLabel(L"Theme");
     segmented("set:theme", {cx, y, cw, 28}, {L"As Windows", L"Light", L"Dark"}, settings_.theme, [this](int i) {
         settings_.theme = i; saveSettings(); applyTheme();

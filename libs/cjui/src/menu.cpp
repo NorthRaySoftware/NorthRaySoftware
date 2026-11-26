@@ -1,4 +1,5 @@
 #include "cjui/menu.hpp"
+#include "cjui/window.hpp"
 #include "cjui/icons.hpp"
 
 #include <dwmapi.h>
@@ -491,6 +492,7 @@ UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Pa
     s.pal = pal;
     s.dpi = GetDpiForWindow(owner);
     if (!s.dpi) s.dpi = 96;
+    s.dpi = (UINT)std::lround(s.dpi * interfaceZoomOf(owner));   // the window's interface zoom too (0.172)
     s.scale = s.dpi / 96.0f;
     if (!s.open(items, at, anchor, -1, -1)) return 0;
     SetCapture(s.levels[0]->hwnd);

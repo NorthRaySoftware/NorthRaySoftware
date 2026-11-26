@@ -107,6 +107,7 @@ void StudioApp::ensureEditor() {
         editorNote_ = editor_.error();
         return;
     }
+    editor_.setZoom(interfaceZoom());   // the interface's size (suite 0.172)
     // Right-click a name: "Add “Maren” to the bible…", or "Open “Maren” in the bible" when it's there.
     editor_.setContextItems([this](const std::wstring& selection) {
         std::vector<std::pair<std::wstring, std::function<void()>>> items;

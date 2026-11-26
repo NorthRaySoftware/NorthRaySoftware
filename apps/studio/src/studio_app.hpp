@@ -172,6 +172,9 @@ protected:
     bool onMouseUp(float x, float y) override;
     bool onRightClick(float x, float y) override;
     bool onWheel(float x, float y, float lines) override;
+    // Interface zoom (suite 0.172): what has its own Ctrl+wheel zoom here, and the native fields' fonts following it.
+    bool ownZoomAt(float x, float y) override;
+    void onInterfaceZoomChanged() override;
     const char* navPrefix() const override { return "side:"; }
 
 private:

@@ -41,6 +41,11 @@ struct Hit {
     bool focusable = true;
 };
 
+// Interface zoom (suite 0.172): each NorthRay window can be drawn larger or smaller than Windows' display scaling
+// says, 50% to 200%, saved for that app on this PC. Menus and message boxes opened over a window follow its zoom.
+float interfaceZoomOf(HWND window);
+const std::vector<float>& zoomSteps();   // 50%, 67%, 75%, 80%, 90%, 100%, 110%, 125%, 150%, 175%, 200%
+
 struct WindowSpec {
     HINSTANCE instance = nullptr;
     const wchar_t* className = L"NorthRayWindow";
@@ -96,6 +101,21 @@ protected:
     // Clip for hits added outside beginScroll/endScroll (e.g. a second scrolling panel).
     void setHitClip(const Rect& r) { hitClip_ = r; hitClipSet_ = true; }
     void clearHitClip() { hitClipSet_ = false; }
+
+    // Interface zoom (suite 0.172). Ctrl and + / - / 0, and Ctrl with the wheel, change it ("nearest wins": over
+    // something with its own zoom, that zooms instead), as do Ctrl+Alt and + / - / 0 everywhere.
+    float interfaceZoom() const { return zoom_; }
+    void setInterfaceZoom(float zoom, bool announce = true);
+    void zoomStep(int direction);   // +1 larger, -1 smaller, 0 back to 100%
+    // A place under the pointer with a Ctrl+wheel zoom of its own (a timeline, typeset pages): the wheel is the app's.
+    virtual bool ownZoomAt(float x, float y) { (void)x; (void)y; return false; }
+    // Ctrl and + / - / 0 belong to the app (the Browser zooms the web page with them); Ctrl+Alt still zooms the interface.
+    virtual bool ctrlZoomKeysAreApps() const { return false; }
+    // The zoom changed: native controls' fonts and child windows follow (the window is drawn again anyway).
+    virtual void onInterfaceZoomChanged() {}
+    // Settings' "Interface size": presets (Small, Default, Large, Extra large), a slider from 50% to 200% and a line
+    // saying which keys change it. Returns the height it took.
+    float zoomControl(const std::string& id, float x, float y, float w);
 
     // Hits whose id starts with this prefix come first in Tab order.
     virtual const char* navPrefix() const { return "nav:"; }
@@ -208,6 +228,8 @@ private:
     LRESULT frameMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled);
     float frameBorder() const;
     float captionHeight_ = 40;
+    float zoom_ = 1.0f;
+    UINT displayDpi() const;
     Rect maxButton_{};
     bool maxHover_ = false, maxPressed_ = false, trackingNc_ = false, windowActive_ = true;
     std::vector<Hit> hits_, lastHits_;

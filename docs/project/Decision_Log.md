@@ -6,6 +6,7 @@ Important decisions, newest first. Each links to its source. The director's own 
 
 | Date | Decision | Source |
 |---|---|---|
+| 26 Nov 2026 | **Interface zoom in cjui, for every app** (50–200%, kept per app on each PC). Keys "nearest wins": Ctrl +/−/0 and Ctrl+wheel zoom the interface except over something with its own zoom; in the Browser Ctrl+Alt +/−/0 (Ctrl +/− stay the web page's). Phase 2 ships as 2a engine (0.172), 2b writing page zoom, 2c responsive layouts | `studio-combined-request-2026-11-26.md` |
 | 26 Nov 2026 | **Legal owner and operator: CJ Philip.** The developer line stays "Developed by the NorthRay Software project" | The director's answers after the archive |
 | 26 Nov 2026 | **SkillSwap abandoned** (not coming back); its broken build option removed | The director's answers after the archive |
 | 26 Nov 2026 | **Windows only.** macOS and Linux versions aren't a goal, so the suite stays on Win32/Direct2D | The director's answers after the archive |
@@ -28,6 +29,7 @@ Important decisions, newest first. Each links to its source. The director's own 
 
 | Date | Decision | Source |
 |---|---|---|
+| 26 Nov | Combined request: phase 1 fixes (0.94); the bible and plan as Markdown that imports back exactly (0.95, computed parts off by default); a DOCX export of the manuscript to be added for phases 4 and 5 | `studio-combined-request-2026-11-26.md` |
 | 26 Nov | Chapter header pictures (0.89), a chapter's own page in Planning (0.90), scene-break pictures and print checks (0.91), openings in Writing (0.92) | `studio-chapter-headers-*`, `studio-chapter-page-request-2026-11-26.md` |
 | 26 Nov | More visual, less text: icons, kind symbols, portraits, the year wheel and strip, status rings; speed work | `studio-visual-requests-2026-11-26.md` |
 | 26 Nov | Ages from the calendar; Checks for ages, time gaps and capitals; plans that round-trip; chapter dates in typeset books | `studio-requests-2026-11-26.md`, `studio-ages-answers-2026-11-26.md` |
