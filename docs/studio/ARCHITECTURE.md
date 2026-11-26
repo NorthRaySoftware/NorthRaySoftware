@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.98.0: interface size for what's between the bars (suite 0.174.0, 26 Nov 2026)
+
+CJ, after 0.96: the top bar and the side rail should stay as they are; only the window's content should change size.
+- **cjui**: the zoom area (see `docs/project/Shared_Infrastructure.md`). The display DPI is no longer multiplied by the zoom; menus and message boxes are no longer zoomed.
+- **Writing Studio**: `drawFrame` opens the area `{railW, kTopH, W - railW, H - kTopH}` once the rail is laid out. From there `W` and `H` are the zoomed space's, so every workspace lays out as in a smaller window. Each branch calls `endZoomArea()` before `drawRail` and `drawTopBar`, which take the window's `realW` and `realH`. The drag label is drawn in a second pass of the area. `drawStatusBar`'s "Saving…" note and the toast use `toWindow(pageRect_)`. `placeField`, the title-size edit, `placeEditor`, the preview's place and `showMenuAt` go through `toWindow`. `layoutFont` gives the fields the zoomed size and the top bar's search box `barFont_` at the window's size. Typeset pages are rendered at the display scale times the zoom.
+- **Other apps**: the Launcher (the page between the nav and the top strip), Files (the panes, tabs and preview; the drag label, the rename box, item menus, OLE drops and column edges mapped), Capture (the body between the top bar and the status strip; the live preview window, the Notes box, item and scene menus, the snapshot's `uiScale`) and the Browser (its own pages; web pages are placed over the whole area and keep their own zoom).
+- **Tested:** the suite cross-compiles with MinGW, and the native and editor tests pass. **Not run on Windows** (Wine won't start here). To check there: each app at 150% and 200%, the bars staying put, clicks and hover in the content, menus at the right place, the text boxes, the writing page and Capture's preview lining up.
+- Known gaps: the Browser's boxes on its own pages and Files' rename box keep the window's font size.
+
 ## 0.97.0: the writing page's own zoom (suite 0.173.0, 26 Nov 2026)
 
 Phase 2b of CJ's combined request: a zoom for the page apart from the interface's, and a column that uses a wide window.

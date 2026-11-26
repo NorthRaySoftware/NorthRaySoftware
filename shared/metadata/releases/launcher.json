@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.174.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size changes the page; the list of apps down the side and the top strip keep their size. Brings Writing Studio 0.98.0, Browser 0.9.4, Files 0.9.4 and Capture 0.21.4, where it works the same way."
+      ]
+    },
+    {
       "version": "0.173.0",
       "date": "2026-11-26",
       "notes": [

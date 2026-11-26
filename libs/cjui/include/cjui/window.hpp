@@ -41,8 +41,8 @@ struct Hit {
     bool focusable = true;
 };
 
-// Interface zoom (suite 0.172): each NorthRay window can be drawn larger or smaller than Windows' display scaling
-// says, 50% to 200%, saved for that app on this PC. Menus and message boxes opened over a window follow its zoom.
+// Interface zoom (suite 0.172; the content only since 0.173): each NorthRay window's content, between its bars, can be
+// drawn larger or smaller, 50% to 200%, saved for that app on this PC. The bars, menus and message boxes stay as they are.
 float interfaceZoomOf(HWND window);
 const std::vector<float>& zoomSteps();   // 50%, 67%, 75%, 80%, 90%, 100%, 110%, 125%, 150%, 175%, 200%
 
@@ -104,6 +104,17 @@ protected:
 
     // Interface zoom (suite 0.172). Ctrl and + / - / 0, and Ctrl with the wheel, change it ("nearest wins": over
     // something with its own zoom, that zooms instead), as do Ctrl+Alt and + / - / 0 everywhere.
+    // It applies to the zoom area (0.173): between beginZoomArea and endZoomArea in drawFrame, the app draws its content
+    // laid out in the returned rect (the area at the zoom: {x, y, w / zoom, h / zoom}); its bars, drawn outside, keep their
+    // size. Hits, sliders and scrolling registered inside are in that space, and the mouse is mapped into it when it's
+    // over the area (the bars' space and the area's never overlap), so mouseX(), onMouseDown and the rest need no change.
+    // Child windows placed inside take toWindow(rect) before converting to pixels (a rect outside the area's space, a
+    // bar's, comes back as it was).
+    Rect beginZoomArea(const Rect& area);
+    void endZoomArea();
+    Rect toWindow(const Rect& contentRect) const;
+    // A point in window DIPs (from the system: a drop, the cursor) into the zoom area's space when it's over the area.
+    void toArea(float& x, float& y) const { mapPoint(x, y); }
     float interfaceZoom() const { return zoom_; }
     void setInterfaceZoom(float zoom, bool announce = true);
     void zoomStep(int direction);   // +1 larger, -1 smaller, 0 back to 100%
@@ -230,6 +241,11 @@ private:
     float captionHeight_ = 40;
     float zoom_ = 1.0f;
     UINT displayDpi() const;
+    Rect zoomArea_{}, lastZoomArea_{};
+    float areaZoom_ = 1.0f, lastAreaZoom_ = 1.0f;
+    bool inZoom_ = false;
+    float rawMouseX_ = 0, rawMouseY_ = 0;   // window DIPs, for what's drawn over everything (the tooltip)
+    void mapPoint(float& x, float& y) const;
     Rect maxButton_{};
     bool maxHover_ = false, maxPressed_ = false, trackingNc_ = false, windowActive_ = true;
     std::vector<Hit> hits_, lastHits_;

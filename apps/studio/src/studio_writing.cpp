@@ -500,8 +500,8 @@ void StudioApp::placeEditor() {
     const bool show = ws_ == Workspace::Writing && lib_ && !currentNode_.empty() && editorNote_.empty();
     if (!show) { editor_.hide(); return; }
     const float s = gfx_.dpiScale();
-    RECT rc{(LONG)std::lround(pageRect_.x * s), (LONG)std::lround(pageRect_.y * s), (LONG)std::lround(pageRect_.right() * s),
-            (LONG)std::lround(pageRect_.bottom() * s)};
+    const Rect pw = toWindow(pageRect_);   // the zoomed area's page in the window (0.98)
+    RECT rc{(LONG)std::lround(pw.x * s), (LONG)std::lround(pw.y * s), (LONG)std::lround(pw.right() * s), (LONG)std::lround(pw.bottom() * s)};
     editor_.place(rc);
 }
 

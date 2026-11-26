@@ -112,7 +112,6 @@ void AppWindow::setInterfaceZoom(float zoom, bool announce) {
     zoom_ = zoom;
     if (!hwnd_) return;
     SetPropW(hwnd_, kZoomProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(std::lround(zoom_ * 1000))));
-    gfx_.setDpi(displayDpi() * zoom_);
     if (!changed) return;
     if (const std::wstring f = zoomFile(); !f.empty()) {
         wchar_t v[16];
@@ -126,7 +125,7 @@ void AppWindow::setInterfaceZoom(float zoom, bool announce) {
         GetClientRect(hwnd_, &cr);
         MONITORINFO mi{sizeof mi};
         GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi);
-        const float s = gfx_.dpiScale();
+        const float s = gfx_.dpiScale() * zoom_;
         const int needW = (int)std::lround(spec_.minWidth * s), needH = (int)std::lround(spec_.minHeight * s);
         if (!maximized() && (cr.right < needW || cr.bottom < needH)) {
             const int w = std::min<int>(std::max<int>(wr.right - wr.left, needW + (wr.right - wr.left - cr.right)), mi.rcWork.right - mi.rcWork.left);
@@ -170,9 +169,40 @@ float AppWindow::zoomControl(const std::string& id, float x, float y, float w) {
     y += 34;
     const std::wstring keys = ctrlZoomKeysAreApps() ? L"Ctrl+Alt and + or − change it too, and Ctrl+Alt+0 goes back to 100%."
                                                     : L"Ctrl and + or −, or Ctrl with the mouse wheel, change it too; Ctrl+0 goes back to 100%.";
-    y += gfx_.text(keys + L" On top of Windows' display scaling; kept for this app on this PC.", {x, y, w, 60}, Font::Small,
+    y += gfx_.text(keys + L" It sizes what's in the window; the bars along the top and side stay as they are. Kept for this app on this PC.", {x, y, w, 60}, Font::Small,
                    pal_.inkFaint, {Align::Left, false, true}) + 4;
     return y - y0;
+}
+
+Rect AppWindow::beginZoomArea(const Rect& area) {
+    if (inZoom_) endZoomArea();
+    inZoom_ = true;
+    zoomArea_ = area;
+    areaZoom_ = zoom_;
+    gfx_.beginZoom(area, zoom_);
+    return {area.x, area.y, area.w / zoom_, area.h / zoom_};
+}
+
+void AppWindow::endZoomArea() {
+    if (!inZoom_) return;
+    gfx_.endZoom();
+    inZoom_ = false;
+}
+
+Rect AppWindow::toWindow(const Rect& r) const {
+    const Rect& a = inZoom_ ? zoomArea_ : lastZoomArea_;
+    const float z = inZoom_ ? areaZoom_ : lastAreaZoom_;
+    if (a.w <= 0 || z == 1.0f) return r;
+    // Only what's in the area's own space: a bar's rect (left of it or above it) is already the window's.
+    const Rect inside{a.x, a.y, a.w / z, a.h / z};
+    if (!inside.contains(r.x + std::min(r.w, 1.0f) * 0.5f, r.y + std::min(r.h, 1.0f) * 0.5f)) return r;
+    return {a.x + (r.x - a.x) * z, a.y + (r.y - a.y) * z, r.w * z, r.h * z};
+}
+
+void AppWindow::mapPoint(float& x, float& y) const {
+    if (lastZoomArea_.w <= 0 || lastAreaZoom_ == 1.0f || !lastZoomArea_.contains(x, y)) return;
+    x = lastZoomArea_.x + (x - lastZoomArea_.x) / lastAreaZoom_;
+    y = lastZoomArea_.y + (y - lastZoomArea_.y) / lastAreaZoom_;
 }
 
 bool AppWindow::createWindow(const WindowSpec& spec) {
@@ -205,7 +235,7 @@ bool AppWindow::createWindow(const WindowSpec& spec) {
         zoom_ = clampZoom(z);
         SetPropW(hwnd_, kZoomProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(std::lround(zoom_ * 1000))));
     }
-    gfx_.setDpi(GetDpiForWindow(hwnd_) * zoom_);
+    gfx_.setDpi(GetDpiForWindow(hwnd_));
     readAnimationSetting();
     captionHeight_ = spec.captionHeight;
     // Recalculate the frame now that WM_NCCALCSIZE is handled: the title bar goes.
@@ -661,7 +691,12 @@ void AppWindow::paint() {
         g_ambientTime = animationsOn_ && ambientAllowed_ ? std::fmod(double(c.QuadPart) / double(f.QuadPart), 86400.0) : -1;
         g_ambientWanted = false;
         gfx_.clear(pal_.paper);
+        zoomArea_ = {};
+        areaZoom_ = 1.0f;
         drawFrame((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
+        endZoomArea();   // an app that didn't close its area
+        lastZoomArea_ = zoomArea_;   // the mouse is mapped by this frame's area until the next (0.173)
+        lastAreaZoom_ = areaZoom_;
         drawTooltip((rc.right - rc.left) / s, (rc.bottom - rc.top) / s);
         gfx_.end();
         // NORTHRAY_FRAME_LOG=<file>: each frame's time (drawing and presenting) appended, for finding slow pages.
@@ -717,9 +752,9 @@ void AppWindow::drawTooltip(float W, float H) {
     const float maxW = 320, pad = 8;
     const float tw = std::min(maxW, gfx_.measureWidth(*text, Font::Small) + 2);
     const float th = gfx_.text(*text, {-10000, -10000, tw, 400}, Font::Small, pal_.ink);   // measures the wrapped height
-    Rect r{mouseX_ + 14, mouseY_ + 20, tw + pad * 2, th + pad * 2 - 2};
+    Rect r{rawMouseX_ + 14, rawMouseY_ + 20, tw + pad * 2, th + pad * 2 - 2};
     if (r.right() > W - 6) r.x = std::max(6.0f, W - 6 - r.w);
-    if (r.bottom() > H - 6) r.y = std::max(6.0f, mouseY_ - 8 - r.h);
+    if (r.bottom() > H - 6) r.y = std::max(6.0f, rawMouseY_ - 8 - r.h);
     gfx_.fillRounded(r, 6, pal_.dark ? hexColor("#1B2A40") : hexColor("#10213A"));
     gfx_.text(*text, {r.x + pad, r.y + pad - 1, tw, th}, Font::Small, hexColor("#EEF3FA"));
 }
@@ -810,7 +845,9 @@ LRESULT AppWindow::frameMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             }
             if (maxButton_.w > 0 && maxButton_.contains(x, y)) return HTMAXBUTTON;
             if (y >= captionHeight_) return HTCLIENT;
-            if (!hitAt(x, y).empty()) return HTCLIENT;   // a button or tab up there
+            float hx = x, hy = y;
+            mapPoint(hx, hy);
+            if (!hitAt(hx, hy).empty()) return HTCLIENT;   // a button or tab up there
             return HTCAPTION;                             // empty space: moves the window
         }
         case WM_NCMOUSEMOVE: {
@@ -918,7 +955,7 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             invalidate();
             return 0;
         case WM_DPICHANGED: {
-            gfx_.setDpi(HIWORD(wp) * zoom_);
+            gfx_.setDpi(HIWORD(wp));
             const RECT* r = reinterpret_cast<RECT*>(lp);
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
@@ -968,8 +1005,9 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_MOUSEMOVE: {
             const float s = gfx_.dpiScale();
-            mouseX_ = GET_X_LPARAM(lp) / s;
-            mouseY_ = GET_Y_LPARAM(lp) / s;
+            rawMouseX_ = mouseX_ = GET_X_LPARAM(lp) / s;
+            rawMouseY_ = mouseY_ = GET_Y_LPARAM(lp) / s;
+            mapPoint(mouseX_, mouseY_);   // into the zoom area's space when over it (0.173)
             if (!trackingMouse_) {
                 TRACKMOUSEEVENT tme{sizeof tme, TME_LEAVE, hwnd, 0};
                 TrackMouseEvent(&tme);
@@ -1025,7 +1063,9 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_RBUTTONUP: {
             const float s = gfx_.dpiScale();
-            if (onRightClick(GET_X_LPARAM(lp) / s, GET_Y_LPARAM(lp) / s)) { invalidate(); return 0; }
+            float rx = GET_X_LPARAM(lp) / s, ry = GET_Y_LPARAM(lp) / s;
+            mapPoint(rx, ry);
+            if (onRightClick(rx, ry)) { invalidate(); return 0; }
             break;
         }
         case WM_MOUSEWHEEL: {
@@ -1034,7 +1074,9 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 ScreenToClient(hwnd, &pt);
                 const float s = gfx_.dpiScale();
-                if (!ownZoomAt(pt.x / s, pt.y / s)) {
+                float zx = pt.x / s, zy = pt.y / s;
+                mapPoint(zx, zy);
+                if (!ownZoomAt(zx, zy)) {
                     const short d = GET_WHEEL_DELTA_WPARAM(wp);
                     if (d) zoomStep(d > 0 ? 1 : -1);
                     return 0;
@@ -1046,7 +1088,9 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 ScreenToClient(hwnd, &pt);
                 const float s = gfx_.dpiScale();
-                if (onWheel(pt.x / s, pt.y / s, -GET_WHEEL_DELTA_WPARAM(wp) / 120.0f * (lines == WHEEL_PAGESCROLL ? 20 : lines))) {
+                float wx = pt.x / s, wy = pt.y / s;
+                mapPoint(wx, wy);
+                if (onWheel(wx, wy, -GET_WHEEL_DELTA_WPARAM(wp) / 120.0f * (lines == WHEEL_PAGESCROLL ? 20 : lines))) {
                     invalidate();
                     return 0;
                 }

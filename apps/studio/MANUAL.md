@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.97.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.173.0 |
+| Version at the time of writing | 0.98.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.174.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -166,11 +166,11 @@ Status labels used in this manual:
 - Pages with tabs and a "tools ▾" menu instead of sidebars.
 - Editing in place, on warm paper with cards.
 - Settings › Buttons and menus show: icons only, words only, or both.
-- Interface size (0.96): 50–200% on top of Windows' scaling, from Settings › Appearance or Ctrl with + / − / 0 and Ctrl with the wheel (over the corkboard, timeline, a family tree or a map, the wheel keeps its own zoom). Fields and the writing page grow with it; menus and boxes follow. Kept on this PC.
+- Interface size (0.96, the content only since 0.98): 50–200% for what's between the top bar and the rail (pages, cards, panels, fields, the writing page), from Settings › Appearance or Ctrl with + / − / 0 and Ctrl with the wheel (over the corkboard, timeline, a family tree or a map, the wheel keeps its own zoom). The bars, menus and boxes keep their size. Kept on this PC.
 
 ### Partial or not verified
 - The editor's behaviour inside the real app (WebView2) on Windows: the right-click menu items (including Draft note), pasting pictures, keys reaching the app, the draft-note look.
-- Interface size (0.96): built and cross-compiled, not yet run on Windows.
+- Interface size (0.96, 0.98) and page zoom (0.97): built and cross-compiled, not yet run on Windows.
 - The named-button boxes of Import many pages (0.94) and Export as Markdown (0.95) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
 - PDF import: experimental.
 - PDF/X conformance is by construction plus a qpdf check. It has not been run through a preflight validator such as Acrobat's or callas pdfToolbox.

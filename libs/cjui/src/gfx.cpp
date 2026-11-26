@@ -96,6 +96,8 @@ bool Gfx::begin() {
     rt_->BeginDraw();
     rt_->SetTransform(D2D1::Matrix3x2F::Identity());
     clips_.clear();
+    zoom_ = 1;
+    zoomed_ = false;
     {
         const D2D1_SIZE_F sz = rt_->GetSize();
         view_ = {0, 0, sz.width, sz.height};
@@ -170,7 +172,7 @@ ID2D1Bitmap* Gfx::bitmapFor(CachedImage& img, const Rect& dst) {
     if (img.small) {
         const D2D1_SIZE_F ss = img.small->GetSize();
         // Shown no bigger than the small copy holds (in pixels), it's as sharp and much cheaper.
-        if (std::max(dst.w, dst.h) * dpiScale() <= std::max(ss.width, ss.height) * 1.05f) return img.small;
+        if (std::max(dst.w, dst.h) * dpiScale() * zoom_ <= std::max(ss.width, ss.height) * 1.05f) return img.small;
     }
     return img.bitmap;
 }
@@ -602,6 +604,32 @@ void Gfx::pushClip(const Rect& r) {
 void Gfx::popClip() {
     rt_->PopAxisAlignedClip();
     if (!clips_.empty()) clips_.pop_back();
+}
+
+void Gfx::beginZoom(const Rect& area, float scale) {
+    if (!rt_ || zoomed_) return;
+    zoomed_ = true;
+    // The window's clip and the area, in window DIPs, become the zoomed space's first clip.
+    const Rect& v = clips_.empty() ? view_ : clips_.back();
+    const float x0 = std::max(v.x, area.x), y0 = std::max(v.y, area.y);
+    const float x1 = std::min(v.x + v.w, area.x + area.w), y1 = std::min(v.y + v.h, area.y + area.h);
+    rt_->PushAxisAlignedClip(Rect{x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)}.d2d(), D2D1_ANTIALIAS_MODE_ALIASED);
+    zoomClips_ = clips_.size();
+    zoom_ = scale > 0 ? scale : 1;
+    zoomX_ = area.x;
+    zoomY_ = area.y;
+    rt_->SetTransform(D2D1::Matrix3x2F::Scale(zoom_, zoom_, D2D1::Point2F(zoomX_, zoomY_)));
+    clips_.push_back({zoomX_ + (x0 - zoomX_) / zoom_, zoomY_ + (y0 - zoomY_) / zoom_, std::max(0.0f, x1 - x0) / zoom_, std::max(0.0f, y1 - y0) / zoom_});
+}
+
+void Gfx::endZoom() {
+    if (!rt_ || !zoomed_) return;
+    zoomed_ = false;
+    while (clips_.size() > zoomClips_ + 1) popClip();   // anything left pushed inside
+    if (clips_.size() > zoomClips_) clips_.pop_back();
+    rt_->SetTransform(D2D1::Matrix3x2F::Identity());
+    rt_->PopAxisAlignedClip();
+    zoom_ = 1;
 }
 
 }  // namespace cjui

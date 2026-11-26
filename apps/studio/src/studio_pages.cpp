@@ -81,6 +81,15 @@ void StudioApp::drawFrame(float W, float H) {
     // The workspaces' rail down the left edge (UI pass, 0.64); gone in focus mode, like everything but the text.
     const float railW = focusing ? 0 : kRailW;
     railRect_ = {0, kTopH, railW, H - kTopH};
+    // Interface zoom (0.98): the rail and the top bar keep their size; everything between them is drawn at the zoom, laid
+    // out in the area's zoomed size (W and H from here on are that space's; the bars use the window's).
+    const float realW = W, realH = H;
+    const Rect zoomWin{railW, kTopH, std::max(1.0f, W - railW), std::max(1.0f, H - kTopH)};
+    {
+        const Rect area = beginZoomArea(zoomWin);
+        W = area.right();
+        H = area.bottom();
+    }
     const float centreW = W - railW - sideW - (panel ? kPanelW : 0) - (libCard || writeCard || bookCard ? kPanelW + 34 : 0);
     // Draws a details or choices card at the right edge.
     auto rightCard = [&](const std::function<void(const Rect&)>& drawIt) {
@@ -115,17 +124,17 @@ void StudioApp::drawFrame(float W, float H) {
         } else {
             if (!preview_.ready()) gfx_.text(L"Opening the preview...", pageRect_, Font::Body, pal_.inkFaint, {Align::Center, false, false, true});
             const float s = gfx_.dpiScale();
-            RECT rc{(LONG)std::lround(pageRect_.x * s), (LONG)std::lround(pageRect_.y * s), (LONG)std::lround(pageRect_.right() * s),
-                    (LONG)std::lround(pageRect_.bottom() * s)};
+            const Rect pw = toWindow(pageRect_);
+            RECT rc{(LONG)std::lround(pw.x * s), (LONG)std::lround(pw.y * s), (LONG)std::lround(pw.right() * s), (LONG)std::lround(pw.bottom() * s)};
             preview_.place(rc);
         }
         if (sideRect_.w > 0) drawPreviewSidebar(sideRect_);
         if (panel) drawPreviewPanel(panelRect_);
         if (headRect.w > 0) drawPreviewHead(headRect);
         if (bookCard) rightCard([this](const Rect& rr) { drawPreviewSidebar(rr); });
-        { StudioTimer t_("drawRail"); drawRail(railRect_); }
-        { StudioTimer t_("drawTopBar"); drawTopBar({0, 0, W, kTopH}); }
-        drawStatusBar({0, H, W, 0});
+        { StudioTimer t_("drawRail"); endZoomArea(); drawRail(railRect_); }
+        { StudioTimer t_("drawTopBar"); drawTopBar({0, 0, realW, kTopH}); }
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -144,9 +153,10 @@ void StudioApp::drawFrame(float W, float H) {
         if (panel) drawTypesetPanel(panelRect_);
         if (headRect.w > 0) drawTypesetHead(headRect);
         if (bookCard) rightCard([this](const Rect& rr) { drawTypesetSidebar(rr); });
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -166,9 +176,10 @@ void StudioApp::drawFrame(float W, float H) {
         if (sideRect_.w > 0) drawPublishSidebar(sideRect_);
         if (panel) { if (designing) drawCoverPanel(panelRect_); else drawPublishPanel(panelRect_); }
         if (bookCard) rightCard([this, designing](const Rect& rr) { if (designing) drawCoverPanel(rr); else drawPublishPanel(rr); });
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -195,9 +206,10 @@ void StudioApp::drawFrame(float W, float H) {
         } else {
             { StudioTimer t_("drawWorldPage"); drawWorldPage(pageRect_); }
         }
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         if (drag_.active) {   // a creature being moved in the tree
             if (const Drop* d = dropAt(mouseX(), mouseY())) gfx_.strokeRounded(d->rect.inset(1), 4, pal_.ribbon, 2);
@@ -223,9 +235,10 @@ void StudioApp::drawFrame(float W, float H) {
         }
         if (!pl_.page.empty() && !focusing) {
             drawPlanPage(pageRect_);
+            endZoomArea();
             drawRail(railRect_);
-            drawTopBar({0, 0, W, kTopH});
-            drawStatusBar({0, H, W, 0});
+            drawTopBar({0, 0, realW, kTopH});
+            drawStatusBar({0, realH, realW, 0});
             hideUnplacedFields();
             lastDrops_ = drops_;
             return;
@@ -291,9 +304,10 @@ void StudioApp::drawFrame(float W, float H) {
         } else {
             panelRect_ = {};
         }
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -307,9 +321,10 @@ void StudioApp::drawFrame(float W, float H) {
         if (panel) drawReviewPanel(panelRect_);
         if (bookCard) rightCard([this](const Rect& rr) { drawReviewPanel(rr); });
         else if (bookWs) panelRect_ = {};
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-        drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         lastDrops_ = drops_;
         return;
@@ -366,8 +381,9 @@ void StudioApp::drawFrame(float W, float H) {
         } else if (writeLayout) {
             panelRect_ = {};
         }
+        endZoomArea();
         drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
+        drawTopBar({0, 0, realW, kTopH});
         {   // Today's words against the daily goal: a thin bar along the foot of the top bar (0.35).
             const std::int64_t goal = dailyGoal();
             if (goal > 0) {
@@ -380,7 +396,7 @@ void StudioApp::drawFrame(float W, float H) {
                 tooltip("goalbar", todayLine());
             }
         }
-        drawStatusBar({0, H, W, 0});
+        drawStatusBar({0, realH, realW, 0});
         hideUnplacedFields();
         if (drag_.active) {
             if (const Drop* d = dropAt(mouseX(), mouseY())) {
@@ -435,13 +451,15 @@ void StudioApp::drawFrame(float W, float H) {
     } else if (libLayout) {
         panelRect_ = {};
     }
+    endZoomArea();
     drawRail(railRect_);
-        drawTopBar({0, 0, W, kTopH});
-    drawStatusBar({0, H, W, 0});
+        drawTopBar({0, 0, realW, kTopH});
+    drawStatusBar({0, realH, realW, 0});
     hideUnplacedFields();
 
-    // The thing being dragged, and where it would land.
+    // The thing being dragged, and where it would land: in the zoomed space, like what it's dragged over.
     if (drag_.active) {
+        beginZoomArea(zoomWin);
         if (const Drop* d = dropAt(mouseX(), mouseY())) {
             if (d->kind == Drop::ToWorld || d->kind == Drop::ToIndependent || d->kind == Drop::ToSeries) {
                 gfx_.strokeRounded(d->rect.inset(1), 3, pal_.ribbon, 2);
@@ -457,6 +475,7 @@ void StudioApp::drawFrame(float W, float H) {
         const Rect g{mouseX() + 14, mouseY() + 10, lw, 30};
         gfx_.fillRounded(g, 3, pal_.ink.withAlpha(0.88f));
         gfx_.text(drag_.label, g.inset(12, 0), Font::BodyStrong, pal_.paper, {Align::Left, false, true, true});
+        endZoomArea();
     }
     lastDrops_ = drops_;
 }
@@ -863,7 +882,8 @@ void StudioApp::drawStatusBar(const Rect&) {
         if (a > 0.01f) {
             const std::wstring st = saveFailed_ ? L"Not saved" : L"Saving...";
             const float tw = gfx_.measureWidth(st, Font::Small) + 34;
-            const Rect r{pageRect_.right() - tw - 14, pageRect_.bottom() - 38, tw, 26};
+            const Rect page = toWindow(pageRect_);   // drawn after the zoomed area, over the window (0.98)
+            const Rect r{page.right() - tw - 14, page.bottom() - 38, tw, 26};
             gfx_.fillRounded(r, 13, pal_.surface.withAlpha(0.95f * a));
             gfx_.strokeRounded(r, 13, pal_.rule.withAlpha(a));
             gfx_.circle(r.x + 14, r.y + r.h / 2, 3, (saveFailed_ ? hexColor("#B4442C") : hexColor("#C9922E")).withAlpha(a), true);
@@ -871,7 +891,7 @@ void StudioApp::drawStatusBar(const Rect&) {
                       {Align::Left, false, false, true});
         }
     }
-    drawToast(pageRect_);
+    drawToast(toWindow(pageRect_));
 }
 
 // Today's words (and the daily goal), for the foot of the outline while writing.
@@ -1176,7 +1196,8 @@ void StudioApp::showTools(const std::vector<ToolItem>& items, float x, float y, 
     };
     const auto menu = build(items);
     const float s = gfx_.dpiScale();
-    POINT pt{(LONG)std::lround(x * s), (LONG)std::lround(y * s)};
+    const Rect at = toWindow({x, y, 0, 0});   // from the zoomed area (0.98)
+    POINT pt{(LONG)std::lround(at.x * s), (LONG)std::lround(at.y * s)};
     ClientToScreen(hwnd(), &pt);
     const UINT c = cjui::showMenu(hwnd(), menu, pt, pal_, right ? cjui::MenuAnchor::TopRight : cjui::MenuAnchor::TopLeft);
     if (c >= 1 && c <= acts.size() && acts[c - 1]) {
@@ -1235,8 +1256,8 @@ void StudioApp::inlineBox(const Rect& r) {
     if (ie_.big && !isMultiField(f)) {
         // The name in the title's size: its own font, and the box sized for it.
         const float s = gfx_.dpiScale();
-        const RECT rc{(LONG)std::lround((r.x + 10) * s), (LONG)std::lround((r.y + (r.h - 36) / 2) * s), (LONG)std::lround((r.right() - 8) * s),
-                      (LONG)std::lround((r.y + (r.h + 36) / 2) * s)};
+        const Rect box = toWindow({r.x + 10, r.y + (r.h - 36) / 2, r.w - 18, 36});
+        const RECT rc{(LONG)std::lround(box.x * s), (LONG)std::lround(box.y * s), (LONG)std::lround(box.right() * s), (LONG)std::lround(box.bottom() * s)};
         placed_[f] = true;
         if (titleFont_ && (HFONT)SendMessageW(fields_[f], WM_GETFONT, 0, 0) != titleFont_)
             SendMessageW(fields_[f], WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);

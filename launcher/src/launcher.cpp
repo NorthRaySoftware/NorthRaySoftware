@@ -820,10 +820,12 @@ void Launcher::actionArea(const AppItem& a, const Rect& r, const std::string& pr
 void Launcher::drawFrame(float W, float H) {
     if (page_ == Page::Welcome) { drawWelcome(W, H); return; }
     gfx_.fill({0, 0, W, H}, pal_.paper);
-    const float pad = W - kNavW > 900 ? 44 : 30;
     const float capH = 40;   // the top strip: moves the window, holds minimise, maximise and close
-    const float top = beginScroll({kNavW, capH, W - kNavW, H - capH});
-    Rect page{kNavW + pad, top + 4, std::min(W - kNavW - pad * 2, 960.0f), 0};
+    // Interface size (suite 0.173): the page between the nav and the top strip is drawn at the zoom; they keep their size.
+    const Rect area = beginZoomArea({kNavW, capH, W - kNavW, H - capH});
+    const float pad = area.w > 900 ? 44 : 30;
+    const float top = beginScroll(area);
+    Rect page{kNavW + pad, top + 4, std::min(area.w - pad * 2, 960.0f), 0};
     float h = 0;
     switch (page_) {
         case Page::Library: h = pageLibrary(page); break;
@@ -833,6 +835,7 @@ void Launcher::drawFrame(float W, float H) {
         case Page::Welcome: break;
     }
     endScroll(h + 60);
+    endZoomArea();
     gfx_.fill({kNavW, 0, W - kNavW, capH}, pal_.paper);
     drawCaptionButtons({kNavW, 0, W - kNavW, capH}, false);
     drawNav({0, 0, kNavW, H});

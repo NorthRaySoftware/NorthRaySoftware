@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.98.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size changes what's in the window: the pages, cards, panels and writing page get larger or smaller, while the top bar and the rail down the side stay as they are. Menus and message boxes keep their usual size."
+      ]
+    },
+    {
       "version": "0.97.0",
       "date": "2026-11-26",
       "notes": [

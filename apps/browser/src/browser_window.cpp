@@ -1680,7 +1680,9 @@ void BrowserWindow::drawFrame(float W, float H) {
     const bool bar = chrome && settings_.showBookmarksBar && bookmarks_;
     const float top = chrome ? kStripH + kToolbarH + (bar ? kBookmarksBarH : 0) : 0;
     const float side = chrome ? sideW() : 0;
-    const Rect content{side, top, W - side, H - top};
+    // Interface size (suite 0.173): the browser's own pages (start, bookmarks, history...) are drawn at the zoom; the tabs,
+    // toolbar and bookmarks bar keep their size, and a web page has its own zoom (Ctrl +/-).
+    const Rect content = beginZoomArea({side, top, std::max(1.0f, W - side), std::max(1.0f, H - top)});
 
     TabView* v = activeView();
     const bool ownPage = v && v->showStart && (v->bookmarksPage || v->historyPage || v->downloadsPage || v->referencesPage);
@@ -1698,6 +1700,7 @@ void BrowserWindow::drawFrame(float W, float H) {
     }
     if (!v || !v->showStart || v->error || engineFailed_) { tileRects_.clear(); rowRects_.clear(); }
     placePages(content);
+    endZoomArea();
 
     if (chrome) {
         if (side > 0) drawSideTabs({0, top, side, H - top});
@@ -1715,8 +1718,9 @@ void BrowserWindow::drawFrame(float W, float H) {
     updateNote();
 }
 
-void BrowserWindow::placePages(const Rect& content) {
+void BrowserWindow::placePages(const Rect& contentIn) {
     const float s = gfx_.dpiScale();
+    const Rect content = toWindow(contentIn);   // the whole page area in the window
     const RECT rc{(LONG)std::lround(content.x * s), (LONG)std::lround(content.y * s), (LONG)std::lround(content.right() * s),
                   (LONG)std::lround(content.bottom() * s)};
     TabView* a = activeView();
@@ -2253,7 +2257,7 @@ LRESULT CALLBACK noteProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         const int len = GetWindowTextLengthW(h);
         std::wstring t((size_t)len, L'\0');
         if (len) GetWindowTextW(h, t.data(), len + 1);
-        const UINT dpi = (UINT)std::lround(GetDpiForWindow(h) * cjui::interfaceZoomOf(h));   // with the interface zoom (0.172)
+        const UINT dpi = GetDpiForWindow(h);
         HFONT f = CreateFontW(-MulDiv(14, (int)dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         HGDIOBJ old = SelectObject(dc, f);

@@ -213,7 +213,8 @@ void BrowserWindow::drawBookmarksBar(const Rect& r) {
         if (b.folder) {
             addHit(id, ir, [this, fid = b.id, ir] {
                 const float s = gfx_.dpiScale();
-                POINT pt{(LONG)(ir.x * s), (LONG)(ir.bottom() * s)};
+                const Rect at = toWindow({ir.x, ir.bottom(), 0, 0});
+                POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
                 ClientToScreen(hwnd(), &pt);
                 showFolderMenu(fid, pt);
             });
@@ -245,7 +246,8 @@ void BrowserWindow::drawBookmarksBar(const Rect& r) {
                 }
             }
             const float s = gfx_.dpiScale();
-            POINT pt{(LONG)(mr.right() * s), (LONG)(mr.bottom() * s)};
+            const Rect at = toWindow({mr.right(), mr.bottom(), 0, 0});
+            POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
             ClientToScreen(hwnd(), &pt);
             const UINT cmd = cjui::showMenu(hwnd(), menu, pt, pal_, cjui::MenuAnchor::TopRight);
             openFromMenuId(cmd, ids, false);
@@ -405,7 +407,8 @@ bool BrowserWindow::bookmarkRightClick(float x, float y) {
         for (auto& [id, r] : *list)
             if (r.contains(x, y)) {
                 const float s = gfx_.dpiScale();
-                POINT pt{(LONG)(x * s), (LONG)(y * s)};
+                const Rect at = toWindow({x, y, 0, 0});
+                POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
                 ClientToScreen(hwnd(), &pt);
                 showBookmarkMenu(id, pt);
                 return true;
@@ -781,8 +784,9 @@ void BrowserWindow::placeEdit(HWND e, const Rect& r, bool show) {
         return;
     }
     const float s = gfx_.dpiScale();
-    SetWindowPos(e, nullptr, (int)std::lround(r.x * s), (int)std::lround(r.y * s), (int)std::lround(r.w * s),
-                 (int)std::lround(r.h * s), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    const Rect wr = toWindow(r);   // on the zoomed pages (0.173)
+    SetWindowPos(e, nullptr, (int)std::lround(wr.x * s), (int)std::lround(wr.y * s), (int)std::lround(wr.w * s),
+                 (int)std::lround(wr.h * s), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     SendMessageW(e, WM_SETFONT, reinterpret_cast<WPARAM>(editFont_), FALSE);
 }
 

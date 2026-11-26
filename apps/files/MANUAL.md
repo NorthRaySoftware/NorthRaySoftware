@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Files (`NorthRayFiles.exe`) |
-| Version at the time of writing | 0.9.3 (`apps/files/VERSION`) |
+| Version at the time of writing | 0.9.4 (`apps/files/VERSION`) |
 | Status | **Preview**, released |
 | Source | `apps/files/` (C++20, Windows Shell, UI in `libs/cjui`) |
 | Architecture notes | `apps/files/docs/ARCHITECTURE.md` |
@@ -33,9 +33,9 @@ Status labels used in this manual:
 
 ## 2. Features
 
-### Implemented (0.1 to 0.9.3)
+### Implemented (0.1 to 0.9.4)
 
-- **Interface size** (0.9.3): the window at 50–200%, from the menu's Interface size, Ctrl with + / − / 0, or Ctrl and the wheel away from the files (over the files in Icons and Gallery it still sizes the tiles). Kept on this PC (cjui).
+- **Interface size** (0.9.3; since 0.9.4 the panes and preview only, the sidebar and toolbar keeping their size): 50–200%, from the menu's Interface size, Ctrl with + / − / 0, or Ctrl and the wheel away from the files (over the files in Icons and Gallery it still sizes the tiles). Kept on this PC (cjui).
 **Browsing**
 - Sidebar: Home, Desktop, Documents, Downloads, Pictures, Music, Videos, This PC, pinned folders, the Recycle Bin, collections and labels. It can be resized.
 - A folder tree under This PC.

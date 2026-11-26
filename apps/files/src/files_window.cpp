@@ -178,7 +178,9 @@ bool FilesWindow::create(HINSTANCE inst, int show, const std::wstring& startPath
         auto toClient = [this](POINT screen) {
             ScreenToClient(hwnd(), &screen);
             const float s = gfx_.dpiScale();
-            return std::pair<float, float>{screen.x / s, screen.y / s};
+            float x = screen.x / s, y = screen.y / s;
+            toArea(x, y);   // over the zoomed panes, in their space (0.173)
+            return std::pair<float, float>{x, y};
         };
         h.over = [this, toClient](const std::vector<std::wstring>& paths, POINT screen, DWORD keys, DWORD) -> DWORD {
             const auto [x, y] = toClient(screen);
@@ -807,7 +809,8 @@ bool FilesWindow::onKeyDown(WPARAM vk, bool ctrl, bool shift) {
         case VK_APPS:
         case VK_F10: {
             if (vk == VK_F10 && !shift) break;
-            POINT pt{(LONG)((listClip_.x + 40) * gfx_.dpiScale()), (LONG)((listClip_.y + 40) * gfx_.dpiScale())};
+            const Rect at = toWindow({listClip_.x + 40, listClip_.y + 40, 0, 0});
+            POINT pt{(LONG)(at.x * gfx_.dpiScale()), (LONG)(at.y * gfx_.dpiScale())};
             ClientToScreen(hwnd(), &pt);
             if (vk == VK_F10) moreOptions(pt);   // Shift+F10: Windows' own menu
             else showItemMenu(pt);
@@ -947,7 +950,8 @@ bool FilesWindow::onRightClick(float x, float y) {
     if (row >= 0 && !sel_.selected((std::size_t)row)) sel_.select((std::size_t)row);
     if (row < 0) sel_.clear();
     const float s = gfx_.dpiScale();
-    POINT pt{(LONG)(x * s), (LONG)(y * s)};
+    const Rect at = toWindow({x, y, 0, 0});   // from the zoomed panes (0.173)
+    POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
     ClientToScreen(hwnd(), &pt);
     invalidate();
     UpdateWindow(hwnd());
@@ -963,7 +967,9 @@ LRESULT FilesWindow::onMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handled) {
             GetCursorPos(&pt);
             ScreenToClient(hwnd(), &pt);
             const float s = gfx_.dpiScale(), x = pt.x / s, y = pt.y / s;
-            if (sidebarDrag_ || colDrag_ >= 0 || colEdgeAt(x, y) || (sidebarEdge_ > 0 && std::fabs(x - sidebarEdge_) <= 4 && y > 48)) {
+            float ax = x, ay = y;
+            toArea(ax, ay);   // the columns are in the zoomed panes (0.173)
+            if (sidebarDrag_ || colDrag_ >= 0 || colEdgeAt(ax, ay) || (sidebarEdge_ > 0 && std::fabs(x - sidebarEdge_) <= 4 && y > 48)) {
                 SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
                 handled = true;
                 return TRUE;
@@ -2818,7 +2824,8 @@ void FilesWindow::onMouseMove(float x, float y, bool leftDown) {
         RECT rc;
         GetClientRect(hwnd(), &rc);
         const float s = gfx_.dpiScale();
-        if (x < 0 || y < 0 || x * s >= rc.right || y * s >= rc.bottom) {
+        const Rect wpt = toWindow({x, y, 0, 0});
+        if (wpt.x < 0 || wpt.y < 0 || wpt.x * s >= rc.right || wpt.y * s >= rc.bottom) {
             const auto paths = drag_.paths;
             drag_ = Drag{};
             invalidate();
@@ -2955,7 +2962,7 @@ std::wstring FilesWindow::dateText(std::uint64_t ft) const {
 
 void FilesWindow::drawIcon(int index, const Rect& r, float opacity) {
     // The system image list's size nearest the drawn size at this DPI.
-    const float px = r.w * gfx_.dpiScale();
+    const float px = r.w * gfx_.dpiScale() * gfx_.zoomScale();
     const int size = px <= 20 ? 16 : px <= 40 ? 32 : 48;
     const IconPixels* p = systemIcon(index, size);
     if (!p) {
@@ -3050,7 +3057,8 @@ void FilesWindow::drawFrame(float W, float H) {
     drawToolbar({side, 0, W - side, kToolbarH});
     // The panes: one, or two side by side, each with its tabs along the top. The other pane is drawn
     // first with its own tab swapped in, then the active one (whose geometry the mouse and keys use).
-    Rect area{side, kToolbarH, W - side, H - kToolbarH};
+    // Interface size (suite 0.173): the panes and the preview are drawn at the zoom; the sidebar and toolbar keep their size.
+    Rect area = beginZoomArea({side, kToolbarH, W - side, H - kToolbarH});
     previewRect_ = {};
     if (settings_.previewPane && area.w >= 760) {
         const float pw = std::clamp(std::floor(area.w * 0.28f), 260.0f, 420.0f);
@@ -3081,8 +3089,9 @@ void FilesWindow::drawFrame(float W, float H) {
     }
     if (two) gfx_.fill({paneRect_[1].x - 1, area.y, 1, area.h}, pal_.rule);
     if (previewRect_.w > 0) drawPreview(previewRect_);
-    if (side <= 0) drawStatusNote({side, kToolbarH, W - side, H - kToolbarH});
-    // Dragging: what's being dragged, and where it would go.
+    if (side <= 0) drawStatusNote(Rect{side, kToolbarH, area.w, area.h});
+    endZoomArea();
+    // Dragging: what's being dragged, and where it would go (the label at the pointer, in the window).
     if (drag_.active) {
         int tp = -1;
         const std::wstring target = dropTargetFolder(drag_.x, drag_.y, &tp);
@@ -3100,7 +3109,8 @@ void FilesWindow::drawFrame(float W, float H) {
             label = (copy ? L"Copy " : L"Move ") + what + L" to " + (isDriveRoot(target) ? target : nameOf(target));
         }
         const float lw = std::min(gfx_.measureWidth(label, Font::Small) + 24, 420.0f);
-        const Rect g{drag_.x + 14, drag_.y + 16, lw, 28};
+        const Rect at = toWindow({drag_.x, drag_.y, 0, 0});
+        const Rect g{at.x + 14, at.y + 16, lw, 28};
         gfx_.fillRounded(g, 8, pal_.ink.withAlpha(0.88f));
         gfx_.text(label, g, Font::Small, pal_.paper, {Align::Center, false, true, true});
     }
@@ -3112,9 +3122,10 @@ void FilesWindow::drawFrame(float W, float H) {
     if (renaming_) {
         if (renameRect_.w <= 0) { endRename(false); return; }
         const float s = gfx_.dpiScale();
+        const Rect rr = toWindow(renameRect_);   // a name being changed in the zoomed panes (0.173)
         SendMessageW(rename_, WM_SETFONT, reinterpret_cast<WPARAM>(addressFont_), FALSE);
-        SetWindowPos(rename_, HWND_TOP, (int)std::lround(renameRect_.x * s), (int)std::lround(renameRect_.y * s), (int)std::lround(renameRect_.w * s),
-                     (int)std::lround(renameRect_.h * s), SWP_NOACTIVATE);
+        SetWindowPos(rename_, HWND_TOP, (int)std::lround(rr.x * s), (int)std::lround(rr.y * s), (int)std::lround(rr.w * s),
+                     (int)std::lround(rr.h * s), SWP_NOACTIVATE);
         renameRect_ = {};
     }
 }

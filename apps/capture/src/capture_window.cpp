@@ -717,7 +717,8 @@ bool CaptureWindow::onMouseDown(float x, float y) {
                         openDesigner(src->id);
                     } else {
                         const float s = gfx_.dpiScale();
-                        POINT pt{(LONG)(x * s), (LONG)(y * s)};
+                        const Rect at = toWindow({x, y, 0, 0});   // from the zoomed body (0.173)
+                        POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
                         ClientToScreen(hwnd(), &pt);
                         itemMenu(id, pt);
                     }
@@ -790,7 +791,8 @@ bool CaptureWindow::onRightClick(float x, float y) {
     if (!asking_ && libraryRightClick(x, y)) return true;
     if (settingsOpen_ || asking_) return false;
     const float s = gfx_.dpiScale();
-    POINT pt{(LONG)(x * s), (LONG)(y * s)};
+    const Rect at = toWindow({x, y, 0, 0});   // from the zoomed body (0.173)
+    POINT pt{(LONG)(at.x * s), (LONG)(at.y * s)};
     ClientToScreen(hwnd(), &pt);
     for (auto& [id, r] : sceneRows_)
         if (r.contains(x, y)) {
@@ -998,9 +1000,11 @@ void CaptureWindow::drawFrame(float W, float H) {
         return;
     }
     // Compact (0.10.32): tighter rows and buttons on a laptop-sized window, or always, or never (Settings).
-    compact_ = settings_.compactLayout == 1 || (settings_.compactLayout == 0 && (W < 1500 || H < 860));
     drawTopBar({0, 0, W, kTopH});
-    const Rect body{0, kTopH, W, H - kTopH - kStatusH};
+    // Interface size (suite 0.173): the body between the top bar and the status strip is drawn at the zoom; they keep
+    // their size. Compact follows the body's zoomed size.
+    const Rect body = beginZoomArea({0, kTopH, W, std::max(1.0f, H - kTopH - kStatusH)});
+    compact_ = settings_.compactLayout == 1 || (settings_.compactLayout == 0 && (body.w < 1500 || body.h + kTopH + kStatusH < 860));
     previewRect_ = dockRect_ = hSplit_ = previewInner_ = {};
     panelRects_.clear();
     vSplits_.clear();
@@ -1082,6 +1086,7 @@ void CaptureWindow::drawFrame(float W, float H) {
         for (auto& [p, r] : panelRects_) lastPanels_.insert(p);
         }
     }
+    endZoomArea();
     drawStatusBar({0, H - kStatusH, W, kStatusH});
     drawToast({0, kTopH, W, H - kTopH - kStatusH});
     if (asking_) drawAsk(W, H);

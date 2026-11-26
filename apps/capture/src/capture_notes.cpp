@@ -163,7 +163,7 @@ void CaptureWindow::drawNotesPanel(const Rect& body) {
         gfx_.fillRounded(box, 8, pal_.sunken);
         // The text box sits inside, unless something is drawn over the panels.
         if (!asking_ && box.w > 40 && box.h > 30) {
-            const float s = gfx_.dpiScale();
+            const float s = gfx_.dpiScale() * gfx_.zoomScale();   // the text at the body's zoom (0.173)
             if (notesFontScale_ != s || !notesFont_) {
                 notesFontScale_ = s;
                 if (notesFont_) DeleteObject(notesFont_);
@@ -171,8 +171,10 @@ void CaptureWindow::drawNotesPanel(const Rect& body) {
                                          CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
                 SendMessageW(notesEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(notesFont_), TRUE);
             }
-            SetWindowPos(notesEdit_, HWND_TOP, (int)std::lround((box.x + 10) * s), (int)std::lround((box.y + 8) * s),
-                         (int)std::lround((box.w - 20) * s), (int)std::lround((box.h - 16) * s), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            const Rect nb = toWindow({box.x + 10, box.y + 8, box.w - 20, box.h - 16});
+            const float ps = gfx_.dpiScale();
+            SetWindowPos(notesEdit_, HWND_TOP, (int)std::lround(nb.x * ps), (int)std::lround(nb.y * ps),
+                         (int)std::lround(nb.w * ps), (int)std::lround(nb.h * ps), SWP_NOACTIVATE | SWP_SHOWWINDOW);
             notesDrawn_ = true;
         }
         return;

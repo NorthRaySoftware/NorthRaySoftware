@@ -2019,18 +2019,26 @@ void StudioApp::onInterfaceZoomChanged() {
 
 void StudioApp::layoutFont() {
     if (fieldFont_) DeleteObject(fieldFont_);
-    // The display's DPI times the interface zoom (0.172): the fields' text grows with everything else.
+    // The display's DPI times the interface zoom (0.172): the fields in the zoomed area grow with it.
     const UINT dpi = (UINT)std::lround((GetDpiForWindow(hwnd()) ? GetDpiForWindow(hwnd()) : 96) * interfaceZoom());
     fieldFont_ = CreateFontW(-MulDiv(14, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     for (HWND h : fields_) if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(fieldFont_), TRUE);
+    {
+        const UINT bdpi = GetDpiForWindow(hwnd()) ? GetDpiForWindow(hwnd()) : 96;
+        if (barFont_) DeleteObject(barFont_);
+        barFont_ = CreateFontW(-MulDiv(14, bdpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        if (fields_[FTopSearch]) SendMessageW(fields_[FTopSearch], WM_SETFONT, reinterpret_cast<WPARAM>(barFont_), TRUE);
+    }
     if (titleFont_) DeleteObject(titleFont_);
     titleFont_ = CreateFontW(-MulDiv(28, dpi, 96), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                              CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Georgia");
     if (ie_.big && ie_.field >= 0) SendMessageW(fields_[ie_.field], WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);
 }
 
-void StudioApp::placeField(Field f, const Rect& r) {
+void StudioApp::placeField(Field f, const Rect& rIn) {
+    const Rect r = toWindow(rIn);   // in the zoomed area, or the top bar's search box as it is (0.98)
     const float s = gfx_.dpiScale();
     const bool multi = isMultiField(f);
     // The text sits inside a drawn frame; the control itself is borderless.

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.9.4",
+      "date": "2026-11-26",
+      "notes": [
+        "Interface size changes the browser's own pages (start, bookmarks, history, downloads); the tabs, toolbar and bookmarks bar keep their size. The bars along the top and side, menus and message boxes keep their size; only what's between the bars is larger or smaller."
+      ]
+    },
+    {
       "version": "0.9.3",
       "date": "2026-11-26",
       "notes": [

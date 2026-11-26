@@ -144,7 +144,8 @@ void BrowserWindow::drawHistoryPage(const Rect& r) {
     const Rect cb{x + w - bw, y + 4, bw, 34};
     button("hip:clear", cb, clearLabel, [this, cb] {
         const float s = gfx_.dpiScale();
-        POINT pt{(LONG)std::lround(cb.right() * s), (LONG)std::lround((cb.bottom() + 4) * s)};
+        const Rect at = toWindow({cb.right(), cb.bottom() + 4, 0, 0});
+        POINT pt{(LONG)std::lround(at.x * s), (LONG)std::lround(at.y * s)};
         ClientToScreen(hwnd(), &pt);
         clearHistoryMenu(pt);
     });

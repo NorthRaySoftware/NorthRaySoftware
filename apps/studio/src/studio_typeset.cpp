@@ -515,7 +515,7 @@ void StudioApp::drawTypesetPages(const Rect& r) {
 
     gfx_.pushClip(area.inset(-24));
     std::vector<std::wstring> keep;
-    const float dpi = gfx_.dpiScale();
+    const float dpi = gfx_.dpiScale() * interfaceZoom();   // the pages are drawn at the zoomed size too (0.98)
     const auto& d = book->design;
     for (int side = 0; side < shownPages; ++side) {
         const int idx = ts_.single ? right : (side == 0 ? left : right);

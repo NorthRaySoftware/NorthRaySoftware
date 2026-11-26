@@ -240,7 +240,6 @@ int runBox(Dialog& d, HWND /*owner*/, const std::wstring& /*text*/, const std::w
     SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
     UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
     if (!dpi) dpi = 96;
-    dpi = (UINT)std::lround(dpi * interfaceZoomOf(d.owner));   // the window's interface zoom too (0.172)
     d.scale = dpi / 96.0f;
     // Drawn at the display's scale, so what's seen is where clicks land (without this, at 125% or 150%
     // the buttons were drawn smaller than their click areas: OK only worked from the keyboard).
@@ -365,7 +364,6 @@ bool askText(HWND owner, const std::wstring& title, const std::wstring& text, st
     SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
     UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
     if (!dpi) dpi = 96;
-    dpi = (UINT)std::lround(dpi * interfaceZoomOf(d.owner));   // the window's interface zoom too (0.172)
     d.scale = dpi / 96.0f;
     d.gfx.setDpi(dpi);
     d.edit = CreateWindowExW(0, L"EDIT", value.c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 10, 10, d.hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);

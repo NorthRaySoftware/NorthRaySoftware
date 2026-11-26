@@ -205,7 +205,7 @@ void CaptureWindow::pushSnapshot() {
     if (const SceneItem* i = selectedItem()) s.selectedLocked = i->locked;
     s.guidesX = guidesX_;
     s.guidesY = guidesY_;
-    s.uiScale = gfx_.dpiScale();
+    s.uiScale = gfx_.dpiScale() * interfaceZoom();   // handles and guides at the body's zoom (0.173)
     const cjui::Color bg = pal_.dark ? cjui::hexColor("#05080F") : cjui::hexColor("#0B1120");
     s.background[0] = bg.r;
     s.background[1] = bg.g;
@@ -215,8 +215,8 @@ void CaptureWindow::pushSnapshot() {
 
 void CaptureWindow::placePreview() {
     const float sc = gfx_.dpiScale();
-    RECT r{(LONG)std::lround(previewInner_.x * sc), (LONG)std::lround(previewInner_.y * sc), (LONG)std::lround(previewInner_.right() * sc),
-           (LONG)std::lround(previewInner_.bottom() * sc)};
+    const Rect pr = toWindow(previewInner_);   // the live preview window over the zoomed body (0.173)
+    RECT r{(LONG)std::lround(pr.x * sc), (LONG)std::lround(pr.y * sc), (LONG)std::lround(pr.right() * sc), (LONG)std::lround(pr.bottom() * sc)};
     const int fps = settings_.lowResource ? std::min(settings_.previewFps, 10) : settings_.previewFps;
     engine_.setPreview(r, previewLive_, fps);
 }

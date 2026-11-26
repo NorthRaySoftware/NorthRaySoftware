@@ -828,6 +828,7 @@ private:
     bool suppressChange_ = false;
     bool dirty_ = false;
     HFONT fieldFont_ = nullptr;
+    HFONT barFont_ = nullptr;     // the top bar's search box: the window's size, not the zoomed area's (0.98)
     HFONT titleFont_ = nullptr;   // a name being edited in place, in the page title's size (0.68)
     struct InlineEdit { int field = -1; std::string key; bool placed = false, focused = false, big = false, hold = false; std::function<void()> revert; };   // hold: keep it while a date is picked (0.75)
     InlineEdit ie_;

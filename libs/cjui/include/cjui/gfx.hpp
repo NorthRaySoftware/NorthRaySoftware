@@ -119,6 +119,11 @@ public:
 
     void pushClip(const Rect& r);
     void popClip();
+    // Drawing scaled about (ox, oy) by `scale` and clipped to `area` (window DIPs) until endZoom (suite 0.173): what's drawn
+    // between them is laid out in the zoomed space, where `area` is {ox, oy, area.w / scale, area.h / scale}.
+    void beginZoom(const Rect& area, float scale);
+    void endZoom();
+    float zoomScale() const { return zoom_; }
     // Whether a rectangle lies wholly outside what's being drawn (the window, or the innermost clip): drawing it would
     // cost the time and show nothing (0.88).
     bool culled(const Rect& r) const;
@@ -141,6 +146,10 @@ private:
 
     HWND hwnd_ = nullptr;
     float dpi_ = 96;
+    float zoom_ = 1;
+    bool zoomed_ = false;
+    float zoomX_ = 0, zoomY_ = 0;
+    size_t zoomClips_ = 0;   // clips_ before beginZoom
     ID2D1Factory* d2d_ = nullptr;
     IDWriteFactory* dw_ = nullptr;
     ID2D1HwndRenderTarget* rt_ = nullptr;

@@ -6,6 +6,7 @@ Important decisions, newest first. Each links to its source. The director's own 
 
 | Date | Decision | Source |
 |---|---|---|
+| 26 Nov 2026 | **Interface zoom changes only what's between the bars**: top bars, side rails, toolbars, menus and message boxes keep their size (the director, after 0.172) | The director, 26 Nov |
 | 26 Nov 2026 | **Interface zoom in cjui, for every app** (50–200%, kept per app on each PC). Keys "nearest wins": Ctrl +/−/0 and Ctrl+wheel zoom the interface except over something with its own zoom; in the Browser Ctrl+Alt +/−/0 (Ctrl +/− stay the web page's). Phase 2 ships as 2a engine (0.172), 2b writing page zoom, 2c responsive layouts | `studio-combined-request-2026-11-26.md` |
 | 26 Nov 2026 | **Legal owner and operator: CJ Philip.** The developer line stays "Developed by the NorthRay Software project" | The director's answers after the archive |
 | 26 Nov 2026 | **SkillSwap abandoned** (not coming back); its broken build option removed | The director's answers after the archive |
