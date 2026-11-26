@@ -124,6 +124,10 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
                 for (int x = 0; x < w; ++x) {
                     const int tx = x0 + x;
                     if (tx < 0 || tx >= bm.width) continue;
+                    if (pic.round) {   // a viewpoint's portrait (0.103): inside its circle only
+                        const double dx = x + 0.5 - w / 2.0, dy = y + 0.5 - h / 2.0;
+                        if (dx * dx + dy * dy > (w / 2.0) * (h / 2.0)) continue;
+                    }
                     const double fx0 = sx0 + sw * x / w, fx1 = sx0 + sw * (x + 1) / w;
                     const int ax = std::clamp((int)fx0, 0, img.w - 1), bx = std::clamp((int)std::ceil(fx1) - 1, ax, img.w - 1);
                     const int ay = std::clamp((int)fy0, 0, img.h - 1), by = std::clamp((int)std::ceil(fy1) - 1, ay, img.h - 1);
@@ -139,12 +143,25 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
             }
         }
 
+    // Discs and rings (0.103: viewpoint icons), antialiased by distance from the edge.
+    for (const Disc& dc : page.discs) {
+        const double cx = dc.cx * s, cy = dc.cy * s, rr = dc.r * s, half = dc.ring * s / 2;
+        ink = dc.rgb;
+        for (int y = (int)std::floor(cy - rr - half - 1); y <= (int)std::ceil(cy + rr + half + 1); ++y)
+            for (int x = (int)std::floor(cx - rr - half - 1); x <= (int)std::ceil(cx + rr + half + 1); ++x) {
+                const double dist = std::hypot(x + 0.5 - cx, y + 0.5 - cy);
+                const double cov = dc.ring > 0 ? std::clamp(half + 0.5 - std::abs(dist - rr), 0.0, 1.0) : std::clamp(rr + 0.5 - dist, 0.0, 1.0);
+                blend(x, y, (unsigned)std::lround(cov * 255));
+            }
+    }
+    ink = kInk;
+
     std::lock_guard<std::recursive_mutex> guard(Fonts::get().lock());
     Fonts& fonts = Fonts::get();
     for (const GlyphRun& r : page.runs) {
         const int fi = fonts.open(book.fonts[r.font].path);
         if (fi < 0) continue;
-        ink = r.light ? kWhite : kInk;
+        ink = r.coloured ? r.rgb : r.light ? kWhite : kInk;
         FT_Face face = fonts.face(fi).ft;
         FT_Set_Char_Size(face, 0, (FT_F26Dot6)std::lround(r.size * 64), (FT_UInt)std::lround(dpi), (FT_UInt)std::lround(dpi));
         for (size_t i = 0; i < r.glyphs.size(); ++i) {
@@ -175,6 +192,11 @@ Bitmap renderPage(const Book& book, int index, double dpi) {
 // --------------------------------------------------------------------- PDF
 
 namespace {
+
+// A circle as four Bézier curves (PDF has no circle operator), centred at (cx, cy) in PDF space.
+std::string circlePath(double cx, double cy, double r);
+// A fill colour (0.103): grey for a PDF/X grey interior (by luminance), CMYK for a colour one, RGB otherwise.
+std::string fillColour(const std::uint8_t rgb[3], bool x1a, bool colour);
 
 std::string deflate(const std::string& in) {
     mz_ulong n = mz_compressBound((mz_ulong)in.size());
@@ -287,6 +309,28 @@ std::string hexId(const std::string& seed) {
     return out;
 }
 
+}  // namespace
+
+namespace {
+std::string circlePath(double cx, double cy, double r) {
+    const double k = r * 0.5522847498;
+    char b[512];
+    std::snprintf(b, sizeof b, "%.3f %.3f m %.3f %.3f %.3f %.3f %.3f %.3f c %.3f %.3f %.3f %.3f %.3f %.3f c %.3f %.3f %.3f %.3f %.3f %.3f c %.3f %.3f %.3f %.3f %.3f %.3f c h",
+                  cx + r, cy, cx + r, cy + k, cx + k, cy + r, cx, cy + r, cx - k, cy + r, cx - r, cy + k, cx - r, cy, cx - r, cy - k, cx - k, cy - r,
+                  cx, cy - r, cx + k, cy - r, cx + r, cy - k, cx + r, cy);
+    return b;
+}
+std::string fillColour(const std::uint8_t rgb[3], bool x1a, bool colour) {
+    const double r = rgb[0] / 255.0, g = rgb[1] / 255.0, bl = rgb[2] / 255.0;
+    char b[96];
+    if (x1a && !colour) std::snprintf(b, sizeof b, "%.3f g", 0.299 * r + 0.587 * g + 0.114 * bl);
+    else if (x1a) {
+        const double kk = 1 - std::max({r, g, bl});
+        const double d = kk < 1 ? 1 - kk : 1;
+        std::snprintf(b, sizeof b, "%.3f %.3f %.3f %.3f k", kk < 1 ? (1 - r - kk) / d : 0, kk < 1 ? (1 - g - kk) / d : 0, kk < 1 ? (1 - bl - kk) / d : 0, kk);
+    } else std::snprintf(b, sizeof b, "%.3f %.3f %.3f rg", r, g, bl);
+    return b;
+}
 }  // namespace
 
 bool writePdf(const Book& book, const std::string& path, std::string& error, const PdfOptions& options) {
@@ -440,8 +484,22 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
             const double fullW = pic.w / pic.crop.cropW, fullH = pic.h / pic.crop.cropH;
             const double ox = pic.x - pic.crop.cropX * fullW;
             const double oyTop = pic.y - pic.crop.cropY * fullH;
-            c += "q " + num(pic.x) + " " + num(H - pic.y - pic.h) + " " + num(pic.w) + " " + num(pic.h) + " re W n " + num(fullW) + " 0 0 " +
-                 num(fullH) + " " + num(ox) + " " + num(H - oyTop - fullH) + " cm /Im" + std::to_string(it->second) + " Do Q\n";
+            const std::string clip = pic.round ? circlePath(pic.x + pic.w / 2, H - pic.y - pic.h / 2, pic.w / 2)
+                                               : num(pic.x) + " " + num(H - pic.y - pic.h) + " " + num(pic.w) + " " + num(pic.h) + " re";
+            c += "q " + clip + " W n " + num(fullW) + " 0 0 " + num(fullH) + " " + num(ox) + " " + num(H - oyTop - fullH) + " cm /Im" +
+                 std::to_string(it->second) + " Do Q\n";
+        }
+        // Discs and rings (0.103), under the text: in grey for a grey interior, CMYK for a colour one, RGB on screen.
+        for (const Disc& dc : p.discs) {
+            const std::string col = fillColour(dc.rgb, x1a, options.colourPictures);
+            if (dc.ring > 0) {
+                // The same colour for stroking: rg -> RG, g -> G, k -> K.
+                std::string stroke = col;
+                if (stroke.size() >= 2 && stroke.compare(stroke.size() - 2, 2, "rg") == 0) stroke.replace(stroke.size() - 2, 2, "RG");
+                else stroke.back() = stroke.back() == 'g' ? 'G' : 'K';
+                c += "q " + stroke + " " + num(dc.ring) + " w " + circlePath(dc.cx, H - dc.cy, dc.r) + " S Q\n";
+            } else
+                c += "q " + col + " " + circlePath(dc.cx, H - dc.cy, dc.r) + " f Q\n";
         }
         // On screen the ink is a warm near-black; in print, pure black on the black plate only.
         if (x1a) c += "0 g\nBT\n";
@@ -450,9 +508,18 @@ std::string pdfBytes(const Book& book, std::string& error, const PdfOptions& opt
         double curSize = -1;
         bool curLight = false;
         char gh[8];
+        bool curColoured = false;
         for (auto& r : p.runs) {
             if (r.glyphs.empty()) continue;
-            if (r.light != curLight) {
+            // A viewpoint icon's symbol or initials in its colour (0.103); the ink again after.
+            if (r.coloured || curColoured) {
+                if (r.coloured) c += fillColour(r.rgb, x1a, options.colourPictures) + "\n";
+                else if (curLight) c += "1 g\n";
+                else if (x1a) c += "0 g\n";
+                else c += num(kInk[0] / 255.0) + " " + num(kInk[1] / 255.0) + " " + num(kInk[2] / 255.0) + " rg\n";
+                curColoured = r.coloured;
+            }
+            if (!r.coloured && r.light != curLight) {
                 // White for a title over a darkened header picture; back to the ink after.
                 curLight = r.light;
                 if (curLight) c += "1 g\n";

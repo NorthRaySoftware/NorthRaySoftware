@@ -37,6 +37,9 @@ struct Style {
     std::string fontFamily;               // the CSS family when the typeface is embedded ("" = the reader's own)
     bool chapterDates = false;            // each chapter's date under its heading (0.85), as the typeset book
     std::string dateForm = "words", dateEra = "abbr";
+    // The viewpoint's icon with each chapter's heading, and the key of viewpoints (0.103), as the typeset book.
+    bool povIcon = false;
+    std::string povShow = "symbol", povPlace = "above", povColour = "full", povKey = "none";
 };
 Style styleFrom(const typeset::Design& d);
 

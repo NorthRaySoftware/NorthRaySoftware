@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.103.0",
+      "date": "2026-11-26",
+      "notes": [
+        "The printed book and the ebook can show each chapter's viewpoint with its heading: Typesetting › Viewpoint icons, off until you turn it on. Choose what it shows (their picture, symbol or initials), where (above the heading, or before or beside the title) and its colour (a disc of their colour, their colour alone, or the text's black for print in grey). Their symbol's ornament gives way to the icon, so it isn't printed twice.",
+        "A key of viewpoints, each icon beside its name, can go at the front (after the contents) or the back.",
+        "Icons print as shapes, crisp at any size; pictures print at full resolution, and Publishing says when a viewpoint picture may print soft. A symbol none of the book's fonts has is left out rather than printed as an empty box, and Publishing names it. In the ebook each icon is described for screen readers (“Chapter told by Ana Vell”).",
+        "When a book's viewpoints have symbols, Typesetting suggests the icons once. Turning them on offers to take a symbol typed at the start of chapter titles off them, so it isn't printed twice."
+      ]
+    },
+    {
       "version": "0.102.0",
       "date": "2026-11-26",
       "notes": [

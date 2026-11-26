@@ -848,10 +848,12 @@ std::vector<Check> preflight(const typeset::Source& src, const typeset::Book* pr
                 const auto sz = src.pictureSizes.find(pic.blob);
                 if (sz == src.pictureSizes.end() || pic.w <= 0) continue;
                 const double ppi = sz->second.first * pic.crop.cropW / (pic.w / 72.0);
-                if (pic.role == "header" || pic.role == "scenebreak") {
+                if (pic.role == "header" || pic.role == "scenebreak" || pic.role == "viewpoint") {
                     if (ppi >= 300) continue;
-                    const std::string what = pic.role == "header" ? "The header picture of \u201C" + p.chapter + "\u201D" : std::string("The scene break's picture");
-                    if (pic.role == "scenebreak" ? sceneBreakDone : !named.insert(p.chapter).second) continue;
+                    const std::string what = pic.role == "header"      ? "The header picture of \u201C" + p.chapter + "\u201D"
+                                           : pic.role == "viewpoint" ? "The viewpoint picture of " + pic.about   // (0.103)
+                                                                     : std::string("The scene break's picture");
+                    if (pic.role == "scenebreak" ? sceneBreakDone : !named.insert(pic.role == "viewpoint" ? "pov:" + pic.about : p.chapter).second) continue;
                     if (pic.role == "scenebreak") sceneBreakDone = true;
                     char buf[48];
                     std::snprintf(buf, sizeof buf, "%d", (int)std::lround(ppi));
@@ -907,6 +909,11 @@ std::vector<Check> preflight(const typeset::Source& src, const typeset::Book* pr
         if (pages > 0 && pages < 100)
             add(Check::Advice, "Print", "Too thin for text on the spine", "Printers usually allow spine text from about 100 pages.");
         for (const std::string& w : printed->warnings) add(Check::Advice, "Print", w, "");
+        // Viewpoint symbols no font has (0.103): left out of the headings, so they never print as empty boxes.
+        for (const std::string& m : printed->missingSymbols)
+            add(Check::Problem, "Print", "The viewpoint symbol of " + m + " isn't in any of the book's fonts",
+                "It's left out of the chapter headings rather than printing as an empty box. Choose a symbol from the Studio's "
+                "ornaments, a picture as the symbol, or another font in Typesetting.");
         add(Check::Ok, "Print", "Fonts embedded", "Only the letters used are included, as printers require.");
     } else if (printed) {
         add(Check::Problem, "Print", "The book couldn't be typeset", printed->error);

@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.180.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.103.0: each chapter's viewpoint icon in the printed book and the ebook, with a key of viewpoints."
+      ]
+    },
+    {
       "version": "0.179.0",
       "date": "2026-11-26",
       "notes": [

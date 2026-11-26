@@ -664,6 +664,10 @@ private:
     void startTypeset();
     void typesetFinished(int generation, studio::typeset::Book* book);
     void designChanged();
+    // Viewpoint icons in print (phase 4c, 0.103): whether any chapter's viewpoint has a symbol (for Typesetting's one-time
+    // suggestion), and the offer to take a typed copy of the symbol off chapter titles (4.9).
+    bool bookHasViewpointSymbols(const Id& bookId) const;
+    void offerTypedSymbols(const Id& bookId);
     void drawTypesetSidebar(const Rect& r);
     void drawTypesetPages(const Rect& r);
     void drawTypesetPanel(const Rect& r);

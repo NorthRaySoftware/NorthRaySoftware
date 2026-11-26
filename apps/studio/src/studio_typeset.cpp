@@ -2,6 +2,8 @@
 // in the middle, contents and PDF export on the right. Pages are set on a
 // worker thread from a snapshot of the book, so editing never waits for it.
 #include "studio_app.hpp"
+#include "studio/icons.hpp"
+#include "cjui/dialog.hpp"
 #include "studio/calendar.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
@@ -65,6 +67,47 @@ void StudioApp::prepareTypeset(const Id& bookId) {
         if (saved.empty()) ts_.presetId = "classic";
     }
     startTypeset();
+}
+
+bool StudioApp::bookHasViewpointSymbols(const Id& bookId) const {
+    for (const ManuscriptNode* n : lib_->manuscriptOf(bookId)) {
+        if (n->kind != NodeKind::Chapter) continue;
+        if (const Entry* e = lib_->entry(studio::icons::viewpointOf(*lib_, *n)); e && !e->deleted) {
+            const studio::icons::Icon ic = studio::icons::iconOf(*e);
+            if (!ic.symbol.empty() || !ic.symbolImage.empty()) return true;
+        }
+    }
+    return false;
+}
+
+// 4.9: chapter titles typed with their viewpoint's symbol would print it twice once the icon is on; offer to take it off.
+void StudioApp::offerTypedSymbols(const Id& bookId) {
+    const auto typed = studio::icons::titlesStartingWithSymbol(*lib_, bookId);
+    if (typed.empty()) return;
+    std::wstring list;
+    for (size_t i = 0; i < typed.size() && i < 6; ++i)
+        if (const ManuscriptNode* n = lib_->node(typed[i])) list += L"\n   \u2022 " + w(n->title);
+    if (typed.size() > 6) list += L"\n   and " + std::to_wstring(typed.size() - 6) + L" more";
+    const int c = cjui::choiceBox(hwnd(),
+        (typed.size() == 1 ? std::wstring(L"A chapter title begins with its viewpoint's symbol, typed:")
+                           : std::to_wstring(typed.size()) + L" chapter titles begin with their viewpoint's symbol, typed:") + list +
+            L"\n\nWith the viewpoint icon on, the symbol would print twice. Take the typed copy off these titles?",
+        L"Viewpoint icons", {L"Take it off", L"Leave the titles"}, 0, MB_ICONQUESTION);
+    if (c != 0) return;
+    std::vector<ManuscriptNode> before;
+    for (const Id& id : typed) {
+        const ManuscriptNode* n = lib_->node(id);
+        const Entry* e = n ? lib_->entry(studio::icons::viewpointOf(*lib_, *n)) : nullptr;
+        if (!n || !e) continue;
+        before.push_back(*n);
+        ManuscriptNode u = *n;
+        u.title = studio::icons::withoutLeadingSymbol(u.title, studio::icons::iconOf(*e).symbol);
+        if (u.title.empty()) u.title = n->title;   // never leave a title empty
+        lib_->updateNode(u);
+    }
+    flashUndo(before.size() == 1 ? L"Took the symbol off 1 title." : L"Took the symbol off " + std::to_wstring(before.size()) + L" titles.",
+              [this, before] { for (const ManuscriptNode& n : before) lib_->updateNode(n); designChanged(); invalidate(); });
+    designChanged();
 }
 
 void StudioApp::designChanged() {
@@ -180,6 +223,30 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     } else {
         y += 6;
     }
+    // Once per book (0.103): its viewpoints have symbols, so say the headings can show them.
+    if (!ts_.design.povIcon && lib_->setting("typeset:povHint:" + ts_.book).empty() && bookHasViewpointSymbols(ts_.book)) {
+        const std::wstring t = L"Your viewpoint characters have symbols. Print each chapter's viewpoint with its heading, in the book and the ebook?";
+        const float th = gfx_.measureHeight(t, cw - 24, Font::Small);
+        const Rect nc{x, y, wd, th + 66};
+        gfx_.fillRounded(nc, 10, pal_.ribbon.withAlpha(pal_.dark ? 0.16f : 0.09f));
+        gfx_.strokeRounded(nc, 10, pal_.ribbon.withAlpha(0.45f));
+        gfx_.text(t, {tx0, nc.y + 10, cw - 12, th + 4}, Font::Small, pal_.ink);
+        const float by = nc.y + th + 24;
+        const float bw1 = buttonWidth(L"Turn it on", Font::Small) + 4, bw2 = buttonWidth(L"No thanks", Font::Small) + 4;
+        button("side:ts:povhint:on", {tx0, by, bw1, 30}, L"Turn it on", [this] {
+            lib_->setSetting("typeset:povHint:" + ts_.book, "seen");
+            ts_.design.povIcon = true;
+            ts_.presetId = "custom";
+            designChanged();
+            offerTypedSymbols(ts_.book);
+        }, true);
+        button("side:ts:povhint:no", {tx0 + bw1 + 8, by, bw2, 30}, L"No thanks", [this] {
+            lib_->setSetting("typeset:povHint:" + ts_.book, "seen");
+            flash(L"It's under Viewpoint icons, lower down, if you want it later.");
+            invalidate();
+        });
+        y += nc.h + 18;
+    }
 
     // Designs.
     gfx_.text(L"DESIGN", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
@@ -192,8 +259,15 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
         const Rect rr{x, y, wd, open ? th + 34 : 32};
         addHit(id, rr, [this, pid = std::string(p.id)] {
             const std::string trim = ts_.design.trim;
+            const ts::Design was = ts_.design;
             ts_.design = ts::preset(pid).design;
             ts_.design.trim = trim;   // the trim belongs to the book, not the design
+            // So do its viewpoint icons (0.103): they come from its characters, not the look.
+            ts_.design.povIcon = was.povIcon;
+            ts_.design.povShow = was.povShow;
+            ts_.design.povPlace = was.povPlace;
+            ts_.design.povColour = was.povColour;
+            ts_.design.povKey = was.povKey;
             ts_.presetId = pid;
             designChanged();
         });
@@ -455,6 +529,57 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
             gfx_.text(L"For example: " + w(cal::formatDateStyled(cc, ex, ts_.design.dateForm, ts_.design.dateEra)), {tx0, y, cw, 22}, Font::Small,
                       pal_.inkFaint, {Align::Left, false, true});
             y += 30;
+        }
+    }
+    // The viewpoint's icon in chapter headings (phase 4c, 0.103), off unless chosen.
+    y += 14;
+    gfx_.text(L"VIEWPOINT ICONS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    y += 24;
+    check("side:ts:pov", L"The viewpoint's icon with each chapter's heading", ts_.design.povIcon, [this, changed] {
+        ts_.design.povIcon = !ts_.design.povIcon;
+        lib_->setSetting("typeset:povHint:" + ts_.book, "seen");
+        changed();
+        if (ts_.design.povIcon) offerTypedSymbols(ts_.book);
+    });
+    if (ts_.design.povIcon) {
+        label(L"It shows");
+        segmented("side:ts:povshow", {tx0, y, cw, 28}, {L"Picture", L"Symbol", L"Initials"},
+                  ts_.design.povShow == "portrait" ? 0 : ts_.design.povShow == "initials" ? 2 : 1, [this, changed](int i) {
+                      ts_.design.povShow = i == 0 ? "portrait" : i == 2 ? "initials" : "symbol";
+                      changed();
+                  });
+        y += 36;
+        label(L"Where");
+        segmented("side:ts:povplace", {tx0, y, cw, 28}, {L"Above", L"Before", L"Beside"},
+                  ts_.design.povPlace == "before" ? 1 : ts_.design.povPlace == "beside" ? 2 : 0, [this, changed](int i) {
+                      ts_.design.povPlace = i == 1 ? "before" : i == 2 ? "beside" : "above";
+                      changed();
+                  });
+        y += 36;
+        label(L"Colour");
+        segmented("side:ts:povcolour", {tx0, y, cw, 28}, {L"Full", L"One colour", L"As the text"},
+                  ts_.design.povColour == "single" ? 1 : ts_.design.povColour == "text" ? 2 : 0, [this, changed](int i) {
+                      ts_.design.povColour = i == 1 ? "single" : i == 2 ? "text" : "full";
+                      changed();
+                  });
+        y += 36;
+        label(L"A key of viewpoints");
+        segmented("side:ts:povkey", {tx0, y, cw, 28}, {L"None", L"Front", L"Back"},
+                  ts_.design.povKey == "front" ? 1 : ts_.design.povKey == "back" ? 2 : 0, [this, changed](int i) {
+                      ts_.design.povKey = i == 1 ? "front" : i == 2 ? "back" : "none";
+                      changed();
+                  });
+        y += 36;
+        y += gfx_.text(L"Picture uses their picture, else their symbol, else initials. A grey edition prints colours as greys; "
+                       L"“As the text” sets them in the text's black. Their symbol's ornament gives way to the icon, so it isn't printed twice. "
+                       L"The ebook shows the same, described for screen readers as “Chapter told by …”.",
+                       {tx0, y, cw, 90}, Font::Small, pal_.inkFaint) + 8;
+        if (const auto typed = studio::icons::titlesStartingWithSymbol(*lib_, ts_.book); !typed.empty()) {
+            linkText("side:ts:povtyped", tx0, y,
+                     typed.size() == 1 ? L"1 chapter title begins with the symbol: take it off…"
+                                       : std::to_wstring(typed.size()) + L" chapter titles begin with the symbol: take it off…",
+                     [this] { offerTypedSymbols(ts_.book); });
+            y += 28;
         }
     }
     // Margins.

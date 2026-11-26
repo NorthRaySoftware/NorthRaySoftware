@@ -203,6 +203,25 @@ std::string cssString(const std::string& t) {
     return out + "\"";
 }
 
+// A viewpoint's icon as HTML (0.103): its picture, symbol or initials, as the design says, coloured as it says, with a
+// description for screen readers ("Chapter told by Ana Vell"; the key's list says only the name, which is beside it).
+static std::string povIconHtml(const icons::Icon& ic, const Style& style, const Pictures& url, const std::string& label) {
+    std::string show = "initials";
+    if (style.povShow == "portrait" && !ic.image.empty() && url.url) show = "image";
+    else if (style.povShow != "initials" && !ic.symbolImage.empty() && url.url) show = "symbolImage";
+    else if (style.povShow != "initials" && !ic.symbol.empty()) show = "symbol";
+    std::string css;
+    if (style.povColour == "full" && show != "image") css = "background-color:" + ic.colour + ";color:" + ic.ink + ";";
+    else if (style.povColour == "single") css = "color:" + ic.colour + ";border-color:" + ic.colour + ";";
+    const std::string cls = "pov pov-" + show + " pov-" + style.povColour;
+    const std::string aria = label.empty() ? " aria-hidden=\"true\"" : " role=\"img\" aria-label=\"" + escape(label) + "\"";
+    std::string inner;
+    if (show == "image" || show == "symbolImage")
+        inner = "<img src=\"" + escape(url.url(show == "image" ? ic.image : ic.symbolImage, Placement{})) + "\" alt=\"\"/>";
+    else inner = escape(show == "symbol" ? ic.symbol : ic.initials);
+    return "<span class=\"" + cls + "\"" + (css.empty() ? "" : " style=\"" + css + "\"") + aria + ">" + inner + "</span>";
+}
+
 Content buildWith(const typeset::Source& src, const Pictures& url, const Style& style) {
     Content c;
     c.title = src.title;
@@ -225,6 +244,8 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
         std::string heading = "<h1>" + escape(sec.title) + "</h1>\n";
         auto withHeader = [&](const std::string& h) {
             if (!sec.hasHeader) return h;
+            // The viewpoint's icon takes the place of their symbol's default ornament (0.103).
+            if (!ch.part && style.povIcon && sec.hasPov && sec.matter == 0 && sec.headerFrom == "viewpoint" && sec.header.blob.empty()) return h;
             const headers::Header& hd = sec.header;
             if (hd.blob.empty()) return headerHtml(hd, {}, h);
             const int tone = hd.title == "over" ? (hd.tone == "fade" ? 2 : 1) : 0;
@@ -238,6 +259,14 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             int number = 0;
             if (!t.special && sec.matter == 0) number = t.number ? (chapterNo = t.number) : ++chapterNo;
             heading = chapterHeading(sec.title, number, t.word, t.rest, style);
+            // The viewpoint's icon (0.103): above the heading, or inside it before or after its words.
+            if (style.povIcon && sec.hasPov && sec.matter == 0) {
+                const std::string icon = povIconHtml(sec.pov, style, url, "Chapter told by " + sec.pov.name);
+                const size_t open = heading.find('>'), close = heading.rfind("</h1>");
+                if (style.povPlace == "above") heading = "<p class=\"povline\">" + icon + "</p>\n" + heading;
+                else if (style.povPlace == "before" && open != std::string::npos) heading.insert(open + 1, icon + " ");
+                else if (close != std::string::npos) heading.insert(close, " " + icon);
+            }
             if (style.chapterDates && sec.dated && !src.calendar.empty())
                 heading += "<p class=\"chapdate\">" + escape(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), style.dateForm, style.dateEra)) + "</p>\n";
             heading = withHeader(heading);
@@ -252,6 +281,21 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             for (size_t at = 0; (at = ch.html.find(hr, at)) != std::string::npos; at += pic.size()) ch.html.replace(at, hr.size(), pic);
         }
         c.chapters.push_back(std::move(ch));
+    }
+    // The key of viewpoints (0.103): each one's icon and name, in the order they first tell a chapter.
+    if (style.povIcon && style.povKey != "none") {
+        std::set<std::string> seen;
+        std::string list;
+        for (const auto& sec : src.sections)
+            if (sec.kind == NodeKind::Chapter && sec.hasPov && sec.matter == 0 && seen.insert(sec.povId).second)
+                list += "<li>" + povIconHtml(sec.pov, style, url, {}) + " <span class=\"povname\">" + escape(sec.pov.name) + "</span></li>\n";
+        if (!list.empty()) {
+            Chapter key;
+            key.title = "Viewpoints";
+            key.html = "<section class=\"chapter povkey\">\n<h1>Viewpoints</h1>\n<ul class=\"povkey\">\n" + list + "</ul>\n</section>\n";
+            if (style.povKey == "front") c.chapters.insert(c.chapters.begin(), std::move(key));
+            else c.chapters.push_back(std::move(key));
+        }
     }
     return c;
 }
@@ -311,6 +355,11 @@ Style styleFrom(const typeset::Design& d) {
     s.sceneBreak = d.sceneBreak.empty() ? std::string("* * *") : d.sceneBreak;
     s.sceneBreakBlob = d.sceneBreakBlob;
     s.chapterDates = d.chapterDates;
+    s.povIcon = d.povIcon;
+    s.povShow = d.povShow;
+    s.povPlace = d.povPlace;
+    s.povColour = d.povColour;
+    s.povKey = d.povKey;
     s.dateForm = d.dateForm;
     s.dateEra = d.dateEra;
     return s;
@@ -456,6 +505,16 @@ span.dropcap { float: left; font-size: 3.4em; line-height: 0.82; margin: 0.06em 
 div.scenepic { text-align: center; margin: 1.1em 0; line-height: 0; }
 div.scenepic img { width: 20%; max-height: 3.5em; object-fit: contain; }
 p.ornament { text-align: center; text-indent: 0; font-size: 2.4em; line-height: 1.2; margin: 1.2em 0 0; }
+p.povline { text-align: center; text-indent: 0; margin: 1.6em 0 0; }
+span.pov { display: inline-block; width: 1.6em; height: 1.6em; line-height: 1.6em; border-radius: 50%; text-align: center; vertical-align: middle;
+  font-size: 1em; font-weight: bold; text-indent: 0; overflow: hidden; }
+p.povline span.pov { width: 2.6em; height: 2.6em; line-height: 2.6em; font-size: 1.1em; }
+span.pov img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+span.pov-initials.pov-single, span.pov-initials.pov-text { border: 0.1em solid; box-sizing: border-box; }
+span.pov-symbol.pov-single, span.pov-symbol.pov-text { font-size: 1.4em; }
+ul.povkey { list-style: none; margin: 2em auto; padding: 0; }
+ul.povkey li { margin: 0.6em 0; text-indent: 0; }
+ul.povkey .povname { vertical-align: middle; margin-left: 0.5em; }
 )CSS";
 }
 

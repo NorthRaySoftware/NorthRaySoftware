@@ -621,6 +621,8 @@ Breaks firstFit(const std::vector<Item>& items, const std::vector<double>& width
 struct SetLine {
     std::vector<GlyphRun> runs;
     std::vector<Rule> rules;       // y relative to the baseline
+    std::vector<Disc> discs;       // a viewpoint's icon (0.103): x from the text's left, y relative to the baseline
+    std::vector<PicturePlacement> pics;   // the same, for its picture (y is its top)
     int lines = 1;                 // grid lines it occupies (big headings take two)
     float extraBaseline = 0;       // baseline offset within its grid lines, pt
 };
@@ -920,6 +922,38 @@ public:
 
     float width(const std::string& text, const Span& look, float size) { return sh_.width(sh_.style(look, size), text); }
 
+    // Whether every character of `text` is in the font or one of the symbol fonts (0.103: a viewpoint's symbol that
+    // would otherwise print as an empty box).
+    bool covers(const std::string& text, const Span& look, float size) {
+        Fonts& fonts = Fonts::get();
+        std::lock_guard<std::recursive_mutex> g(fonts.lock());
+        const int face = sh_.style(look, size).face;
+        const std::u32string u = utf32(text);
+        for (char32_t cp : u) {
+            const bool neutral = cp <= 0x20 || cp == 0x200D || (cp >= 0xFE00 && cp <= 0xFE0F) || (cp >= 0x1F3FB && cp <= 0x1F3FF);
+            if (neutral || fonts.hasChar(face, cp)) continue;
+            bool any = false;
+            for (int f : fonts.fallbacks()) if (fonts.hasChar(f, cp)) { any = true; break; }
+            if (!any) return false;
+        }
+        return true;
+    }
+
+    // Where a line's glyphs reach, from its first glyph's x to its last glyph's end, pt (0, 0 when it has none).
+    std::pair<float, float> extent(const SetLine& l) {
+        float a = 1e9f, b = -1e9f;
+        Fonts& fonts = Fonts::get();
+        std::lock_guard<std::recursive_mutex> g(fonts.lock());
+        for (const GlyphRun& r : l.runs) {
+            if (r.glyphs.empty()) continue;
+            const int fi = fonts.open(book_.fonts[r.font].path);
+            a = std::min(a, r.xs.front());
+            const float adv = fi >= 0 ? fonts.advance(fi, r.glyphs.back()) * r.size / (float)fonts.face(fi).upem : r.size * 0.5f;
+            b = std::max(b, r.xs.back() + adv);
+        }
+        return a > b ? std::pair<float, float>{0, 0} : std::pair<float, float>{a, b};
+    }
+
     // A contents line: the title on the left (parts in small capitals, chapters
     // indented), the page number on the right. Long titles are shortened.
     SetLine contentsLine(const std::string& title, const std::string& number, bool part, double width) {
@@ -1172,6 +1206,32 @@ Source snapshot(const Library& lib, const Id& bookId) {
             }
         }
     }
+    // Each chapter's viewpoint (0.103): their icon, and their pictures' files.
+    {
+        size_t i = 0;
+        for (const ManuscriptNode* n : lib.manuscriptOf(bookId)) {
+            Source::Section& sec = s.sections[i++];
+            if (n->kind != NodeKind::Chapter) continue;
+            const Entry* e = lib.entry(icons::viewpointOf(lib, *n));
+            if (!e || e->deleted) continue;
+            sec.hasPov = true;
+            sec.povId = e->id;
+            sec.pov = icons::iconOf(*e);
+            for (const std::string& h : {sec.pov.image, sec.pov.symbolImage})
+                if (!h.empty() && !s.picturePaths.count(h)) {
+                    s.picturePaths[h] = lib.blobPath(h);
+                    if (const Artwork* a = lib.artworkForBlob(h)) s.pictureSizes[h] = {a->width, a->height};
+                    else {   // a bible page's own picture: its size from the file, for the print checks
+                        std::ifstream in(studio::detail::u8path(s.picturePaths[h]), std::ios::binary);
+                        std::string head(256 * 1024, '\0');
+                        in.read(head.data(), (std::streamsize)head.size());
+                        head.resize((size_t)in.gcount());
+                        const ImageInfo info = imageInfo(head);
+                        if (info.width > 0) s.pictureSizes[h] = {info.width, info.height};
+                    }
+                }
+        }
+    }
     // Each chapter's date (0.85), when the timeline counts in the calendar's dates: its own, else its first placed scene's.
     if (const cal::StorySpan span = cal::storySpan(lib, bookId); span.on) {
         s.calendar = cal::calendarOfBook(lib, bookId);
@@ -1238,6 +1298,15 @@ Design designFromJson(const std::string& text) {
     if (d.dateForm != "numbers") d.dateForm = "words";
     d.dateEra = j.value("dateEra", d.dateEra);
     if (d.dateEra != "name" && d.dateEra != "none") d.dateEra = "abbr";
+    d.povIcon = j.value("povIcon", d.povIcon);
+    auto oneOf = [&](const char* key, std::string& v, std::initializer_list<const char*> ok) {
+        const std::string got = j.value(key, v);
+        for (const char* o : ok) if (got == o) { v = got; return; }
+    };
+    oneOf("povShow", d.povShow, {"portrait", "symbol", "initials"});
+    oneOf("povPlace", d.povPlace, {"above", "before", "beside"});
+    oneOf("povColour", d.povColour, {"full", "single", "text"});
+    oneOf("povKey", d.povKey, {"none", "front", "back"});
     return d;
 }
 
@@ -1247,7 +1316,8 @@ std::string designToJson(const Design& d) {
                 {"indentEm", d.indentEm}, {"justify", d.justify}, {"hyphenate", d.hyphenate}, {"titlePage", d.titlePage}, {"copyrightPage", d.copyrightPage}, {"contents", d.contents}, {"leadIn", d.leadIn}, {"dropCap", d.dropCap}, {"frontRoman", d.frontRoman}, {"chapterStyle", d.chapterStyle},
                 {"chaptersOnRecto", d.chaptersOnRecto}, {"runningHeads", d.runningHeads}, {"chapterSinkLines", d.chapterSinkLines},
                 {"sceneBreak", d.sceneBreak}, {"sceneBreakBlob", d.sceneBreakBlob}, {"comicScript", d.comicScript}, {"chapterDates", d.chapterDates}, {"dateForm", d.dateForm},
-                {"dateEra", d.dateEra}}
+                {"dateEra", d.dateEra}, {"povIcon", d.povIcon}, {"povShow", d.povShow}, {"povPlace", d.povPlace}, {"povColour", d.povColour},
+                {"povKey", d.povKey}}
         .dump();
 }
 
@@ -1427,6 +1497,109 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         std::rotate(flow.begin() + (std::ptrdiff_t)headStart, flow.begin() + (std::ptrdiff_t)end, flow.end());   // before the title
     };
 
+    // A viewpoint's icon (phase 4c, 0.103), drawn into `into` centred at (cx, cy): x from the text's left, y relative
+    // to the line's baseline. Its picture (round), its symbol picture, its symbol or its initials, as the design says;
+    // a disc of its colour ("full"), or in its colour or the ink with no disc. False when its symbol is in no font:
+    // then it's left out (never a box) and named in book.missingSymbols.
+    std::set<std::string> missingFor;
+    auto rgbOf = [](const std::string& hex, std::uint8_t out[3]) {
+        for (int i = 0; i < 3; ++i) out[i] = hex.size() == 7 ? (std::uint8_t)std::stoi(hex.substr(1 + i * 2, 2), nullptr, 16) : 0;
+    };
+    auto drawPov = [&](const Source::Section& sec, float diam, float cx, float cy, SetLine& into) -> bool {
+        const icons::Icon& ic = sec.pov;
+        const bool full = d.povColour == "full", inInk = d.povColour == "text";
+        std::uint8_t colour[3], ink[3];
+        rgbOf(ic.colour, colour);
+        rgbOf(ic.ink, ink);
+        auto hasPicture = [&](const std::string& b) { return !b.empty() && pixelSize(b).first > 0; };
+        std::string show = "initials";
+        if (d.povShow == "portrait" && hasPicture(ic.image)) show = "image";
+        else if (d.povShow != "initials" && hasPicture(ic.symbolImage)) show = "symbolImage";
+        else if (d.povShow != "initials" && !ic.symbol.empty()) show = "symbol";
+        const float r = diam / 2;
+        if (show == "symbol" && !set.covers(ic.symbol, plain, diam * 0.6f)) {
+            if (missingFor.insert(sec.povId).second) book.missingSymbols.push_back(ic.name + " (" + ic.symbol + ")");
+            return false;
+        }
+        auto ring = [&](float rr, const std::uint8_t* c, float width) {
+            Disc dc{cx, cy, rr, width, {c[0], c[1], c[2]}};
+            into.discs.push_back(dc);
+        };
+        const std::uint8_t black[3] = {0, 0, 0};
+        const std::uint8_t* lineColour = inInk ? black : colour;
+        if (show == "image" || show == "symbolImage") {
+            float pr = r;
+            if (full && show == "symbolImage") { ring(r, colour, 0); pr = r * 0.78f; }
+            PicturePlacement pic;
+            pic.blob = show == "image" ? ic.image : ic.symbolImage;
+            pic.role = "viewpoint";
+            pic.about = ic.name;
+            pic.round = true;
+            pic.x = cx - pr;
+            pic.y = cy - pr;
+            pic.w = pic.h = 2 * pr;
+            // A square from the middle of the picture.
+            const auto [pw, ph] = pixelSize(pic.blob);
+            if (pw > ph) { pic.crop.cropW = (float)ph / pw; pic.crop.cropX = (1 - pic.crop.cropW) / 2; }
+            else if (ph > pw) { pic.crop.cropH = (float)pw / ph; pic.crop.cropY = (1 - pic.crop.cropH) / 2; }
+            into.pics.push_back(pic);
+            if (show == "image") ring(r + diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
+            return true;
+        }
+        const bool initials = show == "initials";
+        const std::string text = initials ? ic.initials : ic.symbol;
+        float gsize = initials ? diam * 0.42f : diam * 0.6f;
+        if (full) ring(r, colour, 0);
+        else if (initials) ring(r - diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
+        else gsize = diam * 0.85f;   // a symbol alone, as large as the icon
+        Span look;
+        look.bold = initials;
+        SetLine g = set.centred(text, look, gsize, diam);
+        for (GlyphRun& run : g.runs) {
+            for (float& x : run.xs) x += cx - r;
+            run.y += cy + gsize * 0.35f;   // optically centred (about half the cap height below the middle)
+            const std::uint8_t* c = full ? ink : inInk ? nullptr : colour;
+            if (c) { run.coloured = true; run.rgb[0] = c[0]; run.rgb[1] = c[1]; run.rgb[2] = c[2]; }
+            into.runs.push_back(std::move(run));
+        }
+        return true;
+    };
+
+    // The key of viewpoints (0.103): a page listing each viewpoint's icon and name, in the order they first tell a chapter.
+    auto addKey = [&]() {
+        std::vector<const Source::Section*> who;
+        std::set<std::string> seen;
+        for (const Source::Section& sec : src.sections)
+            if (sec.kind == NodeKind::Chapter && sec.hasPov && sec.matter == 0 && seen.insert(sec.povId).second) who.push_back(&sec);
+        if (who.empty()) return;
+        newPage(Page::ChapterOpening, true, "Viewpoints");
+        space(3);
+        Block h;
+        h.align = Align::Center;
+        h.indent = false;
+        h.scale = 1.3;
+        h.spans.push_back({"Viewpoints"});
+        auto hl = set.paragraph(h, true);
+        for (auto& l : hl) l.lines = 2;
+        addLines(std::move(hl), true);
+        space(2);
+        const float diam = fs * 1.7f, gap = fs * 0.8f;
+        const float x0 = (float)(measure * 0.22);
+        for (const Source::Section* sec : who) {
+            Block nb;
+            nb.align = Align::Left;
+            nb.indent = false;
+            nb.spans.push_back({sec->pov.name});
+            auto nl = set.paragraph(nb, true);
+            if (nl.empty()) continue;
+            SetLine ln = std::move(nl[0]);
+            for (GlyphRun& run : ln.runs) for (float& x : run.xs) x += x0 + diam + gap;
+            ln.lines = 2;
+            drawPov(*sec, diam, x0 + diam / 2, -fs * 0.35f, ln);
+            addLines({std::move(ln)}, false);
+        }
+    };
+
     // Title page.
     if (d.titlePage) {
         newPage(Page::Title, true, {});
@@ -1502,6 +1675,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             addLines({set.contentsLine(sec.title, "000", sec.kind == NodeKind::Part, measure)}, false);
         }
     }
+    if (d.povIcon && d.povKey == "front") addKey();   // after the contents (0.103)
     size_t entryNo = 0;
     bool bodyStarted = false;
     int chapterNo = 0;
@@ -1561,10 +1735,36 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             const bool front = n->matter == 1 && !bodyStarted;
             newPage(Page::ChapterOpening, d.chaptersOnRecto || (d.frontRoman && !bodyStarted && !front), title);
             if (!front) bodyStarted = true;
-            const bool head = n->hasHeader && !d.comicScript;
+            // The viewpoint's icon (0.103) takes the place of the ornament their symbol gives by default, so it isn't printed twice.
+            const bool pov = d.povIcon && n->hasPov && n->matter == 0 && !d.comicScript;
+            const bool head = n->hasHeader && !d.comicScript && !(pov && n->headerFrom == "viewpoint" && n->header.blob.empty());
             const bool bigHead = head && !n->header.blob.empty() && n->header.size != "ornament";
             space(bigHead ? std::min(d.chapterSinkLines, 2) : head ? std::max(0, d.chapterSinkLines - 3) : d.chapterSinkLines);
             const size_t headStart = flow.size();
+            // The viewpoint's icon above the heading; beside or before it goes on the heading's first line below.
+            const float povDiam = (float)(d.povPlace == "above" ? fs * 2.6f : fs * 1.55f * 1.15f);
+            if (pov && d.povPlace == "above") {
+                SetLine il;
+                il.lines = std::max(2, (int)std::ceil((povDiam + d.leading * 0.5) / d.leading));
+                const float blockTop = -(float)(d.leading * (il.lines - 1) + d.leading * 0.78);
+                if (drawPov(*n, povDiam, (float)(measure / 2), blockTop + (float)(il.lines * d.leading) / 2, il)) {
+                    addLines({std::move(il)}, true);
+                    space(1);
+                }
+            }
+            // Before or beside the heading's first line: the line moves aside by half the icon and its gap.
+            auto inlinePov = [&](std::vector<SetLine>& tl, float size) {
+                if (!pov || d.povPlace == "above" || tl.empty()) return;
+                SetLine& first = tl[0];
+                const auto [a, b] = set.extent(first);
+                if (b <= a) return;
+                const float diam = size * 1.15f, gap = size * 0.45f, shift = (diam + gap) / 2;
+                const bool before = d.povPlace == "before";
+                for (GlyphRun& run : first.runs) for (float& x : run.xs) x += before ? shift : -shift;
+                for (Rule& ru : first.rules) ru.x += before ? shift : -shift;
+                const float cx = before ? a + shift - gap - diam / 2 : b - shift + gap + diam / 2;
+                drawPov(*n, diam, cx, -size * 0.35f, first);
+            };
             const ChapterName cn = splitChapterTitle(title);
             int num = 0;
             if (!cn.special && n->matter == 0) num = cn.number ? (chapterNo = cn.number) : ++chapterNo;
@@ -1580,13 +1780,20 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                     t.spans.push_back({cn.rest});
                     auto tl = set.paragraph(t, true);
                     for (auto& l : tl) l.lines = 2;
+                    inlinePov(tl, fs * 1.45f);
                     addLines(std::move(tl), true);
+                } else if (pov && d.povPlace != "above") {   // no title: beside the "CHAPTER ONE" line
+                    SetLine& cl = flow.back().line;
+                    std::vector<SetLine> one{cl};
+                    inlinePov(one, fs * 1.3f);
+                    cl = std::move(one[0]);
                 }
             } else if (d.chapterStyle == "numeral" && num) {
                 t.scale = 3.0;
                 t.spans.push_back({std::to_string(num)});
                 auto tl = set.paragraph(t, true);
                 for (auto& l : tl) l.lines = 3;
+                inlinePov(tl, fs * 2.0f);
                 addLines(std::move(tl), true);
                 if (!cn.rest.empty()) {
                     Block r2 = t;
@@ -1602,6 +1809,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 t.spans.push_back({title});
                 auto tl = set.paragraph(t, true);
                 for (auto& l : tl) l.lines = 2;
+                inlinePov(tl, fs * 1.55f);
                 addLines(std::move(tl), true);
             }
             // Its date, in the style chosen, under the heading (0.85).
@@ -1734,6 +1942,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         }
         if (n->kind == NodeKind::Chapter) firstInChapter = false;
     }
+    if (d.povIcon && d.povKey == "back") addKey();   // at the very end (0.103)
 
     // ---- Pages.
     struct Placed { const Flow* f; int line; };
@@ -1848,6 +2057,8 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 page.runs.push_back(std::move(g));
             }
             for (auto& r : l.rules) page.rules.push_back({r.x + left + dx, baseline + r.y, r.w, r.h});
+            for (Disc dc : l.discs) { dc.cx += left + dx; dc.cy += baseline; page.discs.push_back(dc); }
+            for (PicturePlacement pic : l.pics) { pic.x += left + dx; pic.y += baseline; page.pictures.push_back(pic); }
         };
         for (const Placed& p : pages[pi]) {
             const float lineTop = top + p.line * (float)d.leading;

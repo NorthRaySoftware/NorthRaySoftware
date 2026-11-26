@@ -4,6 +4,7 @@
 #include "studio/bible_export.hpp"
 #include "studio/bible_markdown.hpp"
 #include "studio/toolbar.hpp"
+#include "studio/icons.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -5908,7 +5909,153 @@ static void testToolbar100() {
     CHECK(f.more && f.overflow.empty());
 }
 
+// Phase 4c (0.103): the viewpoint's icon in print and in the ebook, the key, the checks and titles typed with the symbol.
+static void testViewpointIcons103() {
+    using namespace studio::typeset;
+    namespace ic = studio::icons;
+    const std::string dir = tempLibrary("pov103");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("World");
+    const Id book = lib->createBook("The Ledger", world);
+    const Id ana = lib->createEntry(world, {}, "character", "Ana Vell");
+    const Id bram = lib->createEntry(world, {}, "character", "Bram");
+    {
+        Entry e = *lib->entry(ana);
+        e.symbol = "\xE2\x9C\xA7";   // ✧, in the Studio's symbol fonts
+        e.colour = "#F0B252";        // light: dark ink
+        lib->updateEntry(e);
+        Entry b = *lib->entry(bram);
+        b.symbol = "\xF4\x8F\xBF\xBD";   // U+10FFFD, in no font
+        lib->updateEntry(b);
+    }
+    // The shared icon.
+    {
+        const ic::Icon a = ic::iconOf(*lib->entry(ana));
+        CHECK(a.colour == "#F0B252" && a.ink == "#15171E" && a.initials == "AV" && a.symbol == "\xE2\x9C\xA7");
+        CHECK(ic::inkOn("#3B7DD8") == "#FFFFFF" && ic::initialsOf("bram") == "B");
+        Entry x = *lib->entry(bram);
+        x.colour.clear();
+        CHECK(ic::colourOf(x).size() == 7 && ic::colourOf(x) == ic::colourOf(x));   // stable from its id
+    }
+    const std::string para = R"({"type":"paragraph","content":[{"type":"text","text":"The harbour master kept a ledger of every vessel that had ever sheltered behind the breakwater, and read it aloud on winter evenings."}]})";
+    std::string doc = R"({"type":"doc","content":[)";
+    for (int i = 0; i < 12; ++i) doc += (i ? "," : "") + para;
+    doc += "]}";
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "\xE2\x9C\xA7 The Harbour");
+    const Id c2 = lib->createNode(book, {}, NodeKind::Chapter, "Two");
+    const Id c3 = lib->createNode(book, {}, NodeKind::Chapter, "Three");
+    for (const Id& c : {c1, c2, c3}) lib->saveNodeContent(c, doc);
+    {
+        ManuscriptNode n = *lib->node(c1);
+        n.povId = ana;
+        lib->updateNode(n);
+        const Id sc = lib->createNode(book, c2, NodeKind::Scene, "A scene");   // a chapter's viewpoint from its first scene
+        ManuscriptNode s2 = *lib->node(sc);
+        s2.povId = bram;
+        lib->updateNode(s2);
+    }
+    // A title typed with its viewpoint's symbol (4.9).
+    CHECK(ic::titlesStartingWithSymbol(*lib, book) == std::vector<Id>{c1});
+    CHECK(ic::withoutLeadingSymbol("\xE2\x9C\xA7 The Harbour", "\xE2\x9C\xA7") == "The Harbour");
+    CHECK(ic::withoutLeadingSymbol("\xE2\x9C\xA7: Ash", "\xE2\x9C\xA7") == "Ash" && ic::withoutLeadingSymbol("Ash", "\xE2\x9C\xA7") == "Ash");
+    const Resources res{appFolder("fonts"), appFolder("hyphenation")};
+    const Source src = snapshot(*lib, book);
+    CHECK(src.sections.size() >= 3 && src.sections[0].hasPov && src.sections[0].povId == ana && src.sections[1].hasPov && src.sections[1].povId == bram);
+    // Off by default: nothing changes.
+    Design d = preset("classic").design;
+    CHECK(!d.povIcon && designFromJson("{}").povIcon == false);
+    {
+        const studio::typeset::Book plainBook = typesetBook(src, d, res);
+        size_t discs = 0;
+        for (auto& pg : plainBook.pages) discs += pg.discs.size();
+        CHECK(plainBook.ok && discs == 0 && plainBook.missingSymbols.empty());
+    }
+    d.povIcon = true;
+    d.povKey = "back";
+    const Design back = designFromJson(designToJson(d));
+    CHECK(back.povIcon && back.povKey == "back" && back.povShow == "symbol" && back.povPlace == "above" && back.povColour == "full");
+    CHECK(designFromJson(R"({"povPlace":"sideways"})").povPlace == "above");
+    const studio::typeset::Book tb = typesetBook(src, d, res);
+    CHECK(tb.ok);
+    if (!tb.ok) return;
+    // Ana's: a disc of her colour, her symbol on it in dark ink. Bram's symbol is in no font: left out, and named.
+    size_t discs = 0, coloured = 0;
+    bool darkInk = false, key = false;
+    for (auto& pg : tb.pages) {
+        discs += pg.discs.size();
+        for (auto& r : pg.runs) if (r.coloured) { ++coloured; darkInk = darkInk || (r.rgb[0] == 0x15 && r.rgb[1] == 0x17); }
+        if (pg.chapter == "Viewpoints") key = true;
+    }
+    CHECK(discs >= 2 && coloured >= 2 && darkInk);   // her heading and her line in the key
+    {   // Her symbol's default ornament gives way to the icon: printed once, not twice.
+        size_t big = 0;
+        for (auto& pg : tb.pages) for (auto& r : pg.runs) if (!r.coloured && r.size > (float)d.fontSize * 2) ++big;
+        const studio::typeset::Book off = typesetBook(src, preset("classic").design, res);
+        size_t bigOff = 0;
+        for (auto& pg : off.pages) for (auto& r : pg.runs) if (r.size > (float)d.fontSize * 2) ++bigOff;
+        CHECK(bigOff >= 1 && big < bigOff);
+    }
+    CHECK(key);
+    CHECK(tb.missingSymbols.size() == 1 && tb.missingSymbols[0].find("Bram") == 0);
+    {
+        auto cs = publish::preflight(src, &tb);
+        bool flagged = false;
+        for (auto& c : cs) flagged = flagged || (c.level == publish::Check::Problem && c.title.find("Bram") != std::string::npos);
+        CHECK(flagged);
+    }
+    // In the PDF: circles drawn as curves, in grey for a grey interior.
+    {
+        std::string err;
+        const std::string pdf = pdfBytes(tb, err, {true, false, false});
+        CHECK(!pdf.empty());
+        // Page content is compressed; the preview shows the disc's colour instead.
+        const Bitmap bm = renderPage(tb, [&] { for (size_t i = 0; i < tb.pages.size(); ++i) if (!tb.pages[i].discs.empty()) return (int)i; return 0; }(), 72);
+        bool amber = false;
+        for (size_t i = 0; i + 3 < bm.rgba.size(); i += 4) amber = amber || (bm.rgba[i] > 220 && bm.rgba[i + 1] > 160 && bm.rgba[i + 1] < 200 && bm.rgba[i + 2] < 120);
+        CHECK(amber);
+    }
+    // Before and beside the title: on its first line, the title moved aside.
+    for (const char* place : {"before", "beside"}) {
+        Design dp = d;
+        dp.povPlace = place;
+        dp.povKey = "none";
+        const studio::typeset::Book bp = typesetBook(src, dp, res);
+        bool found = false;
+        for (auto& pg : bp.pages)
+            for (auto& dc : pg.discs)
+                for (auto& r : pg.runs)
+                    if (!r.coloured && !r.xs.empty() && std::abs(r.y - dc.cy) < 20) {
+                        const bool left = dc.cx < r.xs.front();
+                        found = found || (std::string(place) == "before" ? left : !left);
+                    }
+        CHECK(found);
+    }
+    // Initials in the ink, and a ring rather than a disc (for print in grey).
+    {
+        Design di = d;
+        di.povShow = "initials";
+        di.povColour = "text";
+        di.povKey = "none";
+        const studio::typeset::Book bi = typesetBook(src, di, res);
+        size_t rings = 0, col = 0;
+        for (auto& pg : bi.pages) { for (auto& dc : pg.discs) if (dc.ring > 0) ++rings; for (auto& r : pg.runs) if (r.coloured) ++col; }
+        CHECK(rings >= 2 && col == 0 && bi.missingSymbols.empty());
+    }
+    // The ebook: the icon with its description, and the key.
+    {
+        const auto content = ebook::build(src, {}, ebook::styleFrom(d));
+        std::string all;
+        for (auto& ch : content.chapters) all += ch.html;
+        CHECK(all.find("aria-label=\"Chapter told by Ana Vell\"") != std::string::npos);
+        CHECK(all.find("background-color:#F0B252;color:#15171E") != std::string::npos);
+        CHECK(!content.chapters.empty() && content.chapters.back().title == "Viewpoints" && all.find("povname\">Bram<") != std::string::npos);
+    }
+    fs::remove_all(dir);
+}
+
 int main() {
+    testViewpointIcons103();
     testToolbar100();
     testBibleMarkdown095();
     testPrint094();

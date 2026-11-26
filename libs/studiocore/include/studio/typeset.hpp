@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include "studio/icons.hpp"
+
 namespace studio::typeset {
 
 // ------------------------------------------------------------------- design
@@ -56,6 +58,13 @@ struct Design {
     // dates: `dateForm` "words" (4 Bloomtide 2033) or "numbers" (04/04/2033), `dateEra` "abbr", "name" or "none".
     bool chapterDates = false;
     std::string dateForm = "words", dateEra = "abbr";
+    // The viewpoint's icon in chapter headings (phase 4c, 0.103), off unless chosen: `povShow` "portrait" (its picture,
+    // else its symbol, else initials), "symbol" (its symbol, else initials) or "initials"; `povPlace` "above" the
+    // title, "before" or "beside" it on its first line; `povColour` "full" (a disc of its colour), "single" (in its
+    // colour, no disc) or "text" (in the text's ink, for print in grey). `povKey`: a page listing whose icon is whose,
+    // "front" (after the contents), "back" or "none".
+    bool povIcon = false;
+    std::string povShow = "symbol", povPlace = "above", povColour = "full", povKey = "none";
 };
 
 struct Preset {
@@ -87,14 +96,20 @@ struct GlyphRun {
     std::vector<float> xs;              // each glyph's x, pt from the left of the page
     std::vector<float> dy;              // each glyph's vertical offset (marks), pt, up is negative
     bool light = false;                 // set in white (a chapter's title over its darkened header picture, 0.89)
+    bool coloured = false;              // set in `rgb` (0.103: a viewpoint icon's symbol or initials)
+    std::uint8_t rgb[3] = {0, 0, 0};
 };
 struct Rule { float x = 0, y = 0, w = 0, h = 0; };   // a filled rectangle (underlines, strike-through)
+// A filled disc, or a ring when `ring` > 0 (its line width), in a colour (0.103: the viewpoint's icon).
+struct Disc { float cx = 0, cy = 0, r = 0, ring = 0; std::uint8_t rgb[3] = {0, 0, 0}; };
 struct PicturePlacement {
     std::string blob;
     float x = 0, y = 0, w = 0, h = 0;   // where it prints, pt
     Placement crop;                      // the part of the picture shown
     int tone = 0;                        // 0 as it is, 1 darkened, 2 faded (a header picture with its title over it, 0.89)
-    std::string role;                    // "header" or "scenebreak" (0.91, for the print checks); "" = in the text
+    std::string role;                    // "header", "scenebreak" or "viewpoint" (0.91, 0.103, for the print checks); "" = in the text
+    bool round = false;                  // clipped to a circle (0.103: a viewpoint's portrait)
+    std::string about;                   // who it is (the print checks name it)
 };
 
 struct Page {
@@ -104,6 +119,7 @@ struct Page {
     std::vector<GlyphRun> runs;
     std::vector<Rule> rules;
     std::vector<PicturePlacement> pictures;
+    std::vector<Disc> discs;            // drawn after the pictures, under the text
 };
 
 struct FontFile {
@@ -138,6 +154,10 @@ struct Source {
         headers::Header header;
         std::string headerFrom;         // "own", "viewpoint", "chapters" or "parts"
         std::string viewpoint;          // the viewpoint's name, when it came from them
+        // Whose eyes it's seen through (0.103): their icon, for the heading's viewpoint icon and the key.
+        bool hasPov = false;
+        std::string povId;
+        icons::Icon pov;
     };
     cal::Calendar calendar;             // the book's calendar, when its timeline counts in calendar dates (0.85)
     std::vector<Section> sections;
@@ -175,6 +195,8 @@ struct Book {
     std::vector<FontFile> fonts;
     std::map<std::string, std::string> picturePaths;   // blob -> file, for drawing pictures
     std::vector<std::string> warnings;
+    // Viewpoint symbols no font of the book has (0.103): "Name (symbol)"; they're left out rather than print as boxes.
+    std::vector<std::string> missingSymbols;
     std::int64_t words = 0;
     bool ok = false;
     std::string error;

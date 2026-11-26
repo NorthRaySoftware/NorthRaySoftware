@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.102.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.179.0 |
+| Version at the time of writing | 0.103.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.180.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -91,6 +91,7 @@ Status labels used in this manual:
 - Facets: gender, sexuality, race, realm, type.
 - Symbols, galleries, image boards, notes per book.
 - Character icons (0.101): each page's picture, symbol (an ornament, emoji, drawn symbol, typed character or small picture of its own) and colour (its own, or automatic: a character's or creature's as on the timeline, else its kind's). Without a picture, or set to show its symbol alone, the icon is the symbol or initials on a solid disc of its colour in ink chosen to read on it; with a picture and a symbol, the symbol is a badge on the picture's corner. ⋯ › Symbol…, Colour…, Its icon shows. Settings › Appearance › Character icons: Small, Medium, Large (cards, rows, relationships, search). The same icon over the text in Writing (the viewpoint, larger, its name optional with Aa › Viewpoint's name beside its icon), on name cards, on the corkboard, the timeline's lanes and Planning's pages (0.102); a chosen colour is also its lane's and its cards' colour.
+- Viewpoint icons in print and the ebook (0.103): Typesetting › Viewpoint icons (off by default): shows picture / symbol / initials; above / before / beside the title; full colour / one colour / as the text; a key of viewpoints at the front or back. Vector discs and glyphs, round pictures at full resolution; the symbol's default ornament gives way to it; a symbol no font has is left out and named by Publishing; ebook icons are described “Chapter told by …”. Typesetting suggests it once when viewpoints have symbols, and offers to take a typed symbol off chapter titles.
 - Spoilers per fact, by the book that reveals them.
 
 **Relationships**
@@ -172,7 +173,7 @@ Status labels used in this manual:
 
 ### Partial or not verified
 - The editor's behaviour inside the real app (WebView2) on Windows: the right-click menu items (including Draft note), pasting pictures, keys reaching the app, the draft-note look.
-- Interface size (0.96, 0.98), page zoom (0.97), the layouts that follow the window (0.99) and the toolbars (0.100): built and cross-compiled, not yet run on Windows.
+- Interface size (0.96, 0.98), page zoom (0.97), the layouts that follow the window (0.99), the toolbars (0.100) and the character icons (0.101–0.103): built and cross-compiled, not yet run on Windows. The printed icons were checked in the typesetter's own page renders on Linux.
 - The named-button boxes of Import many pages (0.94) and Export as Markdown (0.95) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
 - PDF import: experimental.
 - PDF/X conformance is by construction plus a qpdf check. It has not been run through a preflight validator such as Acrobat's or callas pdfToolbox.
@@ -181,7 +182,7 @@ Status labels used in this manual:
 ### Planned (the director's answers; not in the release notes yet)
 
 From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96, page zoom in 0.97):
-- Character icons, the rest of phase 4: 4c the printed viewpoint icon (Typesetting's options, a key of symbols, print-quality checks, ebook descriptions, removing a typed copy of the symbol from titles). 4a, the bible's icons, shipped in 0.101; 4b, Writing and Planning, in 0.102.
+- A DOCX export of the manuscript, with the viewpoint icons in its headings (the director's choice; phase 4 shipped in 0.101–0.103).
 - Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.
 
 From 15 and 18 Nov 2026:

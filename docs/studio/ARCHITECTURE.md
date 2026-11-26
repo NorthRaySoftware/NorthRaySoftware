@@ -415,6 +415,20 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.103.0: the viewpoint icon in print and the ebook (suite 0.180.0, 26 Nov 2026)
+
+Phase 4c (4.6–4.9). CJ's answers (26 Nov): emoji print in a single colour, symbol pictures at print resolution, a Publishing check when a symbol is in none of the book's fonts (never a blank box, no initials instead); off by default for every book, with a one-time suggestion; PDF and EPUB now, DOCX with that export.
+- **studiocore `studio/icons.hpp`** (new): `Icon {name, colour, ink, initials, symbol, symbolImage, image}`, `iconOf`, `colourOf` (own, else the timeline's hash for characters and creatures, else the kind's: the app's light palette), `inkOn` (relative luminance > 0.36: dark ink), `initialsOf`, `viewpointOf` (its own, else its first scene's), `titlesStartingWithSymbol`, `withoutLeadingSymbol` (with a variation selector, spaces and `: - | – — ·`).
+- **Design**: `povIcon` (false), `povShow` portrait/symbol/initials, `povPlace` above/before/beside, `povColour` full/single/text, `povKey` none/front/back, in the JSON. A preset change keeps them.
+- **Source::Section**: `hasPov`, `povId`, `pov`; `snapshot` adds their pictures (sizes from the file when not artwork).
+- **Display list**: `Disc {cx, cy, r, ring, rgb}` on `Page::discs`; `GlyphRun::coloured/rgb`; `PicturePlacement::round` and `about`, role "viewpoint". `SetLine` carries discs and pictures, placed with its line.
+- **Typesetter**: `drawPov` builds the icon into a line (disc + ink glyphs, ring + coloured initials, a symbol alone, or a round picture with a ring); `Setter::covers` checks every character against the font and the symbol fonts, else `book.missingSymbols` and no icon; `Setter::extent` measures a line for before/beside, which move the heading's first line aside by half the icon and gap. Above: its own lines over the heading. The viewpoint's default ornament (`headerFrom == "viewpoint"`, no picture) is skipped when the icon prints. `addKey`: a "Viewpoints" page, front (after the contents) or back.
+- **Output**: `renderPage` draws discs and rings antialiased, coloured runs and round pictures; the PDF draws circles as four Béziers (`circlePath`), round clips, and colours by `fillColour`: grey by luminance for a PDF/X grey interior, CMYK for a colour one, RGB otherwise.
+- **Publishing**: viewpoint pictures in the soft/blurred checks by name; each missing symbol a Problem.
+- **Ebook**: `Style` takes the pov fields (`styleFrom`); `povIconHtml` → `span.pov` (role img, aria-label "Chapter told by …"), above in `p.povline` or inside the `h1`; the key as a last or first section; the same default-ornament rule.
+- **App**: Typesetting › Viewpoint icons (switch, It shows, Where, Colour, A key of viewpoints, and "N chapter titles begin with the symbol"); the one-time suggestion card (`typeset:povHint:<book>`); `offerTypedSymbols` (choiceBox, Undo).
+- **Tested:** studiocore 2,596 (the icon, off by default, design JSON, discs and ink, the key, the missing symbol and its Problem, before/beside placement, initials as rings in the ink, the ebook's description and key, the ornament printed once); the pages rendered to images and looked at (above, before, beside, one colour with initials, the key); cross-compiled. **Not run on Windows**; the PDF needs checking in Acrobat and a printer's preflight, and the EPUB in a reader.
+
 ## 0.102.0: the icons in Writing and Planning (suite 0.179.0, 26 Nov 2026)
 
 Phase 4b (4.4, 4.5, and 4.1's hover cards).
