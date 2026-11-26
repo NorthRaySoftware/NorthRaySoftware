@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.93.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Importing many pages lists every entry it will change, however many there are. A long list sits in a framed box that scrolls with the mouse wheel or the arrow, Page Up, Page Down, Home and End keys, so OK and Cancel always stay on screen.",
+        "Every NorthRay message box now fits the screen it opens on: long messages scroll inside it instead of pushing the buttons off the bottom."
+      ]
+    },
+    {
       "version": "0.92.0",
       "date": "2026-11-26",
       "notes": [

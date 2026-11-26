@@ -523,7 +523,7 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
             if (!pv.made.empty()) pre += L"\n\u2022 New (" + std::to_wstring(pv.made.size()) + L"): " + listOf(pv.made, 10) + L".";
             if (!pv.extra.empty())
                 pre += L"\n\u2022 Made for names the pages mention (" + std::to_wstring(pv.extra.size()) + L"): " + listOf(pv.extra, 10) + L".";
-            const size_t shown = 12;
+            const size_t shown = 500;   // every entry: the box scrolls (0.93)
             for (size_t i = 0; i < pv.changes.size() && i < shown; ++i) {
                 const auto& c = pv.changes[i];
                 std::wstring line = L"\n\u2022 " + w(c.name);

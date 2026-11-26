@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.169.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.93.0: long import confirmations scroll, so OK and Cancel stay on screen. Message boxes in every app now fit the screen."
+      ]
+    },
+    {
       "version": "0.168.0",
       "date": "2026-11-26",
       "notes": [

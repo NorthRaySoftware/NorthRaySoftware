@@ -31,6 +31,15 @@ struct Dialog {
     int result = 0;
     bool done = false;
     float scale = 1, w = 460, h = 200, textH = 0;
+    // Long text (a big import's list, 0.93): the box keeps to the screen and the text scrolls in its own area, by the
+    // wheel or the keys, so the buttons always show. No scroll bar: a fade and a note say there's more.
+    float maxH = 100000, viewH = 0, scroll = 0;
+    bool scrolls = false;
+    Rect textR{};
+    void scrollBy(float d) {
+        const float s2 = std::clamp(scroll + d, 0.0f, std::max(0.0f, textH - viewH));
+        if (s2 != scroll) { scroll = s2; InvalidateRect(hwnd, nullptr, FALSE); }
+    }
     int cancelResult = IDCANCEL;
     HWND edit = nullptr;          // askText's line (0.91)
     HFONT font = nullptr;
@@ -42,7 +51,17 @@ struct Dialog {
         const float tx = icon ? pad + 44 : pad;
         textH = gfx.measureHeight(text, w - tx - pad, Font::Body);
         const float titleH = title.empty() ? 0 : 30;
-        h = pad + 6 + titleH + std::max(textH, icon ? 36.0f : 0.0f) + 24 + 38 + pad;
+        // Room for the text: what the screen leaves once the title, buttons (and askText's line) are in.
+        const float fixed = pad + 6 + titleH + 24 + 38 + pad + (edit ? 50.0f : 0.0f);
+        scrolls = fixed + textH > maxH;
+        if (scrolls && w < 620) {   // wider first, so fewer lines need scrolling
+            w = 620;
+            textH = gfx.measureHeight(text, w - tx - pad - 16, Font::Body);
+            scrolls = fixed + textH > maxH;
+        }
+        viewH = scrolls ? std::max(80.0f, maxH - fixed) : textH;
+        textR = {tx, pad + 6 + titleH, w - tx - pad, viewH};
+        h = pad + 6 + titleH + std::max(viewH, icon ? 36.0f : 0.0f) + 24 + 38 + pad;
         if (edit) {
             editR = {pad, pad + 6 + titleH + textH + 14, w - 2 * pad, 36};
             h += 50;
@@ -84,7 +103,26 @@ struct Dialog {
             gfx.text(title, {tx, y, w - tx - pad, 26}, Font::Heading, pal.ink, {Align::Left, false, true});
             y += 30;
         }
-        gfx.text(text, {tx, y, w - tx - pad, textH + 4}, Font::Body, pal.inkMuted.mix(pal.ink, 0.45f));
+        if (scrolls) {
+            // The text as a list in its own area, scrolled.
+            const Rect box = textR.inset(-8, -6);
+            gfx.fillRounded(box, 8, pal.paper);
+            gfx.strokeRounded(box, 8, pal.rule, 1);
+            gfx.pushClip(textR);
+            gfx.text(text, {textR.x, textR.y - scroll, textR.w - 16, textH + 4}, Font::Body, pal.inkMuted.mix(pal.ink, 0.45f));
+            gfx.popClip();
+            if (scroll < textH - viewH - 1) {
+                for (int i = 0; i < 12; ++i)
+                    gfx.fill({textR.x, textR.bottom() - 24 + i * 2.0f, textR.w, 2.0f}, pal.paper.withAlpha(i / 12.0f));
+                gfx.text(L"More below: scroll, or use the arrow keys \u2193", {textR.x, textR.bottom() + 8, textR.w, 16}, Font::Small, pal.inkFaint,
+                         {Align::Left, false, true});
+            }
+            // Where it is in the list: a thin mark at the side (not a bar to drag).
+            const float frac = viewH / std::max(1.0f, textH);
+            const float my = textR.y + (textR.h - textR.h * frac) * (scroll / std::max(1.0f, textH - viewH));
+            gfx.fillRounded({textR.right() - 4, my, 3, textR.h * frac}, 1.5f, pal.inkFaint.withAlpha(0.5f));
+        } else
+            gfx.text(text, {tx, y, w - tx - pad, textH + 4}, Font::Body, pal.inkMuted.mix(pal.ink, 0.45f));
         if (edit) {
             gfx.fillRounded(editR, 7, pal.paper);
             gfx.strokeRounded(editR, 7, pal.ribbon, 1.5f);
@@ -132,6 +170,9 @@ LRESULT CALLBACK dialogProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_MOUSELEAVE: d->hover = -1; InvalidateRect(hw, nullptr, FALSE); return 0;
+        case WM_MOUSEWHEEL:
+            if (d->scrolls) d->scrollBy(-(float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA * 60);
+            return 0;
         case WM_LBUTTONDOWN: d->pressed = d->buttonAt(x, y); SetCapture(hw); InvalidateRect(hw, nullptr, FALSE); return 0;
         case WM_LBUTTONUP: {
             ReleaseCapture();
@@ -142,6 +183,11 @@ LRESULT CALLBACK dialogProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_KEYDOWN:
+            if (d->scrolls && (wp == VK_DOWN || wp == VK_UP || wp == VK_NEXT || wp == VK_PRIOR || wp == VK_HOME || wp == VK_END)) {
+                const float page = d->viewH - 30;
+                d->scrollBy(wp == VK_DOWN ? 40.0f : wp == VK_UP ? -40.0f : wp == VK_NEXT ? page : wp == VK_PRIOR ? -page : wp == VK_HOME ? -1e9f : 1e9f);
+                return 0;
+            }
             if (wp == VK_ESCAPE) d->finish(d->cancelResult);
             else if (wp == VK_RETURN || wp == VK_SPACE) d->finish(d->buttons[(size_t)d->def].result);
             else if (wp == VK_LEFT || wp == VK_RIGHT || wp == VK_TAB) {
@@ -210,13 +256,31 @@ int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, 
     // Drawn at the display's scale, so what's seen is where clicks land (without this, at 125% or 150%
     // the buttons were drawn smaller than their click areas: OK only worked from the keyboard).
     d.gfx.setDpi(dpi);
+    {
+        // The screen the owner is on: the box never grows past it.
+        RECT wa{};
+        MONITORINFO mi{sizeof mi};
+        if (GetMonitorInfoW(MonitorFromWindow(d.owner ? d.owner : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST), &mi)) wa = mi.rcWork;
+        else SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+        d.maxH = std::max(260.0f, (wa.bottom - wa.top) / d.scale - 80);
+    }
     d.layout();
     // Centred over the owner (or the screen).
     RECT o{};
     if (d.owner && IsWindowVisible(d.owner)) GetWindowRect(d.owner, &o);
     else SystemParametersInfoW(SPI_GETWORKAREA, 0, &o, 0);
     const int pw = (int)std::lround(d.w * d.scale), ph = (int)std::lround(d.h * d.scale);
-    SetWindowPos(d.hwnd, HWND_TOP, (o.left + o.right - pw) / 2, (o.top + o.bottom - ph) / 2 - (int)(20 * d.scale), pw, ph, SWP_NOACTIVATE);
+    {
+        // Kept on the screen even when the owner is near an edge.
+        RECT wa{};
+        MONITORINFO mi{sizeof mi};
+        if (GetMonitorInfoW(MonitorFromWindow(d.owner ? d.owner : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST), &mi)) wa = mi.rcWork;
+        else SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
+        int x = (o.left + o.right - pw) / 2, y = (o.top + o.bottom - ph) / 2 - (int)(20 * d.scale);
+        x = std::clamp(x, (int)wa.left, std::max((int)wa.left, (int)wa.right - pw));
+        y = std::clamp(y, (int)wa.top, std::max((int)wa.top, (int)wa.bottom - ph));
+        SetWindowPos(d.hwnd, HWND_TOP, x, y, pw, ph, SWP_NOACTIVATE);
+    }
     const DWORD round = 2;   // DWMWCP_ROUND
     DwmSetWindowAttribute(d.hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof round);
     d.gfx.resize((UINT)pw, (UINT)ph);

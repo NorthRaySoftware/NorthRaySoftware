@@ -415,6 +415,10 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.93.0: long confirmations scroll (26 Nov 2026)
+
+CJ: importing and replacing many pages pushed OK off the screen. `cjui::messageBox` (libs/cjui/src/dialog.cpp) now caps the text area to the monitor's work area (height / scale - 80) and clamps the window inside it. When the text is taller, it sits in a bordered paper box, clipped and scrolled by the wheel or Up/Down/PgUp/PgDn/Home/End, with a fade at the bottom, a "More below" note and a thin position mark on the right (no scroll bar, per the house rule). The width grows to 620 when scrolling. `askText` is unchanged. studio_paste.cpp now lists up to 500 changes (was 12, then "and N more"). Shared by every app that uses cjui message boxes. Checked in Wine with 40 pages: the list scrolls to the end and the buttons stay visible.
+
 ## 0.92.0: the chapter's opening in Writing (26 Nov 2026)
 
 CJ's request B (project doc `studio-chapter-headers-requests-2026-11-26.md`): the date and header picture on the Writing page, the date clickable, Choose header picture… in the right-click menu and tools, display only, a View switch, the viewpoint beside the date.
