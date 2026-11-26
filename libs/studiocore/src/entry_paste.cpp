@@ -3,6 +3,7 @@
 #include "studio/artwork.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <set>
 #include <cctype>
@@ -75,6 +76,7 @@ Slot slotOf(const std::string& k) {
         {"notes per book", Slot::BookNotes}, {"notes by book", Slot::BookNotes}, {"book notes", Slot::BookNotes},
         {"per book", Slot::BookNotes}, {"by book", Slot::BookNotes}, {"in each book", Slot::BookNotes}, {"appearances", Slot::BookNotes},
         {"family", Slot::Family}, {"relationships", Slot::Relations}, {"relations", Slot::Relations}, {"connections", Slot::Relations},
+        {"relationship", Slot::Relations}, {"relation", Slot::Relations}, {"connection", Slot::Relations},
         {"links", Slot::Relations}, {"spoilers", Slot::Spoilers}, {"spoiler", Slot::Spoilers},
         // 0.55
         {"picture", Slot::Picture}, {"main picture", Slot::Picture}, {"image", Slot::Picture}, {"portrait", Slot::Picture},
@@ -90,6 +92,22 @@ Slot slotOf(const std::string& k) {
 bool isSeparator(const std::string& l) {
     if (l.size() < 3) return false;
     return std::all_of(l.begin(), l.end(), [](char c) { return c == '-' || c == '*' || c == '_' || c == '=' || c == ' '; });
+}
+
+// A label that is plainly a relationship between people (family, partners, friends, enemies, rivals, allies, mentors,
+// students, love), in either number: such a line is a link wherever on the page it's written (0.84). "Family" and
+// "Relatives" alone aren't, as a detail ("Family: minor nobility") is as likely.
+bool isPersonRelation(const std::string& label) {
+    std::string k;
+    for (char c : label) k += (char)std::tolower((unsigned char)c);
+    while (!k.empty() && k.back() == ' ') k.pop_back();
+    if (k == "family" || k == "relatives" || k == "relative" || k == "families") return false;
+    static const std::set<std::string> people{"Child of", "Parent of", "Sibling of", "Twin of", "Triplet of", "Half-sibling of", "Step-sibling of",
+                                              "Adoptive sibling of", "Foster sibling of", "Adopted child of", "Adoptive parent of", "Stepchild of",
+                                              "Step-parent of", "Foster child of", "Foster parent of", "Partner of", "Engaged to", "Married to",
+                                              "Former partner of", "Friend of", "Enemy of", "Rival of", "Ally of", "Student of", "Mentor of",
+                                              "Family", "Loves"};
+    return people.count(studio::paste::relationFor("character", label)) > 0;
 }
 
 std::string withoutEmphasis(std::string s) {
@@ -379,6 +397,13 @@ Page parse(const std::string& raw) {
             }
             if (!value.empty()) {
                 if (block == Slot::Family || block == Slot::Relations) { p.relations.emplace_back(label, value); continue; }
+                // A relationship between people anywhere else on the page (under the summary, Details or a section:
+                // "Enemy: Ralos", 0.84): a link like one under Relationships, not text.
+                if (block != Slot::Notes && block != Slot::Spoilers && block != Slot::BookNotes && (block != Slot::None || p.parts > 0) &&
+                    isPersonRelation(label)) {
+                    p.relations.emplace_back(label, value);
+                    continue;
+                }
                 if (block == Slot::Details || (block == Slot::None && p.parts > 0)) { addDetail(label + ": " + value); continue; }
             }
         }
@@ -412,8 +437,10 @@ Page parse(const std::string& raw) {
         if (block == Slot::Family || block == Slot::Relations) { addDetail(c); continue; }
         if (block == Slot::BookNotes && p.bookNotes.empty()) { p.bookNotes.emplace_back(std::string(), std::string()); bookNote = 0; }
         if (block == Slot::BookNotes) gap = true;   // each line of a book's note is a paragraph of its own (0.56)
-        if (std::string* t = textOf(block)) addLine(*t, gap, bullet ? "\xE2\x80\xA2 " + c : c);
-        // Before anything recognised (a chat's "Here's the entry…"): left out.
+        if (std::string* t = textOf(block)) { addLine(*t, gap, bullet ? "\xE2\x80\xA2 " + c : c); continue; }
+        // Before anything recognised (a chat's "Here's the entry…"): left out. After it, the line went nowhere: it's
+        // listed so the import can say so (0.84).
+        if (p.parts > 0 && !isSeparator(c)) p.unread.push_back(c);
     }
     // A "Spoilers" heading with nothing under it (a template) leaves nothing in the notes.
     {
@@ -552,15 +579,45 @@ std::string relationFor(const std::string& kind, const std::string& labelIn) {
         for (auto& c : choices) if (key(c.label) == key(l)) return c.label;
         return {};
     };
+    // The word as written, then its other number (0.84: "Enemy" and "Enemies", "Mentor" and "Mentors", "Nemeses"):
+    // every line reads in the singular and the plural.
+    std::vector<std::string> forms{k};
+    {
+        auto add = [&](const std::string& f) { if (f.size() > 1 && std::find(forms.begin(), forms.end(), f) == forms.end()) forms.push_back(f); };
+        // The last word changes number ("best friend" / "best friends"); "of" phrases change their first word.
+        const size_t sp = k.rfind(' ');
+        const bool ofPhrase = k.size() > 3 && k.compare(k.size() - 3, 3, " of") == 0;
+        const std::string head = ofPhrase ? k.substr(0, k.size() - 3) : (sp == std::string::npos ? std::string() : k.substr(0, sp + 1));
+        const std::string w = ofPhrase ? std::string() : (sp == std::string::npos ? k : k.substr(sp + 1));
+        const std::string tail = ofPhrase ? " of" : "";
+        const std::string word = ofPhrase ? head : w;
+        const std::string pre = ofPhrase ? std::string() : head;
+        auto with = [&](const std::string& x) { add(pre + x + tail); };
+        const size_t n = word.size();
+        if (n > 3 && word.compare(n - 3, 3, "ies") == 0) with(word.substr(0, n - 3) + "y");
+        if (n > 3 && word.compare(n - 2, 2, "es") == 0) with(word.substr(0, n - 2));
+        if (n > 3 && word.compare(n - 2, 2, "es") == 0 && word.compare(n - 3, 3, "ses") == 0) with(word.substr(0, n - 2) + "is");   // nemeses
+        if (n > 2 && word.back() == 's' && word.compare(n - 2, 2, "ss") != 0) with(word.substr(0, n - 1));
+        if (n > 2 && word.back() == 'y' && !std::strchr("aeiou", word[n - 2])) with(word.substr(0, n - 1) + "ies");
+        if (n > 2 && word.compare(n - 2, 2, "is") == 0) with(word.substr(0, n - 2) + "es");
+        if (n > 1 && (word.back() == 's' || word.back() == 'x' || (n > 2 && (word.compare(n - 2, 2, "ch") == 0 || word.compare(n - 2, 2, "sh") == 0))))
+            with(word + "es");
+        if (n > 1 && word.back() != 's') with(word + "s");
+        if (word == "child") with("children");
+        if (word == "children") with("child");
+        if (word == "wife") with("wives");
+        if (word == "wives") with("wife");
+    }
     // The first row naming the word whose relationship this kind has (0.60: "from" is From for a character and Comes
     // from for a race).
-    for (auto& [names, rel] : table)
-        if (std::find(names.begin(), names.end(), k) != names.end())
-            if (std::string r = offered(rel); !r.empty()) return r;
-    if (std::string r = offered(k); !r.empty()) return r;
-    if (std::string r = offered(k + " of"); !r.empty()) return r;
-    if (k.size() > 3 && k.back() == 's')
-        if (std::string r = offered(k.substr(0, k.size() - 1) + " of"); !r.empty()) return r;
+    for (const std::string& f : forms)
+        for (auto& [names, rel] : table)
+            if (std::find(names.begin(), names.end(), f) != names.end())
+                if (std::string r = offered(rel); !r.empty()) return r;
+    for (const std::string& f : forms) {
+        if (std::string r = offered(f); !r.empty()) return r;
+        if (std::string r = offered(f + " of"); !r.empty()) return r;
+    }
     return {};
 }
 
@@ -864,6 +921,7 @@ bool apply(Library& lib, const Id& entryId, const Page& page, const std::vector<
         }
     }
 
+    r.unread = page.unread;
     // Details: the pasted ones replace them all; family and relationship lines that aren't links replace lines with
     // their label.
     std::string details = page.details.empty() ? e.details : page.details;
@@ -1337,17 +1395,47 @@ bool importPages(Library& lib, const Id& world, const Id& book, const std::vecto
         for (const Id& id : out.updated)
             if (!clearEntryText(lib, id)) return false;
     std::set<Id> changed;
+    // The links each page stands for (0.84): its entry's links of every kind of relationship the page lists, once it's
+    // applied. A later page listing its own kind of relationship without them would take them away (Vennik's page has
+    // "Enemy: Ralos"; Ralos's page lists "Enemies: Sam"); at the end they're put back, as both pages had their say.
+    struct Said { Id from, to; std::string label; };
+    std::vector<Said> said;
     for (size_t i = 0; i < pages.size(); ++i) {
         if (skip[i]) continue;
         Report r;
         Page pg = parsed[i];
         if (pg.name.empty()) pg.name = pages[i].name;   // a page found by a former name takes its own
         if (!apply(lib, target[i], pg, booksInOrder, r, baseFolder)) return false;
+        for (auto& u : r.unread) out.unread.push_back(pg.name + ": " + u);
+        if (const Entry* e = lib.entry(target[i]); e && !pg.relations.empty()) {
+            std::set<std::string> kinds;
+            for (auto& [label, value] : pg.relations) {
+                std::string rel = relationFor(e->kind, label);
+                if (rel.empty()) rel = lib.ensureRelation(e->worldId, scopeBook, label);
+                if (!rel.empty()) kinds.insert(rel);
+            }
+            for (const EntryLink& x : lib.linksOf(e->id)) {
+                const bool mine = x.from == e->id;
+                const std::string asMine = mine ? x.label : lib.relationReverse(e->worldId, scopeBook, x.label);
+                if (kinds.count(asMine)) said.push_back({x.from, x.to, x.label});
+            }
+        }
         out.links += r.links;
         out.pictures += (r.picture ? 1 : 0) + r.gallery;
         for (auto& m : r.missingPictures) out.missingPictures.push_back(m);
         for (const Id& x : r.created) out.extra.push_back(x);
         if (!r.words().empty()) changed.insert(target[i]);
+    }
+    for (const Said& x : said) {
+        const Entry* a = lib.entry(x.from);
+        const Entry* b = lib.entry(x.to);
+        if (!a || !b || a->deleted || b->deleted) continue;
+        const auto now = lib.linksOf(x.from);
+        const std::string back = lib.relationReverse(a->worldId, scopeBook, x.label);
+        const bool there = std::any_of(now.begin(), now.end(), [&](const EntryLink& l) {
+            return (l.from == x.from && l.to == x.to && l.label == x.label) || (l.from == x.to && l.to == x.from && l.label == back);
+        });
+        if (!there && lib.addLink(x.from, x.to, x.label)) ++out.linksKept;
     }
     for (const Id& id : out.updated) if (!changed.count(id)) ++out.unchanged;
     // Characters in the family with no gender line (0.57): they read as "sibling", "child" or "partner" for want of it.
@@ -1393,6 +1481,98 @@ std::string Import::words() const {
     std::string o;
     for (size_t i = 0; i < parts.size(); ++i) o += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];
     return o;
+}
+
+// ---------------------------------------------------------------- the preview (0.84)
+
+bool previewImport(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
+                   Preview& out, bool replaceAll, const std::string& baseFolder) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path dir = fs::temp_directory_path(ec);
+    if (ec) { out.error = ec.message(); return false; }
+    dir /= "writing-studio-preview-" + std::to_string((unsigned long long)std::rand()) + "-" + std::to_string((unsigned long long)(uintptr_t)&out);
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+    if (ec) { out.error = ec.message(); return false; }
+    struct Gone { fs::path d; ~Gone() { std::error_code e; fs::remove_all(d, e); } } gone{dir};
+    if (!lib.copyDatabaseTo((dir / "library.db").string(), out.error)) return false;
+    Import im;
+    {
+        OpenResult or_;
+        auto copy = Library::open(dir.string(), or_);
+        if (!copy) { out.error = or_.error.empty() ? "The library couldn't be copied for the preview." : or_.error; return false; }
+        if (!importPages(*copy, world, book, pages, booksInOrder, im, replaceAll, baseFolder)) { out.error = copy->lastError(); return false; }
+
+        auto nameOf = [&](Library& l, const Id& id) {
+            const Entry* e = l.entry(id);
+            return e ? e->name : std::string();
+        };
+        for (const Id& id : im.made) out.made.push_back(nameOf(*copy, id));
+        for (const Id& id : im.extra) out.extra.push_back(nameOf(*copy, id));
+        out.unread = im.unread;
+        out.linksKept = im.linksKept;
+        // Each entry already in the bible that the import touches.
+        std::vector<Id> ids = im.updated;
+        for (const Id& id : im.removed) if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+        for (const Entry& m : im.mergedAway) if (std::find(ids.begin(), ids.end(), m.id) == ids.end()) ids.push_back(m.id);
+        auto lines = [](const std::string& t) {
+            std::vector<std::string> v;
+            std::istringstream in(t);
+            for (std::string l; std::getline(in, l);) if (!trim(l).empty()) v.push_back(trim(l));
+            return v;
+        };
+        auto linkWords = [&](Library& l, const Id& self, const EntryLink& x) {
+            const bool mine = x.from == self;
+            const Entry* me = l.entry(self);
+            const Id wid = me ? me->worldId : Id{};
+            const Id bid = me && me->worldId.empty() ? me->bookId : Id{};
+            const std::string label = mine ? x.label : l.relationReverse(wid, bid, x.label);
+            return label + " " + nameOf(l, mine ? x.to : x.from);
+        };
+        for (const Id& id : ids) {
+            const Entry* was = lib.entry(id);
+            if (!was) continue;
+            const Entry* now = copy->entry(id);
+            Preview::Change c;
+            c.name = was->name;
+            c.removed = std::find(im.removed.begin(), im.removed.end(), id) != im.removed.end();
+            c.merged = std::any_of(im.mergedAway.begin(), im.mergedAway.end(), [&](const Entry& m) { return m.id == id; });
+            if (!c.removed && !c.merged && now) {
+                if (now->name != was->name) c.renamedTo = now->name;
+                for (auto& [title, text] : was->sections) {
+                    if (trim(text).empty()) continue;
+                    const bool kept = std::any_of(now->sections.begin(), now->sections.end(),
+                                                  [&](auto& s2) { return key(s2.first) == key(title) && !trim(s2.second).empty(); });
+                    if (!kept) c.sectionsRemoved.push_back(title);
+                }
+                const auto after = lines(now->details);
+                for (auto& l : lines(was->details)) {
+                    std::string lab, val;
+                    const bool field = splitField(l, lab, val);
+                    const bool kept = std::any_of(after.begin(), after.end(), [&](const std::string& a) {
+                        std::string al, av;
+                        return field ? (splitField(a, al, av) && key(al) == key(lab)) : a == l;
+                    });
+                    if (!kept) c.detailsRemoved.push_back(l);
+                }
+                const auto linksNow = copy->linksOf(id);
+                for (const EntryLink& x : lib.linksOf(id)) {
+                    const bool kept = std::any_of(linksNow.begin(), linksNow.end(), [&](const EntryLink& y) {
+                        return y.from == x.from && y.to == x.to && y.label == x.label;
+                    });
+                    if (!kept) c.linksRemoved.push_back(linkWords(lib, id, x));
+                }
+                c.other = now->summary != was->summary || now->details != was->details || now->notes != was->notes ||
+                          now->sections != was->sections || now->aliases != was->aliases || now->bookNotes != was->bookNotes ||
+                          now->pronunciation != was->pronunciation || now->imageBlob != was->imageBlob || now->gallery.size() != was->gallery.size() ||
+                          linksNow.size() != lib.linksOf(id).size();
+                if (!c.other && c.renamedTo.empty() && c.linksRemoved.empty()) { ++out.unchanged; continue; }
+            }
+            out.changes.push_back(std::move(c));
+        }
+    }
+    return true;
 }
 
 }  // namespace studio::paste

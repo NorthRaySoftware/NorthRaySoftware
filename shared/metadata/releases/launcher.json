@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.160.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.84.0: import previews, both pages' links kept, and singular and plural relationship lines."
+      ]
+    },
+    {
       "version": "0.159.0",
       "date": "2026-11-26",
       "notes": [

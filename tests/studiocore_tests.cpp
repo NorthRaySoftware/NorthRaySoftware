@@ -514,6 +514,99 @@ static void testCalendarTimes() {
 }
 
 // Plans in calendar dates, with the book's type and place in its series (0.76).
+static void testImportLinesAndPreview() {
+    namespace pa = studio::paste;
+    // Singular and plural forms of every relationship read alike.
+    for (auto [a, b] : std::vector<std::pair<const char*, const char*>>{{"Enemy", "Enemies"}, {"Rival", "Rivals"}, {"Ally", "Allies"},
+                                                                         {"Mentor", "Mentors"}, {"Friend", "Friends"}, {"Son", "Sons"},
+                                                                         {"Child", "Children"}, {"Nemesis", "Nemeses"}, {"Best friend", "Best friends"}}) {
+        CHECK(!pa::relationFor("character", a).empty());
+        CHECK(pa::relationFor("character", a) == pa::relationFor("character", b));
+    }
+    CHECK(pa::relationFor("character", "Enemy") == "Enemy of");
+    // A relationship line under Details or among the fields is a link; a line that goes nowhere is listed.
+    {
+        const pa::Page p = pa::parse("Name: Vennik\nKind: Character\nEnemy: Ralos\n\nDetails\nHair: brown\nRival: Sam\nFamily: minor nobility\n");
+        bool enemy = false, rival = false;
+        for (auto& [l, v] : p.relations) { enemy |= l == "Enemy" && v == "Ralos"; rival |= l == "Rival" && v == "Sam"; }
+        CHECK(enemy && rival);
+        CHECK(p.details.find("Hair: brown") != std::string::npos && p.details.find("minor nobility") != std::string::npos);
+        CHECK(p.details.find("Ralos") == std::string::npos);
+        const pa::Page q = pa::parse("Here's the page you asked for.\nName: Vennik\nSummary\nA man.\n\nRelationships\nEnemy: Ralos\n----\n");
+        CHECK(q.unread.empty());
+        const pa::Page u = pa::parse("Name: Vennik\nSummary\nA thief.\nEnemy: Ralos\n");
+        CHECK(u.summary == "A thief." && u.relations.size() == 1);
+        const pa::Page r = pa::parse("Name: Vennik\nRelationship\nEnemy: Ralos\n");
+        CHECK(r.relations.size() == 1);
+    }
+    const std::string dir = tempLibrary("import-lines");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("Telvana");
+    auto linked = [&](const char* a, const char* b, const char* label) {
+        const Entry* x = lib->findEntryNamed(world, {}, a);
+        const Entry* y = lib->findEntryNamed(world, {}, b);
+        if (!x || !y) return false;
+        for (auto& l : lib->linksOf(x->id))
+            if ((l.from == x->id && l.to == y->id && l.label == label) || (l.from == y->id && l.to == x->id)) return true;
+        return false;
+    };
+    // Vennik's page names Ralos as an enemy; Ralos's page, later in the same import, lists other enemies. Both links stay.
+    {
+        const auto pages = pa::splitPages("# Characters\n\nName: Vennik\nSummary\nA thief.\n\nRelationships\nEnemy: Ralos\n\n"
+                                          "Name: Ralos\nSummary\nA lord.\n\nRelationships\nEnemies: Sam\n\n"
+                                          "Name: Sam\nSummary\nA guard.\nOdd: \n\n", "character");
+        CHECK(pages.size() == 3);
+        pa::Import imp;
+        CHECK(pa::importPages(*lib, world, {}, pages, {}, imp, true));
+        CHECK(linked("Vennik", "Ralos", "Enemy of") && linked("Ralos", "Sam", "Enemy of"));
+        CHECK(imp.linksKept == 1);
+        // The same again as a replacing import: still both.
+        pa::Import again;
+        CHECK(pa::importPages(*lib, world, {}, pages, {}, again, true));
+        CHECK(linked("Vennik", "Ralos", "Enemy of") && linked("Ralos", "Sam", "Enemy of"));
+    }
+    // Lines that went nowhere are named in the import.
+    {
+        pa::Import imp;
+        CHECK(pa::importPages(*lib, world, {}, pa::splitPages("Name: Orrin\nKind: Character\nSummary\nA smith.\nNotes\n\nName: Quill\nKind: Place\nA lonely line.\n", "character"), {}, imp));
+        bool named = false;
+        for (auto& u : imp.unread) named |= u == "Quill: A lonely line.";
+        CHECK(named);
+    }
+    // The preview says what a replacing import would do, and changes nothing.
+    {
+        const Entry* v = lib->findEntryNamed(world, {}, "Vennik");
+        CHECK(v);
+        if (v) {
+            Entry e = *v;
+            e.sections = {{"History", "Born in the docks."}};
+            e.details = "Hair: brown\nEyes: grey";
+            CHECK(lib->updateEntry(e));
+        }
+        const auto pages = pa::splitPages("# Characters\n\nName: Vennik\nSummary\nA thief.\nDetails\nHair: brown\n\n"
+                                          "Name: Tamsin\nSummary\nNew here.\n\nRelationships\nFriend: Pell\n", "character");
+        pa::Preview pv;
+        CHECK(pa::previewImport(*lib, world, {}, pages, {}, pv, true));
+        CHECK(pv.error.empty());
+        CHECK(pv.made.size() == 1 && pv.made[0] == "Tamsin");
+        CHECK(pv.extra.size() == 1 && pv.extra[0] == "Pell");
+        CHECK(pv.changes.size() == 1);
+        if (pv.changes.size() == 1) {
+            const auto& c = pv.changes[0];
+            CHECK(c.name == "Vennik");
+            CHECK(c.sectionsRemoved.size() == 1 && c.sectionsRemoved[0] == "History");
+            CHECK(c.detailsRemoved.size() == 1 && c.detailsRemoved[0] == "Eyes: grey");
+            CHECK(c.linksRemoved.size() == 1 && c.linksRemoved[0] == "Enemy of Ralos");
+        }
+        // Nothing changed in the library itself.
+        CHECK(!lib->findEntryNamed(world, {}, "Tamsin") && !lib->findEntryNamed(world, {}, "Pell"));
+        CHECK(linked("Vennik", "Ralos", "Enemy of"));
+        const Entry* v2 = lib->findEntryNamed(world, {}, "Vennik");
+        CHECK(v2 && v2->section("History") == "Born in the docks.");
+    }
+}
+
 static void testPlanDates() {
     using namespace studio::cal;
     const std::string dir = tempLibrary("plandates");
@@ -4837,6 +4930,7 @@ int main() {
     testSubBooks();
     testCalendar();
     testPlanDates();
+    testImportLinesAndPreview();
     testCalendarTimes();
     testExcerpts();
     testPlanCalendarDates();

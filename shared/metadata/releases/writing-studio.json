@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.84.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Imports read the singular and plural form of every relationship and family line (Enemy and Enemies, Mentor and Mentors), and a relationship between people written anywhere on a page (under the summary, Details or a section) becomes a link.",
+        "Two pages in one import no longer undo each other: a link one page makes stays when a later page lists other relationships of that kind, and the note says how many were kept.",
+        "Before an import that changes entries already in the bible, the confirmation lists the new pages, the entries made for names they mention, and for each entry the sections, details and links it would lose, worked out on a copy of the library. Cancel leaves everything as it was.",
+        "Lines that aren't part of any field, section or relationship are listed in the note after importing instead of being dropped without a word."
+      ]
+    },
+    {
       "version": "0.83.0",
       "date": "2026-11-26",
       "notes": [

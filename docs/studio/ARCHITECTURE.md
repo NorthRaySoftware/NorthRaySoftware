@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.84.0: imports that say what they'll do (26 Nov 2026)
+
+- `paste::relationFor` tries the label's other number before giving up: the last word (or the first word of an "… of" phrase) in the singular and the plural, with -ies/-y, -es, -is/-es (nemesis) and child/children, wife/wives.
+- `parse` puts a "Label: value" line whose label is a relationship between people (`isPersonRelation`: family, partners, friends, enemies, rivals, allies, mentors, students, love; not "Family" or "Relatives" alone) into `relations` wherever it stands, except in Notes, Spoilers and notes per book. "Relationship", "Relation" and "Connection" are headings for the Relationships part. Lines after the page began that land nowhere are kept in `Page::unread`, passed through `Report::unread` to `Import::unread` as "Name: line".
+- `importPages` records, after each page is applied, the links of its entry of every kind the page lists (`said`). After all pages, any of those a later page removed is added back and counted in `Import::linksKept`: Vennik's "Enemy: Ralos" survives Ralos's "Enemies: Sam".
+- `paste::previewImport` copies the database with `Library::copyDatabaseTo` (VACUUM INTO) into a temporary folder, opens it, runs `importPages` there and compares each touched entry with the real one: sections with text that go, detail lines whose label goes, links that go ("Enemy of Ralos"), renames, merges and removals. The folder is removed afterwards; the library isn't touched. The import window shows the result in its confirmation when any page matches an entry already in the bible.
+
 ## 0.83.0: a plan replaces threads and structure too (26 Nov 2026)
 
 CJ: importing a plan replaced chapters but kept the book's old threads and structure when the plan had none (Alvora: The Fall of Valona kept ten threads and the Scion's journey from an earlier import under a plan with three threads and no structure line). Clear them like blank chapter details, and name what went.

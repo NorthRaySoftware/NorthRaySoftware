@@ -506,6 +506,53 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
             q += L". Merged and removed entries go to the Trash.";
         }
     }
+    // What the import would do, worked out on a copy of the library (0.84): new pages, and for each entry already in
+    // the bible the sections, details and links it would lose.
+    if (existing > 0) {
+        paste::Preview pv;
+        if (!paste::previewImport(*lib_, wb_.world, scopeBook, pages, booksInReadingOrder(*lib_, wb_.world, wb_.book), pv, replaceAll, baseFolder)) {
+            q += L"\n\nThe preview couldn't be worked out (" + w(pv.error) + L"), so the changes aren't listed here.";
+        } else {
+            auto listOf = [](const std::vector<std::string>& v, size_t most) {
+                std::wstring s;
+                for (size_t i = 0; i < v.size() && i < most; ++i) s += (i ? L", " : L"") + w(v[i]);
+                if (v.size() > most) s += L" and " + std::to_wstring(v.size() - most) + L" more";
+                return s;
+            };
+            std::wstring pre = L"\n\nWhat changes:";
+            if (!pv.made.empty()) pre += L"\n\u2022 New (" + std::to_wstring(pv.made.size()) + L"): " + listOf(pv.made, 10) + L".";
+            if (!pv.extra.empty())
+                pre += L"\n\u2022 Made for names the pages mention (" + std::to_wstring(pv.extra.size()) + L"): " + listOf(pv.extra, 10) + L".";
+            const size_t shown = 12;
+            for (size_t i = 0; i < pv.changes.size() && i < shown; ++i) {
+                const auto& c = pv.changes[i];
+                std::wstring line = L"\n\u2022 " + w(c.name);
+                std::vector<std::wstring> bits;
+                if (c.removed) bits.push_back(L"put in the Trash");
+                if (c.merged) bits.push_back(L"merged into another entry");
+                if (!c.renamedTo.empty()) bits.push_back(L"renamed " + w(c.renamedTo));
+                if (!c.sectionsRemoved.empty())
+                    bits.push_back((c.sectionsRemoved.size() == 1 ? L"loses the section " : L"loses the sections ") + listOf(c.sectionsRemoved, 4));
+                if (!c.detailsRemoved.empty())
+                    bits.push_back((c.detailsRemoved.size() == 1 ? L"loses the detail " : L"loses the details ") + listOf(c.detailsRemoved, 4));
+                if (!c.linksRemoved.empty())
+                    bits.push_back((c.linksRemoved.size() == 1 ? L"loses the link " : L"loses the links ") + listOf(c.linksRemoved, 4));
+                if (bits.empty()) bits.push_back(L"changes, losing nothing");
+                for (size_t j = 0; j < bits.size(); ++j) line += (j ? L"; " : L": ") + bits[j];
+                pre += line + L".";
+            }
+            if (pv.changes.size() > shown) pre += L"\n\u2022 and " + std::to_wstring(pv.changes.size() - shown) + L" more entries change.";
+            if (pv.unchanged) pre += L"\n\u2022 " + std::to_wstring(pv.unchanged) + (pv.unchanged == 1 ? L" page is already in the bible as it is." : L" pages are already in the bible as they are.");
+            if (pv.linksKept)
+                pre += L"\n\u2022 " + std::to_wstring(pv.linksKept) +
+                       (pv.linksKept == 1 ? L" link one page makes is kept, though a later page doesn't list it."
+                                          : L" links pages make are kept, though later pages don't list them.");
+            if (!pv.unread.empty())
+                pre += L"\n\u2022 " + std::to_wstring(pv.unread.size()) + (pv.unread.size() == 1 ? L" line can't be read" : L" lines can't be read") +
+                       L" (listed after importing).";
+            q += pre;
+        }
+    }
     q += L"\n\nA backup of the library is made first, and Ctrl+Z takes the import back.";
     if (cjui::messageBox(hwnd(), q.c_str(), L"Import many pages", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
     std::string err;
@@ -553,6 +600,17 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         if (!imp.notFound.empty()) more += L"\n\nNo entry of that name to remove or merge: " + listOf(imp.notFound) + L".";
         if (!imp.missingPictures.empty())
             more += L"\n\nThese pictures couldn't be read (a path that isn't there, or a file that isn't a picture): " + listOf(imp.missingPictures) + L".";
+        if (imp.linksKept)
+            more += L"\n\n" + std::to_wstring(imp.linksKept) +
+                    (imp.linksKept == 1 ? L" link one page made was kept, though a later page's relationships didn't list it."
+                                        : L" links pages made were kept, though later pages' relationships didn't list them.");
+        if (!imp.unread.empty()) {
+            std::wstring u;
+            for (size_t i = 0; i < imp.unread.size() && i < 15; ++i) u += L"\n\u2022 " + w(imp.unread[i]);
+            if (imp.unread.size() > 15) u += L"\n\u2022 and " + std::to_wstring(imp.unread.size() - 15) + L" more";
+            more += L"\n\nThese lines weren't part of any field, section or relationship, so they weren't brought in:" + u +
+                    L"\nA heading over them (such as “History”) or a label (“Title: …”) puts them on the page.";
+        }
         if (!imp.noGender.empty()) {
             std::vector<std::string> g;
             for (auto& id : imp.noGender)

@@ -1344,6 +1344,13 @@ bool Library::exportJson(const std::string& path, std::string& err) const {
 
 long long Library::changesMade() const { return db_ ? (long long)sqlite3_total_changes64(db_) : 0; }
 
+bool Library::copyDatabaseTo(const std::string& dbPath, std::string& err) {
+    Stmt s(db_, "VACUUM INTO ?1");
+    s.bind(1, dbPath);
+    if (!s || !s.run()) { err = sqlite3_errmsg(db_); return false; }
+    return true;
+}
+
 bool Library::backup(std::string& err, int keep, std::string* madePath) {
     const fs::path dir = u8(folder_) / "backups";
     std::error_code ec;

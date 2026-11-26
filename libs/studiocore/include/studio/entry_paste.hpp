@@ -33,6 +33,9 @@ struct Page {
     std::vector<std::string> formerly, mergeFrom;
     std::string mergeInto;
     bool remove = false;
+    // Lines after the page began that went nowhere (0.84): not a part, a field, a section's text or a relationship. An
+    // import lists them in its note rather than dropping them without a word.
+    std::vector<std::string> unread;
     int parts = 0;                                                // how many parts were recognised
     int known = 0;                                                // of them, parts with a known name (Name, Summary, Details…)
 };
@@ -56,6 +59,7 @@ struct Report {
     int aliases = 0, details = 0, sections = 0, bookNotes = 0, links = 0, notes = 0;
     std::vector<std::string> unmatchedBooks;   // books not in Writing Studio yet: their notes are kept for when they are (0.56)
     std::vector<Id> created;                   // entries made for names in Family or Relationships not in the bible yet
+    std::vector<std::string> unread;           // the page's lines that went nowhere (0.84)
     std::string words() const;                 // "the name, 3 other names, the summary, 18 details, …"
 };
 
@@ -137,8 +141,35 @@ struct Import {
     // 0.57: characters on the pages (or made for names on them) who have family but no Gender line, so they read as
     // "sibling", "child" or "partner" rather than sister, son or wife.
     std::vector<Id> noGender;
+    // 0.84: lines of the pages that went nowhere ("Name: the line"), and links one page made that a later page's own
+    // relationships would have removed (its kind of relationship listed without this name): kept, as both pages had
+    // them between them.
+    std::vector<std::string> unread;
+    int linksKept = 0;
     std::string words() const;                    // "12 new entries, 3 updated, 40 links"
 };
+
+// What an import would do, worked out on a copy of the library before anything is changed (0.84): the pages that
+// make new entries, and for each entry already in the bible what it loses (sections, details and links no page
+// puts back), whether it's renamed, merged away or removed. The library itself isn't touched.
+struct Preview {
+    struct Change {
+        std::string name;                         // the entry's name now
+        std::string renamedTo;                    // when a page renames it
+        bool merged = false, removed = false;     // merged into another, or put in the Trash
+        bool other = false;                       // its text changes (summary, details, sections, notes…)
+        std::vector<std::string> sectionsRemoved, detailsRemoved, linksRemoved;   // "Enemy of Ralos"
+    };
+    std::vector<std::string> made;                // pages that make new entries
+    std::vector<std::string> extra;               // entries made for names the pages mention
+    std::vector<Change> changes;                  // entries already there that change
+    int unchanged = 0;
+    std::vector<std::string> unread;
+    int linksKept = 0;
+    std::string error;                            // the copy couldn't be made or the import failed on it
+};
+bool previewImport(Library& lib, const Id& world, const Id& book, const std::vector<Batch>& pages, const std::vector<Id>& booksInOrder,
+                   Preview& out, bool replaceAll = false, const std::string& baseFolder = {});
 
 // Brings pages into a world's bible (or an independent book's: `world` empty). Each page goes onto the entry of
 // its name and kind (else any kind of that name), or a new one. All the new entries are made first, so pages

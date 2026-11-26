@@ -618,6 +618,8 @@ public:
     bool reload();
     // Makes a backup copy of the database now. Keeps the newest `keep`.
     bool backup(std::string& error, int keep = 10, std::string* madePath = nullptr);
+    // A complete copy of the database written to `dbPath` (0.84: an import's preview works on one).
+    bool copyDatabaseTo(const std::string& dbPath, std::string& error);
     // Rows changed through this library since it was opened (for "back up if anything changed").
     long long changesMade() const;
 
