@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.165.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.89.0: chapter header pictures and ornaments in the typeset book, the ebook, the review copy and the shared bible."
+      ]
+    },
+    {
       "version": "0.164.0",
       "date": "2026-11-26",
       "notes": [

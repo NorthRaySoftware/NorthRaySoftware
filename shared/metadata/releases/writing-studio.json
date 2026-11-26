@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.89.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Chapter header pictures: a chapter or part can open with a picture or an ornament, in the typeset PDF (print-ready too), the ebook, the EPUB, the review copy and the shared bible's Plans page.",
+        "A header is the full text width, a band cropped from the picture's middle, or a small ornament, with the title under it, above it or over it. Over it, the picture is darkened under a light title or faded under an ink one.",
+        "Typesetting's design card has Chapter headers: a default for every chapter and another for every part.",
+        "A chapter or part can choose its own, or No header here, in Planning's details. Front and back matter open with a header only when one is chosen for them.",
+        "A viewpoint character can have a chapter header picture of their own (⋯ on their page), so their chapters open with it; without one, their symbol prints as an ornament. Planning shows where a chapter's header comes from.",
+        "The symbol menu has ornaments that print (✧ ✦ ❦ ❧ ⁂ 🗡 and more)."
+      ]
+    },
+    {
       "version": "0.88.0",
       "date": "2026-11-26",
       "notes": [
