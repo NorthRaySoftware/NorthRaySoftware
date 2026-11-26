@@ -20,6 +20,7 @@
 #include "studio/calendar.hpp"
 #include "studio/entry_paste.hpp"
 #include "studio/fonts.hpp"
+#include "studio/toolbar.hpp"
 #include "studio/typeset.hpp"
 #include "studio/publish.hpp"
 #include "studio/review.hpp"
@@ -112,6 +113,9 @@ struct Settings {
     std::string writingView = "{}";   // JSON
     // Backups: also copied to this folder (another drive, a USB stick, a synced folder), if set.
     std::string backupFolder;
+    // Tools (phase 3, 0.100): as a toolbar under the tabs, or as the "… tools" menus; each bar's changes, by bar.
+    bool toolsAsMenus = false;
+    std::map<std::string, studio::toolbar::Custom> toolBars;
 };
 
 // A group of keyboard shortcuts ("Library" -> {"Ctrl+N", "New book"}, ...).
@@ -150,6 +154,20 @@ public:
         static ToolItem line() { ToolItem t; t.kind = 1; return t; }
         static ToolItem heading(std::wstring l) { ToolItem t; t.kind = 2; t.label = std::move(l); return t; }
         static ToolItem menu(std::wstring l, std::vector<ToolItem> s) { ToolItem t; t.label = std::move(l); t.sub = std::move(s); return t; }
+        // On a workspace's toolbar (phase 3, 0.100): its id (kept in the writer's changes), default group
+        // (studio::toolbar::Group; 0 = menu only) and icon; `rare` keeps it in More whatever the writer does.
+        std::string id;
+        int group = 0;
+        cjui::Icon icon = cjui::Icon::None;
+        bool rare = false;
+        ToolItem in(std::string toolId, int toolGroup, cjui::Icon toolIcon = cjui::Icon::None) const {
+            ToolItem t = *this;
+            t.id = std::move(toolId);
+            t.group = toolGroup;
+            t.icon = toolIcon;
+            return t;
+        }
+        ToolItem rarely(std::string toolId) const { ToolItem t = *this; t.id = std::move(toolId); t.rare = true; return t; }
     };
     bool create(HINSTANCE inst, int show);
     // Command line: WritingStudio.exe [--import] <file> opens the import preview for that file.
@@ -224,8 +242,13 @@ private:
         studio::Id id;
         int cmd = 0;
         cjui::Icon icon = cjui::Icon::None;
+        std::function<void()> act;   // kind 6, a tool of the page (0.100)
     };
     std::vector<SearchHit> searchHits() const;
+    // The page's tools for Ctrl+K (0.100): the workspace's tools list flattened ("World map › Make a world map…"),
+    // gathered when the search is drawn or keyed, so any tool can be found by name whether bars or menus show them.
+    std::vector<SearchHit> paletteTools_;
+    void gatherPaletteTools();
     void runSearchHit(const SearchHit& h);
     bool searchKey(WPARAM vk);
     void drawSearchResults();
@@ -308,6 +331,20 @@ private:
     void placeEditor();
     void drawWritingBar(const Rect& r);   // the chapter's name, status and words over the page, with its tools (0.70)
     std::vector<ToolItem> chapterTools();
+    // The workspaces' toolbars (phase 3, 0.100): one row of tools under the page's tabs, built from the same list as
+    // its tools menu; what doesn't fit (and rare or menu-only tools) is under More. `toolBarOn` is false when tools
+    // show as menus (Settings) or this bar is hidden: the caller then draws its "… tools" menu button, whose menu
+    // `withBarItem` ends with Show the toolbar. Customised by right-clicking a tool (studio::toolbar::Custom, kept per
+    // workspace in settings).
+    bool toolBarOn(const std::string& bar) const;
+    float toolBar(const std::string& bar, const Rect& r, const std::vector<ToolItem>& items);   // the row's height
+    std::vector<ToolItem> withBarItem(const std::string& bar, std::vector<ToolItem> items);
+    std::vector<ToolItem> toolBarMenu(const std::string& bar, const std::string& toolId);   // its right-click menu
+    void changeBar(const std::string& bar, const std::function<void(studio::toolbar::Custom&)>& f);
+    std::vector<ToolItem> libraryTools();
+    std::vector<ToolItem> bookTools(const Id& bookId);
+    struct BarState { std::vector<studio::toolbar::Tool> tools; std::map<std::string, std::wstring> labels; };
+    std::map<std::string, BarState> bars_;   // last frame's tools on each bar, for its right-click menu
     void sendView();                  // the writing view and the bible's names, to the editor
     // Style rules belong to the book's world, or to the book itself when it's in no world.
     struct StyleScope { std::string key; std::string name, label; };

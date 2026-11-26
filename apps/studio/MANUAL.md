@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.99.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.175.0 |
+| Version at the time of writing | 0.100.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.177.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -73,7 +73,7 @@ Status labels used in this manual:
 
 **Navigation and goals**
 - Names linked to bible entries, with hover cards.
-- Ctrl+K quick jump; Ctrl+/ shortcut sheet.
+- Ctrl+K quick jump, which also finds the page's tools by name (0.100); Ctrl+/ shortcut sheet.
 - Writing sprints; daily goal bar; streaks.
 
 **Chapter openings (0.92)**
@@ -163,7 +163,7 @@ Status labels used in this manual:
 
 ### Interface
 - A side rail of workspaces. Search in the top bar.
-- Pages with tabs and a "tools ▾" menu instead of sidebars.
+- Pages with tabs and, under them, a toolbar (0.100): one row of the workspace's tools grouped as Create, Import & export, Organise, Check and Settings (the Library, a book's page, Planning, the bible, and in Writing a slim row under the chapter's bar). Short of room, tools become icons (unpinned first), then the last go under More; rare and destructive tools (Move to Trash, Reset the bible) are always under More. Right-click a tool: Pin, Move left / right, Move to group, Hide from the bar, Show a hidden tool, Reset this toolbar, Hide the toolbar. Hidden, a bar's "… tools ▾" menu comes back with Show the toolbar at its foot; Settings › Appearance › Show tools as: Menus does that for every bar. Kept per workspace on this PC.
 - Editing in place, on warm paper with cards.
 - Settings › Buttons and menus show: icons only, words only, or both.
 - Interface size (0.96, the content only since 0.98): 50–200% for what's between the top bar and the rail (pages, cards, panels, fields, the writing page), from Settings › Appearance or Ctrl with + / − / 0 and Ctrl with the wheel (over the corkboard, timeline, a family tree or a map, the wheel keeps its own zoom). The bars, menus and boxes keep their size. Kept on this PC.
@@ -171,7 +171,7 @@ Status labels used in this manual:
 
 ### Partial or not verified
 - The editor's behaviour inside the real app (WebView2) on Windows: the right-click menu items (including Draft note), pasting pictures, keys reaching the app, the draft-note look.
-- Interface size (0.96, 0.98), page zoom (0.97) and the layouts that follow the window (0.99): built and cross-compiled, not yet run on Windows.
+- Interface size (0.96, 0.98), page zoom (0.97), the layouts that follow the window (0.99) and the toolbars (0.100): built and cross-compiled, not yet run on Windows.
 - The named-button boxes of Import many pages (0.94) and Export as Markdown (0.95) and PDF copy and read-aloud in Acrobat, Edge and Narrator.
 - PDF import: experimental.
 - PDF/X conformance is by construction plus a qpdf check. It has not been run through a preflight validator such as Acrobat's or callas pdfToolbox.
@@ -218,7 +218,7 @@ From 15 and 18 Nov 2026:
 **Layout**
 - Night-sky top bar: the app mark, where you are, the search pill, the caption buttons.
 - A 76 DIP rail on the left: Library, Write, Plan, World, Review, Typeset, Preview, Publish, Settings.
-- Pages: a gold kicker, a serif title, tabs, a tools ▾ menu, then cards on warm paper (light #F4F1EA, dark #12141B).
+- Pages: a gold kicker, a serif title, tabs, a one-row toolbar (or a tools ▾ menu), then cards on warm paper (light #F4F1EA, dark #12141B).
 - Writing keeps a narrow, hideable outline (F3) and an optional details card (F4). When the window (or the interface size) leaves too little room, the outline is a drawer behind an Outline button and cards sit under the page.
 
 **Principles** (the director's answers, 23 Nov)

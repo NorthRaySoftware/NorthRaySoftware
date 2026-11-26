@@ -139,6 +139,10 @@ void StudioApp::loadSettings() {
                 settings_.recentBooks.push_back({cj::valueOr(r, "book", std::string()), cj::valueOr(r, "chapter", std::string())});
     if (j.contains("writingView") && j["writingView"].is_object()) settings_.writingView = j["writingView"].dump();
     settings_.backupFolder = cj::valueOr(j, "backupFolder", "");
+    settings_.toolsAsMenus = cj::valueOr(j, "toolsAsMenus", false);
+    if (j.contains("toolBars") && j["toolBars"].is_object())
+        for (auto it = j["toolBars"].begin(); it != j["toolBars"].end(); ++it)
+            if (it.value().is_object() && it.key().size() < 40) settings_.toolBars[it.key()] = studio::toolbar::Custom::fromJson(it.value().dump());
 }
 
 void StudioApp::saveSettings() {
@@ -158,6 +162,13 @@ void StudioApp::saveSettings() {
     j["lastBook"] = settings_.lastBook;
     j["lastNode"] = settings_.lastNode;
     j["lastInWriting"] = settings_.lastInWriting;
+    j["toolsAsMenus"] = settings_.toolsAsMenus;
+    {
+        json bars = json::object();
+        for (const auto& [k, c] : settings_.toolBars)
+            if (!c.empty()) bars[k] = json::parse(c.toJson(), nullptr, false);
+        j["toolBars"] = bars;
+    }
     j["entryList"] = settings_.entryList;
     j["labels"] = settings_.labels;
     j["writingDetails"] = settings_.writingDetails;
@@ -1094,8 +1105,15 @@ void StudioApp::moveSeriesTo(const Id& seriesId, const Id& worldId) {
 
 // ------------------------------------------------------------ context menus
 
-void StudioApp::contextMenuFor(const std::string& hitId, float, float) {
+void StudioApp::contextMenuFor(const std::string& hitId, float x, float y) {
     if (!lib_) return;
+    if (hitId.rfind("tbar:", 0) == 0) {   // a toolbar's tool (0.100): pin, hide, move, group; the bar itself
+        const size_t c = hitId.find(':', 5);
+        if (c == std::string::npos) return;
+        const std::string bar = hitId.substr(5, c - 5), tool = hitId.substr(c + 1);
+        showTools(toolBarMenu(bar, tool.rfind('#', 0) == 0 ? std::string() : tool), x, y);
+        return;
+    }
     if (hitId.rfind("node:", 0) == 0) { nodeContextMenu(hitId.substr(5)); return; }
     if (hitId.rfind("wb:card:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }
     if (hitId.rfind("wb:tree:", 0) == 0) { entryKindMenu(hitId.substr(8)); return; }

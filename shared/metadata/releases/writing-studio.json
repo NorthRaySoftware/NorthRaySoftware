@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.100.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Tools you can see: the Library, a book's page, Planning, the bible and Writing each show their tools in one row under the tabs (in Writing, under the chapter's bar), grouped as Create, Import & export, Organise, Check and Settings. When the row is short of room, tools show as icons (their names when you rest the pointer on them), then the last ones go under More. Rare tools such as Move to Trash and Reset the bible stay under More.",
+        "Make a toolbar your own: right-click a tool to pin it (it keeps its name and stays longest), move it left or right or to another group, or hide it; Show a hidden tool and Reset this toolbar are there too. The ⌃ at the end hides a toolbar (its tools menu comes back, with Show the toolbar at the foot), and Settings › Appearance › Show tools as: Menus puts every toolbar back into its menu.",
+        "Ctrl+K finds the page's tools by name too, including those inside a tool's own menu."
+      ]
+    },
+    {
       "version": "0.99.0",
       "date": "2026-11-26",
       "notes": [

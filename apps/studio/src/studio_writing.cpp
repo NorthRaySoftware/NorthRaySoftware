@@ -1379,31 +1379,33 @@ void StudioApp::drawNewNames(const Rect& c, float& y) {
 
 // What can be done with the chapter being written, beyond writing it: under Chapter tools in its bar.
 std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
+    namespace tb = studio::toolbar;
+    using cjui::Icon;
     std::vector<ToolItem> t;
     const ManuscriptNode* n = lib_->node(currentNode_);
     if (!n) return t;
-    t.push_back(ToolItem::item(L"Details", [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); }, settings_.writingDetails));
+    t.push_back(ToolItem::item(L"Details", [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); }, settings_.writingDetails).in("details", tb::None));
     t.push_back(ToolItem::item(L"Earlier versions…", [this] {
         setFocus({Focus::Node, currentNode_, {}});
         settings_.writingDetails = true;
         saveSettings();
-    }));
-    t.push_back(ToolItem::item(L"Plan it on the corkboard", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; selectCard(id); }));
+    }).in("versions", tb::Check, Icon::Clock));
+    t.push_back(ToolItem::item(L"Plan it on the corkboard", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; selectCard(id); }).in("corkboard", tb::Organise, Icon::Cards));
     if (n->kind != NodeKind::Part)
-        t.push_back(ToolItem::item(L"Open its page in Planning", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; openPlanPage(id); }));
-    if (n->kind != NodeKind::Scene) t.push_back(ToolItem::menu(L"Header picture", headerTools(n->id)));
-    t.push_back(ToolItem::item(L"When it happens…", [this] { editWhenInWriting(); }));
+        t.push_back(ToolItem::item(L"Open its page in Planning", [this, bid = n->bookId, id = n->id] { openPlanning(bid); pl_.view = 0; openPlanPage(id); }).in("planpage", tb::Organise, Icon::Planning));
+    if (n->kind != NodeKind::Scene) t.push_back(ToolItem::menu(L"Header picture", headerTools(n->id)).in("header", tb::Settings, Icon::Picture));
+    t.push_back(ToolItem::item(L"When it happens…", [this] { editWhenInWriting(); }).in("when", tb::Organise, Icon::Calendar));
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Add"));
-    t.push_back(ToolItem::item(L"New chapter", [this] { addNode(NodeKind::Chapter); }));
-    t.push_back(ToolItem::item(L"New scene", [this] { addNode(NodeKind::Scene); }));
-    t.push_back(ToolItem::item(L"New part", [this] { addNode(NodeKind::Part); }));
+    t.push_back(ToolItem::item(L"New chapter", [this] { addNode(NodeKind::Chapter); }).in("chapter", tb::Create, Icon::Plus));
+    t.push_back(ToolItem::item(L"New scene", [this] { addNode(NodeKind::Scene); }).in("scene", tb::Create, Icon::Plus));
+    t.push_back(ToolItem::item(L"New part", [this] { addNode(NodeKind::Part); }).in("part", tb::Create, Icon::Plus));
     t.push_back(ToolItem::line());
-    t.push_back(ToolItem::item(L"Move up", [this] { moveNodeBy(currentNode_, -1); }));
-    t.push_back(ToolItem::item(L"Move down", [this] { moveNodeBy(currentNode_, 1); }));
-    t.push_back(ToolItem::item(L"Import into this book…", [this, bid = n->bookId] { startImport(bid); }));
+    t.push_back(ToolItem::item(L"Move up", [this] { moveNodeBy(currentNode_, -1); }).in("up", tb::Organise, Icon::Up));
+    t.push_back(ToolItem::item(L"Move down", [this] { moveNodeBy(currentNode_, 1); }).in("down", tb::Organise, Icon::Down));
+    t.push_back(ToolItem::item(L"Import into this book…", [this, bid = n->bookId] { startImport(bid); }).in("import", tb::ImportExport, Icon::Import));
     t.push_back(ToolItem::line());
-    t.push_back(ToolItem::item(L"Move to Trash", [this] { setFocus({Focus::Node, currentNode_, {}}); trashFocused(); }));
+    t.push_back(ToolItem::item(L"Move to Trash", [this] { setFocus({Focus::Node, currentNode_, {}}); trashFocused(); }).rarely("trash"));
     return t;
 }
 
@@ -1430,9 +1432,10 @@ void StudioApp::drawWritingBar(const Rect& r) {
     }
     // The tools at the right first, so the name knows its room.
     const wchar_t* toolsLabel = r.w < 600 ? L"Tools" : L"Chapter tools";   // narrow (0.99): room for the name
-    const float tw = gfx_.measureWidth(toolsLabel, Font::Body) + 44;
+    const bool barOn = toolBarOn("chapter");   // the tools on their own row under this bar (0.100)
+    const float tw = barOn ? -8.0f : gfx_.measureWidth(toolsLabel, Font::Body) + 44;
     const float tx = r.right() - pad - tw;
-    menuButton("wr:tools", tx, r.y + (r.h - 32) / 2, toolsLabel, [this] { return chapterTools(); });
+    if (!barOn) menuButton("wr:tools", tx, r.y + (r.h - 32) / 2, toolsLabel, [this] { return withBarItem("chapter", chapterTools()); });
     const float dw = gfx_.measureWidth(L"Details", Font::Body) + 28;
     const Rect db{tx - 8 - dw, r.y + (r.h - 32) / 2, dw, 32};
     addHit("wr:details", db, [this] { settings_.writingDetails = !settings_.writingDetails; saveSettings(); invalidate(); });

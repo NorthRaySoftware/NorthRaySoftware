@@ -287,16 +287,17 @@ void StudioApp::selectCard(const Id& nodeId) {
 
 // Planning's tools (0.69): what the sidebar's ALSO list and its + New thread had.
 std::vector<StudioApp::ToolItem> StudioApp::planTools() {
+    namespace tb = studio::toolbar;
     std::vector<ToolItem> t;
-    t.push_back(ToolItem::item(L"Set the book's target…", [this] { selectCard({}); pl_.targetOpen = true; }));
+    t.push_back(ToolItem::item(L"Set the book's target…", [this] { selectCard({}); pl_.targetOpen = true; }).in("target", tb::Settings, cjui::Icon::Target));
     t.push_back(ToolItem::item(L"New plot thread", [this] {
         const ManuscriptNode* sel = lib_->node(pl_.node);
         newThread(sel && !sel->deleted && sel->kind != NodeKind::Part ? sel->id : Id{});
-    }));
+    }).in("thread", tb::Create, cjui::Icon::Thread));
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Planning as text"));
-    t.push_back(ToolItem::item(L"Import planning…", [this] { importPlanText(); }));
-    t.push_back(ToolItem::item(L"Export the plan…", [this] { exportPlanText(); }));
+    t.push_back(ToolItem::item(L"Import planning…", [this] { importPlanText(); }).in("import", tb::ImportExport, cjui::Icon::Import));
+    t.push_back(ToolItem::item(L"Export the plan…", [this] { exportPlanText(); }).in("export", tb::ImportExport, cjui::Icon::Export));
     t.push_back(ToolItem::line());
     // The day the bible's ages are worked out at for this book (0.86): its first dated chapter, or one the writer picks.
     {
@@ -321,7 +322,7 @@ std::vector<StudioApp::ToolItem> StudioApp::planTools() {
                         flash(L"Ages in the bible are worked out as of " + w(date) + L" for this book.");
                     }, chosen == date));
                 }
-            t.push_back(ToolItem::menu(L"Ages in the bible", std::move(sub)));
+            t.push_back(ToolItem::menu(L"Ages in the bible", std::move(sub)).in("ages", tb::Settings, cjui::Icon::Calendar));
             t.push_back(ToolItem::line());
         }
     }
@@ -339,10 +340,10 @@ std::vector<StudioApp::ToolItem> StudioApp::planTools() {
         }, on));
     }
     t.push_back(ToolItem::line());
-    t.push_back(ToolItem::item(L"Write this book", [this] { openWriting(pl_.book); }));
+    t.push_back(ToolItem::item(L"Write this book", [this] { openWriting(pl_.book); }).in("write", tb::Organise, cjui::Icon::Writing));
     t.push_back(ToolItem::item(L"The world's bible", [this] {
         if (const studio::Book* bk = lib_->book(pl_.book)) openWorldbuilding(bk->worldId, bk->worldId.empty() ? bk->id : Id{});
-    }));
+    }).in("bible", tb::Organise, cjui::Icon::World));
     return t;
 }
 
@@ -353,9 +354,11 @@ float StudioApp::planHeader(const Rect& m, const std::wstring& sub) {
     if (!b) return 0;
     float y = m.y;
     gfx_.text(L"PLANNING", {m.x, y, m.w, 16}, Font::Label, gold_, {Align::Left, false, true});
-    const float tbw = gfx_.measureWidth(L"Plan tools", Font::Body) + 44;
+    // Tools (0.100): the toolbar under the tabs, or the Plan tools menu here when it's hidden.
+    const bool bar = toolBarOn("plan");
+    const float tbw = bar ? -10.0f : gfx_.measureWidth(L"Plan tools", Font::Body) + 44;
     const float nw = buttonWidth(L"+ Chapter");
-    menuButton("pl:tools", m.right() - tbw, y + 12, L"Plan tools", [this] { return planTools(); });
+    if (!bar) menuButton("pl:tools", m.right() - tbw, y + 12, L"Plan tools", [this] { return withBarItem("plan", planTools()); });
     button("pl:newch", {m.right() - tbw - 10 - nw, y + 12, nw, 32}, L"+ Chapter", [this] {
         const Id id = lib_->createNode(pl_.book, {}, NodeKind::Chapter);
         if (!id.empty()) selectCard(id);
@@ -450,6 +453,7 @@ float StudioApp::planHeader(const Rect& m, const std::wstring& sub) {
         y += filtersBeside ? 40 : 40 + 46;
         (void)all;
     }
+    if (bar) y += 8 + toolBar("plan", {m.x, y + 8, m.w, 38}, planTools());
     y += 12;
     if (!sub.empty()) y += gfx_.text(sub, {m.x, y, std::min(m.w, 760.0f), 60}, Font::Small, pal_.inkMuted) + 14;
     return y - m.y + 8;

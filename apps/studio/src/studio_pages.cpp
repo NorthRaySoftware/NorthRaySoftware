@@ -350,11 +350,16 @@ void StudioApp::drawFrame(float W, float H) {
     if (ws_ == Workspace::Review) ws_ = Workspace::Library;
     if (ws_ == Workspace::Writing && lib_ && lib_->book(writingBook_)) {
         // The chapter's bar over the page (0.70); the editor fills the rest of the centre (a separate window placed over it).
-        Rect stripRect{};
+        Rect stripRect{}, toolsRect{};
         if (writeLayout && !currentNode_.empty()) {
             stripRect = {pageRect_.x, pageRect_.y, pageRect_.w, kWriteBarH};
             pageRect_.y += kWriteBarH;
             pageRect_.h -= kWriteBarH;
+            if (toolBarOn("chapter")) {   // the chapter's tools, a slim row under its bar (0.100); hidden with its chevron
+                toolsRect = {pageRect_.x, pageRect_.y, pageRect_.w, 42};
+                pageRect_.y += 42;
+                pageRect_.h -= 42;
+            }
         }
         // The editor fills the centre; it's a separate window placed over this area.
         const Rect m{pageRect_.x + pad, pageRect_.y + 26, std::min(centreW - pad * 2, 620.0f), 0};
@@ -380,6 +385,12 @@ void StudioApp::drawFrame(float W, float H) {
         }
         if (panel) drawPanel(panelRect_);
         if (stripRect.w > 0) drawWritingBar(stripRect);
+        if (toolsRect.w > 0) {
+            gfx_.fill(toolsRect, pal_.paper);
+            gfx_.line(toolsRect.x, toolsRect.bottom() - 0.5f, toolsRect.right(), toolsRect.bottom() - 0.5f, pal_.rule);
+            const float tpad = toolsRect.w > 900 ? 28 : 18;
+            toolBar("chapter", {toolsRect.x + tpad - 8, toolsRect.y + 2, toolsRect.w - tpad * 2 + 8, 38}, chapterTools());
+        }
         if (writeCard) {
             panelRect_ = cardRect;
             card(panelRect_, 14);
@@ -1094,24 +1105,48 @@ float StudioApp::libraryTabs(const Rect& page) {
     add(L"Independent books", (int)indie, view_ == View::Independent || indieSeries, View::Independent);
     add(L"Artwork", (int)lib_->liveArtworks().size(), view_ == View::Artwork, View::Artwork);
     add(L"Trash", inTrash, view_ == View::Trash, View::Trash);
+    // Tools (0.100): a toolbar under the tabs, or the Library tools menu at the tabs' end when it's hidden.
+    if (toolBarOn("library")) {
+        pageTabs("lib:tabs", page.x, y, page.right(), tabs);
+        return 40 + toolBar("library", {page.x, y + 46, page.w, 38}, libraryTools()) + 18;
+    }
     const float tbw = gfx_.measureWidth(L"Library tools", Font::Body) + 44;
     pageTabs("lib:tabs", page.x, y, page.right() - tbw - 16, tabs);
-    menuButton("lib:tools", page.right() - tbw, y + 4, L"Library tools", [this] {
-        std::vector<ToolItem> t;
-        const Id world = view_ == View::World ? viewId_ : Id{};
-        t.push_back(ToolItem::item(L"New world", [this] { newWorld(); }));
-        t.push_back(ToolItem::item(world.empty() ? L"New book" : L"New book in this world", [this, world] { newBook(world, {}); }));
-        if (!world.empty()) t.push_back(ToolItem::item(L"New series in this world", [this, world] { newSeries(world); }));
-        t.push_back(ToolItem::item(L"Import a book…", [this] { startImport({}); }));
-        t.push_back(ToolItem::item(L"Open a world from GitHub…", [this] { goTo(View::FromGitHub); }));
-        t.push_back(ToolItem::line());
-        t.push_back(ToolItem::heading(L"The library"));
-        t.push_back(ToolItem::item(L"Back up now", [this] { backupNow(); }));
-        t.push_back(ToolItem::item(L"Export the library…", [this] { exportLibrary(); }));
-        t.push_back(ToolItem::item(L"Open or create another library…", [this] { chooseLibraryFolder(); }));
-        return t;
-    });
+    menuButton("lib:tools", page.right() - tbw, y + 4, L"Library tools", [this] { return withBarItem("library", libraryTools()); });
     return 40 + 26;
+}
+
+std::vector<StudioApp::ToolItem> StudioApp::libraryTools() {
+    namespace tb = studio::toolbar;
+    using cjui::Icon;
+    std::vector<ToolItem> t;
+    const Id world = view_ == View::World ? viewId_ : Id{};
+    t.push_back(ToolItem::item(L"New world", [this] { newWorld(); }).in("newworld", tb::Create, Icon::World));
+    t.push_back(ToolItem::item(world.empty() ? L"New book" : L"New book in this world", [this, world] { newBook(world, {}); }).in("newbook", tb::Create, Icon::Book));
+    if (!world.empty()) t.push_back(ToolItem::item(L"New series in this world", [this, world] { newSeries(world); }).in("newseries", tb::Create, Icon::Plus));
+    t.push_back(ToolItem::item(L"Import a book…", [this] { startImport({}); }).in("import", tb::ImportExport, Icon::Import));
+    t.push_back(ToolItem::item(L"Open a world from GitHub…", [this] { goTo(View::FromGitHub); }).in("github", tb::ImportExport, Icon::Sync));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::heading(L"The library"));
+    t.push_back(ToolItem::item(L"Back up now", [this] { backupNow(); }).in("backup", tb::Organise, Icon::Archive));
+    t.push_back(ToolItem::item(L"Export the library…", [this] { exportLibrary(); }).in("export", tb::ImportExport, Icon::Export));
+    t.push_back(ToolItem::item(L"Open or create another library…", [this] { chooseLibraryFolder(); }).in("otherlib", tb::Settings, Icon::Folder));
+    return t;
+}
+
+std::vector<StudioApp::ToolItem> StudioApp::bookTools(const Id& id) {
+    namespace tb = studio::toolbar;
+    using cjui::Icon;
+    std::vector<ToolItem> t;
+    t.push_back(ToolItem::item(L"Review", [this, id] { openReview(id); }).in("review", tb::Check, Icon::Review));
+    t.push_back(ToolItem::item(L"Typesetting", [this, id] { openTypesetting(id); }).in("typeset", tb::Organise, Icon::Typeset));
+    t.push_back(ToolItem::item(L"Publishing", [this, id] { openPublishing(id); }).in("publish", tb::Organise, Icon::Publish));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Import into this book…", [this, id] { startImport(id); }).in("import", tb::ImportExport, Icon::Import));
+    t.push_back(ToolItem::item(L"Design a cover…", [this, id] { openPublishing(id); openCoverDesigner(); }).in("cover", tb::Create, Icon::Picture));
+    t.push_back(ToolItem::line());
+    t.push_back(ToolItem::item(L"Move to Trash", [this] { trashFocused(); }).rarely("trash"));
+    return t;
 }
 
 // A card on the paper: the surface, lifted by a soft shadow.
@@ -2050,18 +2085,9 @@ float StudioApp::pageBook(const Rect& r) {
         bx += bw2 + 8;
         smallButton("book:bible", bx, ty + 2, L"The bible", [this, wid = b.worldId, id = b.id] { openWorldbuilding(wid, wid.empty() ? id : Id{}); }, &bw2);
         bx += bw2 + 8;
-        menuButton("book:tools", bx, ty + 1, L"Book tools", [this, id = b.id] {
-            std::vector<ToolItem> t;
-            t.push_back(ToolItem::item(L"Review", [this, id] { openReview(id); }));
-            t.push_back(ToolItem::item(L"Typesetting", [this, id] { openTypesetting(id); }));
-            t.push_back(ToolItem::item(L"Publishing", [this, id] { openPublishing(id); }));
-            t.push_back(ToolItem::line());
-            t.push_back(ToolItem::item(L"Import into this book…", [this, id] { startImport(id); }));
-            t.push_back(ToolItem::item(L"Design a cover…", [this, id] { openPublishing(id); openCoverDesigner(); }));
-            t.push_back(ToolItem::line());
-            t.push_back(ToolItem::item(L"Move to Trash", [this] { trashFocused(); }));
-            return t;
-        });
+        // Tools (0.100): on the toolbar under the tabs, or here as the Book tools menu when it's hidden.
+        if (!toolBarOn("book"))
+            menuButton("book:tools", bx, ty + 1, L"Book tools", [this, id = b.id] { return withBarItem("book", bookTools(id)); });
         ty += 34;
         y = std::max(y + cw * 1.5f, ty) + 26;
     }
@@ -2078,6 +2104,7 @@ float StudioApp::pageBook(const Rect& r) {
         }
         pageTabs("book:tabs", r.x, y, r.right(), tabs);
         y += 40 + 22;
+        if (toolBarOn("book")) y += toolBar("book", {r.x, y - 14, r.w, 38}, bookTools(b.id)) + 8;
     }
     const float half = (r.w - 20) / 2;
     // A card whose height is what its contents took last time (it's drawn behind them).
@@ -2755,6 +2782,28 @@ float StudioApp::pageSettings(const Rect& r0) {
     y += 34;
     y += gfx_.text(L"With icons only, each button's words show when the pointer rests on it, and menus keep their words.",
                    {cx, y, cw, 40}, Font::Small, pal_.inkFaint) + 12;
+    rowLabel(L"Show tools as");   // (0.100)
+    segmented("set:toolsas", {cx, y, cw, 28}, {L"A toolbar", L"Menus"}, settings_.toolsAsMenus ? 1 : 0, [this](int i) {
+        settings_.toolsAsMenus = i == 1;
+        saveSettings();
+        invalidate();
+    });
+    y += 34;
+    y += gfx_.text(L"A toolbar shows each workspace's tools in one row under its tabs (right-click a tool to pin, hide or move it). "
+                   L"Menus keep them in the “… tools” button instead. Ctrl+K finds any tool by name either way.",
+                   {cx, y, cw, 60}, Font::Small, pal_.inkFaint) + 12;
+    {
+        bool changed = false;
+        for (const auto& [k, c] : settings_.toolBars) changed = changed || !c.empty();
+        if (changed) {
+            linkText("set:toolsreset", cx, y - 4, L"Put every toolbar back as it came", [this] {
+                settings_.toolBars.clear();
+                saveSettings();
+                flash(L"Every toolbar is back as it came, and shown.");
+            });
+            y += 26;
+        }
+    }
     rowLabel(L"Chapter details in Writing");   // (the other workspaces show details where they're needed, 0.71)
     segmented("set:panel", {cx, y, cw, 28}, {L"Shown", L"Hidden"}, settings_.writingDetails ? 0 : 1, [this](int i) {
         settings_.writingDetails = i == 0; saveSettings();

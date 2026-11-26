@@ -37,6 +37,52 @@ void StudioApp::focusTopSearch() {
     invalidate();
 }
 
+void StudioApp::gatherPaletteTools() {
+    paletteTools_.clear();
+    if (!lib_ || fieldText(FTopSearch).empty()) return;
+    std::vector<ToolItem> items;
+    std::wstring where;
+    if (ws_ == Workspace::Library) {
+        items = libraryTools();
+        where = L"Library tool";
+        if (view_ == View::Book && lib_->book(viewId_)) {
+            for (auto& t : bookTools(viewId_)) items.push_back(t);
+            where = L"tool";
+        }
+    } else if (ws_ == Workspace::Planning && lib_->book(pl_.book)) {
+        items = planTools();
+        where = L"Plan tool";
+    } else if (ws_ == Workspace::Worldbuilding) {
+        items = bibleTools();
+        where = L"Bible tool";
+    } else if (ws_ == Workspace::Writing && lib_->node(currentNode_)) {
+        items = chapterTools();
+        where = L"Chapter tool";
+    }
+    auto plain = [](std::wstring l) {
+        if (!l.empty() && l.back() == L'\u2026') l.pop_back();
+        return l;
+    };
+    std::function<void(const std::vector<ToolItem>&, const std::wstring&, cjui::Icon)> walk = [&](const std::vector<ToolItem>& list, const std::wstring& prefix,
+                                                                                                cjui::Icon parentIcon) {
+        for (const ToolItem& t : list) {
+            if (t.kind != 0 || !t.enabled) continue;
+            const std::wstring label = prefix.empty() ? plain(t.label) : prefix + L" \u203A " + plain(t.label);
+            const cjui::Icon icon = t.icon != cjui::Icon::None ? t.icon : parentIcon != cjui::Icon::None ? parentIcon : cjui::iconFor(t.label);
+            if (!t.sub.empty()) { walk(t.sub, label, icon); continue; }
+            if (!t.act || paletteTools_.size() >= 200) continue;
+            SearchHit h;
+            h.label = label;
+            h.right = where;
+            h.kind = 6;
+            h.icon = icon;
+            h.act = t.act;
+            paletteTools_.push_back(std::move(h));
+        }
+    };
+    walk(items, L"", cjui::Icon::None);
+}
+
 std::vector<StudioApp::SearchHit> StudioApp::searchHits() const {
     std::vector<SearchHit> hits;
     const std::wstring q = lower(w(fieldText(FTopSearch)));
@@ -78,6 +124,7 @@ std::vector<StudioApp::SearchHit> StudioApp::searchHits() const {
         {L"Theme as Windows has it", L"command", -8, cjui::Icon::Eye},
     };
     for (auto& c : commands) add({c.label, c.right, 3, {}, c.cmd, c.icon});
+    for (const SearchHit& t : paletteTools_) add(t);   // the page's tools (0.100)
     static const wchar_t* places[] = {L"Library", L"Writing", L"Planning", L"Worldbuilding", L"Review", L"Typesetting", L"Preview", L"Publishing"};
     static const cjui::Icon placeIcons[] = {cjui::Icon::Library, cjui::Icon::Writing, cjui::Icon::Planning, cjui::Icon::World,
                                             cjui::Icon::Review, cjui::Icon::Typeset, cjui::Icon::Preview, cjui::Icon::Publish};
@@ -111,6 +158,11 @@ void StudioApp::runSearchHit(const SearchHit& h) {
     setFieldText(FTopSearch, "");
     SetFocus(hwnd());
     topSel_ = 0;
+    if (h.kind == 6) {
+        if (h.act) h.act();
+        invalidate();
+        return;
+    }
     if (h.kind == 3) {
         if (h.cmd >= 100) command(h.cmd);
         else if (h.cmd == -1) startImport({});
@@ -151,6 +203,7 @@ void StudioApp::runSearchHit(const SearchHit& h) {
 }
 
 bool StudioApp::searchKey(WPARAM vk) {
+    gatherPaletteTools();
     const auto hits = searchHits();
     if (vk == VK_DOWN) topSel_ = hits.empty() ? 0 : (topSel_ + 1) % (int)hits.size();
     else if (vk == VK_UP) topSel_ = hits.empty() ? 0 : (topSel_ + (int)hits.size() - 1) % (int)hits.size();
@@ -169,6 +222,7 @@ bool StudioApp::searchKey(WPARAM vk) {
 
 // The results, in a card under the box, over whatever is there.
 void StudioApp::drawSearchResults() {
+    gatherPaletteTools();
     lastSearchHits_.clear();
     if (GetFocus() != fields_[FTopSearch] || fieldText(FTopSearch).empty()) return;
     const auto hits = searchHits();

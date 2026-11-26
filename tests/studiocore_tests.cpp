@@ -3,6 +3,7 @@
 #include "studio/artwork.hpp"
 #include "studio/bible_export.hpp"
 #include "studio/bible_markdown.hpp"
+#include "studio/toolbar.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -5824,7 +5825,81 @@ static void testBibleMarkdown095() {
     fs::remove_all(out);
 }
 
+
+// Phase 3 (0.100): the toolbars' order, the writer's changes and the one-row fit.
+static void testToolbar100() {
+    namespace tb = studio::toolbar;
+    const std::vector<tb::Tool> tools = {
+        {"import", tb::ImportExport}, {"new", tb::Create}, {"export", tb::ImportExport}, {"checks", tb::Check},
+        {"trash", tb::Organise, true}, {"details", tb::None}, {"scene", tb::Create}, {"up", tb::Organise}};
+    tb::Custom c;
+    auto ids = [&](const tb::Custom& cc) {
+        std::vector<std::string> out;
+        for (size_t i : tb::arrange(tools, cc)) out.push_back(tools[i].id);
+        return out;
+    };
+    // Default: by group, then the tools' own order; rare and group-less tools never on the bar.
+    CHECK((ids(c) == std::vector<std::string>{"new", "scene", "import", "export", "up", "checks"}));
+    tb::move(tools, c, "scene", -1);
+    CHECK((ids(c) == std::vector<std::string>{"scene", "new", "import", "export", "up", "checks"}));
+    tb::move(tools, c, "scene", -1);   // already first: nothing
+    CHECK(ids(c)[0] == "scene");
+    tb::move(tools, c, "new", 1);   // across the edge: joins Import & export at its start
+    CHECK(tb::groupOf(tools[1], c) == tb::ImportExport);
+    CHECK((ids(c) == std::vector<std::string>{"scene", "new", "import", "export", "up", "checks"}));
+    tb::move(tools, c, "new", -1);   // and back: Create again (its own group, so no override kept)
+    CHECK(tb::groupOf(tools[1], c) == tb::Create && !c.groups.count("new"));
+    tb::setGroup(c, "checks", tb::Create, tools);
+    CHECK(ids(c).size() == 6 && tb::groupOf(tools[3], c) == tb::Create && ids(c)[2] == "checks");
+    tb::setGroup(c, "trash", tb::Create, tools);   // a rare tool stays off the bar
+    CHECK(tb::groupOf(tools[4], c) == tb::None);
+    tb::setHidden(c, "export", true);
+    tb::togglePinned(c, "import");
+    {
+        const auto now = ids(c);
+        CHECK(std::find(now.begin(), now.end(), "export") == now.end() && c.pinned.count("import"));
+    }
+    tb::setHidden(c, "import", true);   // hiding unpins
+    CHECK(!c.pinned.count("import"));
+    tb::setHidden(c, "import", false);
+    c.off = true;
+    const tb::Custom back = tb::Custom::fromJson(c.toJson());
+    CHECK(back.order == c.order && back.groups == c.groups && back.hidden == c.hidden && back.off);
+    CHECK(tb::Custom::fromJson("nonsense").empty() && tb::Custom::fromJson(R"({"groups":{"x":99},"order":[1,"a","a"]})").order.size() == 1);
+    CHECK(tb::Custom::fromJson(R"({"groups":{"x":99}})").groups.empty());
+    // A tool added later joins its group at the end, after the writer's order.
+    std::vector<tb::Tool> more = tools;
+    more.push_back({"part", tb::Create});
+    tb::Custom c2;
+    tb::move(more, c2, "scene", -1);
+    const auto order2 = tb::arrange(more, c2);
+    CHECK(more[order2[0]].id == "scene" && more[order2[2]].id == "part");
+
+    // Fitting one row: 4 tools of 100 with label, 30 as icons; gap 4, group gap 8, More 60.
+    std::vector<tb::Measure> m = {{100, 30, false, 1}, {100, 30, true, 1}, {100, 30, false, 2}, {100, 0, false, 3}};
+    auto f = tb::fit(m, 1000, 4, 8, 60, false);
+    CHECK(f.shown.size() == 4 && f.overflow.empty() && !f.more && f.shown[0].label && f.shown[3].label);
+    CHECK(f.shown[1].x == 104 && f.shown[2].x == 104 + 100 + 12);
+    f = tb::fit(m, 360, 4, 8, 60, false);   // labels don't fit: unpinned to icons, the pinned keeps its label
+    CHECK(f.overflow.empty() && !f.shown[0].label && f.shown[1].label && !f.shown[2].label);
+    CHECK(f.shown[3].label);   // no icon: keeps its words
+    f = tb::fit(m, 210, 4, 8, 60, false);   // all icons: 30+4+30+12+30+12+100 = 218 > 210 -> into More
+    CHECK(!f.overflow.empty() && f.more && !f.shown[1].label);
+    bool pinnedShown = false;
+    for (auto& p : f.shown) pinnedShown = pinnedShown || p.index == 1;
+    CHECK(pinnedShown);   // the pinned tool is the last to go
+    CHECK(f.overflow.back() == 3);   // from the end
+    float right = 0;
+    for (auto& p : f.shown) right = std::max(right, p.x + p.w);
+    CHECK(f.moreX >= right && f.moreX + 60 <= 210 + 0.01f);
+    f = tb::fit(m, 70, 4, 8, 60, false);   // only More fits
+    CHECK(f.shown.empty() && f.more && f.overflow.size() == 4);
+    f = tb::fit(m, 1000, 4, 8, 60, true);
+    CHECK(f.more && f.overflow.empty());
+}
+
 int main() {
+    testToolbar100();
     testBibleMarkdown095();
     testPrint094();
     testPlanMatching094();

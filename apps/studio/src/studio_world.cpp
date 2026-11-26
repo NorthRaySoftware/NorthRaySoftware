@@ -602,26 +602,28 @@ void StudioApp::openEntryChoice(const std::vector<Id>& ids) {
 
 // The bible's tools (0.68): what the sidebar listed, in one menu at the top of every bible page.
 std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
+    namespace tb = studio::toolbar;
+    using cjui::Icon;
     std::vector<ToolItem> t;
     auto open = [this](std::function<void()> f) { return [this, f] { f(); invalidate(); }; };
     t.push_back(ToolItem::heading(L"The world"));
-    t.push_back(ToolItem::item(L"Glossary", open([this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; }), wb_.glossary));
+    t.push_back(ToolItem::item(L"Glossary", open([this] { openEntry({}); wb_.glossary = true; wb_.scroll = 0; }), wb_.glossary).in("glossary", tb::Organise, Icon::List));
     {
         const size_t n = conlangs(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
-        t.push_back(ToolItem::item(n ? L"Languages  (" + std::to_wstring(n) + L")" : L"Languages", [this] { openLanguages(); }, wb_.languages));
+        t.push_back(ToolItem::item(n ? L"Languages  (" + std::to_wstring(n) + L")" : L"Languages", [this] { openLanguages(); }, wb_.languages).in("languages", tb::Organise, Icon::Speech));
     }
     {
         const studio::cal::Calendar cc = scopeCalendar();
         t.push_back(ToolItem::item(cc.empty() ? L"Calendar" : L"Calendar  (" + w(cc.name.empty() ? std::string("made") : cc.name) + L")",
-                                   [this] { openCalendar(); }, wb_.calendarPage));
+                                   [this] { openCalendar(); }, wb_.calendarPage).in("calendar", tb::Organise, Icon::Calendar));
     }
     {
         const size_t n = lib_->customRelations(wb_.world, wb_.world.empty() ? wb_.book : Id{}).size();
-        t.push_back(ToolItem::item(n ? L"Relationships  (" + std::to_wstring(n) + L")" : L"Relationships", [this] { openRelations({}); }, wb_.relationsPage));
+        t.push_back(ToolItem::item(n ? L"Relationships  (" + std::to_wstring(n) + L")" : L"Relationships", [this] { openRelations({}); }, wb_.relationsPage).in("relations", tb::Organise, Icon::People));
     }
     {
         const size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
-        t.push_back(ToolItem::item(n ? L"Fonts  (" + std::to_wstring(n) + L")" : L"Fonts", [this] { openFonts({}); }, wb_.fontsPage));
+        t.push_back(ToolItem::item(n ? L"Fonts  (" + std::to_wstring(n) + L")" : L"Fonts", [this] { openFonts({}); }, wb_.fontsPage).in("fonts", tb::Settings, Icon::Font));
     }
     {
         // How many it found when last worked out, while the bible hasn't changed since (0.87).
@@ -631,7 +633,7 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
             const size_t n = wb_.continuity.facts.size() + wb_.continuity.gaps.size() + wb_.continuity.capitals.size() + wb_.spellings.size();
             lbl += n ? L"  (" + std::to_wstring(n) + L" to look at)" : L"  (all clear)";
         }
-        t.push_back(ToolItem::item(lbl, open([this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; }), wb_.checks));
+        t.push_back(ToolItem::item(lbl, open([this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; }), wb_.checks).in("checks", tb::Check, Icon::Check));
     }
     // The world's map (0.87): the map of a realm or place the writer picks, with every place pinned on it.
     {
@@ -658,7 +660,7 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
             openEntry(id);
             flash(L"Made the realm " + w(name) + L" for the world map: add the map's picture under Map on its page, then pin places on it.", 10);
         }));
-        t.push_back(ToolItem::menu(wm ? L"World map" : L"World map (none yet)", sub));
+        t.push_back(ToolItem::menu(wm ? L"World map" : L"World map (none yet)", sub).in("map", tb::Organise, Icon::Map));
     }
     // Image boards: the world's own (a character's are on their page).
     {
@@ -680,11 +682,11 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
         }
         if (!boards.empty()) boards.push_back(ToolItem::line());
         boards.push_back(ToolItem::item(L"New image board", [this] { newBoard(); }));
-        t.push_back(ToolItem::menu(L"Image boards", boards));
+        t.push_back(ToolItem::menu(L"Image boards", boards).in("boards", tb::Create, Icon::Picture));
     }
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Sharing"));
-    t.push_back(ToolItem::item(L"Share the bible", [this] { shareBible(); }, wb_.share));
+    t.push_back(ToolItem::item(L"Share the bible", [this] { shareBible(); }, wb_.share).in("share", tb::ImportExport, Icon::Share));
     if (!wb_.world.empty()) {   // a world (not an independent book) can be kept in GitHub (0.61)
         std::wstring l = L"Sync with GitHub";
         const studio::sync::State ss = studio::sync::loadState(*lib_, wb_.world);
@@ -692,7 +694,7 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
             const bool bad = syncFailed_.count(wb_.world) && syncFailed_[wb_.world];
             l += syncBusy_ && syncRunning_ == wb_.world ? L"  (syncing…)" : bad ? L"  (didn't finish)" : L"  (on)";
         }
-        t.push_back(ToolItem::item(l, [this] { openSyncPage(); }, wb_.syncPage));
+        t.push_back(ToolItem::item(l, [this] { openSyncPage(); }, wb_.syncPage).in("sync", tb::ImportExport, Icon::Sync));
     }
     // Its books, to write in.
     std::vector<const studio::Book*> books;
@@ -702,15 +704,15 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
         std::vector<ToolItem> bs;
         for (const studio::Book* b : books) bs.push_back(ToolItem::item(w(b->title), [this, id = b->id] { openWriting(id); }));
         t.push_back(ToolItem::line());
-        t.push_back(ToolItem::menu(L"Write in a book", bs));
+        t.push_back(ToolItem::menu(L"Write in a book", bs).in("write", tb::Organise, Icon::Writing));
     }
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Bringing pages in"));
-    t.push_back(ToolItem::item(L"Import many pages…", [this] { importManyPages(false); }));
-    t.push_back(ToolItem::item(L"Export as Markdown…", [this] { exportBibleMarkdown(); }));
-    t.push_back(ToolItem::item(L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); }));
+    t.push_back(ToolItem::item(L"Import many pages…", [this] { importManyPages(false); }).in("import", tb::ImportExport, Icon::Import));
+    t.push_back(ToolItem::item(L"Export as Markdown…", [this] { exportBibleMarkdown(); }).in("markdown", tb::ImportExport, Icon::Export));
+    t.push_back(ToolItem::item(L"Copy a blank page to fill in", [this] { copyBlankPageFor(wb_.kind.empty() ? std::string("character") : wb_.kind); }).in("blank", tb::Create, Icon::Copy));
     t.push_back(ToolItem::line());
-    t.push_back(ToolItem::item(L"Reset the bible…", [this] { resetBible(); }));
+    t.push_back(ToolItem::item(L"Reset the bible…", [this] { resetBible(); }).rarely("reset"));
     return t;
 }
 
@@ -720,8 +722,12 @@ void StudioApp::drawWorldStrip(const Rect& r) {
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
     linkText("wb:strip:back", r.x + pad, r.y + 16, L"‹ The bible", [this] { openEntry({}); });
-    menuButton("wb:strip:tools", r.right() - pad - (gfx_.measureWidth(L"Bible tools", Font::Body) + 44), r.y + 10, L"Bible tools",
-               [this] { return bibleTools(); });
+    if (toolBarOn("bible")) {   // the same toolbar, in the strip beside the way back (0.100)
+        const float bx = r.x + pad + gfx_.measureWidth(L"‹ The bible", Font::Small) + 28;
+        toolBar("bible", {bx, r.y + 3, r.right() - pad - bx, 38}, bibleTools());
+    } else
+        menuButton("wb:strip:tools", r.right() - pad - (gfx_.measureWidth(L"Bible tools", Font::Body) + 44), r.y + 10, L"Bible tools",
+                   [this] { return withBarItem("bible", bibleTools()); });
     clearHitClip();
     gfx_.popClip();
 }
@@ -834,9 +840,10 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 for (auto& c : l) c = (wchar_t)towlower(c);
                 nl = L"+ New " + l;
             }
-            const float tbw = gfx_.measureWidth(L"Bible tools", Font::Body) + 44;
+            // Tools (0.100): the toolbar under the tabs, or the Bible tools menu here when it's hidden.
+            const float tbw = toolBarOn("bible") ? -10.0f : gfx_.measureWidth(L"Bible tools", Font::Body) + 44;
             const float nw = buttonWidth(nl);
-            menuButton("wb:tools", m.right() - tbw, y + 12, L"Bible tools", [this] { return bibleTools(); });
+            if (!toolBarOn("bible")) menuButton("wb:tools", m.right() - tbw, y + 12, L"Bible tools", [this] { return withBarItem("bible", bibleTools()); });
             button("wb:new", {m.right() - tbw - 10 - nw, y + 12, nw, 32}, nl, [this] { newEntry(wb_.kind); }, true);
             y += 20;
             y += gfx_.text(scopeName, {m.x, y, std::max(200.0f, cw - tbw - nw - 30), 90}, Font::SerifTitle, pal_.ink) + 2;
@@ -885,6 +892,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 gfx_.line(cx - 4, cy + 4, cx + 4, cy - 4, pal_.inkMuted, 1.4f);
             }
             y += 40 + 14;
+            if (toolBarOn("bible")) y += toolBar("bible", {m.x, y - 8, m.w, 38}, bibleTools()) + 6;
         }
         // Looking inside a place: the way back up (0.48.5).
         if (!placeUnder.empty())

@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.100.0: tools you can see (suite 0.177.0, 26 Nov 2026)
+
+Phase 3 of CJ's combined request. CJ's choices (26 Nov): a row under the tabs (option A); **one row only**, never two; a hide toggle remembered per workspace (focus mode hides Writing's anyway); groups customisable (reorder, pin, hide).
+- **studiocore `studio/toolbar.hpp`** (tested, 24 checks): `Group` (Create, ImportExport, Organise, Check, Settings), `Tool {id, group, rare}`, `Custom {order, groups, pinned, hidden, off}` with JSON; `arrange` (by group, then the writer's order, new tools after in their default order; hidden, rare and group-less tools left out); `move` (swaps within a group, joins the next group across its edge, keeps hidden tools' places); `setGroup`, `togglePinned`, `setHidden` (unpins); `fit` for one row: labels → unpinned to icons → all icons → into More from the end, unpinned first, pinned last.
+- **The app** (`studio_toolbar.cpp`): `ToolItem` gains `id`, `group`, `icon`, `rare` (`.in(id, group, icon)`, `.rarely(id)`). The tools lists (`libraryTools`, `bookTools`, `planTools`, `bibleTools`, `chapterTools`) are the one source for the bar, its More menu (everything not on the bar, headings and lines tidied) and the old menu. `toolBar(bar, rect, items)` draws the row (icon and words, ▾ for a tool with its own menu, a dot when pinned, quiet rules between groups, ⌃ to hide) and keeps `bars_[bar]` for the right-click menu (`contextMenuFor` on `tbar:<bar>:<tool>` → `toolBarMenu`). `toolBarOn(bar)` is false with `Settings::toolsAsMenus` or the bar's `off`; callers then draw their `menuButton`, whose items go through `withBarItem` (Show the toolbar). Bars: `library` (under `libraryTabs`), `book` (under the book page's tabs), `plan` (under `planHeader`'s tabs and filters), `bible` (under the kinds, and in `drawWorldStrip` beside the way back), `chapter` (a 42-high row under `drawWritingBar`, which drops its Chapter tools button).
+- **Settings**: `toolsAsMenus` and `toolBars` (per bar, only changed ones) in settings.json; Settings › Appearance › Show tools as, and Put every toolbar back as it came.
+- **Ctrl+K**: `gatherPaletteTools()` flattens the page's tools list (submenus as "World map › Make a world map…") into `SearchHit` kind 6 with its action, before the search draws or takes a key.
+- **Tested:** studiocore 2,567 checks, editor 31, ctest; cross-compiled. **Not run on Windows.** To check there: each bar's look and fit at 100% and 200%, right-click changes surviving a restart, hiding and bringing back, Menus mode, and Ctrl+K running a tool.
+
 ## 0.99.0: layouts that follow the window (suite 0.175.0, 26 Nov 2026)
 
 Phase 2c of CJ's combined request, Writing Studio first ("on narrow windows, panels stack or collapse into toggles and toolbars wrap rather than clip; on wide windows, the extra space is used").

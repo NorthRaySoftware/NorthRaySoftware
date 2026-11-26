@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.177.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.100.0: each workspace's tools in one row you can see and arrange, and Ctrl+K finding any tool by name."
+      ]
+    },
+    {
       "version": "0.176.0",
       "date": "2026-11-26",
       "notes": [
