@@ -4,6 +4,7 @@
 // appear in it. The panel edits the selected card, or the book's word target.
 #include "studio_app.hpp"
 #include "studio/bible_export.hpp"
+#include "studio/calendar.hpp"
 #include "cjui/menu.hpp"
 #include "studio/planning.hpp"
 
@@ -296,6 +297,33 @@ std::vector<StudioApp::ToolItem> StudioApp::planTools() {
     t.push_back(ToolItem::item(L"Import planning…", [this] { importPlanText(); }));
     t.push_back(ToolItem::item(L"Export the plan…", [this] { exportPlanText(); }));
     t.push_back(ToolItem::line());
+    // The day the bible's ages are worked out at for this book (0.86): its first dated chapter, or one the writer picks.
+    {
+        const cal::Calendar cc = cal::calendarOfBook(*lib_, pl_.book);
+        const cal::StorySpan sp = cal::storySpan(*lib_, pl_.book);
+        if (!cc.empty() && sp.on) {
+            std::vector<ToolItem> sub;
+            const std::string chosen = cal::agesAsOfText(*lib_, pl_.book);
+            sub.push_back(ToolItem::item(L"The first chapter with a date", [this] {
+                cal::setAgesAsOf(*lib_, pl_.book, "");
+                flash(L"Ages in the bible are worked out as of this book's first chapter with a date.");
+            }, chosen.empty()));
+            const nlohmann::json tl = nlohmann::json::parse(lib_->setting("timeline:" + pl_.book), nullptr, false);
+            if (tl.is_object() && tl.contains("nodes") && tl["nodes"].is_object())
+                for (const ManuscriptNode* n : lib_->manuscriptOf(pl_.book)) {
+                    if (n->kind != NodeKind::Chapter || !tl["nodes"].contains(n->id)) continue;
+                    const auto& v = tl["nodes"][n->id];
+                    if (!v.is_object() || !v.contains("day") || !v["day"].is_number()) continue;
+                    const std::string date = cal::formatDate(cc, cal::fromDay(cc, sp.start + (std::int64_t)std::floor(v["day"].get<double>())));
+                    sub.push_back(ToolItem::item(L"As of “" + w(n->title) + L"” (" + w(date) + L")", [this, date] {
+                        cal::setAgesAsOf(*lib_, pl_.book, date);
+                        flash(L"Ages in the bible are worked out as of " + w(date) + L" for this book.");
+                    }, chosen == date));
+                }
+            t.push_back(ToolItem::menu(L"Ages in the bible", std::move(sub)));
+            t.push_back(ToolItem::line());
+        }
+    }
     // Where the shared bible's quotes come from in this book (0.85).
     t.push_back(ToolItem::heading(L"Quotes in the shared bible"));
     {

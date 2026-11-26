@@ -678,6 +678,158 @@ static void testPlanRoundTrip() {
     CHECK(noBookLines(a) == noBookLines(x));
 }
 
+static std::string para(const std::string& text);
+
+// Ages worked out from the calendar, and the checks that go with them (0.86).
+static void testAges() {
+    using namespace studio::cal;
+    const std::string dir = tempLibrary("ages");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id w = lib->createWorld("Alvora");
+    const Id s = lib->createSeries("Shards", w);
+    const Id one = lib->createBook("Shards of Light", {}, s), two = lib->createBook("Echoes of Night", {}, s);
+    // A month 0 of its own, two eras and a time before them.
+    Calendar c = fromText("Calendar: Reckoning\nMonth zero: extra\nMonths:\n- Yearsend: 5\n- Frostmoon: 30\n- Bloomtide: 30\n- Harvest: 30\n"
+                          "Era: The Second Age (SA) from year 1\nEra: The Third Age (TA) from year 1001\nBefore the first era: Before (BA)\n");
+    CHECK(saveWorldCalendar(*lib, w, c));
+    auto day = [&](const char* d) { auto x = parseDate(c, d); CHECK(x.has_value()); return x ? toDay(c, *x) : 0; };
+    // Book one runs from 1 Frostmoon 1033 TA to 20 Bloomtide 1033 TA; book two starts in Harvest 1034 TA.
+    auto chapters = [&](const Id& b, std::vector<std::pair<const char*, const char*>> list) {
+        const std::int64_t start = day(list.front().second);
+        nlohmann::json nodes = nlohmann::json::object();
+        for (auto& [title, date] : list) {
+            const Id n = lib->createNode(b, {}, NodeKind::Chapter, title);
+            nodes[n] = {{"day", (double)(day(date) - start)}};
+        }
+        CHECK(lib->setSetting("timeline:" + b, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", start}, {"nodes", nodes}}.dump()));
+    };
+    chapters(one, {{"The Forge", "1 Frostmoon 1033 TA"}, {"The Wall", "10 Bloomtide 1033 TA"}, {"Ashes", "20 Bloomtide 1033 TA"}});
+    chapters(two, {{"Return", "3 Harvest 1034 TA"}, {"Flood", "9 Harvest 1034 TA"}});
+    const std::vector<Id> books{one, two};
+    auto entry = [&](const char* name, const char* details) {
+        const Id id = lib->createEntry(w, {}, "character", name);
+        Entry e = *lib->entry(id);
+        e.details = details;
+        CHECK(lib->updateEntry(e));
+        return *lib->entry(id);
+    };
+    // Born 5 Bloomtide 1009 TA: 23 at the start of book one, turning 24 in The Wall; 25 in book two.
+    {
+        const Entry tom = entry("Tom", "Born: 5 Bloomtide 1009 TA\nAge: 30");
+        const Birth b = birthOf(c, tom);
+        CHECK(b.known && !b.about && b.date.year == 1009 + 1000 && b.typedAge == "30");
+        const auto ages = agesThroughBooks(*lib, c, b, books);
+        CHECK(ages.size() == 2);
+        if (ages.size() == 2) {
+            CHECK(ages[0].age == 23 && ages[0].turns && ages[0].turnsTo == 24 && ages[0].chapterTitle == "The Wall");
+            CHECK(ageText(c, ages[0]) == "23, turns 24 during this book (5 Bloomtide, in \xE2\x80\x9CThe Wall\xE2\x80\x9D)");
+            CHECK(ages[1].age == 25 && !ages[1].turns && ageText(c, ages[1]) == "25");
+        }
+        CHECK(!ageDisagreement(c, b, ages).empty());   // a typed 30 fits neither book
+        Birth ok = b;
+        ok.typedAge = "24";
+        CHECK(ageDisagreement(c, ok, ages).empty());   // 24 by the end of book one
+        // Book one's ages as of a date the writer chooses.
+        CHECK(setAgesAsOf(*lib, one, "15 Bloomtide 1033 TA"));
+        const auto later = agesThroughBooks(*lib, c, b, books);
+        CHECK(later.size() == 2 && later[0].chosenAsOf && later[0].age == 24 && !later[0].turns);
+        CHECK(setAgesAsOf(*lib, one, ""));
+    }
+    // A year alone: about. A Birthday line with a Born year: the whole date.
+    {
+        const Birth b = birthOf(c, entry("Sarrah", "Born: 1010 TA"));
+        const auto ages = agesThroughBooks(*lib, c, b, books);
+        CHECK(b.about && ages.size() == 2 && ages[0].about && ages[0].age == 23 && ageText(c, ages[0]) == "about 23");
+        const Birth bd = birthOf(c, entry("Mira", "Born: 1010 TA\nBirthday: 1 Yearsend"));
+        CHECK(bd.known && !bd.about && bd.date.month == 0 && bd.date.day == 1);
+        const auto ma = agesThroughBooks(*lib, c, bd, books);
+        CHECK(ma.size() == 2 && ma[0].age == 23 && !ma[0].turns && ma[1].age == 24);   // month 0 comes first in the year
+    }
+    // Born in the Second Age, before the Third: the years count across the eras. Born before the first era too.
+    {
+        const Birth b = birthOf(c, entry("Kion", "Born: 2 Frostmoon 990 SA"));
+        const auto ages = agesThroughBooks(*lib, c, b, books);
+        // Plain years 990 and 2033: 1042 on 1 Frostmoon (his birthday is the 2nd), 1044 in Harvest 1034.
+        CHECK(ages.size() == 2 && ages[0].age == 1042 && ages[0].turns && ages[0].turnsTo == 1043 && ages[1].age == 1044);
+        const Birth old = birthOf(c, entry("Mah'los", "Born: 1 Frostmoon 100 BA\nDied: 1 Frostmoon 1034 TA"));
+        const auto oa = agesThroughBooks(*lib, c, old, books);
+        // 100 BA is plain year -99 (1 BA is year 0): 2132 on 1 Frostmoon 1033 TA; dead before book two.
+        CHECK(oa.size() == 1 && oa[0].book == one && oa[0].age == 2132);
+    }
+    // Ageless, and an Appears age: no worked-out age, and no disagreement.
+    {
+        const Entry g = entry("Valen", "Born: 1 Frostmoon 1 SA\nAgeless: yes\nAge: 25");
+        const Birth b = birthOf(c, g);
+        CHECK(b.ageless && ageDisagreement(c, b, agesThroughBooks(*lib, c, b, books)).empty());
+        bible::Options o{w, {}, false, {}};
+        bible::View view(*lib, o);
+        const auto ga = bible::agesOfEntry(*lib, view, g);
+        CHECK(ga.size() == 1 && ga[0].second == "Ageless");
+        const auto la = bible::agesOfEntry(*lib, view, entry("Ylva", "Born: 1 Frostmoon 1 SA\nAppears: 30"));
+        CHECK(la.size() == 1 && la[0].second == "Looks 30");
+    }
+    // The bible's pages: every book, or a reader's guide up to its book.
+    {
+        const Entry* tom = lib->findEntryNamed(w, {}, "Tom");
+        bible::Options o{w, {}, false, {}};
+        bible::View view(*lib, o);
+        CHECK(tom && bible::agesOfEntry(*lib, view, *tom).size() == 2);
+        bible::Options g{w, {}, true, one};
+        bible::View gv(*lib, g);
+        const auto ga = bible::agesOfEntry(*lib, gv, *tom);
+        CHECK(ga.size() == 1 && ga[0].first == "Shards of Light");
+        std::string err;
+        int pages = 0;
+        CHECK(bible::exportWebsite(*lib, o, dir + "/site", err, &pages));
+        std::ifstream f(fs::path(dir) / "site" / ("e-" + tom->id + ".html"));
+        const std::string html((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        CHECK(html.find("<h2>Age</h2>") != std::string::npos && html.find("<em>Echoes of Night</em>: 25") != std::string::npos);
+        bool pdf = false;
+        for (auto& sec : bible::printableSource(*lib, o, "Alvora", "").sections)
+            if (sec.title == "Tom" && sec.content.find("turns 24 during this book") != std::string::npos) pdf = true;
+        CHECK(pdf);
+    }
+    // Checks: the typed Age; the text's age against the worked-out one; time between chapters; capitals.
+    {
+        auto write = [&](const Id& b, const char* title, const std::string& text) {
+            for (const ManuscriptNode* n : lib->manuscriptOf(b))
+                if (n->title == title) CHECK(lib->saveNodeContent(n->id, para(text)));
+        };
+        write(one, "The Forge", "Tom was twenty-three years old that winter. The mimic watched from the rafters.");
+        write(one, "The Wall", "Over a year later, the wall was finished. Tom was forty years old by then.");
+        write(one, "Ashes", "Ten days later the ashes were cold. Nobody spoke of the Mimic.");
+        write(two, "Return", "Over a year later Tom came home.");
+        write(two, "Flood", "The next morning the river rose.");
+        lib->createEntry(w, {}, "creature", "Mimic");
+        const review::Continuity ck = review::continuityChecks(*lib, w);
+        bool typed = false, text40 = false, text23 = false;
+        for (auto& f : ck.facts) {
+            if (f.worked && f.bible == "30" && f.note.find("Born: 5 Bloomtide 1009 TA") != std::string::npos) typed = true;
+            if (f.label == "Age" && f.other == "40 years old") text40 = true;
+            if (f.label == "Age" && f.other == "23 years old") text23 = true;
+        }
+        CHECK(typed && text40 && !text23);
+        // The Wall says "over a year later" but is 69 days after The Forge; Ashes ("ten days later") fits; Return's
+        // "over a year later" (Harvest 1034 after Bloomtide 1033) fits... only against the chapter before it in its own
+        // book, so it isn't checked; Flood's "the next morning" is six days on.
+        std::set<std::string> said;
+        for (auto& g : ck.gaps) said.insert(g.said);
+        CHECK(said.count("over a year later") == 1 && said.count("the next morning") == 1 && !said.count("ten days later"));
+        CHECK(ck.gaps.size() == 2);
+        for (auto& g : ck.gaps)
+            if (g.said == "the next morning") CHECK(g.actual.rfind("6 days (from 3 Harvest 1034 TA to 9 Harvest 1034 TA)", 0) == 0);
+        CHECK(ck.capitals.size() == 1 && ck.capitals[0].name == "Mimic" && ck.capitals[0].written == "mimic" && ck.capitals[0].count == 1);
+        // The words alone.
+        const auto g1 = review::gapWords("Almost a year later, they met.", 7, 30, 365);
+        CHECK(g1 && g1->said == "almost a year later" && g1->hi > 300 && g1->hi < 400 && g1->lo > 200);
+        CHECK(review::gapWords("After three weeks, the snow melted.", 7, 30, 365).has_value());
+        CHECK(!review::gapWords("She had waited three days for this.", 7, 30, 365).has_value());
+    }
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 static void testPlanDates() {
     using namespace studio::cal;
     const std::string dir = tempLibrary("plandates");
@@ -5053,6 +5205,7 @@ int main() {
     testCalendar();
     testPlanDates();
     testPlanRoundTrip();
+    testAges();
     testImportLinesAndPreview();
     testCalendarTimes();
     testExcerpts();

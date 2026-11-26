@@ -4242,8 +4242,9 @@ void StudioApp::drawChecks(const Rect& r) {
             if (!e) continue;
             gfx_.text(w(e->name) + L"  ·  " + w(f->label), {m.x, y, cw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
             y += 24;
-            const std::wstring said = f->inBible ? L"The bible says both “" + w(f->bible) + L"” and “" + w(f->other) + L"”."
-                                                 : L"The bible says “" + w(f->bible) + L"”; the text says “" + w(f->other) + L"”.";
+            const std::wstring said = !f->note.empty() ? w(f->note)
+                                      : f->inBible ? L"The bible says both “" + w(f->bible) + L"” and “" + w(f->other) + L"”."
+                                                   : L"The bible says “" + w(f->bible) + L"”; the text says “" + w(f->other) + L"”.";
             y += gfx_.text(said, {m.x, y, cw, 40}, Font::Small, pal_.inkMuted) + 4;
             if (!f->snippet.empty()) {
                 const studio::Book* bk = lib_->book(f->bookId);
@@ -4262,6 +4263,82 @@ void StudioApp::drawChecks(const Rect& r) {
                 act("ck:f:show:" + k, L"Show it", [this, b = f->bookId, n = f->nodeId, words = searchNames(*e)] { showInWriting(b, n, words); });
             act("ck:f:open:" + k, L"Open " + w(e->name), [this, id = e->id] { openEntry(id); });
             act("ck:f:ok:" + k, L"It's fine", [this, k] { checkIsFine("fact|" + k); });
+            y += 36;
+            gfx_.line(m.x, y - 6.5f, m.right(), y - 6.5f, pal_.rule.withAlpha(0.5f));
+        }
+        y += 18;
+    }
+    // ---- Time between chapters (0.86).
+    {
+        std::vector<const review::GapIssue*> list;
+        for (auto& g : wb_.continuity.gaps) if (!ok.count(g.key())) list.push_back(&g);
+        heading(L"TIME BETWEEN CHAPTERS", (int)list.size());
+        if (list.empty())
+            y += gfx_.text(L"None found. Studio reads each chapter's opening for how long after the one before it it is (“three days later”, "
+                           L"“over a year later”, “the next morning”) and checks it against Planning's timeline.",
+                           {m.x, y, cw, 40}, Font::Small, pal_.inkFaint) + 18;
+        for (auto* g : list) {
+            const studio::Book* bk = lib_->book(g->bookId);
+            const ManuscriptNode* nd = lib_->node(g->nodeId);
+            const ManuscriptNode* pv = lib_->node(g->prevId);
+            if (!bk || !nd) continue;
+            gfx_.text(w(bk->title) + L" › " + w(nd->title), {m.x, y, cw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            y += 24;
+            y += gfx_.text(L"It opens “" + w(g->said) + L"”, but the timeline puts it " + w(g->actual) + L" after " +
+                               (pv ? L"“" + w(pv->title) + L"”" : std::wstring(L"the chapter before")) + L".",
+                           {m.x, y, cw, 40}, Font::Small, pal_.inkMuted) + 4;
+            if (!g->snippet.empty()) y += gfx_.text(L"“" + w(g->snippet) + L"”", {m.x, y, cw, 60}, Font::Small, pal_.ink) + 6;
+            float ax = m.x;
+            auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
+                linkText(id, ax, y, t, std::move(fn));
+                ax += gfx_.measureWidth(t, Font::Small) + 26;
+            };
+            const std::string k = g->key();
+            act("ck:g:show:" + k, L"Show it", [this, b = g->bookId, n = g->nodeId, s = g->said] { showInWriting(b, n, {s}); });
+            act("ck:g:plan:" + k, L"Open the timeline", [this, b = g->bookId, n = g->nodeId] {
+                openPlanning(b);
+                pl_.view = 1;
+                selectCard(n);
+            });
+            act("ck:g:ok:" + k, L"It's fine", [this, k] { checkIsFine(k); });
+            y += 36;
+            gfx_.line(m.x, y - 6.5f, m.right(), y - 6.5f, pal_.rule.withAlpha(0.5f));
+        }
+        y += 18;
+    }
+    // ---- Names written with the wrong capitals (0.86).
+    {
+        std::vector<const review::CapsIssue*> list;
+        for (auto& ci : wb_.continuity.capitals) if (!ok.count("caps|" + ci.entry + "|" + ci.name)) list.push_back(&ci);
+        heading(L"BIBLE NAMES WITH THE WRONG CAPITALS", (int)list.size());
+        if (list.empty())
+            y += gfx_.text(L"None found: every bible name in the text is written with its capitals.", {m.x, y, cw, 20}, Font::Small, pal_.inkFaint) + 18;
+        for (auto* ci : list) {
+            gfx_.text(L"“" + w(ci->written) + L"” for " + w(ci->name), {m.x, y, cw, 22}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
+            y += 24;
+            const studio::Book* bk = lib_->book(ci->bookId);
+            const ManuscriptNode* nd = lib_->node(ci->nodeId);
+            std::wstring where = std::to_wstring(ci->count) + (ci->count == 1 ? L" time" : L" times") + L"; first in " +
+                                 (bk ? w(bk->title) : std::wstring()) + (nd ? L" › " + w(nd->title) : std::wstring());
+            y += gfx_.text(where, {m.x, y, cw, 20}, Font::Small, pal_.inkMuted) + 4;
+            if (!ci->snippet.empty()) y += gfx_.text(L"“" + w(ci->snippet) + L"”", {m.x, y, cw, 60}, Font::Small, pal_.ink) + 6;
+            float ax = m.x;
+            auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
+                linkText(id, ax, y, t, std::move(fn));
+                ax += gfx_.measureWidth(t, Font::Small) + 26;
+            };
+            const std::string k = "caps|" + ci->entry + "|" + ci->name;
+            act("ck:c:show:" + k, L"Show it", [this, b = ci->bookId, n = ci->nodeId, s = ci->written] { showInWriting(b, n, {s}); });
+            act("ck:c:fix:" + k, L"Change to " + w(ci->name) + L" everywhere", [this, from = ci->written, to = ci->name] {
+                int n = 0;
+                for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) n += review::replaceName(*lib_, b, from, to);
+                flash(L"Changed " + std::to_wstring(n) + (n == 1 ? L" use" : L" uses") + L" of “" + w(from) + L"” to “" + w(to) +
+                      L"”. Each chapter's text before the change is kept in its saved versions.");
+                wb_.checksKey.clear();
+                invalidate();
+            });
+            act("ck:c:open:" + k, L"Open " + w(ci->name), [this, id = ci->entry] { openEntry(id); });
+            act("ck:c:ok:" + k, L"It's fine", [this, k] { checkIsFine(k); });
             y += 36;
             gfx_.line(m.x, y - 6.5f, m.right(), y - 6.5f, pal_.rule.withAlpha(0.5f));
         }

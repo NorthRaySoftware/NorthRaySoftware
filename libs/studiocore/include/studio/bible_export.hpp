@@ -94,6 +94,9 @@ struct Excerpt { Id book; std::string bookTitle; std::string where; std::string 
 std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts);
 // A book's choice (0.85, setting "excerpts-from-text:<book>"): when a chapter or scene has nobody in Who's there and no
 // viewpoint, its text decides: excerpts come from those that name the character. Off by default.
+// Ages worked out from the calendar (0.86), per book shown: (book title, "24, turns 25 during this book (…)"); one
+// line with no title for someone Ageless or with an Appears age.
+std::vector<std::pair<std::string, std::string>> agesOfEntry(const Library& lib, const View& view, const Entry& e);
 bool excerptsFromText(const Library& lib, const Id& book);
 bool setExcerptsFromText(Library& lib, const Id& book, bool on);
 // The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.

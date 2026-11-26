@@ -254,6 +254,27 @@ std::string excerptAround(const std::string& t, size_t start, size_t end, int ma
     return out;
 }
 
+// Ages in the books (0.86): "Shards of Light" -> "24, turns 25 during this book (5 Bloomtide, in “The Wall”)", for the
+// books shown (a reader's guide stops at its book); "Ageless" or "Looks 30" in place of them when the page says so.
+std::vector<std::pair<std::string, std::string>> agesOfEntry(const Library& lib, const View& view, const Entry& e) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (e.kind != "character" && e.kind != "creature") return out;
+    const Options& o = view.options();
+    const cal::Calendar c = o.worldId.empty() ? cal::calendarOfBook(lib, o.bookId) : cal::calendarOfWorld(lib, o.worldId);
+    if (c.empty()) return out;
+    const cal::Birth b = cal::birthOf(c, e);
+    if (b.ageless) { out.push_back({"", "Ageless"}); return out; }
+    if (!b.appears.empty()) { out.push_back({"", "Looks " + b.appears}); return out; }
+    if (!b.known) return out;
+    std::vector<Id> books = booksInOrder(lib, o.worldId, o.bookId);
+    if (o.readersGuide && !o.upTo.empty()) {
+        auto it = std::find(books.begin(), books.end(), o.upTo);
+        if (it != books.end()) books.erase(it + 1, books.end());
+    }
+    for (const cal::BookAge& a : cal::agesThroughBooks(lib, c, b, books)) out.push_back({a.title, cal::ageText(c, a)});
+    return out;
+}
+
 bool excerptsFromText(const Library& lib, const Id& book) { return lib.setting("excerpts-from-text:" + book) == "1"; }
 bool setExcerptsFromText(Library& lib, const Id& book, bool on) { return lib.setSetting("excerpts-from-text:" + book, on ? "1" : ""); }
 
@@ -1075,6 +1096,11 @@ struct Site {
                 }
                 main += "</ul>";
             }
+        if (const auto ages = agesOfEntry(lib, view, e); !ages.empty()) {   // ages worked out from the calendar (0.86)
+            main += "<h2>Age</h2><ul class=\"appears\">";
+            for (auto& [title, text] : ages) main += "<li>" + (title.empty() ? std::string() : "<em>" + esc(title) + "</em>: ") + esc(text) + "</li>";
+            main += "</ul>";
+        }
         if (view.options().excerpts)   // a few lines from the books (0.81)
             if (const auto ex = excerptsOf(lib, view, e, texts); !ex.empty()) {
                 main += "<h2>In the books</h2>";
@@ -1649,6 +1675,17 @@ typeset::Source printableSource(const Library& lib, const Options& options, cons
                     d.endBlock();
                     bool first = true;
                     for (auto& p : paragraphs(e->notes)) { para(p, first ? "first" : "body"); first = false; }
+                }
+            }
+            if (const auto ages = agesOfEntry(lib, view, *e); !ages.empty()) {   // ages worked out from the calendar (0.86)
+                d.heading(2);
+                d.text("Age");
+                d.endBlock();
+                for (auto& [title, text] : ages) {
+                    d.paragraph("first");
+                    if (!title.empty()) d.text(title + ": ", doc::Builder::Em);
+                    d.text(text);
+                    d.endBlock();
                 }
             }
             if (options.excerpts)   // a few lines from the books (0.81)

@@ -247,6 +247,52 @@ struct AgeInBook { Id book; int from = 0, to = 0; };
 std::vector<AgeInBook> agesInBooks(const Library& lib, const Calendar& c, const Date& born, const std::vector<Id>& books,
                                    std::optional<Date> died = std::nullopt);
 
+// ------------------------------------------------------------------ ages worked out (0.86)
+//
+// A character's birth from their page: "Born:" with a whole date ("5 Bloomtide 2009 TA"), or a year alone ("2009 TA":
+// the age is then "about"), or "Birthday: 5 Bloomtide" with a "Born:" year. "Died:" as for dated facts. "Ageless: yes"
+// (or an Age of "ageless") marks someone who doesn't age; "Appears: 30" (or "Apparent age:") gives the age they look,
+// shown in place of the worked-out one.
+struct Birth {
+    bool known = false;      // a date (or a year) to count from
+    bool about = false;      // a year alone
+    Date date;
+    std::optional<Date> died;
+    bool ageless = false;
+    std::string appears;     // "30"
+    std::string typedAge;    // the page's own Age line, as written
+    std::string from;        // the line(s) it was read from ("Born: 5 Bloomtide 2009 TA")
+};
+Birth birthOf(const Calendar& c, const Entry& e);
+// How old they are in one book: as of its "as of" day (the book's choice, else its first dated chapter in reading
+// order), and whether a birthday falls inside the book's dates (up to its last dated chapter or scene), with the
+// chapter it falls in or before.
+struct BookAge {
+    Id book;
+    std::string title;
+    std::int64_t asOf = 0, last = 0;
+    bool chosenAsOf = false;   // the writer's own "as of" date
+    int age = 0;
+    bool about = false;
+    bool turns = false;        // a birthday inside the book
+    int turnsTo = 0;
+    Date birthday;
+    Id chapter;                // the chapter on or after it
+    std::string chapterTitle;
+};
+// Books in `books` order with calendar dates in which they're alive at the "as of" day (born by then, not yet dead).
+std::vector<BookAge> agesThroughBooks(const Library& lib, const Calendar& c, const Birth& b, const std::vector<Id>& books);
+// "24, turns 25 during this book (5 Bloomtide, in “The Wall”)", "about 24", "25".
+std::string ageText(const Calendar& c, const BookAge& a);
+// A book's "as of" day for ages: the writer's date (setting "ages-as-of:<book>", in the calendar's words), else the
+// first chapter or scene in reading order with a calendar date. nullopt when the book has no calendar dates.
+std::optional<std::int64_t> agesAsOf(const Library& lib, const Calendar& c, const Id& book, bool* chosen = nullptr);
+std::string agesAsOfText(const Library& lib, const Id& book);
+bool setAgesAsOf(Library& lib, const Id& book, const std::string& text);   // "" goes back to the first dated chapter
+// A typed Age that disagrees with every worked-out age (as of each book and at its end), with the ages it was checked
+// against; empty when it agrees, or there's nothing to check.
+std::string ageDisagreement(const Calendar& c, const Birth& b, const std::vector<BookAge>& ages);
+
 // Which calendar a book or world uses: the book's own, else its world's. Empty (no months) when there's none.
 std::string settingKeyForWorld(const Id& world);
 std::string settingKeyForBook(const Id& book);

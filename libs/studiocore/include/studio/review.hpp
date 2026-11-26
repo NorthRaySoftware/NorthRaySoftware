@@ -5,6 +5,7 @@
 #include "studio/library.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,12 +58,41 @@ struct FactIssue {
     bool inBible = false;    // two lines of the entry's details disagree (often after merging copies)
     Id bookId, nodeId;       // where the text says it
     std::string snippet;     // the sentence
+    // 0.86: an Age that disagrees with the age worked out from the calendar; `note` says so in words, and `bible`
+    // holds the typed Age.
+    bool worked = false;
+    std::string note;
     std::string key() const; // to remember "it's fine"
+};
+// Time between chapters (0.86): a chapter's opening says how long after the one before it it is ("over a year later",
+// "three days later", "the next morning"), and the dates on Planning's timeline say otherwise.
+struct GapIssue {
+    Id bookId, nodeId, prevId;
+    std::string said;        // the words, as written
+    std::string actual;      // "9 months (from 3 Frostmoon 2033 TA to 12 Thaw 2033 TA)"
+    std::string snippet;     // the sentence
+    std::string key() const;
+};
+// A bible name written with the wrong capitals in the text (0.86): "mimic" for the Mimic, "rebirth" for Rebirth.
+struct CapsIssue {
+    Id entry;
+    std::string name;        // as the bible writes it
+    std::string written;     // as the text writes it, the first time
+    int count = 0;           // how many times, over all the books
+    Id bookId, nodeId;       // the first
+    std::string snippet;
 };
 struct Continuity {
     std::vector<FactIssue> facts;
     std::vector<Id> unused;  // entries whose names never appear in the manuscripts
+    std::vector<GapIssue> gaps;
+    std::vector<CapsIssue> capitals;
 };
+// The gap a chapter's opening words give ("over a year later" -> at least 365.25 days), against the days between two
+// dates; empty when it fits (or the words give no gap). `unitDays`: a day, week, month and year in the calendar.
+// Exposed for tests.
+struct GapWords { std::string said; double lo = 0, hi = 0; };   // in days; hi < 0: no upper bound
+std::optional<GapWords> gapWords(const std::string& opening, double week, double month, double year);
 Continuity continuityChecks(const Library& lib, const Id& worldId, const Id& bookId = {});
 
 int editDistance(const std::u32string& a, const std::u32string& b, int limit);

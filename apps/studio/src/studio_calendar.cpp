@@ -1304,7 +1304,11 @@ float StudioApp::drawEntryDates(const Entry& e, float x, float y, float wd) {
     const cal::Calendar c = scopeCalendar();
     if (c.empty()) return 0;
     const auto facts = cal::datedFactsOf(c, e);
-    if (facts.empty()) return 0;
+    if (facts.empty()) {
+        // A year alone, Ageless or Looks still say something (0.86).
+        const cal::Birth bi = cal::birthOf(c, e);
+        if (!bi.known && !bi.ageless && bi.appears.empty()) return 0;
+    }
     const cal::DatedFact* born = nullptr;
     const cal::DatedFact* died = nullptr;
     for (auto& f : facts) {
@@ -1325,19 +1329,21 @@ float StudioApp::drawEntryDates(const Entry& e, float x, float y, float wd) {
         line += (line.empty() ? L"" : L"   ·   ") + std::wstring(L"lived ") + std::to_wstring(a) + (a == 1 ? L" year" : L" years");
     }
     if (!line.empty()) dy += gfx_.text(line, {x, dy, wd, 40}, Font::Small, pal_.inkMuted) + 4;
-    if (born) {
-        std::vector<Id> order;
-        for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) order.push_back(b);
-        const auto ages = cal::agesInBooks(*lib_, c, born->date, order, died ? std::optional<cal::Date>(died->date) : std::nullopt);
-        if (!ages.empty()) {
-            std::wstring a = L"Age";
-            for (size_t i = 0; i < ages.size(); ++i) {
-                const studio::Book* bk = lib_->book(ages[i].book);
-                if (!bk) continue;
-                a += (i ? L";  " : L" ") + std::wstring(L"in ") + w(bk->title) + L": " + std::to_wstring(ages[i].from) +
-                     (ages[i].to != ages[i].from ? L"\u2013" + std::to_wstring(ages[i].to) : L"");
-            }
-            dy += gfx_.text(a, {x, dy, wd, 60}, Font::Small, pal_.ribbon) + 4;
+    // Ages worked out per book (0.86): as of each book's first dated chapter (or the date chosen in its Plan tools), with
+    // a birthday inside the book and its chapter; "about" from a year alone; Ageless or Looks in their place.
+    {
+        const cal::Birth bi = cal::birthOf(c, e);
+        if (bi.ageless) dy += gfx_.text(L"Ageless", {x, dy, wd, 20}, Font::Small, pal_.ribbon) + 4;
+        else if (!bi.appears.empty()) dy += gfx_.text(L"Looks " + w(bi.appears), {x, dy, wd, 20}, Font::Small, pal_.ribbon) + 4;
+        else if (bi.known) {
+            std::vector<Id> order;
+            for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) order.push_back(b);
+            for (const cal::BookAge& a : cal::agesThroughBooks(*lib_, c, bi, order))
+                dy += gfx_.text(w(a.title) + L": " + w(cal::ageText(c, a)), {x, dy, wd, 40}, Font::Small, pal_.ribbon) + 2;
+            const std::string off = cal::ageDisagreement(c, bi, cal::agesThroughBooks(*lib_, c, bi, order));
+            if (!off.empty())
+                dy += gfx_.text(L"The Age line says " + w(bi.typedAge) + L"; Checks lists it.", {x, dy, wd, 20}, Font::Small, pal_.inkFaint) + 2;
+            dy += 2;
         }
     }
     return dy - y;

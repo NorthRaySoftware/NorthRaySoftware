@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.86.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Ages are worked out from the calendar for each book: from Born: (or Birthday: with a Born: year), as of the book's first dated chapter or a date chosen in Plan tools › Ages in the bible. When a birthday falls inside a book its page says so and names the chapter; a year alone gives \"about\"; years count through eras, month 0 and the years before the first era.",
+        "Ageless: yes and Appears: 30 lines show \"Ageless\" or \"Looks 30\" in place of a worked-out age.",
+        "The ages are on the entry's page, in the shared bible's PDF and website, and in reader's guides only up to their book.",
+        "Checks flags a typed Age that no worked-out age agrees with, an age in the text that the calendar contradicts, a chapter whose opening (\"over a year later\", \"three days later\", \"the next morning\") disagrees with the timeline's dates, and bible names written with the wrong capitals (\"mimic\" for the Mimic), with Change everywhere and It's fine."
+      ]
+    },
+    {
       "version": "0.85.0",
       "date": "2026-11-26",
       "notes": [
