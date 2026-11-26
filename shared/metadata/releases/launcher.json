@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.163.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.87.0: a more visual Studio (symbols, portraits, the relationships web, picture-led planning cards, the year wheel) and faster drawing."
+      ]
+    },
+    {
       "version": "0.162.0",
       "date": "2026-11-26",
       "notes": [

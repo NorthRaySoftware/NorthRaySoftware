@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -152,6 +153,24 @@ private:
     CachedImage* loadImage(const std::wstring& path);
     IDWriteInlineObject* ellipsis_ = nullptr;
     IDWriteTextFormat* ellipsisOwner_ = nullptr;
+    // Text layouts kept between frames (0.87): laying text out (shaping, line breaks) was most of a page's time, and a
+    // page draws the same words frame after frame. Keyed by format, words, box and options; dropped when not used for a
+    // few frames, and all of them when a format goes.
+    struct LayoutKey {
+        IDWriteTextFormat* tf;
+        std::wstring s;
+        int w, h, flags;
+        bool operator==(const LayoutKey& o) const { return tf == o.tf && w == o.w && h == o.h && flags == o.flags && s == o.s; }
+    };
+    struct LayoutKeyHash {
+        size_t operator()(const LayoutKey& k) const {
+            return std::hash<std::wstring>()(k.s) ^ (std::hash<void*>()(k.tf) * 31) ^ ((size_t)k.w * 1315423911u) ^ ((size_t)k.h << 7) ^ (size_t)k.flags;
+        }
+    };
+    struct CachedLayout { IDWriteTextLayout* tl = nullptr; unsigned long long used = 0; };
+    std::unordered_map<LayoutKey, CachedLayout, LayoutKeyHash> layouts_;
+    unsigned long long frame_ = 0;
+    void dropLayouts();
 };
 
 }  // namespace cjui

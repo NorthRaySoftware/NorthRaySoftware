@@ -41,8 +41,14 @@ bool Gfx::init(HWND hwnd) {
     return true;
 }
 
+void Gfx::dropLayouts() {
+    for (auto& [k, v] : layouts_) release(v.tl);
+    layouts_.clear();
+}
+
 void Gfx::shutdown() {
     discardTarget();
+    dropLayouts();
     for (auto& [k, f] : formats_) release(f);
     formats_.clear();
     for (auto& [k, f] : sized_) release(f);
@@ -89,6 +95,12 @@ bool Gfx::begin() {
     text_.clear();
     rt_->BeginDraw();
     rt_->SetTransform(D2D1::Matrix3x2F::Identity());
+    // Layouts not used in the last few frames go (checked every 16 frames), and the cache never grows without bound.
+    ++frame_;
+    if ((frame_ & 15) == 0 || layouts_.size() > 12000)
+        for (auto it = layouts_.begin(); it != layouts_.end();)
+            if (it->second.used + 4 < frame_ || layouts_.size() > 12000) { release(it->second.tl); it = layouts_.erase(it); }
+            else ++it;
     return true;
 }
 
@@ -451,6 +463,7 @@ IDWriteTextFormat* Gfx::sizedFormat(float size, bool strong) {
     auto it = sized_.find(key);
     if (it != sized_.end()) return it->second;
     if (sized_.size() > 24) {   // sizes come and go (a size slider): keep only a few
+        dropLayouts();   // they may hold these formats' addresses
         for (auto& [k, f] : sized_) release(f);
         sized_.clear();
     }
@@ -488,8 +501,18 @@ float Gfx::measureSized(const std::wstring& s, float w, float size, bool strong)
 IDWriteTextLayout* Gfx::layout(const std::wstring& s, float w, float h, Font f, const TextOpts& o) { return layoutWith(format(f), s, w, h, o); }
 
 IDWriteTextLayout* Gfx::layoutWith(IDWriteTextFormat* tf, const std::wstring& s, float w, float h, const TextOpts& o) {
+    if (!tf) return nullptr;
+    // From the cache when the same words were laid out in the same box (to a quarter of a DIP) lately. The caller
+    // releases what it's given, so a cached layout is handed out with a reference of its own.
+    LayoutKey key{tf, s, (int)std::lround(std::max(1.0f, w) * 4), (int)std::lround(std::max(1.0f, h) * 4),
+                  (o.wrap ? 1 : 0) | ((int)o.align << 1) | (o.centerVertically ? 8 : 0) | (o.strike ? 16 : 0) | (o.ellipsis ? 32 : 0)};
+    if (auto it = layouts_.find(key); it != layouts_.end()) {
+        it->second.used = frame_;
+        it->second.tl->AddRef();
+        return it->second.tl;
+    }
     IDWriteTextLayout* tl = nullptr;
-    if (!tf || FAILED(dw_->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, std::max(1.0f, w), std::max(1.0f, h), &tl)))
+    if (FAILED(dw_->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, std::max(1.0f, w), std::max(1.0f, h), &tl)))
         return nullptr;
     tl->SetWordWrapping(o.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     tl->SetTextAlignment(o.align == Align::Center ? DWRITE_TEXT_ALIGNMENT_CENTER
@@ -505,6 +528,10 @@ IDWriteTextLayout* Gfx::layoutWith(IDWriteTextFormat* tf, const std::wstring& s,
         }
         DWRITE_TRIMMING trim{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
         tl->SetTrimming(&trim, ellipsis_);
+    }
+    if (s.size() <= 4000) {   // long texts (a chapter's worth) aren't kept
+        tl->AddRef();
+        layouts_[std::move(key)] = {tl, frame_};
     }
     return tl;
 }

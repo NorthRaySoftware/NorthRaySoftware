@@ -353,7 +353,7 @@ float StudioApp::planHeader(const Rect& m, const std::wstring& sub) {
     float y = m.y;
     gfx_.text(L"PLANNING", {m.x, y, m.w, 16}, Font::Label, gold_, {Align::Left, false, true});
     const float tbw = gfx_.measureWidth(L"Plan tools", Font::Body) + 44;
-    const float nw = gfx_.measureWidth(L"Chapter", Font::Body) + 26 + 21;
+    const float nw = buttonWidth(L"+ Chapter");
     menuButton("pl:tools", m.right() - tbw, y + 12, L"Plan tools", [this] { return planTools(); });
     button("pl:newch", {m.right() - tbw - 10 - nw, y + 12, nw, 32}, L"+ Chapter", [this] {
         const Id id = lib_->createNode(pl_.book, {}, NodeKind::Chapter);
@@ -372,12 +372,12 @@ float StudioApp::planHeader(const Rect& m, const std::wstring& sub) {
         const bool beside = px + pw < m.right() - tbw - nw - 30;
         const float bx = beside ? px : m.x, by = beside ? y + 8 : y + th + 4;
         const std::wstring line = target > 0 ? thousandsW(words) + L" of " + thousandsW(target) + L" words" : thousandsW(words) + L" words · no target yet";
-        gfx_.text(line, {bx, by, pw + 60, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         if (target > 0) {
-            const float f = (float)std::min(1.0, (double)words / target);
-            gfx_.fillRounded({bx, by + 22, pw, 6}, 3, pal_.rule);
-            if (f > 0) gfx_.fillRounded({bx, by + 22, std::max(6.0f, pw * f), 6}, 3, f >= 1 ? cjui::hexColor("#C9A23A") : pal_.ribbon);
-        }
+            // A ring with the percentage, and the words beside it (0.87).
+            drawProgressRing(bx + 15, by + 14, 15, (float)((double)words / target));
+            gfx_.text(line, {bx + 38, by + 5, pw + 30, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+        } else
+            gfx_.text(line, {bx, by, pw + 60, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
         addHit("pl:target", {bx - 4, by - 2, pw + 8, 32}, [this] { selectCard({}); pl_.targetOpen = true; invalidate(); });
         tooltip("pl:target", L"Set the book's target");
         y += beside ? th + 6 : th + 40;

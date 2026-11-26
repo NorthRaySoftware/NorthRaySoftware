@@ -460,7 +460,7 @@ Page parse(const std::string& raw) {
 
 std::string blankPage(const std::string& kind, const std::vector<std::string>& sections, const std::vector<std::string>& bookTitles) {
     std::vector<const char*> details;
-    if (kind == "character") details = {"Gender", "Sexuality", "Race", "Realm", "Age", "Birthday", "Height", "Hair", "Eyes", "Marks", "Clothing", "Weapon", "Home", "Occupation", "Title"};
+    if (kind == "character") details = {"Gender", "Sexuality", "Race", "Realm", "Age", "Born", "Birthday", "Died", "Ageless", "Appears", "Height", "Hair", "Eyes", "Marks", "Clothing", "Weapon", "Home", "Occupation", "Title"};
     else if (kind == "creature") details = {"Realm", "Habitat", "Size", "Diet", "Lifespan", "Danger"};
     else if (kind == "race") details = {"Realm", "Homeland", "Lifespan", "Language", "Population"};
     else if (kind == "place") details = {"Type", "Realm", "Location", "Climate", "Population", "Ruled by", "Founded"};

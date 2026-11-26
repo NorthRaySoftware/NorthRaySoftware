@@ -572,6 +572,21 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
         flash(w("The import stopped part way: " + lib_->lastError() + ". Ctrl+Z takes back what was done."), 10);
     } else {
         const std::string said = imp.words();
+        // The same at a glance (0.87): a symbol and a number for each kind of result.
+        std::wstring glance;
+        {
+            auto add = [&](const wchar_t* sym, size_t n, const wchar_t* what) {
+                if (n) glance += (glance.empty() ? L"" : L"     ") + std::wstring(sym) + L" " + std::to_wstring(n) + L" " + what;
+            };
+            add(L"\u271A", imp.made.size(), L"new");
+            add(L"\u270E", imp.updated.size() - std::min(imp.updated.size(), (size_t)imp.unchanged), L"updated");
+            add(L"\U0001F517", (size_t)imp.links, L"links");
+            add(L"\u21C4", imp.renamed.size(), L"renamed");
+            add(L"\u2935", imp.mergedAway.size(), L"merged");
+            add(L"\U0001F5D1", imp.removed.size(), L"removed");
+            add(L"\U0001F5BC", (size_t)imp.pictures, L"pictures");
+            add(L"\u26A0", imp.unread.size() + imp.missingPictures.size() + imp.notFound.size(), L"to look at");
+        }
         // Renames, merges, removals and pictures that couldn't be found are worth a proper note (0.55); else a flash.
         std::wstring more;
         auto listOf = [](const std::vector<std::string>& v) {
@@ -623,8 +638,8 @@ void StudioApp::importPagesText(const std::string& text, const std::wstring& fro
                                : L"Imported: " + w(said) + L". Ctrl+Z takes it back.",
                   10);
         else
-            cjui::messageBox(hwnd(), (L"Imported: " + w(said) + L"." + more + L"\n\nCtrl+Z takes the whole import back.").c_str(), L"Import many pages",
-                             MB_OK | MB_ICONINFORMATION);
+            cjui::messageBox(hwnd(), (glance + L"\n\nImported: " + w(said) + L"." + more + L"\n\nCtrl+Z takes the whole import back.").c_str(),
+                             L"Import many pages", MB_OK | MB_ICONINFORMATION);
     }
     sendView();   // the names, for Writing's links and spell checker
     SetFocus(hwnd());

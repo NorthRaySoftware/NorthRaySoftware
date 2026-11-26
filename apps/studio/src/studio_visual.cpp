@@ -4,6 +4,9 @@
 
 #include "studio_app.hpp"
 #include "cjui/menu.hpp"
+#include <optional>
+#include <nlohmann/json.hpp>
+#include "studio/calendar.hpp"
 
 #include <cmath>
 #include <cwctype>
@@ -16,6 +19,7 @@ using cjui::Font;
 using cjui::Rect;
 
 static std::wstring w(const std::string& s) { return widen(s); }
+std::vector<Id> booksInReadingOrder(const Library& lib, const Id& world, const Id& book);   // studio_world.cpp
 
 cjui::Color entryKindColor(const std::string& kind, bool dark) {
     struct K { const char* k; const char* light; const char* dark; };
@@ -136,7 +140,7 @@ void StudioApp::drawMoonDisc(float mx, float my, float rad, double ph) {
     for (float dy = -rad + 0.5f; dy < rad; dy += 0.5f) {
         const float hw = std::sqrt(std::max(0.0f, rad * rad - dy * dy));
         const float a = ph <= 0.5 ? mx + hw * k : mx - hw, b = ph <= 0.5 ? mx + hw : mx - hw * k;
-        if (b - a > 0.2f) gfx_.line(a, my + dy, b, my + dy, gold_.mix(pal_.surface, 0.35f), 0.6f);
+        if (b - a > 0.2f) gfx_.line(a, my + dy, b, my + dy, cjui::hexColor("#F6E7A6"), 0.6f);   // moonlight, bright in either theme
     }
     gfx_.circle(mx, my, rad, pal_.inkFaint, false, 1);
 }
@@ -151,6 +155,193 @@ void StudioApp::drawDateChip(const Rect& r, int day, const std::wstring& month) 
     for (auto& ch : m) ch = (wchar_t)towupper(ch);
     gfx_.text(m, {r.x, r.y - 1, r.w, head + 2}, Font::Label, cjui::hexColor("#FFFFFF"), {Align::Center, false, false, true});
     gfx_.text(std::to_wstring(day), {r.x, r.y + head, r.w, r.h - head}, Font::SmallStrong, pal_.ink, {Align::Center, false, false, true});
+}
+
+void StudioApp::drawProgressRing(float cx, float cy, float rad, float f) {
+    constexpr float kPi = 3.14159265f;
+    f = std::clamp(f, 0.0f, 1.0f);
+    const float wdt = std::max(2.5f, rad * 0.22f);
+    gfx_.circle(cx, cy, rad, pal_.rule, false, wdt);
+    const cjui::Color c = f >= 1 ? cjui::hexColor(pal_.dark ? "#D6B677" : "#C9A23A") : pal_.ribbon;
+    if (f > 0.002f) gfx_.arc(cx, cy, rad, -kPi / 2, -kPi / 2 + 2 * kPi * std::min(f, 0.9999f), c, wdt);
+    if (rad >= 14) {
+        const std::wstring t = f >= 1 ? L"\u2713" : std::to_wstring((int)std::floor(f * 100)) + L"%";
+        gfx_.text(t, {cx - rad, cy - rad, rad * 2, rad * 2}, rad >= 22 ? Font::SmallStrong : Font::Label, pal_.ink, {Align::Center, false, false, true});
+    }
+}
+
+float StudioApp::drawYearWheel(const Rect& m, float y, const cal::Calendar& c) {
+    constexpr float kPi = 3.14159265f;
+    if (c.months.empty()) return y;
+    // The story's "now": the chapter open in Writing (or its first dated scene), when its book counts in calendar dates.
+    std::optional<std::int64_t> now;
+    std::wstring nowWhat;
+    if (const ManuscriptNode* n = lib_->node(currentNode_); n && !n->deleted) {
+        const cal::StorySpan sp = cal::storySpan(*lib_, n->bookId);
+        const nlohmann::json tl = nlohmann::json::parse(lib_->setting("timeline:" + n->bookId), nullptr, false);
+        if (sp.on && tl.is_object() && tl.contains("nodes") && tl["nodes"].contains(n->id) && tl["nodes"][n->id].contains("day"))
+            if (tl["nodes"][n->id]["day"].is_number()) {
+                now = sp.start + (std::int64_t)std::floor(tl["nodes"][n->id]["day"].get<double>());
+                nowWhat = widen(n->title);
+            }
+    }
+    if (now && !wb_.calYearSet) {
+        wb_.calYear = cal::fromDay(c, *now).year;
+        wb_.calYearSet = true;
+    }
+    const std::int64_t year = wb_.calYear;
+    // The year, ‹ ›.
+    button("calw:prev", {m.x, y, 36, 34}, L"‹", [this] { --wb_.calYear; wb_.calYearSet = true; invalidate(); });
+    gfx_.text(w(cal::formatYear(c, year)), {m.x + 46, y, 260, 34}, Font::Heading, pal_.ink, {Align::Left, false, false, true});
+    button("calw:next", {m.x + 46 + std::min(260.0f, gfx_.measureWidth(w(cal::formatYear(c, year)), Font::Heading) + 14), y, 36, 34}, L"›",
+           [this] { ++wb_.calYear; wb_.calYearSet = true; invalidate(); });
+    if (now) {
+        float bw = 0;
+        smallButton("calw:now", m.right() - buttonWidth(L"Go to the story's now") , y + 2, L"Go to the story's now", [this, c, now] {
+            wb_.calYear = cal::fromDay(c, *now).year;
+            invalidate();
+        }, &bw);
+    }
+    y += 50;
+    const std::int64_t first = cal::toDay(c, {year, 0, 1});
+    const std::int64_t len = std::max<std::int64_t>(1, cal::yearLength(c, year));
+    auto angle = [&](double dayInYear) { return -kPi / 2 + 2 * kPi * (float)(dayInYear / (double)len); };
+    const float D = std::min(m.w * 0.62f, 560.0f);
+    const float cx = m.x + D / 2 + 40, cy = y + D / 2 + 30;
+    const float R = D / 2, ring = 34;
+    // Seasons: a colour each (spring green, summer gold, autumn rust, winter blue by their names; else in turn).
+    auto seasonColour = [&](const std::string& name, size_t i) {
+        std::string l;
+        for (char ch : name) l += (char)std::tolower((unsigned char)ch);
+        const bool d = pal_.dark;
+        if (l.find("spring") != std::string::npos || l.find("bloom") != std::string::npos) return cjui::hexColor(d ? "#5BAF6A" : "#7CC48A");
+        if (l.find("summer") != std::string::npos) return cjui::hexColor(d ? "#D4A93C" : "#E9C25A");
+        if (l.find("autumn") != std::string::npos || l.find("fall") != std::string::npos || l.find("harvest") != std::string::npos)
+            return cjui::hexColor(d ? "#C2703A" : "#DA8A50");
+        if (l.find("winter") != std::string::npos || l.find("frost") != std::string::npos) return cjui::hexColor(d ? "#5C8FC2" : "#86AEDB");
+        static const char* p[] = {"#7CC48A", "#E9C25A", "#DA8A50", "#86AEDB", "#B392D9", "#E58FA8"};
+        return cjui::hexColor(p[i % 6]);
+    };
+    // Each month: an arc of the ring in the season it starts in, its name outside.
+    std::int64_t at = 0;
+    for (int mo = 0; mo < (int)c.months.size(); ++mo) {
+        const int ml = cal::monthLength(c, year, mo);
+        if (ml <= 0) continue;
+        const cal::Season* s = cal::seasonOn(c, {year, mo, std::max(1, ml / 2)});
+        size_t si = 0;
+        if (s) for (size_t k = 0; k < c.seasons.size(); ++k) if (&c.seasons[k] == s) si = k;
+        const cjui::Color sc = s ? seasonColour(s->name, si) : pal_.rule;
+        const float a0 = angle((double)at), a1 = angle((double)(at + ml));
+        const std::string id = "calw:m:" + std::to_string(mo);
+        const float mid = (a0 + a1) / 2;
+        const float tx = cx + (R + 26) * std::cos(mid), ty = cy + (R + 26) * std::sin(mid);
+        const std::wstring nm = w(cal::monthLabel(c, mo));
+        const float nw = std::min(120.0f, gfx_.measureWidth(nm, Font::Small) + 6);
+        const Rect lr{tx - nw / 2, ty - 10, nw, 20};
+        addHit(id, lr, [this, mo, year] { wb_.calMode = 0; wb_.calMonth = mo; wb_.calYear = year; invalidate(); });
+        tooltip(id, nm + L": " + std::to_wstring(ml) + L" days" + (s ? L", " + w(s->name) : std::wstring()) + L". Click for the month.");
+        const float hv = hoverAmount(id);
+        gfx_.arc(cx, cy, R - ring / 2, a0 + 0.004f, a1 - 0.004f, sc.withAlpha(0.75f + 0.25f * hv), ring);
+        gfx_.text(nm, lr, hv > 0.01f ? Font::SmallStrong : Font::Small, pal_.ink, {Align::Center, false, false, true});
+        // The month's first day as a tick.
+        gfx_.line(cx + (R - ring) * std::cos(a0), cy + (R - ring) * std::sin(a0), cx + R * std::cos(a0), cy + R * std::sin(a0), pal_.surface, 2);
+        at += ml;
+    }
+    // Holidays: a star on the ring at their day.
+    for (size_t h = 0; h < c.holidays.size(); ++h) {
+        const cal::Holiday& hd = c.holidays[h];
+        if (hd.month < 0 || hd.month >= (int)c.months.size()) continue;
+        const std::int64_t d = cal::toDay(c, cal::clampDate(c, {year, hd.month, hd.day})) - first;
+        const float a = angle(d + 0.5);
+        const float hx = cx + (R - ring / 2) * std::cos(a), hy = cy + (R - ring / 2) * std::sin(a);
+        const std::string id = "calw:h:" + std::to_string(h);
+        addHit(id, {hx - 9, hy - 9, 18, 18}, nullptr, false);
+        tooltip(id, w(hd.name) + L"  ·  " + w(cal::formatDate(c, cal::clampDate(c, {year, hd.month, hd.day}), false)) +
+                        (hd.notes.empty() ? std::wstring() : L"\n" + w(hd.notes)));
+        gfx_.circle(hx, hy, 9, pal_.surface, true);
+        cjui::drawIcon(gfx_, cjui::Icon::Star, {hx - 7, hy - 7, 14, 14}, gold_, 1.3f);
+    }
+    // The moons: full and new moons (the first moon) just inside the ring; eclipses ringed in red.
+    const float moonR = R - ring - 14;
+    if (!c.moons.empty()) {
+        double prev = cal::moonPhase(c, c.moons[0], first - 1);
+        for (std::int64_t d = 0; d < len; ++d) {
+            const double ph = cal::moonPhase(c, c.moons[0], first + d);
+            const bool full = prev < 0.5 && ph >= 0.5, fresh = ph < prev;
+            prev = ph;
+            const auto ecl = cal::eclipsesOn(c, first + d);
+            if (!full && !fresh && ecl.empty()) continue;
+            const float a = angle(d + 0.5);
+            const float mx = cx + moonR * std::cos(a), my = cy + moonR * std::sin(a);
+            drawMoonDisc(mx, my, 5, full ? 0.5 : 0.0);
+            if (!ecl.empty()) gfx_.circle(mx, my, 8, pal_.dark ? cjui::hexColor("#F08A6C") : cjui::hexColor("#B4442C"), false, 1.8f);
+            const std::string id = "calw:moon:" + std::to_string(d);
+            addHit(id, {mx - 7, my - 7, 14, 14}, nullptr, false);
+            std::wstring tip = w(c.moons[0].name) + L": " + (full ? L"full" : L"new") + L" on " + w(cal::formatDate(c, cal::fromDay(c, first + d), false));
+            for (auto& e : ecl) tip += e.kind == cal::Eclipse::Solar ? L", a solar eclipse" : L", a lunar eclipse";
+            tooltip(id, tip);
+        }
+    }
+    // Each book's span this year, inside: an arc per book in its own colour, a ring further in each.
+    std::vector<std::pair<const studio::Book*, cjui::Color>> books;
+    float br = moonR - 22;
+    for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) {
+        const cal::StorySpan sp = cal::storySpan(*lib_, b);
+        if (!sp.on || !sp.any || sp.last < first || sp.first >= first + len) continue;
+        const studio::Book* bk = lib_->book(b);
+        if (!bk || br < 40) continue;
+        const cjui::Color bc = povColour(b);
+        const double a = (double)std::max(sp.first, first) - first, z = (double)std::min(sp.last + 1, first + len) - first;
+        gfx_.arc(cx, cy, br, angle(a), angle(std::max(z, a + 0.6)), bc, 8);
+        const std::string id = "calw:b:" + b;
+        const float mid = angle((a + z) / 2);
+        addHit(id, {cx + br * std::cos(mid) - 8, cy + br * std::sin(mid) - 8, 16, 16}, nullptr, false);
+        tooltip(id, w(bk->title) + L": " + w(cal::formatDate(c, cal::fromDay(c, sp.first))) + L" to " + w(cal::formatDate(c, cal::fromDay(c, sp.last))));
+        books.push_back({bk, bc});
+        br -= 14;
+    }
+    // The story's now: a needle from the centre.
+    if (now && *now >= first && *now < first + len) {
+        const float a = angle((double)(*now - first) + 0.5);
+        gfx_.line(cx, cy, cx + (R - 2) * std::cos(a), cy + (R - 2) * std::sin(a), pal_.ribbon, 2.5f);
+        gfx_.circle(cx + (R - 2) * std::cos(a), cy + (R - 2) * std::sin(a), 5, pal_.ribbon, true);
+        addHit("calw:now:mark", {cx + (R - 2) * std::cos(a) - 8, cy + (R - 2) * std::sin(a) - 8, 16, 16}, nullptr, false);
+        tooltip("calw:now:mark", L"Now in the story: “" + nowWhat + L"”, " + w(cal::formatDate(c, cal::fromDay(c, *now))));
+    }
+    gfx_.circle(cx, cy, 5, pal_.inkMuted, true);
+    gfx_.text(w(cal::formatYear(c, year)), {cx - 90, cy + 10, 180, 22}, Font::BodyStrong, pal_.ink, {Align::Center, false, false, true});
+    gfx_.text(std::to_wstring(len) + L" days", {cx - 90, cy + 32, 180, 18}, Font::Small, pal_.inkMuted, {Align::Center, false, false, true});
+    // The key, beside the wheel (below it when narrow).
+    float kx = cx + R + 80, ky = y + 10;
+    const float kw = m.right() - kx;
+    if (kw < 200) { kx = m.x; ky = cy + R + 50; }
+    auto keyRow = [&](std::function<void(float, float)> mark, const std::wstring& t) {
+        mark(kx + 8, ky + 10);
+        gfx_.text(t, {kx + 26, ky, std::max(160.0f, m.right() - kx - 26), 20}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+        ky += 24;
+    };
+    gfx_.text(L"SEASONS", {kx, ky, 200, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    ky += 22;
+    for (size_t k = 0; k < c.seasons.size(); ++k)
+        keyRow([&](float x, float yy) { gfx_.fillRounded({x - 7, yy - 6, 14, 12}, 3, seasonColour(c.seasons[k].name, k)); }, w(c.seasons[k].name));
+    if (c.seasons.empty()) { gfx_.text(L"None yet (Make the calendar › Seasons).", {kx, ky, 300, 20}, Font::Small, pal_.inkFaint); ky += 24; }
+    ky += 10;
+    gfx_.text(L"MARKS", {kx, ky, 200, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    ky += 22;
+    keyRow([&](float x, float yy) { cjui::drawIcon(gfx_, cjui::Icon::Star, {x - 7, yy - 7, 14, 14}, gold_, 1.3f); }, L"A holiday (point at it for its name)");
+    if (!c.moons.empty()) {
+        keyRow([&](float x, float yy) { drawMoonDisc(x, yy, 5, 0.5); }, w(c.moons[0].name) + L": full moon");
+        keyRow([&](float x, float yy) { drawMoonDisc(x, yy, 5, 0.0); }, w(c.moons[0].name) + L": new moon");
+        keyRow([&](float x, float yy) { gfx_.circle(x, yy, 7, pal_.dark ? cjui::hexColor("#F08A6C") : cjui::hexColor("#B4442C"), false, 1.8f); }, L"An eclipse");
+    }
+    if (now) keyRow([&](float x, float yy) { gfx_.circle(x, yy, 5, pal_.ribbon, true); }, L"Now in the story: " + nowWhat);
+    if (!books.empty()) {
+        ky += 10;
+        gfx_.text(L"BOOKS THIS YEAR", {kx, ky, 200, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        ky += 22;
+        for (auto& [bk, bc] : books) keyRow([&](float x, float yy) { gfx_.fillRounded({x - 8, yy - 3, 16, 6}, 3, bc); }, w(bk->title));
+    }
+    return std::max(cy + R + 50, ky + 20);
 }
 
 }  // namespace nrs

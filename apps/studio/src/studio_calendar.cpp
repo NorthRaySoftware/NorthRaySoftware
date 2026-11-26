@@ -432,7 +432,7 @@ void StudioApp::drawCalendar(const Rect& r) {
     gfx_.pushClip(r);
     setHitClip(r);
     const float pad = r.w > 900 ? 40 : 28;
-    const float cw = std::min(r.w - pad * 2, wb_.calMode == 0 ? 1100.0f : 820.0f);
+    const float cw = std::min(r.w - pad * 2, wb_.calMode != 1 ? 1100.0f : 820.0f);
     const Rect m{r.x + pad, r.y + 26 - wb_.scroll, cw, 0};
     float y = m.y;
     const std::string key = calendarKey();
@@ -483,6 +483,7 @@ void StudioApp::drawCalendar(const Rect& r) {
     }
     {
         std::vector<PageTab> tabs;
+        tabs.push_back({L"The year", -1, wb_.calMode == 2, [this] { commitFields(); setFocus({}); wb_.calMode = 2; wb_.scroll = 0; invalidate(); }});
         tabs.push_back({L"Month by month", -1, wb_.calMode == 0, [this] { commitFields(); setFocus({}); wb_.calMode = 0; wb_.scroll = 0; invalidate(); }});
         tabs.push_back({L"Make the calendar", -1, wb_.calMode == 1, [this] { commitFields(); wb_.calMode = 1; wb_.scroll = 0; invalidate(); }});
         y += pageTabs("cal:tabs", m.x, y, m.right(), tabs) + 18;
@@ -538,7 +539,10 @@ void StudioApp::drawCalendar(const Rect& r) {
         showTools(items, mouseX(), mouseY());
     };
 
-    if (wb_.calMode == 0) {
+    if (wb_.calMode == 2) {
+        // ---- The year as a wheel (0.87).
+        y = drawYearWheel(m, y, c);
+    } else if (wb_.calMode == 0) {
         // ---- Month by month: the bible's calendar page.
         if (const auto ch = lib_->changesMade(); ch != wb_.factsAt) {
             wb_.factsAt = ch;

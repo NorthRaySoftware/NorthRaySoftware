@@ -623,7 +623,43 @@ std::vector<StudioApp::ToolItem> StudioApp::bibleTools() {
         const size_t n = studio::fonts::familiesIn(ownFontsFolder(wb_.world, wb_.book)).size();
         t.push_back(ToolItem::item(n ? L"Fonts  (" + std::to_wstring(n) + L")" : L"Fonts", [this] { openFonts({}); }, wb_.fontsPage));
     }
-    t.push_back(ToolItem::item(L"Checks", open([this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; }), wb_.checks));
+    {
+        // How many it found when last worked out, while the bible hasn't changed since (0.87).
+        std::wstring lbl = L"Checks";
+        const std::string scopeKey = wb_.world.empty() ? wb_.book : wb_.world;
+        if (wb_.checksKey == scopeKey + "|" + std::to_string(lib_->changesMade())) {
+            const size_t n = wb_.continuity.facts.size() + wb_.continuity.gaps.size() + wb_.continuity.capitals.size() + wb_.spellings.size();
+            lbl += n ? L"  (" + std::to_wstring(n) + L" to look at)" : L"  (all clear)";
+        }
+        t.push_back(ToolItem::item(lbl, open([this] { openEntry({}); wb_.checks = true; wb_.scroll = 0; }), wb_.checks));
+    }
+    // The world's map (0.87): the map of a realm or place the writer picks, with every place pinned on it.
+    {
+        const std::string key = "worldmap:" + (wb_.world.empty() ? wb_.book : wb_.world);
+        const Entry* wm = lib_->entry(lib_->setting(key));
+        if (wm && (wm->deleted || wm->mapBlob.empty())) wm = nullptr;
+        std::vector<ToolItem> sub;
+        if (wm) sub.push_back(ToolItem::item(L"Open the world map (" + w(wm->name) + L")", [this, id = wm->id] { openMap(id); }));
+        std::vector<ToolItem> pick;
+        for (const Entry* x : lib_->entriesOf(wb_.world, wb_.world.empty() ? wb_.book : Id{}))
+            if (!x->mapBlob.empty())
+                pick.push_back(ToolItem::item(L"The map of " + w(x->name), [this, key, id = x->id] {
+                    lib_->setSetting(key, id);
+                    openMap(id);
+                }, wm && wm->id == x->id));
+        if (!pick.empty()) sub.push_back(ToolItem::menu(L"Use as the world map", pick));
+        sub.push_back(ToolItem::item(L"Make a world map…", [this, key] {
+            // A realm for the whole world, whose map is the world map: the picture is added on its page.
+            std::string name = "The world";
+            if (const World* wd = lib_->world(wb_.world)) name = wd->name;
+            const Id id = lib_->createEntry(wb_.world, wb_.world.empty() ? wb_.book : Id{}, "realm", name);
+            if (id.empty()) return;
+            lib_->setSetting(key, id);
+            openEntry(id);
+            flash(L"Made the realm " + w(name) + L" for the world map: add the map's picture under Map on its page, then pin places on it.", 10);
+        }));
+        t.push_back(ToolItem::menu(wm ? L"World map" : L"World map (none yet)", sub));
+    }
     // Image boards: the world's own (a character's are on their page).
     {
         std::vector<ToolItem> boards;
@@ -798,7 +834,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 nl = L"+ New " + l;
             }
             const float tbw = gfx_.measureWidth(L"Bible tools", Font::Body) + 44;
-            const float nw = gfx_.measureWidth(nl.substr(2), Font::Body) + 26 + 21;
+            const float nw = buttonWidth(nl);
             menuButton("wb:tools", m.right() - tbw, y + 12, L"Bible tools", [this] { return bibleTools(); });
             button("wb:new", {m.right() - tbw - 10 - nw, y + 12, nw, 32}, nl, [this] { newEntry(wb_.kind); }, true);
             y += 20;
@@ -4107,17 +4143,41 @@ void StudioApp::drawMapView(const Rect& r) {
     std::vector<Rect> placed;
     Id hot;
     for (auto& p : ps) if (hovered("wb:mvp:" + p.id) || (wb_.mapDrag == 2 && wb_.mapPin == p.id)) hot = p.id;
+    // Places inside other pinned places (0.87): joined to the place they're in by a dotted line and drawn smaller, so the
+    // Located in chain reads on the map (Akunda inside Highcliff inside the realm).
+    std::map<Id, const P*> pinAt;
+    for (auto& p : ps) pinAt[p.id] = &p;
+    std::map<Id, Id> inside;   // pin -> the nearest pinned place it's in
+    std::map<Id, std::wstring> chain;
+    for (auto& p : ps) {
+        std::wstring ch;
+        const auto path = placePath(*lib_, *p.o);
+        for (const Entry* up : path) ch += (ch.empty() ? L"" : L" \u203A ") + w(up->name);
+        for (auto it = path.rbegin(); it != path.rend(); ++it)   // the nearest pinned place it's in
+            if ((*it)->id != p.id && pinAt.count((*it)->id)) { inside[p.id] = (*it)->id; break; }
+        chain[p.id] = ch;
+    }
+    for (auto& [kid, par] : inside) {
+        const P* a = pinAt[kid];
+        const P* b = pinAt[par];
+        const float dx = b->x - a->x, dy = b->y - a->y, len = std::sqrt(dx * dx + dy * dy);
+        for (float t = 0; t < len; t += 7) {
+            const float t2 = std::min(len, t + 3.5f);
+            gfx_.line(a->x + dx * t / len, a->y + dy * t / len, a->x + dx * t2 / len, a->y + dy * t2 / len, pal_.ink.withAlpha(0.55f), 1.4f);
+        }
+    }
     std::stable_partition(ps.begin(), ps.end(), [&](const P& p) { return p.id == hot; });   // its label first
     for (auto& p : ps) {
         const cjui::Color kc = kindColor(p.o->kind, pal_.dark);
         const std::string id = "wb:mvp:" + p.id;
-        addHit(id, {p.x - 11, p.y - 11, 22, 22}, [] {}, false);
-        tooltip(id, w(p.o->name) + (p.o->mapBlob.empty() ? L"" : L" (has its own map)") + L": drag to move, click for more");
+        addHit(id, {p.x - 12, p.y - 30, 24, 32}, [] {}, false);
+        tooltip(id, (chain[p.id].empty() ? w(p.o->name) : w(p.o->name) + L" (in " + chain[p.id] + L")") +
+                        (p.o->mapBlob.empty() ? L"" : L", with a map of its own") + L": drag to move, click for more");
         const float hv = hoverAmount(id);
         const std::wstring nm = w(p.o->name);
         const float lw = gfx_.measureWidth(nm, Font::Small) + 16;
-        Rect label{p.x + 11, p.y - 11, lw, 22};
-        if (label.right() > board.right() - 4) label.x = p.x - 11 - lw;
+        Rect label{p.x + 15, p.y - 32, lw, 22};
+        if (label.right() > board.right() - 4) label.x = p.x - 15 - lw;
         bool clear = true;
         for (auto& q : placed)
             if (label.x < q.right() + 3 && q.x - 3 < label.right() && label.y < q.bottom() + 3 && q.y - 3 < label.bottom()) clear = false;
@@ -4127,9 +4187,19 @@ void StudioApp::drawMapView(const Rect& r) {
             gfx_.strokeRounded(label, 11, kc.withAlpha(0.55f + 0.45f * hv));
             gfx_.text(nm, label, Font::Small, pal_.ink, {Align::Center, false, true, true});
         }
-        gfx_.circle(p.x, p.y, 8 + 2 * hv, pal_.paper, true);
-        gfx_.circle(p.x, p.y, 6 + 2 * hv, kc, true);
-        if (!p.o->mapBlob.empty()) gfx_.circle(p.x, p.y, 11 + 2 * hv, kc.withAlpha(0.7f), false, 1.4f);   // a ring: it has a map of its own
+        // A pin with the place's symbol in its head (0.87): its picture or chosen symbol, else its kind's; smaller when it's
+        // inside another pinned place.
+        const bool nested = inside.count(p.id) > 0;
+        const float hr = (nested ? 7.5f : 10.5f) + 1.5f * hv, hy = p.y - hr - 10;
+        gfx_.fillTriangle(p.x - hr * 0.62f, hy + hr * 0.6f, p.x + hr * 0.62f, hy + hr * 0.6f, p.x, p.y, kc);
+        gfx_.circle(p.x, hy, hr + 1.5f, pal_.paper, true);
+        if (!p.o->imageBlob.empty() || !p.o->symbol.empty()) drawPortrait(*p.o, {p.x - hr, hy - hr, hr * 2, hr * 2}, hr);
+        else {
+            gfx_.circle(p.x, hy, hr, kc, true);
+            cjui::drawIcon(gfx_, entryKindIcon(p.o->kind), {p.x - hr * 0.62f, hy - hr * 0.62f, hr * 1.24f, hr * 1.24f}, pal_.paper, 1.3f);
+        }
+        gfx_.circle(p.x, p.y, 2, pal_.ink, true);
+        if (!p.o->mapBlob.empty()) gfx_.circle(p.x, hy, hr + 4, kc.withAlpha(0.7f), false, 1.4f);   // a ring: it has a map of its own
     }
     gfx_.popClip();
     // Zoom, floating in the board's corner.

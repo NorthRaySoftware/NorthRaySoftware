@@ -1,6 +1,23 @@
 {
   "releases": [
     {
+      "version": "0.87.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Each kind of bible page has its own symbol and colour (a person, a paw, a house, a mountain, a shield, a gem, a scroll, a star, a flag, a speech bubble), shown on the kind tabs, the cards and list rows, search results, Checks, relationship lists and map pins.",
+        "Pages show their picture as a round portrait in lists, search results, Who's there, relationships, the family tree and the timeline. A page without a picture can choose a symbol or an emoji (⋯ › Symbol); otherwise it shows its initials.",
+        "Relationships can be shown as a web: the page in the middle, everyone it's linked to round it, joined by lines in each kind of link's colour with the link's words on them, and a chip for each kind of link to leave it out.",
+        "Planning cards show the viewpoint's portrait, who's there as small faces, the status as a coloured badge, plot threads as stripes, the place's symbol and name, and the date as a little calendar page with the moon's phase.",
+        "The calendar has a year view: the months round a wheel coloured by season, holidays as stars, full and new moons and eclipses, each book's span inside, and the chapter open in Writing marked as the story's now.",
+        "The timeline leads each viewpoint or place lane with its portrait, gives story events their symbol, and shows the world's other books as coloured spans above the lanes.",
+        "Bible tools › World map picks a realm's or place's map as the world map (or makes one). Map pins carry the place's symbol, and a place inside another pinned place is drawn smaller, joined to it.",
+        "Progress rings show a book's share of its target, the note after importing pages leads with symbols and counts, and Bible tools shows how many Checks found.",
+        "Settings › Buttons and menus show: icons and words, icons alone (the words as tooltips), or words alone. Menus show each command's icon.",
+        "Faster drawing: text is laid out once and kept between frames, and pictures shown small use a small copy. Pages full of text and portraits draw about twice as fast.",
+        "The character page template has Born, Died, Ageless and Appears lines."
+      ]
+    },
+    {
       "version": "0.86.0",
       "date": "2026-11-26",
       "notes": [

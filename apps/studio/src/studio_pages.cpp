@@ -1966,10 +1966,10 @@ float StudioApp::pageBook(const Rect& r) {
         statusTag(sx, ty + 1, b.status, 160);
         ty += 30;
         if (target > 0) {
-            const float f = std::clamp((float)b.wordCount / (float)target, 0.0f, 1.0f);
-            gfx_.fillRounded({x, ty, 260, 5}, 2.5f, pal_.rule);
-            if (f > 0) gfx_.fillRounded({x, ty, std::max(5.0f, 260 * f), 5}, 2.5f, pal_.ribbon);
-            ty += 16;
+            // A ring (0.87): the share of the target written, with the percentage.
+            drawProgressRing(x + 18, ty + 18, 17, (float)b.wordCount / (float)target);
+            gfx_.text(L"of the target written", {x + 44, ty + 8, 220, 20}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
+            ty += 44;
         }
         ty += 6;
         // The ways in: carry on writing (where you were), plan it, its bible, and the rest.

@@ -493,6 +493,11 @@ private:
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).
     void drawDateChip(const Rect& r, int day, const std::wstring& month);
+    // The calendar's year as a wheel (0.87): months round the ring coloured by season, holidays, full and new moons and
+    // eclipses, each book's span inside, and the chapter open in Writing marked. Returns the new y.
+    float drawYearWheel(const Rect& m, float y, const studio::cal::Calendar& c);
+    // A progress ring (0.87): how far towards a target, gold when reached, the percentage inside when there's room.
+    void drawProgressRing(float cx, float cy, float rad, float fraction);
     void checkIsFine(const std::string& key);
     void drawGlossary(const Rect& r);   // every name in the bible, A to Z, with how it's said
     void shareBible();                  // a website or a printable PDF: everything, or a reader's guide
@@ -975,6 +980,7 @@ private:
         int calMode = 0;           // 0 month by month, 1 making it
         int calMonth = 0;          // the month shown (index)
         std::int64_t calYear = 1;  // the year shown (plain)
+        bool calYearSet = false;   // the wheel has been put on the story's year once (0.87)
         bool datePick = false;     // the little calendar under the field being edited (0.75)
         int pickMonth = 0;
         std::int64_t pickYear = 1;

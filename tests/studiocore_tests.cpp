@@ -826,6 +826,22 @@ static void testAges() {
         CHECK(review::gapWords("After three weeks, the snow melted.", 7, 30, 365).has_value());
         CHECK(!review::gapWords("She had waited three days for this.", 7, 30, 365).has_value());
     }
+    // A page's chosen symbol (0.87) is kept, survives reopening, and a merge keeps the one there is.
+    {
+        Entry e = *lib->findEntryNamed(w, {}, "Mimic");
+        e.symbol = "\xF0\x9F\x90\x89";   // a dragon emoji
+        CHECK(lib->updateEntry(e));
+        const Id other = lib->createEntry(w, {}, "creature", "Mimic copy");
+        Entry o = *lib->entry(other);
+        o.symbol = "icon:paw";
+        CHECK(lib->updateEntry(o));
+        const Id plain = lib->createEntry(w, {}, "creature", "Plain");
+        CHECK(lib->mergeEntries(plain, other));
+        CHECK(lib->entry(plain)->symbol == "icon:paw");
+        lib.reset();
+        lib = openOk(dir);
+        CHECK(lib && lib->findEntryNamed(w, {}, "Mimic")->symbol == "\xF0\x9F\x90\x89");
+    }
     lib.reset();
     fs::remove_all(dir);
 }

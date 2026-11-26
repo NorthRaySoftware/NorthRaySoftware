@@ -644,7 +644,7 @@ void StudioApp::drawTypesetHead(const Rect& r) {
         saveSettings();
         invalidate();
     }, L"The design's choices beside the pages") + 8;
-    const float ew = gfx_.measureWidth(L"Export PDF…", Font::Body) + 26 + 21;
+    const float ew = buttonWidth(L"Export PDF…");
     right -= ew;
     if (ready) button("ts:head:pdf", {right, by, ew, 32}, L"Export PDF…", [this] { exportPdf(); }, true);
     else disabledButton({right, by, ew, 32}, L"Export PDF…");

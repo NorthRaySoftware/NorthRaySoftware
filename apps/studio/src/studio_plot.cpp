@@ -28,6 +28,8 @@
 
 namespace nrs {
 
+std::vector<Id> booksInReadingOrder(const studio::Library& lib, const Id& world, const Id& book);   // studio_world.cpp
+
 using nlohmann::json;
 using namespace studio;
 using cjui::MenuItem;
@@ -336,7 +338,7 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     for (auto& it : placed) widen2(it.day);
     for (auto& [e, d] : placedEvents) widen2(d);
     if (anyPlaced) { lo = std::floor(lo) - 1; hi = std::ceil(hi) + 1; }
-    const float labelW = 150, cardW = 132, cardH = 54;
+    const float labelW = 176, cardW = 132, cardH = 54;
     const float avail = cw - labelW;
     const double span = std::max(1.0, hi - lo);
     const float tail = placedEvents.empty() ? 0.0f : 170.0f;   // room for an event's flag after the last day
@@ -361,6 +363,39 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
     // Ticks along the top, at a step that leaves room for their labels.
     double step = 1;
     for (double s : {1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0}) { step = s; if (s * px >= 70) break; }
+    // The books (0.87): in calendar dates, each of the world's books that falls in this stretch of time as a span of its
+    // colour, this one picked out, so a book set during another shows where it sits.
+    if (calOn && anyPlaced) {
+        struct Span { const Book* bk; double a, z; };
+        std::vector<Span> spans;
+        for (const Id& id : booksInReadingOrder(*lib_, b->worldId, b->worldId.empty() ? b->id : Id{})) {
+            const cal::StorySpan sp = cal::storySpan(*lib_, id);
+            if (!sp.on || !sp.any) continue;
+            const double a = (double)(sp.first - cStart), z = (double)(sp.last - cStart) + 1;
+            if (z < lo || a > hi + 1) continue;
+            if (const Book* bk = lib_->book(id)) spans.push_back({bk, a, z});
+        }
+        if (spans.size() > 1 || (spans.size() == 1 && spans[0].bk->id != b->id)) {
+            gfx_.text(L"Books", {m.x + 12, y + 2, labelW - 20, 18}, Font::Label, pal_.inkFaint, {Align::Left, false, true});
+            gfx_.pushClip({area.x, y, area.w, spans.size() * 22.0f + 4});
+            for (size_t i = 0; i < spans.size(); ++i) {
+                const Span& sp = spans[i];
+                const float bx = std::max(area.x - 4, xOf(sp.a)), bz = std::min(area.right() + 4, xOf(sp.z));
+                const Rect bar{bx, y + 2 + 22.0f * i, std::max(6.0f, bz - bx), 18};
+                const bool self = sp.bk->id == b->id;
+                const Color bc = povColour(sp.bk->id);
+                gfx_.fillRounded(bar, 9, bc.withAlpha(self ? 0.9f : 0.35f));
+                if (self) gfx_.strokeRounded(bar.inset(-1.5f), 10.5f, pal_.ink.withAlpha(0.5f), 1.2f);
+                gfx_.text(w(sp.bk->title) + (self ? L"  (this book)" : L""), {std::max(bar.x, area.x) + 8, bar.y, std::max(10.0f, bar.right() - std::max(bar.x, area.x) - 12), bar.h},
+                          self ? Font::SmallStrong : Font::Small, self ? cjui::hexColor("#FFFFFF") : pal_.ink, {Align::Left, false, true, true});
+                const std::string bid = "pl:tlbook:" + sp.bk->id;
+                addHit(bid, bar, self ? std::function<void()>{} : std::function<void()>([this, id = sp.bk->id] { openPlanning(id); }), !self);
+                tooltip(bid, w(sp.bk->title) + L": " + lab(sp.a) + L" to " + lab(sp.z - 1) + (self ? L"" : L". Click to plan it."));
+            }
+            gfx_.popClip();
+            y += spans.size() * 22.0f + 10;
+        }
+    }
     const float tickY = y;
     y += 26;
     // The story's events (0.52): a strip of flags above the lanes, each with a line down through them.
@@ -402,7 +437,15 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         const auto [a, z] = laneSpans[i];
         if (i % 2 == 0) gfx_.fill({m.x, a, cw, z - a}, pal_.surface.withAlpha(0.45f));
         if (lanes[i].coloured) gfx_.fill({m.x, a + 6, 4, z - a - 12}, lanes[i].colour);   // the lane's colour, as on the cards
-        gfx_.text(lanes[i].name, {m.x + 12, a + 10, labelW - 20, 40}, Font::BodyStrong, lanes[i].coloured ? pal_.ink : pal_.inkMuted,
+        // A character's or place's lane leads with its portrait or symbol (0.87).
+        float nx = m.x + 12;
+        if (laneBy != "thread" && !lanes[i].key.empty() && lanes[i].key != "*")
+            if (const Entry* le = lib_->entry(lanes[i].key)) {
+                drawPortrait(*le, {nx, a + 9, 28, 28}, 14);
+                if (lanes[i].coloured) gfx_.strokeRounded({nx - 1.5f, a + 7.5f, 31, 31}, 15.5f, lanes[i].colour, 1.6f);
+                nx += 36;
+            }
+        gfx_.text(lanes[i].name, {nx, a + 10, labelW - 8 - (nx - m.x), 40}, Font::BodyStrong, lanes[i].coloured ? pal_.ink : pal_.inkMuted,
                   {Align::Left, true, true});
         gfx_.line(m.x, z - 0.5f, m.right(), z - 0.5f, pal_.rule);
     }
@@ -512,9 +555,13 @@ void StudioApp::drawPlanTimeline(const Rect& r) {
         });
         tooltip(id, nm + L" · " + lab(d) + (et.empty() ? L"" : L", " + w(cal::timeOfDayText(cc, et))) + L". Drag it along to move it; click for more.");
         const float hv = hoverAmount(id);
-        gfx_.fillRounded(flag, 4, evc.withAlpha(0.14f + 0.12f * hv));
+        // A flag on a pole, with the event's symbol (its picture, chosen symbol, or the event kind's flag) (0.87).
+        const Rect flag2{flag.x, flag.y, flag.w + 20, flag.h};
+        gfx_.fillRounded(flag2, 4, evc.withAlpha(0.14f + 0.12f * hv));
         gfx_.fill({ex - 1, eventTop + 4, 2.5f, 24}, evc);
-        gfx_.text(nm, {flag.x + 12, flag.y, flag.w - 16, flag.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+        if (!e->imageBlob.empty() || !e->symbol.empty()) drawPortrait(*e, {flag.x + 9, flag.y + 3, 18, 18}, 9);
+        else cjui::drawIcon(gfx_, entryKindIcon(e->kind), {flag.x + 10, flag.y + 4, 16, 16}, evc, 1.4f);
+        gfx_.text(nm, {flag.x + 32, flag.y, flag.w - 16, flag.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
     }
     // Reading order: a line from card to card (a card in several lanes, from its first).
     std::vector<const Placed*> byOrder;
