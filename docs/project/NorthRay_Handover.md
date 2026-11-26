@@ -1,0 +1,129 @@
+# NorthRay Development Handover
+
+**Written:** 26 November 2026, at the end of the session that released suite **0.169.0** (Writing Studio 0.93.0).
+
+**Purpose:** everything needed to resume NorthRay development in a fresh conversation, with no access to earlier chats.
+
+---
+
+## 1. NorthRay in one paragraph
+
+NorthRay Software is a suite of native Windows creative apps:
+- **Launcher**
+- **Writing Studio**
+- **Browser**
+- **Files**
+- **Capture**
+
+They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) and a shared look (night sky and aurora). There are no accounts, no telemetry and no subscriptions. Releases are built by cross-compiling with MinGW, packaged as per-user NSIS installers, and published to GitHub Pages, where the Launcher reads a checksummed catalogue. The project director is CJ Philip; the development partner (Claude) is called Claw.
+
+## 2. Applications and status
+
+| App | Version | Status | Health |
+|---|---|---|---|
+| NorthRay Launcher | 0.169.0 | Preview, released | Stable. Tray and notifications not checked on real Windows |
+| NorthRay Writing Studio | 0.93.0 | Preview, released | Very active. Core tests 2,384 pass and editor tests 28 pass. Editor features need checking on Windows |
+| NorthRay Browser | 0.9.2 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
+| NorthRay Files | 0.9.2 | Preview, released | Stable. 373 tests pass |
+| NorthRay Capture | 0.21.2 | In development | Feature-rich. **Recording and streaming are unverified on real hardware or platforms.** 45,641 tests pass |
+| SkillSwap | none | Postponed | Core rules only; the app source is missing from the repository |
+| Community launcher and radio app | none | Removed in 0.131 | History only |
+
+## 3. Important file locations
+
+| What | Where |
+|---|---|
+| Project instructions (for Claw) | `docs/project/CLAUDE_PROJECT_INSTRUCTIONS.md` |
+| Suite manual | `docs/project/NorthRay_Suite_Manual.md` |
+| App manuals | `launcher/MANUAL.md`, `apps/studio/MANUAL.md`, `apps/browser/MANUAL.md`, `apps/files/MANUAL.md`, `apps/capture/MANUAL.md` |
+| Architecture (suite, Launcher) | `docs/ARCHITECTURE.md` |
+| Architecture (per app) | `docs/studio/ARCHITECTURE.md`, `apps/browser/docs/ARCHITECTURE.md`, `apps/files/docs/ARCHITECTURE.md`, `apps/capture/docs/ARCHITECTURE.md` |
+| Writing Studio library format | `docs/studio/FORMAT.md` (needs a refresh; see the issues list) |
+| Roadmaps | `docs/ROADMAP-2026-11.md`, `docs/studio/BIBLE-ROADMAP.md`, `docs/project/Roadmap_and_Outstanding_Work.md` |
+| Decisions | `docs/project/Decision_Log.md`, plus the director's request documents (archive `07_Decision_Logs/`) |
+| Issues and gaps | `docs/project/ISSUES_AND_MISSING_INFO.md` |
+| Design | `docs/project/NorthRay_Design_Guidelines.md` (current); `docs/DESIGN.md` (outdated) |
+| Shared code | `docs/project/Shared_Infrastructure.md` |
+| Setup | `docs/project/Environment_and_Setup.md` |
+| Versions and release notes | `VERSION` (suite); `apps/*/VERSION` (Browser, Files, Capture); `shared/metadata/releases/*.json` (Writing Studio's version is the top entry of `writing-studio.json`) |
+| Writing Studio user manual | Claude Doc "NorthRay Writing Studio Manual" (artifact `5c5e6e8b-fabc-4a0c-aca9-4b42c7ca40dd`); latest PDF in the archive's `02_Application_Manuals/` |
+| Live website | https://northraysoftware.github.io/NorthRaySoftware/ |
+| Repository | `github.com/NorthRaySoftware/NorthRaySoftware`, branch `source` (development) and `main` (site) |
+
+## 4. Current development priorities
+
+1. **Real-hardware verification of Capture**: recording, streaming, multistreaming, per-program audio, cameras. The director tests builds on Windows; plan a test session with a checklist.
+2. **Windows verification of Writing Studio's editor features** added since 0.34: the 0.92 chapter openings, the right-click additions, pasted pictures.
+3. **Housekeeping:**
+   - Rewrite `docs/DESIGN.md`.
+   - Refresh `docs/studio/FORMAT.md`.
+   - Update `writing-studio.json` (description, features, version).
+   - Fix or remove the SkillSwap build option.
+   - Delete the stray `ed1.png`.
+4. **The Writing Studio user manual:** replace the personal-world examples with generic ones (NorthRay independence).
+5. **Code signing and UI Automation**, which affect every app.
+6. **Feature work**, in each app's agreed priorities (`Roadmap_and_Outstanding_Work.md`).
+
+## 5. Outstanding tasks
+
+There are no half-finished code changes: the working tree was committed and pushed at 0.169.0, and this handover's documents were committed after it. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
+
+## 6. Important technical decisions (summary; full list in `Decision_Log.md`)
+
+**Platform and code**
+- Native Win32, Direct2D and DirectWrite through cjui for every app. Writing Studio's editor, the Browser's pages, and the ebook and review-copy views use WebView2.
+- Portable cores (`libs/cjcore`, `libs/studiocore`, `apps/*/core`) hold the logic and are unit-tested on Linux.
+- Permissive licences only.
+
+**Data and secrets**
+- Integration between apps is one-way files plus command-line hand-offs. No app links to another.
+- Secrets only in Windows Credential Manager. No accounts, no telemetry.
+
+**Releases and interface**
+- Every release bumps the suite `VERSION`. Push to `source`; only `publish-site.sh` updates `main`.
+- No menu bars, scroll bars or status bars.
+
+**Writing Studio**
+- No AI. Rule-based checks only.
+
+**Capture**
+- Pasted stream keys, not sign-in.
+- No game hooking.
+- No virtual camera.
+
+## 7. Known problems
+
+See `ISSUES_AND_MISSING_INFO.md`. The main ones:
+- Verification gaps (Capture hardware; Writing Studio editor; Browser engine).
+- The SkillSwap build option points at a missing folder.
+- Outdated `DESIGN.md` and `FORMAT.md`.
+- Stale Writing Studio metadata.
+- Unsigned installers.
+- No UI Automation.
+- No legal pages yet; the owner and operator need to be stated by the director.
+
+## 8. Dependencies and setup
+
+See `Environment_and_Setup.md`.
+- **Toolchains:** MinGW-w64 GCC 13 with CMake and NSIS for Windows builds; GCC or Clang for native tests; Node ≥ 22 for the editor and website; Wine and Xvfb plus Playwright Chromium for UI checks without Windows.
+- **Bundled:** all third-party C and C++ code is vendored.
+- **Run time:** the WebView2 Runtime (included with Windows 11).
+
+## 9. Recommended next steps
+
+1. Start a fresh conversation in the Claude project, with `CLAUDE_PROJECT_INSTRUCTIONS.md` as the instructions and this archive attached or extracted.
+2. Choose: a Windows verification pass (Capture and the Studio editor), housekeeping, or the next feature round.
+3. If continuing Writing Studio: the next unbuilt items the director said yes to on 18 Nov are ambience sounds, a deadline goal, a heatmap, set-ups and pay-offs, a revision checklist, character comparison, charts and manuscript format. Ask him which to do first.
+4. If continuing Capture: browser sources (WebView2) were promised "soon" on 15 Nov and are the most requested missing source.
+
+## 10. How to resume development from this archive
+
+1. Extract `NorthRay_Complete_Project.zip`.
+2. Read `00_Project_Overview/README.md` (the contents guide), then this handover.
+3. Give the new conversation `08_Claw_Instructions/CLAUDE_PROJECT_INSTRUCTIONS.md`. Paste it into the project instructions, or attach it.
+4. **To work on code:**
+   - Either clone the GitHub repository (branch `source`), which is the live copy,
+   - or restore `10_Git_History/northray.bundle` with `git clone northray.bundle NorthRay && cd NorthRay && git checkout source`.
+   - `03_Application_Projects/NorthRay-source/` is the same tree without history or build outputs, for reading.
+5. Follow the continuity procedure in the instructions: identify the app, read its manual, check the roadmap and issues, inspect the source, confirm the state (`VERSION`, release notes, run the tests), then continue.
+6. At the end of the session, update the manuals, the architecture document, the release notes and this handover.
