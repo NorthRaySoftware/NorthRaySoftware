@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.107.0: typed date lines into chapter dates (suite 0.184.0, 26 Nov 2026)
+
+Phase 5c (5.4), the last of CJ's combined request. CJ's choice (26 Nov): a line that doesn't read as a date is listed and left in the text.
+- **studiocore** (`chapter_dates`): `findTypedDates(lib, book, only)` → `TypedDate {chapter, title, index, text, readable, date, time, becomes, current, why}`: per chapter, the first paragraph with words in it at the start of the document, when `typeset::looksLikeDateLine`; read with `cal::parseDateTime` after dropping a leading weekday of the calendar's ("Tuesday, "); readable only with a calendar and a timeline counting in its dates. `convertTypedDates` sets the chapter's timeline node (day from the span's start, time or named part) and removes that paragraph (only if its text is still the same), returning `Converted {count, timelineBefore, contentBefore}`; `undoConverted` restores them. `saveNodeContent` keeps versions and word counts as usual.
+- **App**: `convertTypedDatesUi(book, only)`: flushes the editor, finds, previews in a choiceBox (each line → what it becomes, "it was …" when it replaces a date; then those left as they are with why), converts, reloads the open chapter and the head, Undo. From Plan tools (Organise), Chapter tools, and Typesetting › Chapter dates' link (`typedDatesCount`, cached by the library's change count).
+- **Tested:** studiocore 2,667 (no calendar: found, not readable; a date after an empty line; a weekday first and a time after; "Highcliff, Day 3" left alone; a sentence with a number not taken; one chapter only; converting puts the dates on the timeline and removes the lines; a second convert of stale finds does nothing; undo restores the text and the timeline); cross-compiled. **Not run on Windows.**
+
 ## 0.106.0: the date line's look and place, and scene dates (suite 0.183.0, 26 Nov 2026)
 
 Phase 5b (5.3's styling and scenes).

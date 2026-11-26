@@ -198,6 +198,67 @@ void StudioApp::exportPdf() {
         cjui::messageBox(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
 }
 
+int StudioApp::typedDatesCount(const Id& bookId) {
+    auto& c = typedCache_[bookId];
+    const std::uint64_t now = (std::uint64_t)lib_->changesMade() + 1;
+    if (c.first != now) c = {now, (int)studio::dates::findTypedDates(*lib_, bookId).size()};
+    return c.second;
+}
+
+void StudioApp::convertTypedDatesUi(const Id& bookId, const std::vector<Id>& only) {
+    namespace dt = studio::dates;
+    commitFields();
+    if (editor_.ready()) editor_.send(R"({"type":"flush"})");   // the text as it is now
+    const auto found = dt::findTypedDates(*lib_, bookId, only);
+    if (found.empty()) {
+        flash(only.size() == 1 ? L"This chapter doesn't begin with a typed date line." : L"No chapter begins with a typed date line.");
+        return;
+    }
+    std::wstring convert, left;
+    int n = 0, shown = 0;
+    for (const auto& t : found) {
+        if (!t.readable) continue;
+        ++n;
+        if (++shown > 10) continue;
+        convert += L"\n   \u2022 " + w(t.title) + L": \u201C" + w(t.text) + L"\u201D \u2192 " + w(t.becomes) +
+                   (t.current.empty() || t.current == t.becomes ? L"" : L"  (it was " + w(t.current) + L")");
+    }
+    if (shown > 10) convert += L"\n   and " + std::to_wstring(shown - 10) + L" more";
+    int notShown = 0;
+    for (const auto& t : found) {
+        if (t.readable) continue;
+        if (++notShown > 6) continue;
+        left += L"\n   \u2022 " + w(t.title) + L": \u201C" + w(t.text) + L"\u201D. " + w(t.why);
+    }
+    if (notShown > 6) left += L"\n   and " + std::to_wstring(notShown - 6) + L" more";
+    std::wstring text;
+    if (n) text = (n == 1 ? std::wstring(L"This typed date line becomes its chapter's date, and comes out of the text:")
+                          : std::to_wstring(n) + L" typed date lines become their chapters' dates, and come out of the text:") + convert;
+    if (!left.empty()) text += (text.empty() ? L"" : L"\n\n") + std::wstring(L"Left as they are (not read as dates):") + left;
+    if (!n) {
+        cjui::messageBox(hwnd(), text.c_str(), L"Typed date lines", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    text += L"\n\nThe dates go on Planning's timeline and show over each chapter as the book prints them. Undo puts the lines back.";
+    const int c = cjui::choiceBox(hwnd(), text, L"Typed date lines", {n == 1 ? L"Convert it" : L"Convert " + std::to_wstring(n), L"Cancel"}, 0, MB_ICONQUESTION);
+    if (c != 0) return;
+    const dt::Converted done = dt::convertTypedDates(*lib_, bookId, found);
+    if (!done.count) { flash(L"Nothing was converted: the chapters changed. Try again."); return; }
+    if (!currentNode_.empty()) sendLoad();   // the open chapter, without its line
+    sendHead(true);
+    if (ws_ == Workspace::Typesetting) designChanged();
+    flashUndo(done.count == 1 ? L"Converted 1 typed date line into its chapter's date."
+                              : L"Converted " + std::to_wstring(done.count) + L" typed date lines into chapter dates.",
+              [this, bookId, done] {
+                  studio::dates::undoConverted(*lib_, bookId, done);
+                  if (!currentNode_.empty()) sendLoad();
+                  sendHead(true);
+                  if (ws_ == Workspace::Typesetting) designChanged();
+                  invalidate();
+              });
+    invalidate();
+}
+
 void StudioApp::exportDocx(const Id& bookId) {
     const studio::Book* b = lib_ ? lib_->book(bookId) : nullptr;
     if (!b) return;
@@ -667,6 +728,13 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
             y += pv.h + 8;
             y += gfx_.text(L"Writing shows the same line over each chapter. A chapter can have its own format: Chapter tools › Date format.",
                            {tx0, y, cw, 44}, Font::Small, pal_.inkFaint) + 10;
+            if (const int typed = typedDatesCount(ts_.book); typed > 0) {   // 5c (0.107)
+                linkText("side:ts:typed", tx0, y,
+                         typed == 1 ? L"1 chapter begins with a typed date line: convert it\u2026"
+                                    : std::to_wstring(typed) + L" chapters begin with a typed date line: convert them\u2026",
+                         [this] { convertTypedDatesUi(ts_.book); });
+                y += 28;
+            }
         }
     }
     // The viewpoint's icon in chapter headings (phase 4c, 0.103), off unless chosen.

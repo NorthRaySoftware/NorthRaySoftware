@@ -301,6 +301,7 @@ std::vector<StudioApp::ToolItem> StudioApp::planTools() {
     t.push_back(ToolItem::heading(L"Planning as text"));
     t.push_back(ToolItem::item(L"Import planning…", [this] { importPlanText(); }).in("import", tb::ImportExport, cjui::Icon::Import));
     t.push_back(ToolItem::item(L"Export the plan…", [this] { exportPlanText(); }).in("export", tb::ImportExport, cjui::Icon::Export));
+    t.push_back(ToolItem::item(L"Typed date lines into chapter dates…", [this] { convertTypedDatesUi(pl_.book); }).in("typeddates", tb::Organise, cjui::Icon::Calendar));
     t.push_back(ToolItem::line());
     // The day the bible's ages are worked out at for this book (0.86): its first dated chapter, or one the writer picks.
     {

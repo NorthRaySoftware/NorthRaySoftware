@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.184.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.107.0: typed date lines at the start of chapters turned into chapter dates, with a preview and Undo."
+      ]
+    },
+    {
       "version": "0.183.0",
       "date": "2026-11-26",
       "notes": [

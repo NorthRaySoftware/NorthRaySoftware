@@ -6362,7 +6362,71 @@ static void testDateLook106() {
     fs::remove_all(dir);
 }
 
+// Phase 5c (0.107): typed date lines at the start of chapters, found, read in the calendar, converted and undone.
+static void testTypedDates107() {
+    namespace dt = studio::dates;
+    namespace cal = studio::cal;
+    const std::string dir = tempLibrary("typed107");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id book = lib->createBook("Typed", {});
+    auto doc = [](std::initializer_list<std::string> paras) {
+        nlohmann::json content = nlohmann::json::array();
+        for (const std::string& p : paras)
+            content.push_back(p.empty() ? nlohmann::json{{"type", "paragraph"}}
+                                        : nlohmann::json{{"type", "paragraph"}, {"content", {{{"type", "text"}, {"text", p}}}}});
+        return nlohmann::json{{"type", "doc"}, {"content", content}}.dump();
+    };
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "One");
+    const Id c2 = lib->createNode(book, {}, NodeKind::Chapter, "Two");
+    const Id c3 = lib->createNode(book, {}, NodeKind::Chapter, "Three");
+    const Id c4 = lib->createNode(book, {}, NodeKind::Chapter, "Four");
+    lib->saveNodeContent(c1, doc({"", "12 Bloomtide 2033 TA", "The rain had stopped."}));
+    lib->saveNodeContent(c2, doc({"Tuesday, 3 Frostmoon 2034, at dawn", "The bells rang."}));
+    lib->saveNodeContent(c3, doc({"Highcliff, Day 3", "Gulls."}));
+    lib->saveNodeContent(c4, doc({"He was 12 when the war began.", "More."}));
+    // Without a calendar: found, but not readable.
+    {
+        const auto f = dt::findTypedDates(*lib, book);
+        CHECK(f.size() == 3 && !f[0].readable && !f[0].why.empty());
+    }
+    cal::Calendar cc = cal::fromText("Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Bloomtide: 30\nWeek: Monday, Tuesday, Wednesday\n"
+                                     "Era: The Third Age (TA) from year 1\n");
+    CHECK(cal::saveBookCalendar(*lib, book, cc));
+    cc = cal::calendarOfBook(*lib, book);
+    const auto start = cal::toDay(cc, {2033, 0, 1});
+    CHECK(lib->setSetting("timeline:" + book, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", start},
+                                                             {"nodes", {{c1, {{"day", 3}}}}}}.dump()));
+    auto f = dt::findTypedDates(*lib, book);
+    CHECK(f.size() == 3);   // not the sentence that happens to hold a number
+    if (f.size() != 3) return;
+    CHECK(f[0].chapter == c1 && f[0].index == 1 && f[0].readable && f[0].date.month == 1 && f[0].date.day == 12 && !f[0].current.empty());
+    CHECK(f[1].chapter == c2 && f[1].readable && f[1].date.day == 3 && !f[1].time.empty());   // a weekday first, a time after
+    CHECK(f[2].chapter == c3 && !f[2].readable && !f[2].why.empty());                         // left alone
+    CHECK(f[0].becomes.find("12 Bloomtide 2033") != std::string::npos);
+    CHECK(dt::findTypedDates(*lib, book, {c2}).size() == 1);
+    const std::string before1 = lib->nodeContent(c1), timelineBefore = lib->setting("timeline:" + book);
+    const dt::Converted done = dt::convertTypedDates(*lib, book, f);
+    CHECK(done.count == 2);
+    CHECK(lib->nodeContent(c1).find("12 Bloomtide") == std::string::npos && lib->nodeContent(c1).find("The rain had stopped.") != std::string::npos);
+    CHECK(lib->nodeContent(c3).find("Highcliff, Day 3") != std::string::npos);   // not converted: still there
+    {
+        const auto l1 = dt::lineFor(*lib, *lib->node(c1));
+        const auto l2 = dt::lineFor(*lib, *lib->node(c2));
+        CHECK(l1 && l1->date.find("12 Bloomtide 2033") != std::string::npos);
+        CHECK(l2 && l2->date.find("3 Frostmoon 2034") != std::string::npos);
+    }
+    CHECK(dt::findTypedDates(*lib, book).size() == 1);   // only the unreadable one is left
+    // Converting what changed since it was found does nothing to it.
+    CHECK(dt::convertTypedDates(*lib, book, f).count == 0);
+    dt::undoConverted(*lib, book, done);
+    CHECK(lib->nodeContent(c1) == before1 && lib->setting("timeline:" + book) == timelineBefore);
+    CHECK(dt::findTypedDates(*lib, book).size() == 3);
+    fs::remove_all(dir);
+}
+
 int main() {
+    testTypedDates107();
     testDateLook106();
     testChapterDates105();
     testDocx104();

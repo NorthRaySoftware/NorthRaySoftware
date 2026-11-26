@@ -1435,6 +1435,7 @@ std::vector<StudioApp::ToolItem> StudioApp::chapterTools() {
             sendHead(true);
         }, own && own->style == "custom"));
         t.push_back(ToolItem::menu(L"Date format", sub).in("dateformat", tb::Settings, Icon::Calendar));
+        t.push_back(ToolItem::item(L"Turn a typed date line into its date…", [this, bid = n->bookId, id = n->id] { convertTypedDatesUi(bid, {id}); }));
     }
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::heading(L"Add"));

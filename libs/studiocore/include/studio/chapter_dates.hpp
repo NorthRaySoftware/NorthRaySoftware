@@ -68,4 +68,33 @@ Format formatFor(const Library& lib, const Id& book, const Id& chapter);   // it
 // day, else its first placed scene's). A scene's carries its chapter's format.
 std::optional<Lines> lineFor(const Library& lib, const ManuscriptNode& n);
 
+// ------------------------------------------- typed date lines (5c, 0.107)
+
+// A chapter whose text opens with a date line typed into it ("12 Harvestmoon 1450 SE", "Tuesday, 3 Frostmoon 1204, at
+// dawn"): what it says, and whether it reads as a date in the book's calendar (else `why`, and it's left alone).
+struct TypedDate {
+    Id chapter;
+    std::string title;
+    int index = -1;                     // the paragraph, in the document's top-level content
+    std::string text;
+    bool readable = false;
+    cal::Date date;
+    cal::TimeOfDay time;
+    std::string becomes;                // the line as the book's format writes it
+    std::string current;                // the chapter's date on the timeline now ("" none)
+    std::string why;                    // not readable: why
+};
+// Every chapter's (or those in `only`) typed opening date line. Readable only when the book's timeline counts in its
+// calendar's dates.
+std::vector<TypedDate> findTypedDates(const Library& lib, const Id& book, const std::vector<Id>& only = {});
+// Puts each readable one's date (and time) on the timeline as the chapter's own and takes the line out of its text.
+// What it changed, for undoing.
+struct Converted {
+    int count = 0;
+    std::string timelineBefore;
+    std::vector<std::pair<Id, std::string>> contentBefore;
+};
+Converted convertTypedDates(Library& lib, const Id& book, const std::vector<TypedDate>& found);
+void undoConverted(Library& lib, const Id& book, const Converted& c);
+
 }  // namespace studio::dates

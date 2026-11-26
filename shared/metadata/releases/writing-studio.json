@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.107.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Date lines you typed at the start of chapters (“12 Harvestmoon 1450 SE”, “Tuesday, 3 Frostmoon 1204, at dawn”) can become the chapters' dates: Plan tools › Typed date lines into chapter dates, Chapter tools › Turn a typed date line into its date, or the link in Typesetting › Chapter dates. A preview lists what each line becomes (and the date it replaces), and lines that don't read as a date in your calendar, such as “Highcliff, Day 3”, are left as they are. The dates go on Planning's timeline, the lines come out of the text, and Undo puts everything back."
+      ]
+    },
+    {
       "version": "0.106.0",
       "date": "2026-11-26",
       "notes": [

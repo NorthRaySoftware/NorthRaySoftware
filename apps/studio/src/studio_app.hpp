@@ -675,6 +675,11 @@ private:
     // The manuscript as a Word document laid out as the typeset book (0.104): the design in Typesetting (or the book's
     // saved one), its viewpoint icons included.
     void exportDocx(const Id& bookId);
+    // Typed date lines at the start of chapters into chapter dates (5c, 0.107): a preview of what each becomes and what's
+    // left alone, then the change, with Undo. `only`: those chapters (else the whole book).
+    void convertTypedDatesUi(const Id& bookId, const std::vector<Id>& only = {});
+    int typedDatesCount(const Id& bookId);   // how many chapters open with one (cached until the library changes)
+    std::map<std::string, std::pair<std::uint64_t, int>> typedCache_;
     void showSpread(int spread);
     void showPage(int index);       // the spread or page with that page on it
     void turnPages(int delta);      // next / previous spread (or page)
