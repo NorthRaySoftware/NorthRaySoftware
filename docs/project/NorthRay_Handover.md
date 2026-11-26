@@ -21,7 +21,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 | App | Version | Status | Health |
 |---|---|---|---|
-| NorthRay Launcher | 0.172.0 | Preview (0.171.0 published; 0.172.0 being tested) | Stable. Tray and notifications not checked on real Windows |
+| NorthRay Launcher | 0.172.0 | Preview, released | Stable. Tray and notifications not checked on real Windows |
 | NorthRay Writing Studio | 0.96.0 | Preview, released | Very active. Core tests 2,543 pass and editor tests 28 pass. Editor features need checking on Windows |
 | NorthRay Browser | 0.9.3 | Preview, released | Stable. Engine-dependent features need checking on Windows. 315 tests pass |
 | NorthRay Files | 0.9.3 | Preview, released | Stable. 373 tests pass |
@@ -65,7 +65,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 ## 5. Outstanding tasks
 
-Writing Studio 0.94.0 (phase 1 of the director's combined request of 26 Nov) and 0.95.0 (the bible and plan as Markdown) are released. Interface zoom (phase 2a, suite 0.172.0) is pushed to `source` but **not published**: it hasn't run on Windows yet (Wine wouldn't start in the build environment), and the director is testing the installers in `H:\NorthRay_Project\Test_Builds\0.172.0` first. Publish with the usual steps 6 and 7 once he says. Planned next, in the director's order: phase 2b (the writing page's own zoom), 2c (responsive layouts), phase 3 visible tools, phase 4 character icons, phase 5 chapter dates as formatted text, and a **DOCX export** (he chose to add one) for phases 4 and 5. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
+Writing Studio 0.94.0 (phase 1 of the director's combined request of 26 Nov) and 0.95.0 (the bible and plan as Markdown) are released. Interface zoom (phase 2a, suite 0.172.0) is published, but **hasn't run on Windows yet** (Wine wouldn't start in the build environment); the director tests it from the Launcher or `H:\NorthRay_Project\Test_Builds\0.172.0`. Standing instruction (26 Nov): every release is published (steps 6 and 7), not only pushed. Planned next, in the director's order: phase 2b (the writing page's own zoom), 2c (responsive layouts), phase 3 visible tools, phase 4 character icons, phase 5 chapter dates as formatted text, and a **DOCX export** (he chose to add one) for phases 4 and 5. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
 
 ## 6. Important technical decisions (summary; full list in `Decision_Log.md`)
 
