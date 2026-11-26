@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.96.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.172.0 |
+| Version at the time of writing | 0.97.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.173.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -62,7 +62,8 @@ Status labels used in this manual:
 - Draft notes: the Draft note style for a paragraph, or Ctrl+Shift+D / right-click › Draft note (not printed) for words. Never printed, exported, sent in review copies or quoted; still counted in word counts.
 - Saves as you type; versions of every chapter; undo that survives reopening.
 - A ribbon-style writing bar; the outline (narrow, hideable); a details card.
-- Focus and typewriter modes; fonts, size, width and spacing; warm night paper.
+- Focus and typewriter modes; fonts, size, width (narrow, normal, wide, fit, and Auto: wider on a wide window) and spacing; warm night paper.
+- The page's own zoom (0.97), 50–200%: Ctrl and + / − / 0 while writing, Ctrl+wheel over the page, Aa › Page zoom. Separate from the interface size; the writing bar follows the interface.
 
 **Checks while writing**
 - Spell checker (nspell with SCOWL en-GB and en-US) with per-world dictionaries.
@@ -177,8 +178,8 @@ Status labels used in this manual:
 
 ### Planned (the director's answers; not in the release notes yet)
 
-From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96):
-- The writing page's own zoom and a wider column (phase 2b); responsive layouts that stack and wrap (phase 2c). Interface zoom itself shipped in 0.96.
+From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96, page zoom in 0.97):
+- Responsive layouts that stack and wrap on narrow windows and use wide ones (phase 2c). Interface zoom shipped in 0.96, the writing page's zoom and Auto width in 0.97.
 - Tools always visible as toolbars, customisable, with a command palette.
 - Character portraits, symbols and colours throughout the bible, Writing, Planning and the printed viewpoint icon.
 - Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.

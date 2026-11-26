@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.173.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.97.0: the writing page's own zoom, and a column that widens on a wide window."
+      ]
+    },
+    {
       "version": "0.172.0",
       "date": "2026-11-26",
       "notes": [

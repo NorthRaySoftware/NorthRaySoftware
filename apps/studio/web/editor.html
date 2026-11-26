@@ -94,8 +94,16 @@
     <button data-set="size" data-value="2" title="Large" class="vm-s2">A</button>
     <button data-set="size" data-value="3" title="Extra large" class="vm-s3">A</button>
   </div>
+  <div class="vm-label">Page zoom <span class="vm-key">Ctrl + / − / 0, Ctrl+wheel</span></div>
+  <div class="vm-row vm-zoom">
+    <button id="vm-zoomout" title="Smaller (Ctrl+−)" aria-label="Page smaller">−</button>
+    <span id="vm-zoom" aria-live="polite">100%</span>
+    <button id="vm-zoomin" title="Larger (Ctrl++)" aria-label="Page larger">+</button>
+    <button id="vm-zoomreset" title="Back to 100% (Ctrl+0)">100%</button>
+  </div>
   <div class="vm-label">Page width</div>
   <div class="vm-row">
+    <button data-set="width" data-value="auto" title="Normal, and wider on a wide window">Auto</button>
     <button data-set="width" data-value="narrow">Narrow</button>
     <button data-set="width" data-value="normal">Normal</button>
     <button data-set="width" data-value="wide">Wide</button>

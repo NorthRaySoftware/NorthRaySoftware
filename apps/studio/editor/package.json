@@ -4,7 +4,7 @@
   "description": "The Writing Studio's manuscript editor (ProseMirror), bundled into ../web/editor.js.",
   "scripts": {
     "build": "esbuild src/editor.js --bundle --minify --format=iife --target=chrome100 --legal-comments=none --outfile=../web/editor.js",
-    "test": "node --test test/hints.test.mjs test/spell.test.mjs"
+    "test": "node --test test/hints.test.mjs test/spell.test.mjs test/zoom.test.mjs"
   },
   "devDependencies": {
     "dictionary-en": "4.0.0",

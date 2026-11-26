@@ -415,6 +415,13 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.97.0: the writing page's own zoom (suite 0.173.0, 26 Nov 2026)
+
+Phase 2b of CJ's combined request: a zoom for the page apart from the interface's, and a column that uses a wide window.
+- **Editor** (`editor/src/zoom.js`, new): `ZOOM_STEPS` (the interface's), `clampZoom`, `stepZoom`, `pageWidth(width, zoom)`. `viewSettings.zoom` (default 1) multiplies `--text-size` and the column's `--page-width`; Fit stays the window's width; **Auto** is `max(44rem·z, min(68vw, 64rem·z))`. The zoom scales CSS variables rather than using CSS `zoom`, so ProseMirror's caret and click positions are untouched. `zoomPage(dir)` is bound to Mod-= / Mod-+ / Mod-Shift-= / Mod-- / Mod-0, to Ctrl+wheel on `#scroller` (non-passive, `preventDefault`) and to Aa's − / + / 100% (`#vm-zoom` shows it). It says "Page N%" in the notice and sends the view like any other change, which the app keeps in `settings_.writingView` on this PC.
+- **App**: `WebPane` turns WebView2's own zoom control off (`put_IsZoomControlEnabled(FALSE)`), so Ctrl+wheel and Ctrl +/− never scale the whole view. The view's `ZoomFactor` stays the interface zoom (0.96), so the writing bar follows the interface and the page follows its own zoom.
+- **Tested:** editor tests 31 (3 new in `test/zoom.test.mjs`: the steps, the 50–200% clamp, the widths). In Chromium through a stand-in host at 1000 and 1800 px wide: Ctrl+= twice 125% (text 22.4 px, column 880 px; the toolbar stays 14 px), the caret on the text, Ctrl+wheel down one step, Ctrl+0 back to 100%, Aa's Auto and + (the column 774 px at 1000 wide and 1126 px at 1800), the view sent with zoom and width. The app builds with MinGW; **inside WebView2 on Windows it hasn't been checked**.
+
 ## 0.96.0: interface size (suite 0.172.0, 26 Nov 2026)
 
 Phase 2a of CJ's combined request: the zoom engine is in cjui for every app (see `docs/project/Shared_Infrastructure.md`).

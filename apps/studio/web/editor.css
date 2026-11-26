@@ -242,6 +242,7 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 .ProseMirror p.s-attribution { text-align: right; margin: .3em 3em 1.4em; text-indent: 0; font-size: .92em; color: var(--muted); }
 .ProseMirror p.s-verse { text-indent: 0; margin-left: 2.5em; }
 .ProseMirror p.s-letter { text-indent: 0; margin: 0 2em .5em; }
+#vm-zoom { min-width: 3.4em; text-align: center; align-self: center; font-variant-numeric: tabular-nums; color: var(--ink); }
 .ProseMirror p.s-note { text-indent: 0; font-size: .9em; color: var(--muted); margin: .6em 0; }
 /* Draft notes (0.94): yours alone. Never printed or exported, so they look unlike the book: muted, marked with a
    dashed rule and a label, not by colour alone. */

@@ -22,6 +22,7 @@
 //                         the writer changes it (font, size, width, focus, typewriter, spellcheck, hints, names).
 //                         {type:"entry", id} (Ctrl+click on a name from the world's bible)
 
+import { clampZoom, stepZoom, pageWidth } from "./zoom.js";
 import { Schema } from "prosemirror-model";
 import { cleanPastedHTML, tidySlice, textToSlice } from "./paste.js";
 import { EditorState, Plugin, TextSelection, NodeSelection } from "prosemirror-state";
@@ -482,6 +483,7 @@ const keys = {
   "Mod-z": undo, "Mod-y": redo, "Shift-Mod-z": redo,
   "Mod-Backspace": deleteWord(-1), "Mod-Delete": deleteWord(1),
   "Mod-b": toggleMark(M.strong), "Mod-i": toggleMark(M.em), "Mod-u": toggleMark(M.underline),
+  "Mod-=": () => zoomPage(1), "Mod-+": () => zoomPage(1), "Mod-Shift-=": () => zoomPage(1), "Mod--": () => zoomPage(-1), "Mod-0": () => zoomPage(0),
   "Mod-Shift-k": toggleMark(M.smallcaps), "Mod-Shift-d": toggleMark(M.draft), "Mod-Alt-k": toggleLink, "Mod-Alt-m": addComment,
   // The app's own: go anywhere (Ctrl+K) and the shortcuts sheet (Ctrl+/) (0.35).
   "Mod-k": () => { flush(); send({ type: "appCommand", name: "jump" }); return true; },
@@ -530,7 +532,7 @@ const rules = inputRules({
 
 // -------------------------------------------------------------- writing view
 
-const VIEW_DEFAULTS = { v: 3, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true };
+const VIEW_DEFAULTS = { v: 3, zoom: 1, font: "serif", size: 1, width: "normal", focus: false, typewriter: false, spellcheck: true, hints: "quiet", hintCats: {}, names: true, paper: "usual", spacing: "normal", heads: true };
 const hintMode = () => (viewSettings.hints === true ? "full" : viewSettings.hints === false ? "off" : ["off", "quiet", "full"].includes(viewSettings.hints) ? viewSettings.hints : "quiet");
 let viewSettings = { ...VIEW_DEFAULTS };
 const FONTS = {
@@ -540,14 +542,13 @@ const FONTS = {
   typewriter: '"Courier New", "Consolas", monospace',
 };
 const SIZES = [1.0, 1.12, 1.26, 1.42];
-const WIDTHS = { narrow: "36rem", normal: "44rem", wide: "56rem", fit: "calc(100% - 48px)" };
 const SPACINGS = { tight: "1.45", normal: "1.65", loose: "1.9", double: "2.2" };   // line spacing (0.49)
 
 function applyView() {
   const v = viewSettings, root = document.documentElement;
   root.style.setProperty("--text-font", FONTS[v.font] || FONTS.serif);
-  root.style.setProperty("--text-size", (SIZES[v.size] ?? SIZES[1]) + "rem");
-  root.style.setProperty("--page-width", WIDTHS[v.width] || WIDTHS.normal);
+  root.style.setProperty("--text-size", ((SIZES[v.size] ?? SIZES[1]) * clampZoom(v.zoom)).toFixed(4) + "rem");
+  root.style.setProperty("--page-width", pageWidth(v.width, v.zoom));
   root.style.setProperty("--line", SPACINGS[v.spacing] || SPACINGS.normal);
   root.classList.toggle("focus-mode", !!v.focus);
   root.dataset.paper = v.paper === "night" ? "night" : "usual";   // warm night paper for writing in the dark (0.35)
@@ -921,11 +922,34 @@ function buildViewMenu() {
   menu.querySelectorAll("input[type=checkbox]").forEach((el) => {
     el.addEventListener("change", () => changeView({ [el.name]: el.checked }));
   });
+  for (const [id, dir] of [["vm-zoomout", -1], ["vm-zoomin", 1], ["vm-zoomreset", 0]]) {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener("click", () => zoomPage(dir));
+  }
+  // Ctrl and the wheel over the page zoom the page, not the window (the app leaves WebView2's own zoom off).
+  const scroller = document.getElementById("scroller");
+  if (scroller)
+    scroller.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      if (e.deltaY) zoomPage(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+}
+
+// The page's zoom: Ctrl and + / - / 0 while writing, Ctrl and the wheel over the page, or Aa's − and + (0.97).
+function zoomPage(dir) {
+  const z = stepZoom(viewSettings.zoom, dir);
+  if (Math.abs(z - clampZoom(viewSettings.zoom)) < 0.001 && dir !== 0) return true;
+  changeView({ zoom: z });
+  notice(`Page ${Math.round(z * 100)}%. Ctrl+0 goes back to 100%.`);
+  return true;
 }
 
 function syncViewMenu() {
   const menu = document.getElementById("viewmenu");
   if (!menu) return;
+  const zl = document.getElementById("vm-zoom");
+  if (zl) zl.textContent = Math.round(clampZoom(viewSettings.zoom) * 100) + "%";
   menu.querySelectorAll("[data-set]").forEach((el) => {
     const v = viewSettings[el.dataset.set];
     el.setAttribute("aria-pressed", String(v) === el.dataset.value ? "true" : "false");

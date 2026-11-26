@@ -174,7 +174,7 @@ bool WebPane::create(HWND parent, const std::wstring& exeDir, const std::wstring
                     if (SUCCEEDED(s->web->get_Settings(&settings)) && settings) {
                         settings->put_AreDevToolsEnabled(FALSE);
                         settings->put_IsStatusBarEnabled(FALSE);
-                        settings->put_IsZoomControlEnabled(TRUE);   // Ctrl+wheel zooms the page
+                        settings->put_IsZoomControlEnabled(FALSE);  // the editor zooms its page itself (0.97); the app sets the view's zoom to the interface's
                         settings->put_AreHostObjectsAllowed(FALSE);
                         settings->put_IsWebMessageEnabled(TRUE);
                         settings->put_AreDefaultScriptDialogsEnabled(TRUE);

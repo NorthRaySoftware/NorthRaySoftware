@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.97.0",
+      "date": "2026-11-26",
+      "notes": [
+        "The writing page has its own zoom, apart from the interface's: Ctrl and + or − while writing, Ctrl and the mouse wheel over the page, or Aa › Page zoom, from 50% to 200%; Ctrl+0 goes back to 100%. The text and the column grow together; the writing bar stays the interface's size. Kept on this PC.",
+        "Aa › Page width › Auto: the usual column, wider on a wide window, so the space beside the page is used."
+      ]
+    },
+    {
       "version": "0.96.0",
       "date": "2026-11-26",
       "notes": [
