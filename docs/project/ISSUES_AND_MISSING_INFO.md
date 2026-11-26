@@ -18,7 +18,7 @@ Found during the project audit of 26 November 2026, suite 0.169.0. Nothing here 
 | # | Issue | Suggested fix |
 |---|---|---|
 | B1 | `-DCJ_BUILD_SKILLSWAP=ON` runs `add_subdirectory(apps/skillswap)`, but `apps/skillswap` has never been in this repository | Remove the option, or recover the app's source. Update `shared/metadata/postponed/README.md` either way |
-| B2 | `docs/DESIGN.md` describes the original warm-paper and claret palette and says "No gradients, glows or glass". The suite has used the NorthRay night-and-aurora look since 0.17, and Writing Studio uses warm paper with cards and shadows since 0.68 | Rewrite it from `06_Design_Guidelines/NorthRay_Design_Guidelines.md` |
+| B2 | `docs/DESIGN.md` describes the original warm-paper and claret palette and says "No gradients, glows or glass". The suite has used the NorthRay night-and-aurora look since 0.17, and Writing Studio uses warm paper with cards and shadows since 0.68 | Rewrite it from `docs/project/NorthRay_Design_Guidelines.md` |
 | B3 | `docs/studio/FORMAT.md` is titled "schema version 3" and its table says 7. The code is `kSchemaVersion = 8`, plus columns added since without a bump | Refresh the format document from `library.cpp` |
 | B4 | `shared/metadata/apps/writing-studio.json` still holds the 0.61.0 version fallback, description and feature list. The website uses the installer's version when it has one, so this mostly shows only in fallbacks, but the feature list misses everything from 0.62 onwards | Update the description and features. Consider having the release script set `version` |
 | B5 | `apps/studio/editor/ed1.png` is a stray screenshot committed in 0.28 | Delete it if it isn't used |

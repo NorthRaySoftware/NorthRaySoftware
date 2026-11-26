@@ -188,7 +188,7 @@ Principles, drawn from `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `README.md` and
 - Reduced motion respected.
 - **Gap:** no UI Automation provider in cjui, so screen readers can't read drawn controls. This is the biggest shared accessibility debt.
 
-**Note:** `docs/DESIGN.md` still describes the original warm-paper and claret palette and says "no gradients, glows or glass". That predates the NorthRay night-and-aurora look (0.17) and needs rewriting. `06_Design_Guidelines/NorthRay_Design_Guidelines.md` in the archive is the current summary.
+**Note:** `docs/DESIGN.md` still describes the original warm-paper and claret palette and says "no gradients, glows or glass". That predates the NorthRay night-and-aurora look (0.17) and needs rewriting. `docs/project/NorthRay_Design_Guidelines.md` is the current summary.
 
 ## 6. Shared infrastructure and integrations (summary)
 
