@@ -1,6 +1,6 @@
 # NorthRay Development Handover
 
-**Written:** 26 November 2026. Last updated at suite **0.170.0** (Writing Studio 0.94.0), committed but **not yet pushed or published**: see section 5.
+**Written:** 26 November 2026. Last updated at suite **0.170.0** (Writing Studio 0.94.0), pushed to `source`, **not yet built or published**: see section 5.
 
 **Purpose:** everything needed to resume NorthRay development in a fresh conversation, with no access to earlier chats.
 
@@ -65,7 +65,7 @@ They are written in C++20 on Win32 and Direct2D, with a shared toolkit (cjui) an
 
 ## 5. Outstanding tasks
 
-Suite 0.170.0 (Writing Studio 0.94.0, phase 1 of the director's combined request of 26 Nov) is committed on `source` locally but was **not pushed**: the session couldn't get write access to the repository. A git bundle of the commits was put in the director's project folder (`10_Git_History/`); push it, then build, package and publish as usual. Phases 2 to 5 of that request (interface zoom, visible tools, character icons, chapter dates as formatted text) and the Markdown export of the bible and plan are planned, with questions to the director open. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
+Suite 0.170.0 (Writing Studio 0.94.0, phase 1 of the director's combined request of 26 Nov) is pushed to `source` but not yet built, packaged or published to `main`. Phases 2 to 5 of that request (interface zoom, visible tools, character icons, chapter dates as formatted text) and the Markdown export of the bible and plan are planned, with questions to the director open. The per-app "Planned" lists are in each manual and in `Roadmap_and_Outstanding_Work.md`.
 
 ## 6. Important technical decisions (summary; full list in `Decision_Log.md`)
 
