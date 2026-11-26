@@ -49,6 +49,9 @@ struct Design {
     // (PAGE ONE (four panels), Panel 1, numbered balloons), each comic page on a new page.
     bool comicScript = false;
     std::string sceneBreak = "* * *";
+    // A small picture for the scene break instead of the mark (0.91): an Artwork picture's blob, set about a fifth of the
+    // text's width ("" = the mark above).
+    std::string sceneBreakBlob;
     // A chapter's date from Planning's timeline under its heading (0.85), when the book's timeline counts in calendar
     // dates: `dateForm` "words" (4 Bloomtide 2033) or "numbers" (04/04/2033), `dateEra` "abbr", "name" or "none".
     bool chapterDates = false;
@@ -91,6 +94,7 @@ struct PicturePlacement {
     float x = 0, y = 0, w = 0, h = 0;   // where it prints, pt
     Placement crop;                      // the part of the picture shown
     int tone = 0;                        // 0 as it is, 1 darkened, 2 faded (a header picture with its title over it, 0.89)
+    std::string role;                    // "header" or "scenebreak" (0.91, for the print checks); "" = in the text
 };
 
 struct Page {
@@ -118,6 +122,7 @@ struct Source {
     std::vector<std::pair<std::string, std::string>> isbns;
     std::string editionKind;            // the edition being made ("paperback", "ebook", ...; "" = none chosen)
     std::string coverPath;              // the cover picture's file ("" = none)
+    bool colourPrint = false;           // the edition prints pictures in colour (0.91: the print checks say what goes grey)
     int year = 0;                       // for the copyright line (the year it's typeset)
     struct Section {
         NodeKind kind = NodeKind::Chapter;

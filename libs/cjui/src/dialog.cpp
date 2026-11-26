@@ -32,6 +32,10 @@ struct Dialog {
     bool done = false;
     float scale = 1, w = 460, h = 200, textH = 0;
     int cancelResult = IDCANCEL;
+    HWND edit = nullptr;          // askText's line (0.91)
+    HFONT font = nullptr;
+    HBRUSH editBrush = nullptr;
+    Rect editR{};
 
     void layout() {
         const float pad = 24;
@@ -39,6 +43,10 @@ struct Dialog {
         textH = gfx.measureHeight(text, w - tx - pad, Font::Body);
         const float titleH = title.empty() ? 0 : 30;
         h = pad + 6 + titleH + std::max(textH, icon ? 36.0f : 0.0f) + 24 + 38 + pad;
+        if (edit) {
+            editR = {pad, pad + 6 + titleH + textH + 14, w - 2 * pad, 36};
+            h += 50;
+        }
         float bx = w - pad;
         for (int i = (int)buttons.size() - 1; i >= 0; --i) {
             const float bw = std::max(92.0f, gfx.measureWidth(buttons[(size_t)i].label, Font::BodyStrong) + 36);
@@ -77,6 +85,10 @@ struct Dialog {
             y += 30;
         }
         gfx.text(text, {tx, y, w - tx - pad, textH + 4}, Font::Body, pal.inkMuted.mix(pal.ink, 0.45f));
+        if (edit) {
+            gfx.fillRounded(editR, 7, pal.paper);
+            gfx.strokeRounded(editR, 7, pal.ribbon, 1.5f);
+        }
         for (size_t i = 0; i < buttons.size(); ++i) {
             const Btn& b = buttons[i];
             const bool primary = (int)i == def, lit = (int)i == hover, down = (int)i == pressed && lit;
@@ -143,6 +155,14 @@ LRESULT CALLBACK dialogProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         case WM_CLOSE: d->finish(d->cancelResult); return 0;
+        case WM_CTLCOLOREDIT: {
+            const HDC dc = reinterpret_cast<HDC>(wp);
+            auto rgb = [](Color c) { return RGB((int)(c.r * 255), (int)(c.g * 255), (int)(c.b * 255)); };
+            SetTextColor(dc, rgb(d->pal.ink));
+            SetBkColor(dc, rgb(d->pal.paper));
+            if (!d->editBrush) d->editBrush = CreateSolidBrush(rgb(d->pal.paper));
+            return reinterpret_cast<LRESULT>(d->editBrush);
+        }
     }
     return DefWindowProcW(hw, msg, wp, lp);
 }
@@ -218,6 +238,77 @@ int messageBox(HWND owner, const std::wstring& text, const std::wstring& title, 
     DestroyWindow(d.hwnd);
     if (d.owner) SetForegroundWindow(d.owner);
     return d.result;
+}
+
+bool askText(HWND owner, const std::wstring& title, const std::wstring& text, std::wstring& value, const std::wstring& okLabel) {
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSEXW wc{sizeof wc};
+        wc.style = CS_DROPSHADOW;
+        wc.lpfnWndProc = dialogProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = L"CJUIAskText";
+        registered = RegisterClassExW(&wc) != 0;
+    }
+    Dialog d;
+    d.owner = owner ? GetAncestor(owner, GA_ROOT) : nullptr;
+    d.pal = menuPalette();
+    d.title = title;
+    d.text = text;
+    d.w = 520;
+    d.buttons = {{okLabel, IDOK, {}}, {L"Cancel", IDCANCEL, {}}};
+    d.hwnd = CreateWindowExW(0, L"CJUIAskText", title.c_str(), WS_POPUP, 0, 0, 10, 10, d.owner, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!d.hwnd || !d.gfx.init(d.hwnd)) { if (d.hwnd) DestroyWindow(d.hwnd); return false; }
+    SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
+    UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
+    if (!dpi) dpi = 96;
+    d.scale = dpi / 96.0f;
+    d.gfx.setDpi(dpi);
+    d.edit = CreateWindowExW(0, L"EDIT", value.c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 10, 10, d.hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+    d.layout();
+    d.font = CreateFontW(-(int)std::lround(14 * d.scale), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    SendMessageW(d.edit, WM_SETFONT, reinterpret_cast<WPARAM>(d.font), FALSE);
+    const Rect er = d.editR;
+    SetWindowPos(d.edit, nullptr, (int)std::lround((er.x + 10) * d.scale), (int)std::lround((er.y + 8) * d.scale), (int)std::lround((er.w - 20) * d.scale),
+                 (int)std::lround(20 * d.scale), SWP_NOZORDER);
+    RECT o{};
+    if (d.owner && IsWindowVisible(d.owner)) GetWindowRect(d.owner, &o);
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &o, 0);
+    const int pw = (int)std::lround(d.w * d.scale), ph = (int)std::lround(d.h * d.scale);
+    SetWindowPos(d.hwnd, HWND_TOP, (o.left + o.right - pw) / 2, (o.top + o.bottom - ph) / 2 - (int)(20 * d.scale), pw, ph, SWP_NOACTIVATE);
+    const DWORD round = 2;
+    DwmSetWindowAttribute(d.hwnd, 33, &round, sizeof round);
+    d.gfx.resize((UINT)pw, (UINT)ph);
+    const bool ownerWasEnabled = d.owner && IsWindowEnabled(d.owner);
+    if (ownerWasEnabled) EnableWindow(d.owner, FALSE);
+    ShowWindow(d.hwnd, SW_SHOW);
+    SetForegroundWindow(d.hwnd);
+    SetFocus(d.edit);
+    SendMessageW(d.edit, EM_SETSEL, 0, -1);
+    MSG msg;
+    while (!d.done) {
+        if (!GetMessageW(&msg, nullptr, 0, 0)) { PostQuitMessage((int)msg.wParam); d.result = IDCANCEL; break; }
+        if (msg.message == WM_KEYDOWN && msg.hwnd == d.edit && (msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE)) {
+            d.finish(msg.wParam == VK_RETURN ? IDOK : IDCANCEL);
+            continue;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    if (d.result == IDOK) {
+        const int n = GetWindowTextLengthW(d.edit);
+        std::wstring t((size_t)n, L'\0');
+        if (n) GetWindowTextW(d.edit, t.data(), n + 1);
+        value = t;
+    }
+    if (ownerWasEnabled) EnableWindow(d.owner, TRUE);
+    SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, 0);
+    DestroyWindow(d.hwnd);
+    if (d.font) DeleteObject(d.font);
+    if (d.editBrush) DeleteObject(d.editBrush);
+    if (d.owner) SetForegroundWindow(d.owner);
+    return d.result == IDOK;
 }
 
 }  // namespace cjui

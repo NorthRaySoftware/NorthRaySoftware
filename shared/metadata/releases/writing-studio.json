@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.91.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Scene breaks can be a mark, an ornament or a small picture: Typesetting's design card has Scene breaks, with ready marks (* * *, ⁂, ❦, ✧ ✧ ✧, ~, • • •), Your own mark… and Choose a picture…. A picture is set a fifth of the text's width, at most three lines tall, in the PDF and the ebook, where readers hear only that it's a scene break.",
+        "A header picture can be described (Describe it… under it), for readers of the ebook who can't see it; the chooser says whether it is. Undescribed ones are treated as decoration.",
+        "Publishing's checks name header and scene-break pictures that will print soft or blurred, with their pixels per inch; note colour header pictures in an edition printed in grey; and, for the ebook, list chapters whose header pictures have no description.",
+        "A new box for typing a line (a description, your own scene-break mark), in the app's own look."
+      ]
+    },
+    {
       "version": "0.90.0",
       "date": "2026-11-26",
       "notes": [

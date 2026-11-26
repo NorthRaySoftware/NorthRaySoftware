@@ -2,6 +2,7 @@
 // for chapters and parts (Typesetting's design card), a chapter's or part's own (Planning's details), and a viewpoint
 // character's (⋯ on their page). Kept by studio::headers; the typesetter, ebook, review copy and Plans page draw them.
 #include "studio_app.hpp"
+#include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
 #include <shobjidl.h>
@@ -148,11 +149,27 @@ void StudioApp::headerChooser(const std::string& id, const Rect& c, float& y, co
                 save(h);
             }, false);
         });
+        if (!own.blob.empty())
+            small(id + ":alt", own.alt.empty() ? L"Describe it…" : L"Change the description…", [this, own, save] {
+                std::wstring v = w(own.alt);
+                if (!cjui::askText(hwnd(), L"Describe the header picture",
+                                   L"For readers of the ebook who can't see it. Leave it empty if it's only decoration: readers then skip it.", v, L"Keep"))
+                    return;
+                headers::Header h = own;
+                h.alt = narrow(v);
+                while (!h.alt.empty() && h.alt.back() == ' ') h.alt.pop_back();
+                save(h);
+            });
         if (chosen) small(id + ":clear", forNode ? L"Use the default" : L"Remove", [save] { save(headers::Header{}); });
         if (forNode && !own.none) small(id + ":none", L"No header here", [save] { headers::Header h; h.none = true; save(h); });
         y += 42;
     }
     if (!chosen || own.none) return;
+    if (!own.blob.empty()) {
+        y += gfx_.text(own.alt.empty() ? L"Not described: the ebook treats it as decoration, and readers skip it."
+                                       : L"Described as \u201C" + w(own.alt) + L"\u201D",
+                       {c.x, y - 4, c.w, 40}, Font::Small, pal_.inkFaint) + 8;
+    }
     // How it sits.
     auto label = [&](const std::wstring& t) {
         gfx_.text(t, {c.x, y, c.w, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});

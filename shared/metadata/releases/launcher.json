@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.167.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.91.0: scene-break ornaments and pictures, described header pictures, and print checks for them."
+      ]
+    },
+    {
       "version": "0.166.0",
       "date": "2026-11-26",
       "notes": [

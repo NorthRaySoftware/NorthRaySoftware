@@ -672,6 +672,7 @@ typeset::Source editionSource(const Library& lib, const Edition& e) {
     typeset::Source s = typeset::snapshot(lib, e.bookId);
     s.isbn = e.isbn;
     s.editionKind = e.kind;
+    s.colourPrint = e.print() && e.colour;
     if (e.print() && !e.trim.empty()) s.trim = e.trim;   // snapshot() has already listed every edition's ISBN
     return s;
 }
@@ -785,20 +786,80 @@ std::vector<Check> preflight(const typeset::Source& src, const typeset::Book* pr
     if (noAlt)
         add(Check::Advice, "Pictures", std::to_string(noAlt) + (noAlt == 1 ? " picture has no description" : " pictures have no description"),
             "Screen readers read the description aloud. Add one in the picture's panel.");
+    // Chapter header pictures without a description (0.91): the ebook treats them as decoration, which readers skip.
+    if (!printEdition) {
+        std::vector<std::string> undescribed;
+        for (const auto& s : src.sections)
+            if (s.hasHeader && !s.header.blob.empty() && s.header.alt.empty()) undescribed.push_back(s.title);
+        if (!undescribed.empty()) {
+            std::string names;
+            for (size_t i = 0; i < undescribed.size() && i < 4; ++i) names += (i ? ", " : "") + std::string("\u201C") + undescribed[i] + "\u201D";
+            if (undescribed.size() > 4) names += " and " + std::to_string(undescribed.size() - 4) + " more";
+            add(Check::Advice, "Ebook",
+                std::to_string(undescribed.size()) + (undescribed.size() == 1 ? " chapter's header picture has no description" : " chapters' header pictures have no description"),
+                "In the ebook, readers who can't see them hear nothing: they're treated as decoration. If one shows something the chapter needs, "
+                "describe it (Describe it\u2026 under its header picture). " + names + ".");
+        }
+    }
 
     // Print.
     if (printed && printed->ok) {
         const int pages = (int)printed->pages.size();
-        // Print resolution of every placed picture.
+        // Print resolution of every placed picture; header and scene-break pictures by name (0.91).
         int soft = 0, blurred = 0;
+        std::set<std::string> named;
+        bool sceneBreakDone = false;
         for (const auto& p : printed->pages)
             for (const auto& pic : p.pictures) {
                 const auto sz = src.pictureSizes.find(pic.blob);
                 if (sz == src.pictureSizes.end() || pic.w <= 0) continue;
                 const double ppi = sz->second.first * pic.crop.cropW / (pic.w / 72.0);
+                if (pic.role == "header" || pic.role == "scenebreak") {
+                    if (ppi >= 300) continue;
+                    const std::string what = pic.role == "header" ? "The header picture of \u201C" + p.chapter + "\u201D" : std::string("The scene break's picture");
+                    if (pic.role == "scenebreak" ? sceneBreakDone : !named.insert(p.chapter).second) continue;
+                    if (pic.role == "scenebreak") sceneBreakDone = true;
+                    char buf[48];
+                    std::snprintf(buf, sizeof buf, "%d", (int)std::lround(ppi));
+                    if (ppi < 150)
+                        add(Check::Problem, "Pictures", what + " will print blurred",
+                            std::string(buf) + " pixels per inch at the size it prints; 300 is best. Use a larger file, or a smaller size (a band or an ornament).");
+                    else
+                        add(Check::Advice, "Pictures", what + " may print soft", std::string(buf) + " pixels per inch at the size it prints; 300 is best.");
+                    continue;
+                }
                 if (ppi < 150) ++blurred;
                 else if (ppi < 300) ++soft;
             }
+        // Header and scene-break pictures in colour, in an edition printed in grey.
+        if (printEdition && !src.colourPrint) {
+            std::vector<std::string> colourful;
+            std::set<std::string> seen;
+            for (const auto& p : printed->pages)
+                for (const auto& pic : p.pictures) {
+                    if ((pic.role != "header" && pic.role != "scenebreak") || !seen.insert(pic.blob).second) continue;
+                    const auto path = src.picturePaths.find(pic.blob);
+                    if (path == src.picturePaths.end()) continue;
+                    const Rgba px = decodeRgba(readAll(path->second));
+                    if (px.w <= 0) continue;
+                    double spread = 0;
+                    size_t n = 0;
+                    const size_t step = std::max<size_t>(1, (size_t)px.w * px.h / 20000);
+                    for (size_t i = 0; i < (size_t)px.w * px.h; i += step, ++n) {
+                        const std::uint8_t* q = &px.px[i * 4];
+                        spread += std::max({q[0], q[1], q[2]}) - std::min({q[0], q[1], q[2]});
+                    }
+                    if (n && spread / n > 24) colourful.push_back(pic.role == "header" ? "the header of \u201C" + p.chapter + "\u201D" : std::string("the scene break"));
+                }
+            if (!colourful.empty()) {
+                std::string names;
+                for (size_t i = 0; i < colourful.size() && i < 4; ++i) names += (i ? ", " : "") + colourful[i];
+                names[0] = (char)std::toupper((unsigned char)names[0]);
+                add(Check::Advice, "Print", "Colour header pictures will print in black and white",
+                    "This edition prints pictures in grey, so look at the proof to see they still read well, or choose colour pictures for "
+                    "the edition. " + names + (colourful.size() > 4 ? " and more." : "."));
+            }
+        }
         if (blurred)
             add(Check::Problem, "Pictures", std::to_string(blurred) + (blurred == 1 ? " picture will print blurred" : " pictures will print blurred"),
                 "Under 150 pixels per inch at the size it prints. Use a larger file, or print it smaller.");

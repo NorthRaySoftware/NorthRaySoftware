@@ -33,6 +33,7 @@ struct Style {
     double indentEm = 1.2;
     bool spaced = false;                  // paragraphs with space between and no indent
     std::string sceneBreak = "* * *";
+    std::string sceneBreakBlob;         // a small picture in its place (0.91)
     std::string fontFamily;               // the CSS family when the typeface is embedded ("" = the reader's own)
     bool chapterDates = false;            // each chapter's date under its heading (0.85), as the typeset book
     std::string dateForm = "words", dateEra = "abbr";

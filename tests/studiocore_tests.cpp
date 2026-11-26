@@ -5376,6 +5376,63 @@ static void testHeaders() {
         CHECK(images == 4);   // the book's picture as it is, darkened and faded, and Tom's
     }
 
+    // The checks (0.91): header pictures too small for print by name, colour ones in a grey edition, undescribed ones.
+    {
+        const auto checks = publish::preflight(src, &tb);
+        auto has = [&](const std::string& t) { for (auto& c : checks) if (c.title.find(t) != std::string::npos) return true; return false; };
+        CHECK(has("The header picture of \u201CThe Forge\u201D will print blurred"));   // 300 px across the text's width
+        CHECK(has("header pictures have no description"));
+        bool named = false;
+        for (auto& c : checks) if (c.title.find("no description") != std::string::npos && c.detail.find("\u201CAshes\u201D") != std::string::npos) named = true;
+        CHECK(named);
+        // A grey edition with a colour header picture.
+        std::vector<unsigned char> red(300 * 200 * 3, 0);
+        for (size_t i = 0; i < red.size(); i += 3) { red[i] = 200; red[i + 2] = 40; }
+        size_t rl = 0;
+        void* rp = tdefl_write_image_to_png_file_in_memory(red.data(), 300, 200, 3, &rl);
+        const std::string redBytes(static_cast<const char*>(rp), rl);
+        mz_free(rp);
+        std::string redBlob;
+        { const Id a3 = lib->addArtwork(redBytes, "Red", "Bible"); for (const Artwork& a : lib->artworks()) if (a.id == a3) redBlob = a.blob; }
+        headers::BookHeaders hb2 = headers::read(*lib, book);
+        hb2.nodes[ashes].blob = redBlob;
+        headers::write(*lib, book, hb2);
+        Source grey = snapshot(*lib, book);
+        grey.editionKind = "paperback";
+        const studio::typeset::Book tg = typesetBook(grey, design, resources);
+        auto has2 = [&](const std::vector<publish::Check>& cs, const std::string& t) { for (auto& c : cs) if (c.title.find(t) != std::string::npos) return true; return false; };
+        const auto gc = publish::preflight(grey, &tg);
+        CHECK(has2(gc, "Colour header pictures will print in black and white"));
+        CHECK(!has2(gc, "no description"));                       // a print edition: not an ebook check
+        grey.colourPrint = true;
+        CHECK(!has2(publish::preflight(grey, &tg), "Colour header pictures"));
+        hb2.nodes[ashes].blob = pic;
+        headers::write(*lib, book, hb2);
+    }
+    // A picture for the scene break (0.91): in the book's design, set small and centred; the ebook's too.
+    {
+        const Id breakCh = lib->createNode(book, part, NodeKind::Chapter, "Breaks");
+        lib->saveNodeContent(breakCh, R"({"type":"doc","content":[)" + para + R"(,{"type":"scene_break"},)" + para + "]}");
+        Design withBreak = design;
+        withBreak.sceneBreakBlob = tomPic;
+        CHECK(designFromJson(designToJson(withBreak)).sceneBreakBlob == tomPic);
+        lib->setSetting("typeset:" + book, designToJson(withBreak));
+        const Source s2 = snapshot(*lib, book);
+        CHECK(s2.picturePaths.count(tomPic));
+        const studio::typeset::Book tb2 = typesetBook(s2, withBreak, resources);
+        int breaks = 0;
+        for (auto& p : tb2.pages) for (auto& pc : p.pictures) if (pc.role == "scenebreak") {
+            ++breaks;
+            const double measure = tb2.width - (withBreak.marginInside + withBreak.marginOutside) * 72;
+            CHECK(pc.w <= measure * 0.2 + 0.5 && pc.h <= 3 * withBreak.leading + 0.5);
+        }
+        CHECK(breaks == 1);
+        const auto c2 = ebook::build(s2, [](const std::string& b) { return "pic/" + b.substr(0, 6); }, ebook::styleFrom(withBreak));
+        bool pic2 = false;
+        for (auto& ch : c2.chapters) if (ch.title == "Breaks") pic2 = ch.html.find("<div class=\"scenepic\" role=\"separator\" aria-label=\"Scene break\"><img src=\"pic/" + tomPic.substr(0, 6)) != std::string::npos && ch.html.find("<hr class=\"scene\"/>") == std::string::npos;
+        CHECK(pic2);
+        lib->setSetting("typeset:" + book, "");
+    }
     // The ebook: the figure before or after the heading, a title over a picture inside it, the ornament as text.
     {
         const auto c = ebook::build(src, [](const std::string& b) { return "pic/" + b.substr(0, 6); }, ebook::styleFrom(design));

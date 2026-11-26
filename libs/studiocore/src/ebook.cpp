@@ -242,6 +242,13 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
         }
         ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n" + heading + body + "</section>\n";
+        // A picture for the scene break (0.91): decorative, so readers hear only that it's a break.
+        if (!style.sceneBreakBlob.empty() && url.url) {
+            const std::string pic = "<div class=\"scenepic\" role=\"separator\" aria-label=\"Scene break\"><img src=\"" +
+                                    escape(url.url(style.sceneBreakBlob, Placement{})) + "\" alt=\"\"/></div>";
+            const std::string hr = "<hr class=\"scene\"/>";
+            for (size_t at = 0; (at = ch.html.find(hr, at)) != std::string::npos; at += pic.size()) ch.html.replace(at, hr.size(), pic);
+        }
         c.chapters.push_back(std::move(ch));
     }
     return c;
@@ -300,6 +307,7 @@ Style styleFrom(const typeset::Design& d) {
     s.hyphenate = d.hyphenate;
     s.indentEm = d.indentEm;
     s.sceneBreak = d.sceneBreak.empty() ? std::string("* * *") : d.sceneBreak;
+    s.sceneBreakBlob = d.sceneBreakBlob;
     s.chapterDates = d.chapterDates;
     s.dateForm = d.dateForm;
     s.dateEra = d.dateEra;
@@ -442,6 +450,8 @@ span.dropcap { float: left; font-size: 3.4em; line-height: 0.82; margin: 0.06em 
 .chead.tone-dark .overtitle { color: #fff; }
 .chead.tone-dark:not(.baked) img { filter: brightness(0.42); }
 .chead.tone-fade:not(.baked) img { opacity: 0.3; }
+div.scenepic { text-align: center; margin: 1.1em 0; line-height: 0; }
+div.scenepic img { width: 20%; max-height: 3.5em; object-fit: contain; }
 p.ornament { text-align: center; text-indent: 0; font-size: 2.4em; line-height: 1.2; margin: 1.2em 0 0; }
 )CSS";
 }

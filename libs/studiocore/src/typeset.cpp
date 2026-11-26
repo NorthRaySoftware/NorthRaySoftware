@@ -1006,6 +1006,14 @@ Source snapshot(const Library& lib, const Id& bookId) {
         }
         s.sections.push_back(std::move(sec));
     }
+    // The scene break's picture in the book's design (0.91).
+    {
+        const std::string sb = designFromJson(lib.setting("typeset:" + bookId)).sceneBreakBlob;
+        if (!sb.empty() && !s.picturePaths.count(sb)) {
+            s.picturePaths[sb] = lib.blobPath(sb);
+            if (const Artwork* a = lib.artworkForBlob(sb)) s.pictureSizes[sb] = {a->width, a->height};
+        }
+    }
     // Each chapter's and part's header picture (0.89).
     {
         const headers::BookHeaders hb = headers::read(lib, bookId);
@@ -1080,6 +1088,10 @@ Design designFromJson(const std::string& text) {
     d.runningHeads = j.value("runningHeads", d.runningHeads);
     d.chapterSinkLines = std::clamp(j.value("chapterSinkLines", d.chapterSinkLines), 0, 20);
     d.sceneBreak = j.value("sceneBreak", d.sceneBreak);
+    {
+        const std::string sb = j.value("sceneBreakBlob", std::string());
+        if (sb.size() == 64 && std::all_of(sb.begin(), sb.end(), [](char c) { return std::isxdigit((unsigned char)c); })) d.sceneBreakBlob = sb;
+    }
     d.comicScript = j.value("comicScript", d.comicScript);
     d.chapterDates = j.value("chapterDates", d.chapterDates);
     d.dateForm = j.value("dateForm", d.dateForm);
@@ -1094,7 +1106,7 @@ std::string designToJson(const Design& d) {
                 {"marginBottom", d.marginBottom}, {"marginInside", d.marginInside}, {"marginOutside", d.marginOutside},
                 {"indentEm", d.indentEm}, {"justify", d.justify}, {"hyphenate", d.hyphenate}, {"titlePage", d.titlePage}, {"copyrightPage", d.copyrightPage}, {"contents", d.contents}, {"leadIn", d.leadIn}, {"dropCap", d.dropCap}, {"frontRoman", d.frontRoman}, {"chapterStyle", d.chapterStyle},
                 {"chaptersOnRecto", d.chaptersOnRecto}, {"runningHeads", d.runningHeads}, {"chapterSinkLines", d.chapterSinkLines},
-                {"sceneBreak", d.sceneBreak}, {"comicScript", d.comicScript}, {"chapterDates", d.chapterDates}, {"dateForm", d.dateForm},
+                {"sceneBreak", d.sceneBreak}, {"sceneBreakBlob", d.sceneBreakBlob}, {"comicScript", d.comicScript}, {"chapterDates", d.chapterDates}, {"dateForm", d.dateForm},
                 {"dateEra", d.dateEra}}
         .dump();
 }
@@ -1183,6 +1195,32 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         }
         return {pw, ph};
     };
+    // A scene break (0.91): the design's picture, a fifth of the text's width and at most three lines tall, or its mark.
+    auto addSceneBreak = [&](const std::string& where) {
+        space(1);
+        if (!d.sceneBreakBlob.empty()) {
+            const auto [pw, ph] = pixelSize(d.sceneBreakBlob);
+            if (pw > 0 && ph > 0) {
+                Flow f;
+                f.kind = Flow::Picture;
+                f.pic.blob = d.sceneBreakBlob;
+                f.pic.role = "scenebreak";
+                double w = measure * 0.2, h = w * ph / pw;
+                const double cap = 3 * d.leading;
+                if (h > cap) { w *= cap / h; h = cap; }
+                f.pic.w = (float)w;
+                f.pic.h = (float)h;
+                f.pic.x = (float)((measure - w) / 2);
+                f.lines = (int)std::ceil(h / d.leading);
+                flow.push_back(std::move(f));
+                space(1);
+                return;
+            }
+            book.warnings.push_back("The scene break's picture couldn't be read, so “" + where + "” uses the mark instead.");
+        }
+        addLines({set.centred(d.sceneBreak, plain, fs, measure)}, true);
+        space(1);
+    };
     // A chapter's or part's header (0.89), put with the heading set from flow[headStart] on: a picture (the text's
     // width, a band cropped from its middle, or a small ornament) or a symbol set large, above, below or behind it.
     auto addHeader = [&](const headers::Header& h, size_t headStart, const std::string& where) {
@@ -1213,6 +1251,7 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         Flow f;
         f.kind = Flow::Picture;
         f.pic.blob = h.blob;
+        f.pic.role = "header";
         f.pic.tone = h.title == "over" ? (h.tone == "fade" ? 2 : 1) : 0;
         Placement& c = f.pic.crop;
         double w = measure, ht = 0;
@@ -1442,18 +1481,12 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             afterBreak = true;
         } else if (n->kind == NodeKind::Scene) {
             // A scene page from an import: a scene break between scenes, no title printed.
-            if (!firstInChapter) {
-                space(1);
-                addLines({set.centred(d.sceneBreak, plain, fs, measure)}, true);
-                space(1);
-            }
+            if (!firstInChapter) addSceneBreak(title);
             afterBreak = true;
         }
         for (const Block& b : blocks) {
             if (b.type == Block::SceneBreak) {
-                space(1);
-                addLines({set.centred(d.sceneBreak, plain, fs, measure)}, true);
-                space(1);
+                addSceneBreak(title);
                 afterBreak = true;
                 continue;
             }

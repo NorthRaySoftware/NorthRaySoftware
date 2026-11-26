@@ -328,6 +328,66 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                                L"character's header picture or symbol, then this.",
                        {tx0, y, cw, 80}, Font::Small, pal_.inkFaint) + 16;
     }
+    // Scene breaks (0.91): a mark, an ornament, or a small picture.
+    {
+        gfx_.text(L"SCENE BREAKS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+        y += 22;
+        const Rect pv{tx0, y, cw, 46};
+        gfx_.fillRounded(pv, 8, pal_.dark ? pal_.sunken : hexColor("#FBF8F1"));
+        gfx_.strokeRounded(pv, 8, pal_.rule);
+        if (!ts_.design.sceneBreakBlob.empty()) {
+            const std::wstring path = w(lib_->blobPath(ts_.design.sceneBreakBlob));
+            if (!gfx_.drawImage(path, {pv.x + pv.w / 2 - 30, pv.y + 6, 60, 34}, false))
+                gfx_.text(L"The picture can't be read", pv, Font::Small, pal_.inkFaint, {Align::Center, false, false, true});
+        } else {
+            gfx_.text(w(ts_.design.sceneBreak), pv, Font::BodyStrong, pal_.ink, {Align::Center, false, false, true});
+        }
+        y += 56;
+        static const char* marks[] = {"*\u2003*\u2003*", "\u2042", "\u2766", "\u2727\u2003\u2727\u2003\u2727", "~", "\u2022\u2003\u2022\u2003\u2022"};
+        float mx = tx0;
+        for (size_t i = 0; i < sizeof marks / sizeof *marks; ++i) {
+            const std::wstring lw = w(marks[i]);
+            const float bw = std::max(40.0f, gfx_.measureWidth(lw, Font::Body) + 20);
+            if (mx + bw > tx0 + cw && mx > tx0) { mx = tx0; y += 36; }
+            const std::string id = "side:ts:sb:" + std::to_string(i);
+            const bool on = ts_.design.sceneBreakBlob.empty() && ts_.design.sceneBreak == marks[i];
+            const Rect br{mx, y, bw, 30};
+            addHit(id, br, [this, changed, i] { ts_.design.sceneBreak = marks[i]; ts_.design.sceneBreakBlob.clear(); changed(); });
+            gfx_.fillRounded(br, 7, on ? pal_.ribbon.withAlpha(0.16f) : pal_.surface.withAlpha(0.5f + 0.5f * hoverAmount(id)));
+            gfx_.strokeRounded(br, 7, on ? pal_.ribbon : pal_.rule, on ? 1.5f : 1.0f);
+            gfx_.text(lw, br, Font::Body, pal_.ink, {Align::Center, false, false, true});
+            if (focused(id)) focusRing(br);
+            mx += bw + 6;
+        }
+        y += 40;
+        float bx = tx0;
+        auto small = [&](const std::string& id, const std::wstring& l, std::function<void()> act) {
+            const float bw = buttonWidth(l, Font::Small) + 4;
+            if (bx + bw > tx0 + cw && bx > tx0) { bx = tx0; y += 36; }
+            button(id, {bx, y, bw, 30}, l, std::move(act));
+            bx += bw + 8;
+        };
+        small("side:ts:sbown", L"Your own mark…", [this, changed] {
+            std::wstring v = w(ts_.design.sceneBreak);
+            if (!cjui::askText(hwnd(), L"The scene break", L"Any characters, such as * * * or \u2726 or a word. Spaces are printed wide.", v, L"Use it"))
+                return;
+            if (v.empty()) return;
+            ts_.design.sceneBreak = narrow(v);
+            ts_.design.sceneBreakBlob.clear();
+            changed();
+        });
+        small("side:ts:sbpic", ts_.design.sceneBreakBlob.empty() ? L"Choose a picture…" : L"Change the picture…", [this, changed] {
+            const std::string blob = pickPicture(L"A picture for the scene break");
+            if (blob.empty()) return;
+            ts_.design.sceneBreakBlob = blob;
+            changed();
+        });
+        if (!ts_.design.sceneBreakBlob.empty())
+            small("side:ts:sbnopic", L"Remove the picture", [this, changed] { ts_.design.sceneBreakBlob.clear(); changed(); });
+        y += 40;
+        y += gfx_.text(L"The ebook shows the same; a picture is set small and centred, and readers hear only that it's a scene break.",
+                       {tx0, y, cw, 60}, Font::Small, pal_.inkFaint) + 16;
+    }
     // Text block.
     label(L"Right edge");
     segmented("side:ts:justify", {tx0, y, cw, 28}, {L"Justified", L"Ragged"}, ts_.design.justify ? 0 : 1, [this, changed](int i) {

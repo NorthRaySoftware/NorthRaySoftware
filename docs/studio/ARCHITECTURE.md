@@ -415,6 +415,16 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.91.0: scene-break pictures, described headers, print checks (26 Nov 2026)
+
+CJ's chapter-header requests 4 and 5 (project doc `studio-chapter-headers-requests-2026-11-26.md`).
+
+- **Typesetter**: `Design::sceneBreakBlob` (design JSON `sceneBreakBlob`, checked as a 64-digit hex name); `snapshot` adds the book design's picture to `picturePaths`. `addSceneBreak(where)` sets a `Flow::Picture` a fifth of the text's width, at most three lines tall, centred, for both a scene page and a scene-break block, else the mark; an unreadable picture warns and falls back. `PicturePlacement::role` ("header", "scenebreak"). **Ebook**: `Style::sceneBreakBlob`; `buildWith` swaps each `hr.scene` for `div.scenepic role=separator aria-label="Scene break"` with an empty-alt picture, so the EPUB takes the picture through its usual URL.
+- **Checks** (`publish::preflight`): `Source::colourPrint` (set by `editionSource` from the edition). Header and scene-break placements are checked by name (a chapter once, the scene break once): under 150 ppi a Problem, under 300 Advice, with the figure; the generic count leaves them out. In a print edition without colour, decoded header and scene-break pictures with a mean channel spread over 24 are listed as Advice. Outside print editions, chapters whose header picture has no `alt` are listed as Ebook Advice.
+- **cjui** `askText(owner, title, text, value, okLabel)`: the message box with an EDIT line (themed with `WM_CTLCOLOREDIT`), Enter keeps, Esc cancels.
+- **App**: `headerChooser`'s Describe it… / Change the description… (`askText`) and a line saying whether it's described. Typesetting's design card: SCENE BREAKS with a preview (the mark or the picture), six marks as buttons, Your own mark… (`askText`), Choose / Change the picture… (`pickPicture`), Remove the picture.
+- Tested: studiocore 2384 checks (The Forge's 300-pixel picture across the text named as blurred; undescribed headers named with Ashes; a red header in a grey paperback noted, not with colour, no ebook check in print; the scene-break picture kept in the design JSON, found by `snapshot`, set once within its limits, the ebook's `div.scenepic` and no `hr`). In Wine: Describe it… typed and kept, the scene-break marks and a picture chosen, Publishing's checks for The Grey Wanderer (two soft headers at 176 ppi, the colour note). The ornament marks drew as boxes in Wine's UI font; on Windows the symbol fonts cover them.
+
 ## 0.90.0: a chapter's own page in Planning; notes (26 Nov 2026)
 
 CJ (project doc `studio-chapter-page-request-2026-11-26.md`, with his answers): a page per chapter and scene, opened by a click (the panel on a right-click, or the other way round by a corkboard switch), its opening as the book sets it, a strip of facts, notes as a new field, scene cards, the text folded, ‹ › through every card, links to the bible, threads and beats.
