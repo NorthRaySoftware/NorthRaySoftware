@@ -294,6 +294,10 @@ Icon iconFor(const std::wstring& label) {
     auto starts = [&](const wchar_t* k) { return t.rfind(k, 0) == 0; };
     if (starts(L"‹") || starts(L"back")) return Icon::Back;
     if (has(L"website")) return Icon::Link;
+    // "New world" and "New book" side by side mustn't be two of the same plus: name what's new (0.88).
+    if (starts(L"new world") || starts(L"+ world")) return Icon::World;
+    if (starts(L"new book") || starts(L"+ book")) return Icon::Book;
+    if (starts(L"new series") || starts(L"+ series")) return Icon::Library;
     if (starts(L"+") || starts(L"new ") || starts(L"add ") || t == L"new" || t == L"add" || starts(L"make a ") || starts(L"make my own")) return Icon::Plus;
     if (has(L"trash") || starts(L"delete") || starts(L"remove")) return Icon::Trash;
     if (starts(L"restore") || starts(L"undo")) return Icon::Undo;

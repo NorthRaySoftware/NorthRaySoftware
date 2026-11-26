@@ -610,8 +610,7 @@ void StudioApp::drawReviewPage(const Rect& r) {
             float ax = m.x + 24;
             const float ay = y + 46;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
-                linkText(id, ax, ay, t, std::move(f));
-                ax += gfx_.measureWidth(t, Font::Small) + 26;
+                ax += linkButton(id, ax, ay, t, std::move(f));   // its icon and words (0.88)
             };
             if (!is.nodes.empty())
                 act("rv:nm:open:" + is.name, L"Show it", [this, nid = is.nodes.front(), nm = is.name] {

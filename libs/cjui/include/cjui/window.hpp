@@ -154,6 +154,10 @@ protected:
     float buttonWidth(const std::wstring& label, Font f = Font::Body);
     bool linkText(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> action,
                   Font f = Font::Small);
+    // A small button laid out by its own width (0.88): its icon and words, the icon alone (words as a tooltip) or the words
+    // alone, by the label style. Returns how far the next one goes (its frame's width and a gap).
+    float linkButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> action,
+                     Font f = Font::Small);
     void segmented(const std::string& id, const Rect& r, const std::vector<std::wstring>& options, int selected,
                    std::function<void(int)> onSelect);
     void tag(float x, float y, const std::wstring& label, Color c, float* outWidth = nullptr);

@@ -683,6 +683,16 @@ static std::string para(const std::string& text);
 // Ages worked out from the calendar, and the checks that go with them (0.86).
 static void testAges() {
     using namespace studio::cal;
+    // A holiday's symbol (0.88), through text and JSON.
+    {
+        const Calendar hc = fromText("Calendar: R\nMonths:\n- Frostmoon: 30\nHoliday: Founding Day on 3 Frostmoon at dusk | The city's birthday | symbol: icon:flag\n"
+                                     "Holiday: Lanterns on 9 Frostmoon | symbol: \xF0\x9F\x8F\xAE\n");
+        CHECK(hc.holidays.size() == 2 && hc.holidays[0].symbol == "icon:flag" && hc.holidays[0].notes == "The city's birthday");
+        CHECK(hc.holidays[1].symbol == "\xF0\x9F\x8F\xAE" && hc.holidays[1].notes.empty() && hc.holidays[1].name == "Lanterns");
+        const Calendar back = fromText(toText(hc));
+        CHECK(back.holidays.size() == 2 && back.holidays[0].symbol == "icon:flag" && back.holidays[1].symbol == hc.holidays[1].symbol);
+        CHECK(fromJson(toJson(hc)).holidays[1].symbol == hc.holidays[1].symbol);
+    }
     const std::string dir = tempLibrary("ages");
     auto lib = openOk(dir);
     if (!lib) return;

@@ -119,6 +119,9 @@ public:
 
     void pushClip(const Rect& r);
     void popClip();
+    // Whether a rectangle lies wholly outside what's being drawn (the window, or the innermost clip): drawing it would
+    // cost the time and show nothing (0.88).
+    bool culled(const Rect& r) const;
 
     ID2D1HwndRenderTarget* target() const { return rt_; }
 
@@ -170,6 +173,8 @@ private:
     struct CachedLayout { IDWriteTextLayout* tl = nullptr; unsigned long long used = 0; };
     std::unordered_map<LayoutKey, CachedLayout, LayoutKeyHash> layouts_;
     unsigned long long frame_ = 0;
+    std::vector<Rect> clips_;   // the clips pushed this frame, each the intersection with the one before
+    Rect view_{0, 0, 1e9f, 1e9f};
     void dropLayouts();
 };
 

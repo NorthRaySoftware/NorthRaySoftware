@@ -489,6 +489,10 @@ private:
     void drawKindMark(const std::string& kind, const Rect& r, const std::string& tipId = {});
     // Choose a page's symbol: emoji, drawn symbols, or none (its initials).
     void chooseEntrySymbol(const Id& entryId);
+    // A symbol as stored ("" , an emoji, or "icon:<name>") drawn in `r`; `fallback` when it's empty (0.88).
+    void drawSymbol(const std::string& symbol, const Rect& r, cjui::Color ink, cjui::Icon fallback);
+    // The emoji and drawn-symbol menu; `pick` gets the chosen symbol ("" for none). `none` names the no-symbol choice.
+    void chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick);
     // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).
@@ -981,6 +985,7 @@ private:
         int calMonth = 0;          // the month shown (index)
         std::int64_t calYear = 1;  // the year shown (plain)
         bool calYearSet = false;   // the wheel has been put on the story's year once (0.87)
+        bool yearStrip = false;    // the year as a strip of months rather than a wheel (0.88)
         bool datePick = false;     // the little calendar under the field being edited (0.75)
         int pickMonth = 0;
         std::int64_t pickYear = 1;

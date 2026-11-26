@@ -732,7 +732,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
             if (chip.right() + (cardCal.moons.empty() ? 0 : 16) < stR.x - 4) {
                 drawDateChip(chip, d.day, w(cal::monthLabel(cardCal, d.month)));
                 const std::string did = "pl:card:" + n->id + "|date";
-                addHit(did, chip, nullptr, false);
+                addHit(did, chip, [this, nid = n->id] { selectCard(nid); }, false);
                 std::wstring tip = w(cal::formatDate(cardCal, d));
                 if (!cardCal.moons.empty()) {
                     const double ph = cal::moonPhase(cardCal, cardCal.moons[0], *day);
@@ -883,7 +883,7 @@ void StudioApp::drawPlanBoard(const Rect& r) {
                 drawKindMark(pe->kind, {ix + iw - placeW, py + 1, 14, 14});
                 gfx_.text(pn, {ix + iw - placeW + 18, py, placeW - 18, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true});
                 const std::string plid = "pl:card:" + n->id + "|place";
-                addHit(plid, {ix + iw - placeW, py, placeW, 18}, nullptr, false);
+                addHit(plid, {ix + iw - placeW, py, placeW, 18}, [this, nid = n->id] { selectCard(nid); }, false);
                 tooltip(plid, L"Where it happens: " + pn);
             }
         // Length against the target.

@@ -70,15 +70,9 @@ void StudioApp::drawPortrait(const Entry& e, const Rect& r, float radius) {
     gfx_.fillRounded(r, radius, kc.withAlpha(pal_.dark ? 0.22f : 0.15f));
     gfx_.strokeRounded(r.inset(0.75f), std::max(0.0f, radius - 0.75f), kc.withAlpha(0.45f), 1.2f);
     const float side = std::min(r.w, r.h);
-    if (e.symbol.rfind("icon:", 0) == 0) {
-        const cjui::Icon ic = cjui::iconNamed(e.symbol.substr(5));
-        if (ic != cjui::Icon::None) {
-            const float isz = side * 0.56f;
-            cjui::drawIcon(gfx_, ic, {r.x + (r.w - isz) / 2, r.y + (r.h - isz) / 2, isz, isz}, kc.mix(pal_.ink, 0.25f), std::max(1.2f, side / 28));
-            return;
-        }
-    } else if (!e.symbol.empty()) {
-        gfx_.textSized(w(e.symbol), r, std::clamp(side * 0.52f, 8.0f, 200.0f), false, pal_.ink, {Align::Center, false, false, true});
+    if (!e.symbol.empty()) {
+        const float isz = side * 0.56f;
+        drawSymbol(e.symbol, {r.x + (r.w - isz) / 2, r.y + (r.h - isz) / 2, isz, isz}, kc.mix(pal_.ink, 0.25f), cjui::Icon::None);
         return;
     }
     const Font f = side >= 60 ? Font::Heading : side >= 30 ? Font::SmallStrong : Font::Label;
@@ -99,39 +93,60 @@ void StudioApp::drawKindMark(const std::string& kind, const Rect& r, const std::
     }
 }
 
-void StudioApp::chooseEntrySymbol(const Id& entryId) {
-    const Entry* e = lib_->entry(entryId);
-    if (!e) return;
+void StudioApp::drawSymbol(const std::string& symbol, const Rect& r, cjui::Color ink, cjui::Icon fallback) {
+    const float side = std::min(r.w, r.h);
+    const Rect sq{r.x + (r.w - side) / 2, r.y + (r.h - side) / 2, side, side};
+    if (symbol.rfind("icon:", 0) == 0) {
+        const cjui::Icon ic = cjui::iconNamed(symbol.substr(5));
+        cjui::drawIcon(gfx_, ic != cjui::Icon::None ? ic : fallback, sq, ink, std::max(1.1f, side / 12));
+    } else if (!symbol.empty())
+        gfx_.textSized(w(symbol), {sq.x - side * 0.2f, sq.y - side * 0.2f, side * 1.4f, side * 1.4f}, std::clamp(side * 0.85f, 8.0f, 200.0f), false, ink,
+                       {Align::Center, false, false, true});
+    else if (fallback != cjui::Icon::None)
+        cjui::drawIcon(gfx_, fallback, sq, ink, std::max(1.1f, side / 12));
+}
+
+void StudioApp::chooseSymbol(const std::string& current, const std::wstring& none, std::function<void(const std::string&)> pick) {
     // A handful of emoji worlds tend to need, and the app's own drawn symbols. The emoji are drawn by Windows' emoji font.
     static const wchar_t* emoji[] = {L"\U0001F409", L"\U0001F43A", L"\U0001F985", L"\U0001F40D", L"\U0001F984", L"\U0001F9D9", L"\U0001F451",
                                      L"⚔️", L"\U0001F6E1️", L"\U0001F3F0", L"\U0001F30B", L"\U0001F30A", L"\U0001F332",
                                      L"\U0001F3D4️", L"\U0001F319", L"⭐", L"\U0001F525", L"\U0001F48E", L"\U0001F4DC",
                                      L"\U0001F5DD️", L"\U0001F56F️", L"\U0001F9EA", L"⚓", L"\U0001F43E", L"\U0001F480",
-                                     L"\U0001F47B", L"\U0001F33F", L"\U0001F33A", L"✨", L"☠️"};
+                                     L"\U0001F47B", L"\U0001F33F", L"\U0001F33A", L"✨", L"☠️", L"\U0001F386", L"\U0001F3EE",
+                                     L"\U0001F56F", L"\U0001F342", L"❄️", L"\U0001F33E", L"\U0001F377", L"\U0001F514"};
     std::vector<cjui::MenuItem> em, drawn;
-    for (size_t i = 0; i < sizeof emoji / sizeof *emoji; ++i) em.push_back(cjui::MenuItem::item(emoji[i], 100 + (UINT)i, {}, true, w(e->symbol) == emoji[i]));
+    for (size_t i = 0; i < sizeof emoji / sizeof *emoji; ++i) em.push_back(cjui::MenuItem::item(emoji[i], 100 + (UINT)i, {}, true, w(current) == emoji[i]));
     const auto& icons = cjui::symbolIcons();
     for (size_t i = 0; i < icons.size(); ++i) {
         std::wstring nm = w(cjui::iconName(icons[i]));
         if (!nm.empty()) nm[0] = (wchar_t)towupper(nm[0]);
-        drawn.push_back(cjui::MenuItem::item(nm, 300 + (UINT)i, {}, true, e->symbol == std::string("icon:") + cjui::iconName(icons[i])));
+        drawn.push_back(cjui::MenuItem::item(nm, 300 + (UINT)i, {}, true, current == std::string("icon:") + cjui::iconName(icons[i])));
     }
-    std::vector<cjui::MenuItem> items{cjui::MenuItem::heading(L"Shown where the page has no picture"),
-                                      cjui::MenuItem::sub(L"An emoji", em), cjui::MenuItem::sub(L"A drawn symbol", drawn),
-                                      cjui::MenuItem::item(L"Its initials", 1, {}, true, e->symbol.empty())};
+    std::vector<cjui::MenuItem> items{cjui::MenuItem::sub(L"An emoji", em), cjui::MenuItem::sub(L"A drawn symbol", drawn),
+                                      cjui::MenuItem::item(none, 1, {}, true, current.empty())};
     POINT pt;
     GetCursorPos(&pt);
     const UINT c = cjui::showMenu(hwnd(), items, pt, pal_);
     if (!c) return;
-    Entry x = *e;
-    const Entry before = *e;
-    if (c == 1) x.symbol.clear();
-    else if (c >= 300) x.symbol = std::string("icon:") + cjui::iconName(icons[c - 300]);
-    else if (c >= 100) x.symbol = narrow(emoji[c - 100]);
-    if (x.symbol == before.symbol) return;
-    lib_->updateEntry(x);
-    flashUndo(L"Symbol changed.", [this, before] { lib_->updateEntry(before); invalidate(); });
-    invalidate();
+    std::string out;
+    if (c >= 300) out = std::string("icon:") + cjui::iconName(icons[c - 300]);
+    else if (c >= 100) out = narrow(emoji[c - 100]);
+    if (out != current) pick(out);
+}
+
+void StudioApp::chooseEntrySymbol(const Id& entryId) {
+    const Entry* e = lib_->entry(entryId);
+    if (!e) return;
+    chooseSymbol(e->symbol, L"Its initials", [this, entryId](const std::string& sym) {
+        const Entry* x0 = lib_->entry(entryId);
+        if (!x0) return;
+        const Entry before = *x0;
+        Entry x = *x0;
+        x.symbol = sym;
+        lib_->updateEntry(x);
+        flashUndo(L"Symbol changed.", [this, before] { lib_->updateEntry(before); invalidate(); });
+        invalidate();
+    });
 }
 
 void StudioApp::drawMoonDisc(float mx, float my, float rad, double ph) {
@@ -202,6 +217,8 @@ float StudioApp::drawYearWheel(const Rect& m, float y, const cal::Calendar& c) {
             invalidate();
         }, &bw);
     }
+    // As a wheel or a strip of months (0.88).
+    segmented("calw:shape", {m.x + 360, y + 3, 170, 28}, {L"Wheel", L"Strip"}, wb_.yearStrip ? 1 : 0, [this](int i) { wb_.yearStrip = i == 1; invalidate(); });
     y += 50;
     const std::int64_t first = cal::toDay(c, {year, 0, 1});
     const std::int64_t len = std::max<std::int64_t>(1, cal::yearLength(c, year));
@@ -222,6 +239,107 @@ float StudioApp::drawYearWheel(const Rect& m, float y, const cal::Calendar& c) {
         static const char* p[] = {"#7CC48A", "#E9C25A", "#DA8A50", "#86AEDB", "#B392D9", "#E58FA8"};
         return cjui::hexColor(p[i % 6]);
     };
+    if (wb_.yearStrip) {
+        // ---- The strip: the months left to right, as wide as their days, in their seasons' colours; holidays and moons
+        // above, each book's span below, the story's now as a line through it.
+        const float L = m.x, W = m.w;
+        auto xOf = [&](double dayInYear) { return L + W * (float)(dayInYear / (double)len); };
+        const float barY = y + 58, barH = 44;
+        std::int64_t at = 0;
+        for (int mo = 0; mo < (int)c.months.size(); ++mo) {
+            const int ml = cal::monthLength(c, year, mo);
+            if (ml <= 0) continue;
+            const cal::Season* sn = cal::seasonOn(c, {year, mo, std::max(1, ml / 2)});
+            size_t si = 0;
+            if (sn) for (size_t k = 0; k < c.seasons.size(); ++k) if (&c.seasons[k] == sn) si = k;
+            const Rect mr{xOf((double)at) + 1, barY, xOf((double)(at + ml)) - xOf((double)at) - 2, barH};
+            const std::string id = "calw:sm:" + std::to_string(mo);
+            addHit(id, mr, [this, mo, year] { wb_.calMode = 0; wb_.calMonth = mo; wb_.calYear = year; invalidate(); });
+            const std::wstring nm = w(cal::monthLabel(c, mo));
+            tooltip(id, nm + L": " + std::to_wstring(ml) + L" days" + (sn ? L", " + w(sn->name) : std::wstring()) + L". Click for the month.");
+            gfx_.fillRounded(mr, 5, (sn ? seasonColour(sn->name, si) : pal_.rule).withAlpha(0.75f + 0.25f * hoverAmount(id)));
+            gfx_.text(nm, {mr.x + 2, mr.y, mr.w - 4, mr.h}, mr.w > 60 ? Font::SmallStrong : Font::Label, pal_.dark ? pal_.paper : pal_.ink,
+                      {Align::Center, false, true, true});
+            at += ml;
+        }
+        // Holidays: their symbols over the bar, a tick down to their day.
+        for (size_t h = 0; h < c.holidays.size(); ++h) {
+            const cal::Holiday& hd = c.holidays[h];
+            if (hd.month < 0 || hd.month >= (int)c.months.size()) continue;
+            const cal::Date dd = cal::clampDate(c, {year, hd.month, hd.day});
+            const float hx = xOf((double)(cal::toDay(c, dd) - first) + 0.5);
+            gfx_.line(hx, barY - 12, hx, barY, gold_, 1.2f);
+            drawSymbol(hd.symbol, {hx - 8, barY - 30, 16, 16}, gold_, cjui::Icon::Star);
+            const std::string id = "calw:sh:" + std::to_string(h);
+            addHit(id, {hx - 9, barY - 31, 18, 18}, nullptr, false);
+            tooltip(id, w(hd.name) + L"  \u00B7  " + w(cal::formatDate(c, dd, false)) + (hd.notes.empty() ? std::wstring() : L"\n" + w(hd.notes)));
+        }
+        // The first moon's full and new moons, and eclipses, in a row above.
+        if (!c.moons.empty()) {
+            double prev = cal::moonPhase(c, c.moons[0], first - 1);
+            for (std::int64_t d = 0; d < len; ++d) {
+                const double ph = cal::moonPhase(c, c.moons[0], first + d);
+                const bool full = prev < 0.5 && ph >= 0.5, fresh = ph < prev;
+                prev = ph;
+                const auto ecl = cal::eclipsesOn(c, first + d);
+                if (!full && !fresh && ecl.empty()) continue;
+                const float mx = xOf(d + 0.5), my = barY - 46;
+                drawMoonDisc(mx, my, 5, full ? 0.5 : 0.0);
+                if (!ecl.empty()) gfx_.circle(mx, my, 8, pal_.dark ? cjui::hexColor("#F08A6C") : cjui::hexColor("#B4442C"), false, 1.8f);
+                const std::string id = "calw:smoon:" + std::to_string(d);
+                addHit(id, {mx - 7, my - 7, 14, 14}, nullptr, false);
+                tooltip(id, w(c.moons[0].name) + L": " + (full ? L"full" : L"new") + L" on " + w(cal::formatDate(c, cal::fromDay(c, first + d), false)) +
+                                (ecl.empty() ? L"" : L", an eclipse"));
+            }
+        }
+        // Each book's span below.
+        float by = barY + barH + 14;
+        for (const Id& b : booksInReadingOrder(*lib_, wb_.world, wb_.book)) {
+            const cal::StorySpan sp = cal::storySpan(*lib_, b);
+            if (!sp.on || !sp.any || sp.last < first || sp.first >= first + len) continue;
+            const studio::Book* bk = lib_->book(b);
+            if (!bk) continue;
+            const double a = (double)std::max(sp.first, first) - first, z = (double)std::min(sp.last + 1, first + len) - first;
+            const Rect br{xOf(a), by, std::max(8.0f, xOf(z) - xOf(a)), 20};
+            gfx_.fillRounded(br, 10, povColour(b).withAlpha(0.85f));
+            // The title inside its bar when it fits, after the bar when it doesn't, before it near the right edge.
+            const std::wstring bt = w(bk->title);
+            const float tw = gfx_.measureWidth(bt, Font::Small);
+            float tx = br.x + 8;
+            if (tw + 16 > br.w) tx = br.x + br.w + 8 + tw <= L + W ? br.x + br.w + 8 : br.x - tw - 8;
+            gfx_.text(bt, {tx, br.y, tw + 4, br.h}, Font::Small, pal_.ink, {Align::Left, false, true, true});
+            const std::string id = "calw:sb:" + b;
+            addHit(id, br, nullptr, false);
+            tooltip(id, w(bk->title) + L": " + w(cal::formatDate(c, cal::fromDay(c, sp.first))) + L" to " + w(cal::formatDate(c, cal::fromDay(c, sp.last))));
+            by += 26;
+        }
+        if (now && *now >= first && *now < first + len) {
+            const float nx = xOf((double)(*now - first) + 0.5);
+            gfx_.line(nx, barY - 6, nx, by, pal_.ribbon, 2.5f);
+            gfx_.circle(nx, barY - 6, 4.5f, pal_.ribbon, true);
+            addHit("calw:snow", {nx - 6, barY - 12, 12, by - barY + 12}, nullptr, false);
+            tooltip("calw:snow", L"Now in the story: \u201C" + nowWhat + L"\u201D, " + w(cal::formatDate(c, cal::fromDay(c, *now))));
+        }
+        y = by + 16;
+        // The key, in a row.
+        float kx = L;
+        auto key = [&](std::function<void(float, float)> mark, const std::wstring& t) {
+            const float tw = gfx_.measureWidth(t, Font::Small);
+            if (kx + tw + 30 > L + W) { kx = L; y += 24; }
+            mark(kx + 8, y + 10);
+            gfx_.text(t, {kx + 22, y, tw + 4, 20}, Font::Small, pal_.ink, {Align::Left, false, false, true});
+            kx += tw + 40;
+        };
+        for (size_t k = 0; k < c.seasons.size(); ++k)
+            key([&](float x, float yy) { gfx_.fillRounded({x - 7, yy - 6, 14, 12}, 3, seasonColour(c.seasons[k].name, k)); }, w(c.seasons[k].name));
+        key([&](float x, float yy) { cjui::drawIcon(gfx_, cjui::Icon::Star, {x - 7, yy - 7, 14, 14}, gold_, 1.3f); }, L"A holiday");
+        if (!c.moons.empty()) {
+            key([&](float x, float yy) { drawMoonDisc(x, yy, 5, 0.5); }, L"Full moon");
+            key([&](float x, float yy) { drawMoonDisc(x, yy, 5, 0.0); }, L"New moon");
+        }
+        if (now) key([&](float x, float yy) { gfx_.circle(x, yy, 4.5f, pal_.ribbon, true); }, L"The story's now");
+        return y + 40;
+    }
     // Each month: an arc of the ring in the season it starts in, its name outside.
     std::int64_t at = 0;
     for (int mo = 0; mo < (int)c.months.size(); ++mo) {
@@ -259,7 +377,7 @@ float StudioApp::drawYearWheel(const Rect& m, float y, const cal::Calendar& c) {
         tooltip(id, w(hd.name) + L"  ·  " + w(cal::formatDate(c, cal::clampDate(c, {year, hd.month, hd.day}), false)) +
                         (hd.notes.empty() ? std::wstring() : L"\n" + w(hd.notes)));
         gfx_.circle(hx, hy, 9, pal_.surface, true);
-        cjui::drawIcon(gfx_, cjui::Icon::Star, {hx - 7, hy - 7, 14, 14}, gold_, 1.3f);
+        drawSymbol(hd.symbol, {hx - 7, hy - 7, 14, 14}, gold_, cjui::Icon::Star);   // its own symbol, else a star (0.88)
     }
     // The moons: full and new moons (the first moon) just inside the ring; eclipses ringed in red.
     const float moonR = R - ring - 14;

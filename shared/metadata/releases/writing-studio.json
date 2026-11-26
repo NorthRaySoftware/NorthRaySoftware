@@ -1,6 +1,18 @@
 {
   "releases": [
     {
+      "version": "0.88.0",
+      "date": "2026-11-26",
+      "notes": [
+        "With Settings › Buttons and menus show › Icons only, the small links on bible pages, Checks and Review (Open, Show it, It's fine and the like) show their icon alone too, with the words as a tooltip. New world, New book and New series each have their own icon.",
+        "The calendar's year can be shown as a strip as well as a wheel: the months left to right, as wide as their days and coloured by season, holiday symbols above with a tick to their day, full and new moons and eclipses, each book's span below, and the story's now as a line through it. Click a month to open it.",
+        "Holidays can have a symbol or emoji (the button beside each holiday in Make the calendar). It shows on the month, the year wheel and the strip; in the calendar's text form it's written “| symbol: …” at the end of the holiday's line.",
+        "Writing's chapter list shows each chapter's status as a ring: empty for an outline, a third for a draft, two thirds for revised, full for final. Point at it for the status and the words against the chapter's target.",
+        "Books on the bookshelf with a word target show a progress ring on their cover.",
+        "Faster drawing: anything wholly outside the window or the panel it's in (cards, their shadows, text) is no longer drawn."
+      ]
+    },
+    {
       "version": "0.87.0",
       "date": "2026-11-26",
       "notes": [

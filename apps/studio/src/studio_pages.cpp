@@ -1399,6 +1399,10 @@ void StudioApp::bookCard(const Rect& r, const Book& b, const Id& seriesId, const
         const float f = std::clamp((float)b.wordCount / (float)target, 0.0f, 1.0f);
         gfx_.fillRounded({cover.x, cover.bottom() + 3, cover.w, 3}, 1.5f, pal_.sunken);
         if (f > 0) gfx_.fillRounded({cover.x, cover.bottom() + 3, std::max(3.0f, cover.w * f), 3}, 1.5f, f >= 1 ? pal_.ribbon : bookStatusColour(b.status));
+        // And as a ring on the cover's corner, with the percentage (0.88).
+        const float rx = cover.right() - 20, ry = cover.y + 20;
+        gfx_.circle(rx, ry, 17, pal_.surface.withAlpha(0.92f), true);
+        drawProgressRing(rx, ry, 14, (float)b.wordCount / (float)target);
     }
     gfx_.text(w(b.title), {r.x, y, r.w, 20}, Font::BodyStrong, pal_.ink, {Align::Left, false, true});
     statusTag(r.x, y + 23, b.status, r.w);

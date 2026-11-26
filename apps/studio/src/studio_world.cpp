@@ -1704,6 +1704,9 @@ void StudioApp::drawWorldPage(const Rect& r) {
                 float lx = m.x;
                 gfx_.text(L"ON THIS PAGE", {lx, y + 5, 110, 18}, Font::Label, pal_.inkFaint, {Align::Left, false});
                 lx += 112;
+                // These name parts of the page, so they stay words whatever the labels setting says.
+                const cjui::LabelStyle keepStyle = cjui::labelStyle();
+                cjui::setLabelStyle(cjui::LabelStyle::WordsOnly);
                 for (auto& [name, at] : anchors) {
                     const float tw2 = gfx_.measureWidth(name, Font::Small);
                     if (lx + tw2 + 20 > m.right()) break;
@@ -1714,6 +1717,7 @@ void StudioApp::drawWorldPage(const Rect& r) {
                     });
                     lx += tw2 + 26;
                 }
+                cjui::setLabelStyle(keepStyle);
                 y += 40;
             }
         }
@@ -4365,8 +4369,7 @@ void StudioApp::drawChecks(const Rect& r) {
                       {m.x, y + 22, cw, 18}, Font::Small, pal_.inkMuted, {Align::Left, false, true});
             float ax = m.x;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> f) {
-                linkText(id, ax, y + 46, t, std::move(f));
-                ax += gfx_.measureWidth(t, Font::Small) + 26;
+                ax += linkButton(id, ax, y + 46, t, std::move(f));   // its icon and words (0.88)
             };
             if (!is.nodes.empty()) act("ck:sp:show:" + is.name, L"Show it", [this, b = sp->first, n = is.nodes.front(), nm = is.name] { showInWriting(b, n, {nm}); });
             act("ck:sp:fix:" + is.name, L"Fix it in Review › Names", [this, b = sp->first] { openReview(b, 2); });
@@ -4402,8 +4405,7 @@ void StudioApp::drawChecks(const Rect& r) {
             }
             float ax = m.x;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
-                linkText(id, ax, y, t, std::move(fn));
-                ax += gfx_.measureWidth(t, Font::Small) + 26;
+                ax += linkButton(id, ax, y, t, std::move(fn));   // its icon and words (0.88)
             };
             const std::string k = f->key();
             if (!f->nodeId.empty())
@@ -4437,8 +4439,7 @@ void StudioApp::drawChecks(const Rect& r) {
             if (!g->snippet.empty()) y += gfx_.text(L"“" + w(g->snippet) + L"”", {m.x, y, cw, 60}, Font::Small, pal_.ink) + 6;
             float ax = m.x;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
-                linkText(id, ax, y, t, std::move(fn));
-                ax += gfx_.measureWidth(t, Font::Small) + 26;
+                ax += linkButton(id, ax, y, t, std::move(fn));   // its icon and words (0.88)
             };
             const std::string k = g->key();
             act("ck:g:show:" + k, L"Show it", [this, b = g->bookId, n = g->nodeId, s = g->said] { showInWriting(b, n, {s}); });
@@ -4471,8 +4472,7 @@ void StudioApp::drawChecks(const Rect& r) {
             if (!ci->snippet.empty()) y += gfx_.text(L"“" + w(ci->snippet) + L"”", {m.x, y, cw, 60}, Font::Small, pal_.ink) + 6;
             float ax = m.x;
             auto act = [&](const std::string& id, const std::wstring& t, std::function<void()> fn) {
-                linkText(id, ax, y, t, std::move(fn));
-                ax += gfx_.measureWidth(t, Font::Small) + 26;
+                ax += linkButton(id, ax, y, t, std::move(fn));   // its icon and words (0.88)
             };
             const std::string k = "caps|" + ci->entry + "|" + ci->name;
             act("ck:c:show:" + k, L"Show it", [this, b = ci->bookId, n = ci->nodeId, s = ci->written] { showInWriting(b, n, {s}); });

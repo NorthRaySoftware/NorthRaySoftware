@@ -806,7 +806,16 @@ void StudioApp::drawBinder(const Rect& r) {
         // Status dot: outline grey, draft amber, revised blue, final green.
         static const char* dots[] = {"#9A958A", "#C9922E", "#4E7DB3", "#3E8E5E"};
         const float tx = tx0 + d * 16;
-        gfx_.circle(tx + 3, rr.y + rh / 2, 3, hexColor(dots[(int)n->status]), true);
+        // The status as a little ring that fills as the writing gets further (0.88): an outline is an empty ring, a draft
+        // a third, revised two thirds, final a full disc, so it reads without its colour too.
+        {
+            const cjui::Color sc = hexColor(dots[(int)n->status]);
+            const float cx = tx + 3.5f, cy = rr.y + rh / 2, rad = 4.5f;
+            gfx_.circle(cx, cy, rad, sc.withAlpha(0.45f), false, 1.4f);
+            const int st = (int)n->status;
+            if (st == 3) gfx_.circle(cx, cy, rad + 0.7f, sc, true);
+            else if (st > 0) gfx_.arc(cx, cy, rad, -1.5708f, -1.5708f + 6.2832f * st / 3.0f, sc, 2.2f);
+        }
         const std::int64_t words = n->kind == NodeKind::Scene ? n->wordCount : nodeTotalWords(n->id);
         const std::wstring count = words ? thousands(words) : L"";
         const float cw = count.empty() ? 0 : gfx_.measureWidth(count, Font::Small) + 8;
@@ -824,7 +833,11 @@ void StudioApp::drawBinder(const Rect& r) {
             const float bx = tx + 14, bw = rr.right() - 6 - bx, by = rr.bottom() - 3;
             gfx_.fill({bx, by, bw, 2}, pal_.rule.withAlpha(0.7f));
             gfx_.fill({bx, by, bw * f, 2}, f >= 1 ? hexColor("#C9A227") : pal_.ribbon);
-            tooltip(id, thousands(words) + L" of " + thousands(n->targetWords) + L" words");
+        }
+        {
+            std::wstring st = widen(label(n->status));
+            if (!st.empty()) st[0] = (wchar_t)towupper(st[0]);
+            tooltip(id, st + L"  \u00B7  " + thousands(words) + (n->targetWords > 0 && n->kind != NodeKind::Part ? L" of " + thousands(n->targetWords) : L"") + L" words");
         }
         if (focused(id)) focusRing(rr);
         y += rh + 2;

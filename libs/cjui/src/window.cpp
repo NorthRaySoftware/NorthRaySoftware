@@ -141,7 +141,7 @@ float AppWindow::pageProgress() {
 }
 
 void AppWindow::softShadow(const Rect& r, float radius, float amount) {
-    if (amount <= 0.01f) return;
+    if (amount <= 0.01f || gfx_.culled({r.x - 4, r.y, r.w + 8, r.h + 8})) return;
     const Color shade = pal_.dark ? Color{0, 0, 0, 1} : Color{0.1f, 0.08f, 0.05f, 1};
     for (int i = 1; i <= 4; ++i) {
         const float spread = (float)i * 1.5f;
@@ -344,8 +344,48 @@ void AppWindow::disabledButton(const Rect& r, const std::wstring& label) {
     gfx_.text(label, r, Font::Body, pal_.inkFaint, {Align::Center, false, true, true});
 }
 
+float AppWindow::linkButton(const std::string& id, float x, float y, const std::wstring& label, std::function<void()> action, Font f) {
+    std::wstring text = label;
+    if (text.rfind(L"+ ", 0) == 0) text.erase(0, 2);
+    Icon ic = text.size() > 1 ? iconFor(label) : Icon::None;
+    const LabelStyle st = labelStyle();
+    if (st == LabelStyle::WordsOnly || !calm_) ic = Icon::None;
+    const bool iconOnly = st == LabelStyle::IconsOnly && ic != Icon::None;
+    const float h = gfx_.measureHeight(L"Ag", 1000.0f, f);
+    const float isz = std::min(14.0f, h + 1);
+    const float tw = iconOnly ? 0 : gfx_.measureWidth(text, f);
+    const float w = (ic != Icon::None ? isz : 0) + (ic != Icon::None && !iconOnly ? 6 : 0) + tw;
+    const Rect box{x - 7, y - 3.5f, w + 14, h + 7};
+    addHit(id, box, std::move(action));
+    if (iconOnly) tooltip(id, text);
+    const bool hov = hovered(id);
+    const float ha = hoverAmount(id), dn = anim(id + "#press", pressed(id) ? 1.0f : 0.0f, 30.0f);
+    const Rect b{box.x, box.y - 1.5f * ha + dn, box.w, box.h};
+    if (ha > 0.01f) softShadow(b, 7, 0.5f * ha * (1 - dn));
+    gfx_.fillRounded(b, 7, pal_.surface.mix(pal_.sunken, 0.35f * ha + 0.6f * dn));
+    gfx_.strokeRounded(b, 7, pal_.rule.mix(pal_.inkFaint, 0.55f * ha));
+    const Color ink = pal_.ink.mix(pal_.inkMuted, 0.12f * (1 - ha));
+    const float dy = b.y - box.y;
+    float tx = x;
+    if (ic != Icon::None) {
+        drawIcon(gfx_, ic, {x, y + dy + (h - isz) / 2, isz, isz}, pal_.inkMuted.mix(pal_.ink, ha), 1.3f);
+        tx += isz + 6;
+    }
+    if (!iconOnly) gfx_.text(text, {tx, y + dy, tw + 2, h}, f, ink, {Align::Left, false});
+    if (focused(id)) focusRing(b);
+    (void)hov;
+    return box.w + 12;
+}
+
 bool AppWindow::linkText(const std::string& id, float x, float y, const std::wstring& label,
                          std::function<void()> action, Font f) {
+    // Icons only (0.88): a link whose words have an icon shows the icon alone, from where its words would start; the
+    // words are its tooltip.
+    if (calm_ && labelStyle() == LabelStyle::IconsOnly && label.size() > 2 && label[0] != L'\u2039')
+        if (iconFor(label) != Icon::None) {
+            linkButton(id, x, y, label, std::move(action), f);
+            return hovered(id);
+        }
     // A small button: plain text in a soft frame, lifting when pointed at. It's laid out where a
     // link would be (callers measure the label), with its frame 7 DIPs around the text.
     // "‹ Back" and "+ Add" get a drawn chevron or plus in place of the characters.

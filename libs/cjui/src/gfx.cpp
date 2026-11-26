@@ -95,6 +95,11 @@ bool Gfx::begin() {
     text_.clear();
     rt_->BeginDraw();
     rt_->SetTransform(D2D1::Matrix3x2F::Identity());
+    clips_.clear();
+    {
+        const D2D1_SIZE_F sz = rt_->GetSize();
+        view_ = {0, 0, sz.width, sz.height};
+    }
     // Layouts not used in the last few frames go (checked every 16 frames), and the cache never grows without bound.
     ++frame_;
     if ((frame_ & 15) == 0 || layouts_.size() > 12000)
@@ -262,10 +267,22 @@ ID2D1SolidColorBrush* Gfx::brush(Color c) {
 }
 
 void Gfx::clear(Color c) { rt_->Clear(D2D1::ColorF(c.r, c.g, c.b, c.a)); }
-void Gfx::fill(const Rect& r, Color c) { rt_->FillRectangle(r.d2d(), brush(c)); }
-void Gfx::stroke(const Rect& r, Color c, float w) { rt_->DrawRectangle(r.inset(w / 2).d2d(), brush(c), w); }
+bool Gfx::culled(const Rect& r) const {
+    const Rect& v = clips_.empty() ? view_ : clips_.back();
+    return r.x + r.w < v.x - 2 || r.x > v.x + v.w + 2 || r.y + r.h < v.y - 2 || r.y > v.y + v.h + 2;
+}
+
+void Gfx::fill(const Rect& r, Color c) {
+    if (culled(r)) return;
+    rt_->FillRectangle(r.d2d(), brush(c));
+}
+void Gfx::stroke(const Rect& r, Color c, float w) {
+    if (culled(r)) return;
+    rt_->DrawRectangle(r.inset(w / 2).d2d(), brush(c), w);
+}
 
 void Gfx::fillRounded(const Rect& r, float rad, Color c) {
+    if (culled(r)) return;
     rt_->FillRoundedRectangle(D2D1::RoundedRect(r.d2d(), rad, rad), brush(c));
 }
 
@@ -317,6 +334,7 @@ void Gfx::glow(float cx, float cy, float rx, float ry, Color c) {
 }
 
 void Gfx::strokeRounded(const Rect& r, float rad, Color c, float w) {
+    if (culled(r)) return;
     rt_->DrawRoundedRectangle(D2D1::RoundedRect(r.inset(w / 2).d2d(), rad, rad), brush(c), w);
 }
 
@@ -483,7 +501,9 @@ float Gfx::textSized(const std::wstring& s, const Rect& r, float size, bool stro
     if (!tl) return 0;
     DWRITE_TEXT_METRICS m{};
     tl->GetMetrics(&m);
-    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
+    // Laid out (the height is the answer, and the layout's kept) but drawn only when some of it can show (0.88).
+    if (!culled({r.x + m.left, r.y + m.top, std::max(m.width, m.widthIncludingTrailingWhitespace), m.height}))
+        rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
     tl->Release();
     return m.height;
 }
@@ -542,7 +562,9 @@ float Gfx::text(const std::wstring& s, const Rect& r, Font f, Color c, TextOpts 
     if (!tl) return 0;
     DWRITE_TEXT_METRICS m{};
     tl->GetMetrics(&m);
-    rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
+    // Laid out (the height is the answer, and the layout's kept) but drawn only when some of it can show (0.88).
+    if (!culled({r.x + m.left, r.y + m.top, std::max(m.width, m.widthIncludingTrailingWhitespace), m.height}))
+        rt_->DrawTextLayout(D2D1::Point2F(r.x, r.y), tl, brush(c), textOptions(o.ellipsis));
     tl->Release();
     if (text_.size() < 4000) text_.push_back({r.x + m.left, r.y + m.top, std::min(m.width, r.w), m.height});
     return m.height;
@@ -570,7 +592,16 @@ float Gfx::measureWidth(const std::wstring& s, Font f) {
     return m.widthIncludingTrailingWhitespace;
 }
 
-void Gfx::pushClip(const Rect& r) { rt_->PushAxisAlignedClip(r.d2d(), D2D1_ANTIALIAS_MODE_ALIASED); }
-void Gfx::popClip() { rt_->PopAxisAlignedClip(); }
+void Gfx::pushClip(const Rect& r) {
+    rt_->PushAxisAlignedClip(r.d2d(), D2D1_ANTIALIAS_MODE_ALIASED);
+    const Rect& v = clips_.empty() ? view_ : clips_.back();
+    const float x0 = std::max(v.x, r.x), y0 = std::max(v.y, r.y);
+    const float x1 = std::min(v.x + v.w, r.x + r.w), y1 = std::min(v.y + v.h, r.y + r.h);
+    clips_.push_back({x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)});
+}
+void Gfx::popClip() {
+    rt_->PopAxisAlignedClip();
+    if (!clips_.empty()) clips_.pop_back();
+}
 
 }  // namespace cjui

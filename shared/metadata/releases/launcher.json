@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.164.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.88.0: icons on small links, the calendar's year as a strip, holiday symbols, status rings in Writing and on the bookshelf, and faster drawing."
+      ]
+    },
+    {
       "version": "0.163.0",
       "date": "2026-11-26",
       "notes": [

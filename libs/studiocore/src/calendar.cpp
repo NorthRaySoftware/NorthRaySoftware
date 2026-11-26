@@ -1031,6 +1031,7 @@ std::string toJson(const Calendar& c) {
     j["holidays"] = json::array();
     for (auto& h : c.holidays) {
         json hj{{"name", h.name}, {"month", h.month}, {"day", h.day}, {"entry", h.entry}, {"notes", h.notes}};
+        if (!h.symbol.empty()) hj["symbol"] = h.symbol;
         timeTo(hj, h.time);
         j["holidays"].push_back(hj);
     }
@@ -1110,7 +1111,8 @@ Calendar fromJson(const std::string& text) {
     if (j.contains("holidays") && j["holidays"].is_array())
         for (auto& h : j["holidays"])
             if (h.is_object())
-                c.holidays.push_back({str(h, "name"), (int)num(h, "month", 0), (int)num(h, "day", 1), str(h, "entry"), str(h, "notes"), timeFrom(h)});
+                c.holidays.push_back({str(h, "name"), (int)num(h, "month", 0), (int)num(h, "day", 1), str(h, "entry"), str(h, "notes"), timeFrom(h),
+                                      str(h, "symbol")});
     c.hoursPerDay = std::max(1, (int)num(j, "hoursPerDay", 24));
     c.minutesPerHour = std::max(1, (int)num(j, "minutesPerHour", 60));
     c.order = str(j, "order");
@@ -1184,7 +1186,7 @@ std::string toText(const Calendar& c) {
     for (auto& s : c.seasons) o << "Season: " << s.name << " from " << dayMonth(s.month, s.day) << "\n";
     for (auto& h : c.holidays)
         o << "Holiday: " << h.name << " on " << dayMonth(h.month, h.day) << (h.time.empty() ? "" : " at " + timeOfDayText(c, h.time))
-          << (h.notes.empty() ? "" : " | " + h.notes) << "\n";
+          << (h.notes.empty() ? "" : " | " + h.notes) << (h.symbol.empty() ? "" : " | symbol: " + h.symbol) << "\n";
     o << "Day: " << c.hoursPerDay << " hours of " << c.minutesPerHour << " minutes\n";
     o << "Times of day: " << dayPartsText(c) << "\n";
     std::string dates;
@@ -1377,7 +1379,12 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
             s.name = trim(val.substr(0, from));
             c.seasons.push_back(s);
         } else if (key == "holiday") {
-            std::string v = val, notes;
+            std::string v = val, notes, symbol;
+            // "| symbol: 🎆" at the end (0.88).
+            if (const size_t sy = lower(v).rfind("| symbol:"); sy != std::string::npos) {
+                symbol = trim(v.substr(sy + 9));
+                v = trim(v.substr(0, sy));
+            }
             const size_t bar = v.find('|');
             if (bar != std::string::npos) { notes = trim(v.substr(bar + 1)); v = trim(v.substr(0, bar)); }
             const size_t on = lower(v).rfind(" on ");
@@ -1396,6 +1403,7 @@ Calendar fromText(const std::string& text, std::vector<std::string>* warnings) {
             }
             h.name = trim(v.substr(0, on));
             h.notes = notes;
+            h.symbol = symbol;
             c.holidays.push_back(h);
         }
     }

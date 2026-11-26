@@ -107,6 +107,7 @@ struct Holiday {
     Id entry;        // a bible entry it's about (optional)
     std::string notes;
     TimeOfDay time;  // when in the day (0.80; optional)
+    std::string symbol;   // how it's shown (0.88): an emoji, or "icon:<name>" for a drawn one; "" = a star
 };
 
 enum class MonthZero { None, Count, Extra };   // months 1..n; months counted 0..n-1; an extra month 0 before month 1

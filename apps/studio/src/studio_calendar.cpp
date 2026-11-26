@@ -391,8 +391,9 @@ float StudioApp::drawMonthGrid(const Rect& r, const cal::Calendar& c, std::int64
             }
             for (const cal::Holiday* h : hols) {
                 const Rect chip{cell.x + 8, ty, cell.w - 16, 20};
-                gfx_.text(w(h->name) + (h->time.empty() ? std::wstring() : L" \u00B7 " + w(cal::timeOfDayText(c, h->time))), chip, Font::Small, gold_,
-                          {Align::Left, false, true, true});
+                drawSymbol(h->symbol, {chip.x, chip.y + 3, 14, 14}, gold_, cjui::Icon::Star);   // its symbol (0.88)
+                gfx_.text(w(h->name) + (h->time.empty() ? std::wstring() : L" \u00B7 " + w(cal::timeOfDayText(c, h->time))),
+                          {chip.x + 18, chip.y, chip.w - 18, chip.h}, Font::Small, gold_, {Align::Left, false, true, true});
                 if (!h->entry.empty())
                     addHit("calhol:" + std::to_string(dn) + h->name, chip, [this, id = h->entry] { if (lib_->entry(id)) openEntry(id); });
                 if (!h->notes.empty()) tooltip("calhol:" + std::to_string(dn) + h->name, w(h->notes));
@@ -1101,7 +1102,21 @@ void StudioApp::drawCalendar(const Rect& r) {
         heading(L"HOLIDAYS");
         for (int i = 0; i < (int)c.holidays.size(); ++i) {
             const std::string p = "hol:" + std::to_string(i);
-            cell(p + ":name", {m.x, y, m.w * 0.3f, 34}, w(c.holidays[i].name), L"Holiday's name");
+            // Its symbol (0.88): click to choose an emoji or a drawn one.
+            {
+                const Rect sb{m.x, y, 34, 34};
+                const std::string sid = "cal:hsym:" + std::to_string(i);
+                addHit(sid, sb, [this, i] {
+                    chooseSymbol(scopeCalendar().holidays[i].symbol, L"A star (the usual)", [this, i](const std::string& sym) {
+                        changeCalendar([i, sym](cal::Calendar& x) { x.holidays[i].symbol = sym; });
+                    });
+                });
+                tooltip(sid, L"Its symbol on the calendar");
+                gfx_.fillRounded(sb, 7, pal_.surface);
+                gfx_.strokeRounded(sb, 7, pal_.rule.mix(pal_.ribbon, hoverAmount(sid)));
+                drawSymbol(c.holidays[i].symbol, sb.inset(8), gold_, cjui::Icon::Star);
+            }
+            cell(p + ":name", {m.x + 40, y, m.w * 0.3f - 40, 34}, w(c.holidays[i].name), L"Holiday's name");
             float x = m.x + m.w * 0.3f + 8;
             gfx_.text(L"on", {x, y, 26, 34}, Font::Small, pal_.inkMuted, {Align::Left, false, true, true}); x += 26;
             cell(p + ":day", {x, y, 60, 34}, std::to_wstring(c.holidays[i].day)); x += 66;
