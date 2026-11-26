@@ -6054,7 +6054,85 @@ static void testViewpointIcons103() {
     fs::remove_all(dir);
 }
 
+// The Word export (0.104): laid out as the book, read back by the Studio's own Word import, icons included.
+static void testDocx104() {
+    using namespace studio::typeset;
+    const std::string dir = tempLibrary("docx104");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id world = lib->createWorld("World");
+    const Id book = lib->createBook("The Ledger", world);
+    {
+        studio::Book bk = *lib->book(book);
+        bk.author = "Ada Example";
+        bk.subtitle = "A tale & <more>";
+        lib->updateBook(bk);
+    }
+    const Id ana = lib->createEntry(world, {}, "character", "Ana Vell");
+    {
+        Entry e = *lib->entry(ana);
+        e.symbol = "\xE2\x9C\xA7";
+        e.colour = "#2E9E6B";
+        lib->updateEntry(e);
+    }
+    const std::string pic = lib->storeBlob(std::string("\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x08\x00\x00\x00\x04\x08\x02\x00\x00\x00\x3c\xaf\xe9\xa7\x00\x00\x00\x11\x49\x44\x41\x54\x78\x9c\x63\x38\x51\x61\x83\x15\x31\x50\x4f\x02\x00\x59\x6b\x2f\x81\x84\x88\x91\xdb\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82", 74));   // a real 8 x 4 picture
+    const std::string doc = std::string(R"({"type":"doc","content":[)") +
+        R"({"type":"paragraph","content":[{"type":"text","text":"The harbour master kept a "},{"type":"text","marks":[{"type":"em"}],"text":"ledger"},{"type":"text","text":" & read it."}]},)"
+        R"({"type":"paragraph","content":[{"type":"text","marks":[{"type":"strong"}],"text":"Second"},{"type":"hard_break"},{"type":"text","text":"line."}]},)"
+        R"({"type":"scene_break"},)"
+        R"({"type":"paragraph","attrs":{"style":"centered"},"content":[{"type":"text","text":"After the break."}]},)"
+        R"({"type":"bullet_list","content":[{"type":"list_item","content":[{"type":"paragraph","content":[{"type":"text","text":"Rope"}]}]}]},)"
+        R"({"type":"image","attrs":{"blob":")" + pic + R"(","width":0.5,"alt":"A ship","caption":"The ship"}},)"
+        R"({"type":"paragraph","content":[{"type":"text","marks":[{"type":"link","attrs":{"href":"https://example.com"}}],"text":"A link"}]}]})";
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "Chapter 1: The Harbour");
+    const Id c2 = lib->createNode(book, {}, NodeKind::Chapter, "Chapter 2: Ash");
+    lib->saveNodeContent(c1, doc);
+    lib->saveNodeContent(c2, R"({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Ash fell all night."}]}]})");
+    {
+        ManuscriptNode n = *lib->node(c1);
+        n.povId = ana;
+        lib->updateNode(n);
+    }
+    const Source src = snapshot(*lib, book);
+    studio::publish::DocxOptions o;
+    o.design = preset("classic").design;
+    o.design.povIcon = true;
+    o.design.povKey = "back";
+    o.resources = {appFolder("fonts"), appFolder("hyphenation")};
+    o.modified = "2026-11-26T12:00:00Z";
+    const auto r = studio::publish::buildDocx(src, o);
+    CHECK(r.ok && r.chapters == 2 && r.pictures >= 2 && r.notes.empty());   // the picture and the icon
+    if (!r.ok) return;
+    // The Studio's own Word import reads it back: both chapters, the text with its emphasis.
+    const studio::import::Plan plan = studio::import::readDocx(r.bytes, "The Ledger.docx");
+    CHECK(plan.ok);
+    std::string all;
+    for (auto& sct : plan.sections) all += sct.title + "\n" + sct.content + "\n";
+    CHECK(all.find("The Harbour") != std::string::npos && all.find("Ash fell all night.") != std::string::npos);
+    CHECK(all.find("ledger") != std::string::npos && all.find("\"em\"") != std::string::npos);
+    CHECK(all.find("& read it.") != std::string::npos);   // escaped in the file, plain again here
+    if (const char* out = std::getenv("NR_DOCX")) {   // for a look in LibreOffice
+        std::ofstream f(out, std::ios::binary);
+        f << r.bytes;
+    }
+    // Off by default: no icon pictures (just the one in the text).
+    studio::publish::DocxOptions plainO = o;
+    plainO.design = preset("classic").design;
+    const auto rp = studio::publish::buildDocx(src, plainO);
+    CHECK(rp.ok && rp.pictures == 1);
+    // A symbol in no font: left out, with a note.
+    {
+        Entry e = *lib->entry(ana);
+        e.symbol = "\xF4\x8F\xBF\xBD";
+        lib->updateEntry(e);
+        const auto rm = studio::publish::buildDocx(snapshot(*lib, book), o);
+        CHECK(rm.ok && rm.pictures == 1 && rm.notes.size() == 1 && rm.notes[0].find("Ana Vell") != std::string::npos);
+    }
+    fs::remove_all(dir);
+}
+
 int main() {
+    testDocx104();
     testViewpointIcons103();
     testToolbar100();
     testBibleMarkdown095();

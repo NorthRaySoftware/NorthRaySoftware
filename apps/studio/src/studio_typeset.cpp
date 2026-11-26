@@ -197,6 +197,29 @@ void StudioApp::exportPdf() {
         cjui::messageBox(hwnd(), w("The PDF couldn't be written.\n\n" + err).c_str(), L"Export PDF", MB_OK | MB_ICONWARNING);
 }
 
+void StudioApp::exportDocx(const Id& bookId) {
+    const studio::Book* b = lib_ ? lib_->book(bookId) : nullptr;
+    if (!b) return;
+    commitFields();
+    const std::wstring path = askSavePath(L"Word document", L"*.docx", L"docx", w(b->title), L"Save the book as a Word document");
+    if (path.empty()) return;
+    SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    studio::publish::DocxOptions o;
+    // The design being worked on in Typesetting, else the book's saved one.
+    o.design = ws_ == Workspace::Typesetting && ts_.book == bookId ? ts_.design : ts::designFromJson(lib_->setting("typeset:" + bookId));
+    o.resources = typesetResources(bookId);
+    const auto r = studio::publish::writeDocx(ts::snapshot(*lib_, bookId), narrow(path), o);
+    if (!r.ok) {
+        cjui::messageBox(hwnd(), w("The Word document couldn't be written.\n\n" + r.error).c_str(), L"Save as Word", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    std::wstring msg = L"Saved " + std::to_wstring(r.chapters) + (r.chapters == 1 ? L" chapter" : L" chapters");
+    if (r.pictures) msg += L" and " + std::to_wstring(r.pictures) + (r.pictures == 1 ? L" picture" : L" pictures");
+    msg += L" to " + path.substr(path.find_last_of(L"\\/") + 1) + L".";
+    if (!r.notes.empty()) msg += L" " + w(r.notes[0]);
+    flash(msg, 9);
+}
+
 // ---------------------------------------------------------------- drawing
 
 void StudioApp::drawTypesetSidebar(const Rect& r) {
@@ -811,6 +834,7 @@ void StudioApp::drawTypesetHead(const Rect& r) {
         menuButton("ts:head:tools", right, by, L"Typeset tools", [this] {
             std::vector<ToolItem> t;
             t.push_back(ToolItem::item(L"Print-ready PDF and EPUB (Publishing)", [this] { openPublishing(ts_.book); }));
+            t.push_back(ToolItem::item(L"Save as Word (.docx)…", [this] { exportDocx(ts_.book); }));
             t.push_back(ToolItem::item(L"Read it as an ebook", [this] { openPreview(ts_.book); }));
             t.push_back(ToolItem::item(L"The book's page", [this] { ws_ = Workspace::Library; goTo(View::Book, ts_.book); }));
             if (ts_.result && ts_.result->ok) {

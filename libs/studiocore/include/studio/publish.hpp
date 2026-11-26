@@ -35,6 +35,28 @@ struct EpubResult {
 };
 
 EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options = {});
+
+// ------------------------------------------------------------- Word (0.104)
+
+// The manuscript as a Word document laid out as the typeset book is: its trim and margins (mirrored), typeface, size,
+// leading and indent; a title page, copyright page and Word contents when the design has them; each chapter on a new
+// page with its heading in the chosen style (Heading 1, so Word's navigation and contents see it), its date, its
+// header picture or ornament, and the viewpoint's icon (rendered by the typesetter at 300 dpi) with the key; the text
+// with its paragraph styles, emphasis, lists, quotations, pictures (cropped) and scene breaks; page numbers.
+struct DocxOptions {
+    typeset::Design design;
+    typeset::Resources resources;       // the fonts (for the typeface's name and the viewpoint icons)
+    std::string modified;               // "2026-11-13T10:00:00Z"; empty = now
+};
+struct DocxResult {
+    bool ok = false;
+    std::string error;
+    std::string bytes;                  // the .docx file
+    int chapters = 0, pictures = 0;
+    std::vector<std::string> notes;     // things worth knowing (a symbol in no font, a picture that couldn't be read)
+};
+DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options);
+DocxResult writeDocx(const typeset::Source& src, const std::string& path, const DocxOptions& options);
 EpubResult writeEpub(const typeset::Source& src, const std::string& path, const EpubOptions& options = {});
 
 // ---------------------------------------------------------------- editions

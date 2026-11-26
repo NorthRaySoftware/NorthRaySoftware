@@ -219,6 +219,10 @@ struct Bitmap {
 };
 // One page as pixels at `dpi`, pictures included (read from the library's objects).
 Bitmap renderPage(const Book& book, int pageIndex, double dpi);
+// A viewpoint's icon on its own as pixels (0.104: the Word file's headings and key), drawn as the typeset book draws it,
+// `diamPt` across at `dpi` with a little room around it, on white. Empty when its symbol is in no font (`missing` set).
+Bitmap renderViewpointIcon(const Source& src, const Source::Section& sec, const Design& design, const Resources& res, float diamPt, double dpi,
+                           bool* missing = nullptr);
 
 // A PDF of the whole book: fonts embedded (the parts used), text searchable and
 // copyable, pictures included.

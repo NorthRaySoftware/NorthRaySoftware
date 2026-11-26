@@ -8,6 +8,10 @@
 
 #include "internal.hpp"
 #include "miniz.h"
+#include <nlohmann/json.hpp>
+#include "studio/artwork.hpp"
+#include "studio/headers.hpp"
+#include "studio/calendar.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -654,6 +658,528 @@ EpubResult buildEpub(const typeset::Source& src, const EpubOptions& options) {
 
 EpubResult writeEpub(const typeset::Source& src, const std::string& path, const EpubOptions& options) {
     EpubResult r = buildEpub(src, options);
+    if (!r.ok) return r;
+    std::string err;
+    if (!atomicWrite(path, r.bytes, err)) { r.ok = false; r.error = err; }
+    return r;
+}
+
+// ------------------------------------------------------------------ Word (0.104)
+
+namespace {
+
+std::string xe(const std::string& s) {   // XML text and attribute values
+    std::string o;
+    o.reserve(s.size());
+    for (unsigned char c : s) {
+        if (c == '&') o += "&amp;";
+        else if (c == '<') o += "&lt;";
+        else if (c == '>') o += "&gt;";
+        else if (c == '"') o += "&quot;";
+        else if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') continue;   // not allowed in XML 1.0
+        else o += (char)c;
+    }
+    return o;
+}
+
+const char* kW = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const char* kR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+struct Docx {
+    const typeset::Source& src;
+    const DocxOptions& opt;
+    DocxResult& res;
+    std::string body;
+    std::vector<std::string> rels;                        // relationship elements for document.xml.rels
+    std::vector<std::pair<std::string, std::string>> media; // zip path -> bytes
+    std::map<std::string, std::string> picRel;            // picture key -> rId
+    std::map<std::string, std::pair<int, int>> picSize;   // rId -> pixels
+    int nextRel = 10, nextPic = 1;
+    double textWidthIn = 4.55;
+
+    Docx(const typeset::Source& s, const DocxOptions& o, DocxResult& r) : src(s), opt(o), res(r) {}
+
+    std::string rel(const std::string& type, const std::string& target, bool external = false) {
+        const std::string id = "rId" + std::to_string(nextRel++);
+        rels.push_back("<Relationship Id=\"" + id + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/" + type +
+                       "\" Target=\"" + xe(target) + "\"" + (external ? " TargetMode=\"External\"" : "") + "/>");
+        return id;
+    }
+    // A picture's relationship: stored once per key (a blob and its crop, or an icon).
+    std::string addPicture(const std::string& key, const Encoded& e, int w, int h) {
+        if (auto it = picRel.find(key); it != picRel.end()) return it->second;
+        const std::string name = "media/image" + std::to_string(media.size() + 1) + "." + e.ext;
+        media.push_back({"word/" + name, e.bytes});
+        const std::string id = rel("image", name);
+        picRel[key] = id;
+        picSize[id] = {w, h};
+        ++res.pictures;
+        return id;
+    }
+    // A blob, cropped, as a picture ("" when it can't be read).
+    std::string blobPicture(const std::string& blob, const Placement& p, int& w, int& h) {
+        char key[160];
+        std::snprintf(key, sizeof key, "%s:%.4f:%.4f:%.4f:%.4f", blob.c_str(), p.cropX, p.cropY, p.cropW, p.cropH);
+        if (auto it = picRel.find(key); it != picRel.end()) { w = picSize[it->second].first; h = picSize[it->second].second; return it->second; }
+        const auto path = src.picturePaths.find(blob);
+        const std::string bytes = path == src.picturePaths.end() ? std::string() : readAll(path->second);
+        Rgba d = decodeRgba(bytes);
+        if (d.w <= 0) { res.notes.push_back("A picture couldn't be read and was left out."); return {}; }
+        const bool full = p.cropX <= 0 && p.cropY <= 0 && p.cropW >= 1 && p.cropH >= 1;
+        if (!full) d = cropTo(d, p);
+        d = shrink(d, 3000);
+        const ImageInfo info = imageInfo(bytes);
+        Encoded e;
+        if (full && (info.format == "jpeg" || info.format == "png") && std::max(info.width, info.height) <= 3000) {
+            e.bytes = bytes;
+            e.ext = info.format == "jpeg" ? "jpeg" : "png";
+        } else {
+            e = encode(d, info.format == "jpeg");
+            if (e.ext == "jpg") e.ext = "jpeg";
+        }
+        w = d.w;
+        h = d.h;
+        return addPicture(key, e, d.w, d.h);
+    }
+    // An inline picture run, `wIn` inches wide (its height from its shape), described for screen readers by `alt`.
+    std::string drawing(const std::string& rid, double wIn, double hIn, const std::string& alt) {
+        const long long cx = (long long)std::llround(wIn * 914400), cy = (long long)std::llround(hIn * 914400);
+        const std::string n = std::to_string(nextPic++);
+        return "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"" + std::to_string(cx) + "\" cy=\"" +
+               std::to_string(cy) + "\"/><wp:docPr id=\"" + n + "\" name=\"Picture " + n + "\" descr=\"" + xe(alt) +
+               "\"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData "
+               "uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"" + n +
+               "\" name=\"Picture " + n + "\" descr=\"" + xe(alt) + "\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"" + rid +
+               "\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"" + std::to_string(cx) +
+               "\" cy=\"" + std::to_string(cy) + "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData>"
+               "</a:graphic></wp:inline></w:drawing></w:r>";
+    }
+    static std::string run(const std::string& text, const std::string& rpr = {}) {
+        if (text.empty()) return {};
+        return "<w:r>" + (rpr.empty() ? std::string() : "<w:rPr>" + rpr + "</w:rPr>") + "<w:t xml:space=\"preserve\">" + xe(text) + "</w:t></w:r>";
+    }
+    void para(const std::string& style, const std::string& runs, const std::string& extra = {}) {
+        body += "<w:p><w:pPr><w:pStyle w:val=\"" + style + "\"/>" + extra + "</w:pPr>" + runs + "</w:p>\n";
+    }
+    void pageBreak() { body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>\n"; }
+
+    // The text of a paragraph: runs with their emphasis, line breaks and links.
+    std::string inlines(const nlohmann::json& content) {
+        std::string out;
+        if (!content.is_array()) return out;
+        for (const auto& n : content) {
+            const std::string t = n.value("type", "");
+            if (t == "hard_break") { out += "<w:r><w:br/></w:r>"; continue; }
+            if (t != "text") continue;
+            std::string rpr, href;
+            if (n.contains("marks") && n["marks"].is_array())
+                for (const auto& m : n["marks"]) {
+                    const std::string mt = m.value("type", "");
+                    if (mt == "strong") rpr += "<w:b/>";
+                    else if (mt == "em") rpr += "<w:i/>";
+                    else if (mt == "smallcaps") rpr += "<w:smallCaps/>";
+                    else if (mt == "strike") rpr += "<w:strike/>";
+                    else if (mt == "underline") rpr += "<w:u w:val=\"single\"/>";
+                    else if (mt == "sup") rpr += "<w:vertAlign w:val=\"superscript\"/>";
+                    else if (mt == "sub") rpr += "<w:vertAlign w:val=\"subscript\"/>";
+                    else if (mt == "code") rpr += "<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\"/>";
+                    else if (mt == "link") {
+                        const std::string h = m.contains("attrs") && m["attrs"].is_object() ? m["attrs"].value("href", "") : "";
+                        if (h.rfind("https://", 0) == 0 || h.rfind("http://", 0) == 0 || h.rfind("mailto:", 0) == 0) href = h;
+                    }
+                }
+            // Word wants its run properties in schema order: fonts, bold, italic, caps, strike, underline, vertical alignment.
+            std::string ordered;
+            for (const char* tag : {"<w:rFonts", "<w:b/>", "<w:i/>", "<w:smallCaps/>", "<w:strike/>", "<w:u ", "<w:vertAlign"}) {
+                const size_t at = rpr.find(tag);
+                if (at == std::string::npos) continue;
+                ordered += rpr.substr(at, rpr.find("/>", at) + 2 - at);
+            }
+            const std::string r = run(n.value("text", ""), href.empty() ? ordered : "<w:rStyle w:val=\"Hyperlink\"/>" + ordered);
+            if (!href.empty()) out += "<w:hyperlink r:id=\"" + rel("hyperlink", href, true) + "\">" + r + "</w:hyperlink>";
+            else out += r;
+        }
+        return out;
+    }
+
+    void sceneBreak() {
+        const typeset::Design& d = opt.design;
+        if (!d.sceneBreakBlob.empty()) {
+            int w = 0, h = 0;
+            const std::string rid = blobPicture(d.sceneBreakBlob, Placement{}, w, h);
+            if (!rid.empty() && w > 0) {
+                const double wi = textWidthIn * 0.2;
+                para("SceneBreak", drawing(rid, wi, wi * h / w, "Scene break"));
+                return;
+            }
+        }
+        para("SceneBreak", run(d.sceneBreak));
+    }
+
+    // The manuscript's blocks. `first`: the next body paragraph opens (no indent).
+    void blocks(const nlohmann::json& content, bool& first, int depth, const std::string& quoteStyle = {}) {
+        if (!content.is_array() || depth > 6) return;
+        for (const auto& n : content) {
+            const std::string t = n.value("type", "");
+            const nlohmann::json attrs = n.value("attrs", nlohmann::json::object());
+            if (t == "paragraph") {
+                std::string st = attrs.value("style", "body");
+                static const std::map<std::string, std::string> styles = {{"body", "BodyText"}, {"first", "FirstParagraph"},
+                    {"centered", "Centered"}, {"epigraph", "Epigraph"}, {"attribution", "Attribution"}, {"verse", "Verse"},
+                    {"letter", "Letter"}, {"note", "Note"}};
+                auto it = styles.find(st);
+                std::string style = it == styles.end() ? "BodyText" : it->second;
+                if (style == "BodyText" && first) style = "FirstParagraph";
+                if (!quoteStyle.empty()) style = quoteStyle;
+                const std::string r = inlines(n.value("content", nlohmann::json::array()));
+                para(style, r);
+                if (!r.empty()) first = false;
+            } else if (t == "heading") {
+                const int level = std::clamp(attrs.value("level", 2), 1, 3) + 1;
+                para("Heading" + std::to_string(level), inlines(n.value("content", nlohmann::json::array())));
+                first = true;
+            } else if (t == "blockquote") {
+                bool f = true;
+                blocks(n.value("content", nlohmann::json::array()), f, depth + 1, "Quote");
+                first = true;
+            } else if (t == "bullet_list" || t == "ordered_list") {
+                int no = attrs.value("start", 1);
+                for (const auto& li : n.value("content", nlohmann::json::array())) {
+                    bool lead = true;
+                    for (const auto& p : li.value("content", nlohmann::json::array())) {
+                        if (p.value("type", "") != "paragraph") { bool f = true; blocks(nlohmann::json::array({p}), f, depth + 1); continue; }
+                        const std::string mark = !lead ? "\t" : t == "ordered_list" ? std::to_string(no) + ".\t" : "•\t";
+                        para("ListParagraph", run(mark) + inlines(p.value("content", nlohmann::json::array())));
+                        lead = false;
+                    }
+                    ++no;
+                }
+                first = true;
+            } else if (t == "scene_break") {
+                sceneBreak();
+                first = true;
+            } else if (t == "image") {
+                const std::string blob = attrs.value("blob", "");
+                if (blob.size() != 64) continue;
+                Placement p;
+                p.cropX = attrs.value("cropX", 0.0); p.cropY = attrs.value("cropY", 0.0);
+                p.cropW = attrs.value("cropW", 1.0); p.cropH = attrs.value("cropH", 1.0);
+                p.width = attrs.value("width", 1.0);
+                p.align = attrs.value("align", "center");
+                p = clampPlacement(p);
+                int w = 0, h = 0;
+                const std::string rid = blobPicture(blob, p, w, h);
+                if (rid.empty() || w <= 0) continue;
+                const double wi = textWidthIn * p.width;
+                const std::string jc = p.align == "left" ? "left" : p.align == "right" ? "right" : "center";
+                para("Picture", drawing(rid, wi, wi * h / w, attrs.value("alt", "")), "<w:jc w:val=\"" + jc + "\"/>");
+                if (const std::string cap = attrs.value("caption", ""); !cap.empty()) para("Caption", run(cap));
+                first = true;
+            }
+        }
+    }
+
+    // The viewpoint's icon as a picture run (rendered as the typeset book draws it), or "" (a note when its symbol is in no font).
+    std::map<std::string, std::string> iconRel;
+    std::set<std::string> noted;
+    std::string icon(const typeset::Source::Section& sec, float diamPt, const std::string& alt) {
+        const std::string key = sec.povId + "@" + std::to_string((int)std::lround(diamPt * 10));
+        std::string rid;
+        if (auto it = iconRel.find(key); it != iconRel.end()) rid = it->second;
+        else {
+            bool missing = false;
+            const typeset::Bitmap bm = typeset::renderViewpointIcon(src, sec, opt.design, opt.resources, diamPt, 300, &missing);
+            if (bm.width <= 0) {
+                if (missing && noted.insert(sec.povId).second)
+                    res.notes.push_back("The viewpoint symbol of " + sec.pov.name + " (" + sec.pov.symbol +
+                                        ") isn't in any of the book's fonts, so it's left out rather than showing as an empty box.");
+                iconRel[key] = "";
+                return {};
+            }
+            Rgba r;
+            r.w = bm.width;
+            r.h = bm.height;
+            r.px = bm.rgba;
+            Encoded e = encode(r, false);
+            rid = addPicture("icon:" + key, e, r.w, r.h);
+            iconRel[key] = rid;
+        }
+        if (rid.empty()) return {};
+        const auto [w, h] = picSize[rid];
+        const double wi = w / 300.0;
+        return drawing(rid, wi, wi * h / std::max(1, w), alt);
+    }
+};
+
+std::string docxStyles(const typeset::Design& d, const std::string& font, const std::string& lang) {
+    const int sz = (int)std::lround(d.fontSize * 2);   // half-points
+    const int line = (int)std::lround(d.leading * 20);  // twips
+    const int indent = (int)std::lround(d.indentEm * d.fontSize * 20);
+    const std::string jc = d.justify ? "both" : "left";
+    auto style = [&](const std::string& id, const std::string& name, const std::string& ppr, const std::string& rpr, const std::string& based = "Normal",
+                     const std::string& extra = {}) {
+        return "<w:style w:type=\"paragraph\" w:customStyle=\"1\" w:styleId=\"" + id + "\"><w:name w:val=\"" + name + "\"/><w:basedOn w:val=\"" + based +
+               "\"/>" + extra + "<w:qFormat/><w:pPr>" + ppr + "</w:pPr><w:rPr>" + rpr + "</w:rPr></w:style>";
+    };
+    auto heading = [&](const std::string& id, const std::string& name, int outline, const std::string& ppr, const std::string& rpr) {
+        return "<w:style w:type=\"paragraph\" w:styleId=\"" + id + "\"><w:name w:val=\"" + name + "\"/><w:basedOn w:val=\"Normal\"/>"
+               "<w:next w:val=\"FirstParagraph\"/><w:qFormat/><w:pPr><w:keepNext/>" + ppr + "<w:outlineLvl w:val=\"" + std::to_string(outline) +
+               "\"/></w:pPr><w:rPr>" + rpr + "</w:rPr></w:style>";
+    };
+    const std::string centred = "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>";
+    std::string s = std::string("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:styles xmlns:w=\"") + kW + "\">";
+    s += "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"" + xe(font) + "\" w:hAnsi=\"" + xe(font) + "\" w:eastAsia=\"" + xe(font) +
+         "\" w:cs=\"" + xe(font) + "\"/><w:sz w:val=\"" + std::to_string(sz) + "\"/><w:szCs w:val=\"" + std::to_string(sz) + "\"/><w:lang w:val=\"" +
+         xe(lang) + "\"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:widowControl/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"" +
+         std::to_string(line) + "\" w:lineRule=\"exact\"/></w:pPr></w:pPrDefault></w:docDefaults>";
+    s += "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:qFormat/><w:pPr><w:jc w:val=\"" + jc +
+         "\"/></w:pPr></w:style>";
+    s += style("BodyText", "Body Text", "<w:ind w:firstLine=\"" + std::to_string(indent) + "\"/>", "");
+    s += style("FirstParagraph", "First Paragraph", "<w:ind w:firstLine=\"0\"/>", "", "BodyText", "<w:next w:val=\"BodyText\"/>");
+    s += style("Centered", "Centred", centred, "");
+    s += style("Epigraph", "Epigraph", "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/><w:jc w:val=\"left\"/>", "<w:i/>");
+    s += style("Attribution", "Attribution", "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/><w:jc w:val=\"right\"/>", "");
+    s += style("Verse", "Verse", "<w:ind w:left=\"720\" w:firstLine=\"0\"/><w:jc w:val=\"left\"/>", "");
+    s += style("Letter", "Letter", "<w:ind w:left=\"360\" w:right=\"360\" w:firstLine=\"0\"/>", "<w:i/>");
+    s += style("Note", "Note", "<w:ind w:firstLine=\"0\"/>", "<w:sz w:val=\"" + std::to_string(sz * 85 / 100) + "\"/>");
+    s += style("Quote", "Quote", "<w:ind w:left=\"720\" w:right=\"720\" w:firstLine=\"0\"/>", "");
+    s += style("ListParagraph", "List Paragraph", "<w:tabs><w:tab w:val=\"left\" w:pos=\"720\"/></w:tabs><w:ind w:left=\"720\" w:hanging=\"360\"/>", "");
+    s += style("SceneBreak", "Scene Break", "<w:spacing w:before=\"" + std::to_string(line / 2) + "\" w:after=\"" + std::to_string(line / 2) +
+                                            "\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>", "");
+    s += style("Picture", "Picture", "<w:spacing w:before=\"" + std::to_string(line / 2) + "\" w:after=\"" + std::to_string(line / 2) +
+                                     "\" w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/>", "");
+    s += style("Caption", "Caption", centred, "<w:i/><w:sz w:val=\"" + std::to_string(sz * 85 / 100) + "\"/>");
+    s += style("Title", "Title", centred + "<w:spacing w:before=\"2880\" w:after=\"240\" w:line=\"240\" w:lineRule=\"auto\"/>",
+               "<w:sz w:val=\"" + std::to_string(sz * 22 / 10) + "\"/>");
+    s += style("Subtitle", "Subtitle", centred + "<w:spacing w:after=\"960\"/>", "<w:i/><w:sz w:val=\"" + std::to_string(sz * 12 / 10) + "\"/>");
+    s += style("Author", "Author", centred, "<w:smallCaps/><w:sz w:val=\"" + std::to_string(sz * 125 / 100) + "\"/>");
+    s += style("Copyright", "Copyright", "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"left\"/><w:spacing w:after=\"120\"/>",
+               "<w:sz w:val=\"" + std::to_string(sz * 85 / 100) + "\"/>");
+    s += style("ChapterNumber", "Chapter Number", centred + "<w:spacing w:after=\"240\"/><w:keepNext/>", "<w:smallCaps/><w:spacing w:val=\"20\"/>");
+    s += style("ChapterNumeral", "Chapter Numeral", centred + "<w:spacing w:line=\"240\" w:lineRule=\"auto\"/><w:keepNext/>",
+               "<w:sz w:val=\"" + std::to_string(sz * 3) + "\"/>");
+    s += style("ChapterDate", "Chapter Date", centred + "<w:spacing w:before=\"120\"/><w:keepNext/>", "<w:i/>");
+    s += style("PovIcon", "Viewpoint Icon", centred + "<w:spacing w:after=\"240\" w:line=\"240\" w:lineRule=\"auto\"/><w:keepNext/>", "");
+    s += style("Ornament", "Ornament", centred + "<w:spacing w:after=\"240\" w:line=\"240\" w:lineRule=\"auto\"/><w:keepNext/>",
+               "<w:sz w:val=\"" + std::to_string(sz * 24 / 10) + "\"/>");
+    s += style("KeyLine", "Viewpoint Key", "<w:ind w:left=\"1440\" w:firstLine=\"0\"/><w:jc w:val=\"left\"/><w:spacing w:after=\"160\" "
+                                         "w:line=\"240\" w:lineRule=\"auto\"/>", "");
+    s += heading("Heading1", "heading 1", 0, centred + "<w:spacing w:before=\"" + std::to_string(line * 4) + "\" w:after=\"" + std::to_string(line * 2) +
+                                             "\" w:line=\"240\" w:lineRule=\"auto\"/>", "<w:sz w:val=\"" + std::to_string(sz * 155 / 100) + "\"/>");
+    s += heading("Heading2", "heading 2", 1, "<w:ind w:firstLine=\"0\"/><w:jc w:val=\"center\"/><w:spacing w:before=\"" + std::to_string(line) +
+                                             "\" w:after=\"" + std::to_string(line / 2) + "\"/>", "<w:b/>");
+    s += heading("Heading3", "heading 3", 2, "<w:ind w:firstLine=\"0\"/><w:spacing w:before=\"" + std::to_string(line / 2) + "\"/>", "<w:b/>");
+    s += heading("Heading4", "heading 4", 3, "<w:ind w:firstLine=\"0\"/><w:spacing w:before=\"" + std::to_string(line / 2) + "\"/>", "<w:i/>");
+    s += heading("PartTitle", "Part Title", 0, centred + "<w:spacing w:before=\"" + std::to_string(line * 8) + "\" w:line=\"240\" w:lineRule=\"auto\"/>",
+                 "<w:smallCaps/><w:sz w:val=\"" + std::to_string(sz * 19 / 10) + "\"/>");
+    s += "<w:style w:type=\"paragraph\" w:styleId=\"TOC1\"><w:name w:val=\"toc 1\"/><w:basedOn w:val=\"Normal\"/><w:pPr><w:tabs><w:tab "
+         "w:val=\"right\" w:leader=\"dot\" w:pos=\"9000\"/></w:tabs><w:ind w:firstLine=\"0\"/><w:jc w:val=\"left\"/></w:pPr></w:style>";
+    s += "<w:style w:type=\"paragraph\" w:styleId=\"Footer\"><w:name w:val=\"footer\"/><w:basedOn w:val=\"Normal\"/><w:pPr><w:jc w:val=\"center\"/>"
+         "</w:pPr><w:rPr><w:sz w:val=\"" + std::to_string(sz * 85 / 100) + "\"/></w:rPr></w:style>";
+    s += "<w:style w:type=\"character\" w:styleId=\"Hyperlink\"><w:name w:val=\"Hyperlink\"/><w:rPr><w:u w:val=\"single\"/></w:rPr></w:style>";
+    s += "</w:styles>";
+    return s;
+}
+
+}  // namespace
+
+DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
+    DocxResult r;
+    if (src.sections.empty()) { r.error = "The manuscript is empty: there's nothing to put in a Word document yet."; return r; }
+    const typeset::Design& d = options.design;
+    Docx x(src, options, r);
+    const TrimSize& trim = trimSize(d.trim.empty() ? src.trim : d.trim);
+    x.textWidthIn = std::max(1.0, trim.widthIn - d.marginInside - d.marginOutside);
+    std::string font = "Georgia";
+    for (const auto& f : typeset::fontFamilies(options.resources.fontsFolder))
+        if (f.id == d.font) font = f.name;
+    const std::string lang = src.language.empty() ? "en-GB" : src.language;
+    const std::string title = src.title.empty() ? std::string("Untitled") : src.title;
+
+    // Title page, copyright page and contents, as the design has them.
+    if (d.titlePage) {
+        x.para("Title", Docx::run(title));
+        if (!src.subtitle.empty()) x.para("Subtitle", Docx::run(src.subtitle));
+        if (!src.author.empty()) x.para("Author", Docx::run(src.author));
+        x.pageBreak();
+        if (d.copyrightPage) {
+            std::vector<std::string> notice;
+            if (!src.author.empty()) notice.push_back("Copyright © " + std::to_string(src.year) + " " + src.author);
+            if (!src.edition.empty()) notice.push_back(src.edition);
+            if (!src.isbns.empty()) for (auto& [label, isbn] : src.isbns) notice.push_back("ISBN " + isbn + (label.empty() ? "" : " (" + label + ")"));
+            else if (!src.isbn.empty()) notice.push_back("ISBN " + src.isbn);
+            if (!notice.empty()) {
+                for (int i = 0; i < 14; ++i) x.para("Copyright", "");
+                for (const auto& l : notice) x.para("Copyright", Docx::run(l));
+                x.pageBreak();
+            }
+        }
+    }
+    if (d.contents) {
+        // Word's own contents, from the chapter headings: filled in when the document opens (settings: updateFields).
+        x.para("Heading1", Docx::run("Contents"), "<w:outlineLvl w:val=\"9\"/>");
+        x.body += "<w:p><w:pPr><w:pStyle w:val=\"TOC1\"/></w:pPr><w:r><w:fldChar w:fldCharType=\"begin\" w:dirty=\"true\"/></w:r><w:r><w:instrText "
+                  "xml:space=\"preserve\"> TOC \\o \"1-1\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>";
+        for (const auto& sec : src.sections)
+            if (sec.kind != NodeKind::Scene) x.body += Docx::run(sec.title) + "<w:r><w:br/></w:r>";
+        x.body += "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>\n";
+        x.pageBreak();
+    }
+    // The key of viewpoints, as the typeset book places it.
+    auto key = [&] {
+        std::set<std::string> seen;
+        std::vector<const typeset::Source::Section*> who;
+        for (const auto& sec : src.sections)
+            if (sec.kind == NodeKind::Chapter && sec.hasPov && sec.matter == 0 && seen.insert(sec.povId).second) who.push_back(&sec);
+        if (who.empty()) return;
+        x.para("Heading1", Docx::run("Viewpoints"), "<w:pageBreakBefore/>");
+        for (const auto* sec : who) x.para("KeyLine", x.icon(*sec, (float)d.fontSize * 1.7f, sec->pov.name) + Docx::run(" " + sec->pov.name));
+    };
+    if (d.povIcon && d.povKey == "front") key();
+
+    int chapterNo = 0;
+    bool firstSection = true;
+    for (const auto& sec : src.sections) {
+        const nlohmann::json doc = nlohmann::json::parse(sec.kind == NodeKind::Chapter ? typeset::withOpening(sec.content) : sec.content, nullptr, false);
+        const nlohmann::json content = doc.is_object() ? doc.value("content", nlohmann::json::array()) : nlohmann::json::array();
+        bool first = true;
+        const std::string newPage = firstSection && !d.titlePage && !d.contents ? std::string() : std::string("<w:pageBreakBefore/>");
+        firstSection = false;
+        if (sec.kind == NodeKind::Scene) {
+            x.sceneBreak();
+            x.blocks(content, first, 0);
+            continue;
+        }
+        if (sec.kind == NodeKind::Part) {
+            x.para("PartTitle", Docx::run(sec.title), newPage);
+            x.blocks(content, first, 0);
+            continue;
+        }
+        ++r.chapters;
+        const typeset::ChapterTitle t = typeset::chapterTitleParts(sec.title);
+        int number = 0;
+        if (!t.special && sec.matter == 0) number = t.number ? (chapterNo = t.number) : ++chapterNo;
+        const bool pov = d.povIcon && sec.hasPov && sec.matter == 0;
+        const std::string told = "Chapter told by " + sec.pov.name;
+        // Its header: a picture or an ornament above the heading (the viewpoint's default ornament gives way to the icon).
+        std::string headBefore = newPage;
+        const bool head = sec.hasHeader && !(pov && sec.headerFrom == "viewpoint" && sec.header.blob.empty());
+        if (head && !sec.header.blob.empty()) {
+            int w = 0, h = 0;
+            Placement p;
+            const std::string rid = x.blobPicture(sec.header.blob, p, w, h);
+            if (!rid.empty() && w > 0) {
+                const double wi = x.textWidthIn * (sec.header.size == "ornament" ? 0.28 : 1.0);
+                const double hi = std::min(wi * h / w, sec.header.size == "band" ? x.textWidthIn / 3.2 : 4.0);
+                x.para("Picture", x.drawing(rid, hi * w / h < wi ? hi * w / h : wi, hi, sec.header.alt), headBefore);
+                headBefore.clear();
+            }
+        } else if (head && headers::printableSymbol(sec.header.symbol)) {
+            x.para("Ornament", Docx::run(sec.header.symbol), headBefore);
+            headBefore.clear();
+        }
+        if (pov && d.povPlace == "above") {
+            const std::string ic = x.icon(sec, (float)d.fontSize * 2.6f, told);
+            if (!ic.empty()) { x.para("PovIcon", ic, headBefore); headBefore.clear(); }
+        }
+        auto titled = [&](const std::string& text, float size) {   // the heading's words, with the icon before or beside them
+            std::string runs = Docx::run(text);
+            if (pov && d.povPlace != "above") {
+                const std::string ic = x.icon(sec, size * 1.15f, told);
+                if (!ic.empty()) runs = d.povPlace == "before" ? ic + Docx::run(" ") + runs : runs + Docx::run(" ") + ic;
+            }
+            return runs;
+        };
+        const float hs = (float)d.fontSize * 1.55f;
+        if (d.chapterStyle == "number" && number) {
+            const std::string label = "Chapter " + (t.word.empty() ? typeset::spelledNumber(number) : t.word);
+            if (t.rest.empty()) x.para("Heading1", titled(label, hs), headBefore);
+            else {
+                x.para("ChapterNumber", Docx::run(label), headBefore);
+                x.para("Heading1", titled(t.rest, hs), "<w:spacing w:before=\"0\"/>");
+            }
+        } else if (d.chapterStyle == "numeral" && number) {
+            x.para("ChapterNumeral", Docx::run(std::to_string(number)), headBefore);
+            x.para("Heading1", titled(t.rest.empty() ? sec.title : t.rest, hs), "<w:spacing w:before=\"0\"/>");
+        } else
+            x.para("Heading1", titled(sec.title, hs), headBefore);
+        if (d.chapterDates && sec.dated && !src.calendar.empty())
+            x.para("ChapterDate", Docx::run(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), d.dateForm, d.dateEra)));
+        x.blocks(content, first, 0);
+    }
+    if (d.povIcon && d.povKey == "back") key();
+
+    // Page size and margins (mirrored, like the book), and page numbers at the foot.
+    const std::string footerId = x.rel("footer", "footer1.xml");
+    auto tw = [](double inches) { return std::to_string((long long)std::llround(inches * 1440)); };
+    x.body += "<w:sectPr><w:footerReference w:type=\"default\" r:id=\"" + footerId + "\"/><w:pgSz w:w=\"" + tw(trim.widthIn) + "\" w:h=\"" +
+              tw(trim.heightIn) + "\"/><w:pgMar w:top=\"" + tw(d.marginTop) + "\" w:right=\"" + tw(d.marginOutside) + "\" w:bottom=\"" +
+              tw(d.marginBottom) + "\" w:left=\"" + tw(d.marginInside) + "\" w:header=\"" + tw(d.marginTop / 2) + "\" w:footer=\"" +
+              tw(d.marginBottom / 2) + "\" w:gutter=\"0\"/>" + (d.titlePage ? "<w:titlePg/>" : "") + "</w:sectPr>";
+
+    const std::string ns = std::string("xmlns:w=\"") + kW + "\" xmlns:r=\"" + kR +
+                           "\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+                           "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+                           "xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"";
+    const std::string document = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:document " + ns + "><w:body>\n" + x.body +
+                                 "</w:body></w:document>";
+    const std::string footer = std::string("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:ftr xmlns:w=\"") + kW +
+                               "\"><w:p><w:pPr><w:pStyle w:val=\"Footer\"/></w:pPr><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText "
+                               "xml:space=\"preserve\"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r><w:r><w:t>1</w:t></w:r>"
+                               "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p></w:ftr>";
+    const std::string settings = std::string("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"") + kW + "\">" +
+                                 (d.contents ? "<w:updateFields w:val=\"true\"/>" : "") +
+                                 "<w:mirrorMargins/><w:defaultTabStop w:val=\"720\"/><w:compat><w:compatSetting w:name=\"compatibilityMode\" "
+                                 "w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"15\"/></w:compat></w:settings>";
+    std::string docRels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships "
+                          "xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                          "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
+                          "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>";
+    for (const std::string& rl : x.rels) docRels += rl;
+    docRels += "</Relationships>";
+    std::string modified = options.modified;
+    if (modified.empty()) {
+        char b[32];
+        const std::time_t now = std::time(nullptr);
+        std::strftime(b, sizeof b, "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
+        modified = b;
+    }
+    const std::string core = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cp:coreProperties "
+                             "xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+                             "xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><dc:title>" + xe(title) +
+                             "</dc:title><dc:creator>" + xe(src.author) + "</dc:creator><dc:language>" + xe(lang) +
+                             "</dc:language><dcterms:modified xsi:type=\"dcterms:W3CDTF\">" + modified + "</dcterms:modified></cp:coreProperties>";
+    const std::string types = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                              "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                              "<Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"png\" ContentType=\"image/png\"/>"
+                              "<Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>"
+                              "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                              "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>"
+                              "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>"
+                              "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>"
+                              "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/></Types>";
+    const std::string rootRels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships "
+                                 "xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" "
+                                 "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>"
+                                 "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" "
+                                 "Target=\"docProps/core.xml\"/></Relationships>";
+    Zip zip;
+    zip.add("[Content_Types].xml", types);
+    zip.add("_rels/.rels", rootRels);
+    zip.add("docProps/core.xml", core);
+    zip.add("word/document.xml", document);
+    zip.add("word/styles.xml", docxStyles(d, font, lang));
+    zip.add("word/settings.xml", settings);
+    zip.add("word/footer1.xml", footer);
+    zip.add("word/_rels/document.xml.rels", docRels);
+    for (const auto& [path, bytes] : x.media) zip.add(path, bytes, path.size() > 4 && path.compare(path.size() - 4, 4, ".png") == 0);
+    r.bytes = zip.finish();
+    r.ok = true;
+    return r;
+}
+
+DocxResult writeDocx(const typeset::Source& src, const std::string& path, const DocxOptions& options) {
+    DocxResult r = buildDocx(src, options);
     if (!r.ok) return r;
     std::string err;
     if (!atomicWrite(path, r.bytes, err)) { r.ok = false; r.error = err; }

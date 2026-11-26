@@ -672,6 +672,9 @@ private:
     void drawTypesetPages(const Rect& r);
     void drawTypesetPanel(const Rect& r);
     void exportPdf();
+    // The manuscript as a Word document laid out as the typeset book (0.104): the design in Typesetting (or the book's
+    // saved one), its viewpoint icons included.
+    void exportDocx(const Id& bookId);
     void showSpread(int spread);
     void showPage(int index);       // the spread or page with that page on it
     void turnPages(int delta);      // next / previous spread (or page)

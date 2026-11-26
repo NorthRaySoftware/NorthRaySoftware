@@ -415,6 +415,17 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.104.0: the manuscript as a Word document (suite 0.181.0, 26 Nov 2026)
+
+The DOCX export the director chose to add (26 Nov), with the viewpoint icons as he asked.
+- **studiocore `publish::buildDocx / writeDocx`** (publish.cpp, beside the EPUB, sharing its `Zip`, picture decode, crop, shrink and encode): parts `[Content_Types].xml`, `_rels/.rels`, `docProps/core.xml`, `word/document.xml`, `styles.xml`, `settings.xml` (mirrorMargins, updateFields when there are contents, compatibility mode 15), `footer1.xml` (a PAGE field), `_rels/document.xml.rels`, `media/`.
+- **Layout from the Design**: page size from the trim, margins (inside → left, mirrored), the family's name from `fontFamilies`, size, exact leading, first-line indent, justification. Named styles: Body Text, First Paragraph, Centred, Epigraph, Attribution, Verse, Letter, Note, Quote, List Paragraph (bullets and numbers as text with a hanging indent; no numbering part), Scene Break, Picture, Caption, Title, Subtitle, Author, Copyright, Chapter Number, Chapter Numeral, Chapter Date, Viewpoint Icon, Ornament, Viewpoint Key, Heading 1–4 (outline levels; Heading 1 is the chapter), Part Title, TOC 1, Footer, Hyperlink.
+- **Chapters**: `pageBreakBefore` on their first paragraph; the heading style as the typeset book ("Chapter One" small caps, a numeral, or the title); the date; the header picture (full, band or ornament width) or ornament, skipped for the viewpoint's default ornament when the icon is on; the icon above, or before/beside the Heading 1 words. Contents: a TOC field over Heading 1, with the titles as its placeholder.
+- **The icon**: `typeset::renderViewpointIcon` (new) sets one icon with the book's fonts through `drawPovIcon` (the typesetter's icon code, moved out of `typesetBook` into a function both use) and renders it at 300 dpi; PNG, cached per viewpoint and size; `docPr descr` "Chapter told by …". A symbol in no font: no icon, a note.
+- **Text**: the document JSON as the ebook reads it (runs with b, i, smallCaps, strike, u, vertAlign in schema order; hard breaks; http/https/mailto links as external hyperlinks); pictures cropped (`cropTo`), shrunk to 3000 px, as inline drawings with `descr` = alt; captions.
+- **App**: `exportDocx(book)`: Typeset tools › Save as Word (.docx)… and Book tools › Save as Word (the bar's Import & export group); the design in Typesetting, else the book's saved one.
+- **Tested:** studiocore 2,604 (a book with emphasis, a break, a scene break, a list, a picture, a link and a viewpoint: built, read back by `import::readDocx` with its chapters, text and emphasis; off by default no icon; a symbol in no font noted); the file's XML checked with xmllint; opened in LibreOffice and converted to PDF, the six pages looked at. **Not yet opened in Microsoft Word.**
+
 ## 0.103.0: the viewpoint icon in print and the ebook (suite 0.180.0, 26 Nov 2026)
 
 Phase 4c (4.6–4.9). CJ's answers (26 Nov): emoji print in a single colour, symbol pictures at print resolution, a Publishing check when a symbol is in none of the book's fonts (never a blank box, no initials instead); off by default for every book, with a one-time suggestion; PDF and EPUB now, DOCX with that export.

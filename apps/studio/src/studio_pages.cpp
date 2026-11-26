@@ -1144,6 +1144,7 @@ std::vector<StudioApp::ToolItem> StudioApp::bookTools(const Id& id) {
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::item(L"Import into this book…", [this, id] { startImport(id); }).in("import", tb::ImportExport, Icon::Import));
     t.push_back(ToolItem::item(L"Design a cover…", [this, id] { openPublishing(id); openCoverDesigner(); }).in("cover", tb::Create, Icon::Picture));
+    t.push_back(ToolItem::item(L"Save as Word (.docx)…", [this, id] { exportDocx(id); }).in("docx", tb::ImportExport, Icon::Export));
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::item(L"Move to Trash", [this] { trashFocused(); }).rarely("trash"));
     return t;

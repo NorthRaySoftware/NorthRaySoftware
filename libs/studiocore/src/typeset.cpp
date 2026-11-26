@@ -1260,6 +1260,118 @@ Source snapshot(const Library& lib, const Id& bookId) {
     return s;
 }
 
+// A viewpoint's icon (phase 4c, 0.103), drawn into `into` centred at (cx, cy): x from the text's left, y relative
+// to the line's baseline. Its picture (round), its symbol picture, its symbol or its initials, as the design says;
+// a disc of its colour ("full"), or in its colour or the ink with no disc. False when its symbol is in no font:
+// then it's left out (never a box) and named in book.missingSymbols.
+// A viewpoint's icon (phase 4c, 0.103), drawn into `into` centred at (cx, cy): x from the text's left, y relative to the
+// line's baseline. Its picture (round), its symbol picture, its symbol or its initials, as the design says; a disc of its
+// colour ("full"), or in its colour or the ink with no disc. False when its symbol is in no font: then it's left out
+// (never a box) and named once in book.missingSymbols.
+static bool drawPovIcon(Setter& set, Book& book, const Design& d, const std::function<std::pair<int, int>(const std::string&)>& pixelSize,
+                    std::set<std::string>& missingFor, const Source::Section& sec, float diam, float cx, float cy, SetLine& into) {
+    auto rgbOf = [](const std::string& hex, std::uint8_t out[3]) {
+        for (int i = 0; i < 3; ++i) out[i] = hex.size() == 7 ? (std::uint8_t)std::stoi(hex.substr(1 + i * 2, 2), nullptr, 16) : 0;
+    };
+    const Span plain;
+    {
+        const icons::Icon& ic = sec.pov;
+        const bool full = d.povColour == "full", inInk = d.povColour == "text";
+        std::uint8_t colour[3], ink[3];
+        rgbOf(ic.colour, colour);
+        rgbOf(ic.ink, ink);
+        auto hasPicture = [&](const std::string& b) { return !b.empty() && pixelSize(b).first > 0; };
+        std::string show = "initials";
+        if (d.povShow == "portrait" && hasPicture(ic.image)) show = "image";
+        else if (d.povShow != "initials" && hasPicture(ic.symbolImage)) show = "symbolImage";
+        else if (d.povShow != "initials" && !ic.symbol.empty()) show = "symbol";
+        const float r = diam / 2;
+        if (show == "symbol" && !set.covers(ic.symbol, plain, diam * 0.6f)) {
+            if (missingFor.insert(sec.povId).second) book.missingSymbols.push_back(ic.name + " (" + ic.symbol + ")");
+            return false;
+        }
+        auto ring = [&](float rr, const std::uint8_t* c, float width) {
+            Disc dc{cx, cy, rr, width, {c[0], c[1], c[2]}};
+            into.discs.push_back(dc);
+        };
+        const std::uint8_t black[3] = {0, 0, 0};
+        const std::uint8_t* lineColour = inInk ? black : colour;
+        if (show == "image" || show == "symbolImage") {
+            float pr = r;
+            if (full && show == "symbolImage") { ring(r, colour, 0); pr = r * 0.78f; }
+            PicturePlacement pic;
+            pic.blob = show == "image" ? ic.image : ic.symbolImage;
+            pic.role = "viewpoint";
+            pic.about = ic.name;
+            pic.round = true;
+            pic.x = cx - pr;
+            pic.y = cy - pr;
+            pic.w = pic.h = 2 * pr;
+            // A square from the middle of the picture.
+            const auto [pw, ph] = pixelSize(pic.blob);
+            if (pw > ph) { pic.crop.cropW = (float)ph / pw; pic.crop.cropX = (1 - pic.crop.cropW) / 2; }
+            else if (ph > pw) { pic.crop.cropH = (float)pw / ph; pic.crop.cropY = (1 - pic.crop.cropH) / 2; }
+            into.pics.push_back(pic);
+            if (show == "image") ring(r + diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
+            return true;
+        }
+        const bool initials = show == "initials";
+        const std::string text = initials ? ic.initials : ic.symbol;
+        float gsize = initials ? diam * 0.42f : diam * 0.6f;
+        if (full) ring(r, colour, 0);
+        else if (initials) ring(r - diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
+        else gsize = diam * 0.85f;   // a symbol alone, as large as the icon
+        Span look;
+        look.bold = initials;
+        SetLine g = set.centred(text, look, gsize, diam);
+        for (GlyphRun& run : g.runs) {
+            for (float& x : run.xs) x += cx - r;
+            run.y += cy + gsize * 0.35f;   // optically centred (about half the cap height below the middle)
+            const std::uint8_t* c = full ? ink : inInk ? nullptr : colour;
+            if (c) { run.coloured = true; run.rgb[0] = c[0]; run.rgb[1] = c[1]; run.rgb[2] = c[2]; }
+            into.runs.push_back(std::move(run));
+        }
+        return true;
+    }
+}
+
+Bitmap renderViewpointIcon(const Source& src, const Source::Section& sec, const Design& d, const Resources& res, float diamPt, double dpi, bool* missing) {
+    if (missing) *missing = false;
+    if (!sec.hasPov || diamPt <= 0) return {};
+    Book book;
+    Family fam;
+    if (!openFamily(res.fontsFolder, d.font, fam) && !openFamily(res.fontsFolder, presets()[0].design.font, fam)) return {};
+    if (const auto fl = studio::fonts::folders(res.fontsFolder); !fl.empty())
+        Fonts::get().useFallbacks(studio::detail::fromPath(studio::detail::u8path(fl[0]) / "symbols"));
+    Shaper shaper(fam, src.language.empty() ? "en-GB" : src.language, res.fontsFolder);
+    Setter set(shaper, book, nullptr, d, diamPt);
+    auto pixelSize = [&](const std::string& blob) -> std::pair<int, int> {
+        if (auto it = src.pictureSizes.find(blob); it != src.pictureSizes.end() && it->second.first > 0) return it->second;
+        if (!src.picturePaths.count(blob)) return {0, 0};
+        std::ifstream in(studio::detail::u8path(src.picturePaths.at(blob)), std::ios::binary);
+        std::string head(256 * 1024, '\0');
+        in.read(head.data(), (std::streamsize)head.size());
+        head.resize((size_t)in.gcount());
+        const ImageInfo info = imageInfo(head);
+        return {info.width, info.height};
+    };
+    std::set<std::string> miss;
+    SetLine l;
+    const float pad = diamPt * 0.08f, c = diamPt / 2 + pad;
+    if (!drawPovIcon(set, book, d, pixelSize, miss, sec, diamPt, c, c, l)) {
+        if (missing) *missing = true;
+        return {};
+    }
+    book.width = book.height = diamPt + 2 * pad;
+    Page pg;
+    pg.runs = std::move(l.runs);
+    pg.discs = std::move(l.discs);
+    pg.pictures = std::move(l.pics);
+    book.pages.push_back(std::move(pg));
+    book.picturePaths = src.picturePaths;
+    return renderPage(book, 0, dpi);
+}
+
 Design designFromJson(const std::string& text) {
     Design d = presets()[0].design;
     const json j = json::parse(text, nullptr, false);
@@ -1497,72 +1609,10 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
         std::rotate(flow.begin() + (std::ptrdiff_t)headStart, flow.begin() + (std::ptrdiff_t)end, flow.end());   // before the title
     };
 
-    // A viewpoint's icon (phase 4c, 0.103), drawn into `into` centred at (cx, cy): x from the text's left, y relative
-    // to the line's baseline. Its picture (round), its symbol picture, its symbol or its initials, as the design says;
-    // a disc of its colour ("full"), or in its colour or the ink with no disc. False when its symbol is in no font:
-    // then it's left out (never a box) and named in book.missingSymbols.
+    // A viewpoint's icon (phase 4c, 0.103): drawPovIcon, with this book's setter and pictures.
     std::set<std::string> missingFor;
-    auto rgbOf = [](const std::string& hex, std::uint8_t out[3]) {
-        for (int i = 0; i < 3; ++i) out[i] = hex.size() == 7 ? (std::uint8_t)std::stoi(hex.substr(1 + i * 2, 2), nullptr, 16) : 0;
-    };
     auto drawPov = [&](const Source::Section& sec, float diam, float cx, float cy, SetLine& into) -> bool {
-        const icons::Icon& ic = sec.pov;
-        const bool full = d.povColour == "full", inInk = d.povColour == "text";
-        std::uint8_t colour[3], ink[3];
-        rgbOf(ic.colour, colour);
-        rgbOf(ic.ink, ink);
-        auto hasPicture = [&](const std::string& b) { return !b.empty() && pixelSize(b).first > 0; };
-        std::string show = "initials";
-        if (d.povShow == "portrait" && hasPicture(ic.image)) show = "image";
-        else if (d.povShow != "initials" && hasPicture(ic.symbolImage)) show = "symbolImage";
-        else if (d.povShow != "initials" && !ic.symbol.empty()) show = "symbol";
-        const float r = diam / 2;
-        if (show == "symbol" && !set.covers(ic.symbol, plain, diam * 0.6f)) {
-            if (missingFor.insert(sec.povId).second) book.missingSymbols.push_back(ic.name + " (" + ic.symbol + ")");
-            return false;
-        }
-        auto ring = [&](float rr, const std::uint8_t* c, float width) {
-            Disc dc{cx, cy, rr, width, {c[0], c[1], c[2]}};
-            into.discs.push_back(dc);
-        };
-        const std::uint8_t black[3] = {0, 0, 0};
-        const std::uint8_t* lineColour = inInk ? black : colour;
-        if (show == "image" || show == "symbolImage") {
-            float pr = r;
-            if (full && show == "symbolImage") { ring(r, colour, 0); pr = r * 0.78f; }
-            PicturePlacement pic;
-            pic.blob = show == "image" ? ic.image : ic.symbolImage;
-            pic.role = "viewpoint";
-            pic.about = ic.name;
-            pic.round = true;
-            pic.x = cx - pr;
-            pic.y = cy - pr;
-            pic.w = pic.h = 2 * pr;
-            // A square from the middle of the picture.
-            const auto [pw, ph] = pixelSize(pic.blob);
-            if (pw > ph) { pic.crop.cropW = (float)ph / pw; pic.crop.cropX = (1 - pic.crop.cropW) / 2; }
-            else if (ph > pw) { pic.crop.cropH = (float)pw / ph; pic.crop.cropY = (1 - pic.crop.cropH) / 2; }
-            into.pics.push_back(pic);
-            if (show == "image") ring(r + diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
-            return true;
-        }
-        const bool initials = show == "initials";
-        const std::string text = initials ? ic.initials : ic.symbol;
-        float gsize = initials ? diam * 0.42f : diam * 0.6f;
-        if (full) ring(r, colour, 0);
-        else if (initials) ring(r - diam * 0.03f, lineColour, std::max(0.6f, diam * 0.05f));
-        else gsize = diam * 0.85f;   // a symbol alone, as large as the icon
-        Span look;
-        look.bold = initials;
-        SetLine g = set.centred(text, look, gsize, diam);
-        for (GlyphRun& run : g.runs) {
-            for (float& x : run.xs) x += cx - r;
-            run.y += cy + gsize * 0.35f;   // optically centred (about half the cap height below the middle)
-            const std::uint8_t* c = full ? ink : inInk ? nullptr : colour;
-            if (c) { run.coloured = true; run.rgb[0] = c[0]; run.rgb[1] = c[1]; run.rgb[2] = c[2]; }
-            into.runs.push_back(std::move(run));
-        }
-        return true;
+        return drawPovIcon(set, book, d, pixelSize, missingFor, sec, diam, cx, cy, into);
     };
 
     // The key of viewpoints (0.103): a page listing each viewpoint's icon and name, in the order they first tell a chapter.

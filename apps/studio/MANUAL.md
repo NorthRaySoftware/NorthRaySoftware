@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Application | NorthRay Writing Studio (`WritingStudio.exe`) |
-| Version at the time of writing | 0.103.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.180.0 |
+| Version at the time of writing | 0.104.0. The latest entry in `shared/metadata/releases/writing-studio.json`; the installer carries the suite version, 0.181.0 |
 | Status | **Preview**, released. The suite's most developed app |
 | Source | `apps/studio/` (the Windows app), `apps/studio/editor/` (the ProseMirror editor, bundled to `apps/studio/web/editor.js`), `libs/studiocore/` (the portable core) |
 | Architecture notes | `docs/studio/ARCHITECTURE.md`: decisions, then a section per release, newest near the top |
@@ -32,7 +32,7 @@ Status labels used in this manual:
 - Review.
 - Typeset.
 - Preview as an ebook.
-- Export a print-ready PDF/X-1a and an EPUB 3.
+- Export a print-ready PDF/X-1a and an EPUB 3, and save a Word document (.docx) laid out as the typeset book (0.104).
 
 **Audience.** Authors of novels and series (including comics and scripts), especially those with large invented worlds.
 
@@ -154,6 +154,7 @@ Status labels used in this manual:
 - Editions (paperback, hardback, large print, ebook) with their own ISBNs.
 - PDF/X-1a:2001 with bleed (validated with qpdf structurally only; **no external PDF/X validator is run**).
 - EPUB 3 with NCX, embedded fonts and accessibility metadata.
+- Word (.docx, 0.104; Typeset tools or Book tools › Save as Word): the typeset book's trim, mirrored margins, typeface, size, leading and indent; title, copyright and Word contents (a TOC field Word fills on opening) as the design has them; page numbers; chapters on new pages as Heading 1 with their heading style, date, header picture or ornament and viewpoint icon (rendered by the typesetter at 300 dpi, described for screen readers) and the key; paragraph styles as named Word styles, emphasis, lists, quotations, links, scene breaks, cropped pictures with descriptions. Draft notes left out. Read back by the Studio's own Word import in the tests and opened in LibreOffice; not yet opened in Word.
 - A cover designer (ebook and print wrap).
 - Pre-flight checks, including header picture resolution, colour in black-and-white editions, missing descriptions, and notes left in [square brackets].
 - Spine width.
@@ -182,7 +183,6 @@ Status labels used in this manual:
 ### Planned (the director's answers; not in the release notes yet)
 
 From 26 Nov 2026 (the combined request; phase 1 shipped in 0.94, the Markdown export in 0.95, interface zoom in 0.96, page zoom in 0.97):
-- A DOCX export of the manuscript, with the viewpoint icons in its headings (the director's choice; phase 4 shipped in 0.101–0.103).
 - Chapter dates as formatted text with a per-book date format, and conversion of typed date lines.
 
 From 15 and 18 Nov 2026:

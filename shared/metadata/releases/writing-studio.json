@@ -1,6 +1,15 @@
 {
   "releases": [
     {
+      "version": "0.104.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Save as Word (.docx), from Typeset tools or a book's Book tools: the manuscript laid out as the typeset book, with its page size and mirrored margins, typeface, size, spacing and indents, a title page, copyright page and Word's own contents, page numbers, and each chapter on a new page with its heading as Heading 1 (so Word's navigation lists them).",
+        "Chapters keep their heading style, date, header picture or ornament and viewpoint icon with the key of viewpoints; the text keeps its paragraph styles, emphasis, lists, quotations, links, scene breaks and pictures (cropped, with their descriptions). Draft notes are left out, as in print.",
+        "Viewpoint icons are drawn exactly as in the typeset book, at 300 dpi and described for screen readers; a symbol in none of the book's fonts is left out, and the export says so."
+      ]
+    },
+    {
       "version": "0.103.0",
       "date": "2026-11-26",
       "notes": [

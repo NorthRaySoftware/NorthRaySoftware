@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.181.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Brings Writing Studio 0.104.0: save a book as a Word document laid out like the typeset book, with its viewpoint icons."
+      ]
+    },
+    {
       "version": "0.180.0",
       "date": "2026-11-26",
       "notes": [
