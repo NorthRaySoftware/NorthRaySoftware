@@ -1410,7 +1410,8 @@ void StudioApp::importPlanText() {
         if (fit.bookChapters > 0)
             q += L"\n\nThe plan replaces the book's plan. Chapters already in the book are matched to it and take its synopsis, "
                  L"viewpoint, place, who's there, time, threads and beats, in its order; their titles and writing stay. "
-                 L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept.";
+                 L"Empty chapters it doesn't have go to the Trash. Chapters with writing are always kept. Plot threads the plan "
+                 L"doesn't list are removed, and so is the book's structure when the plan names none.";
         else q += L"\n\nThe book has no chapters yet, so the plan's " + std::to_wstring(fit.planned) + L" chapters are made.";
         const int a = cjui::messageBox(hwnd(), q, L"Import planning", MB_OKCANCEL | (poorFit ? MB_ICONWARNING : MB_ICONINFORMATION));
         if (a != IDOK) return;
@@ -1460,6 +1461,13 @@ void StudioApp::importPlanText() {
         if (v.size() > 8) s += L"…";
         return s;
     };
+    // What the plan replaced with nothing (0.83).
+    if (!r.removedThreads.empty())
+        msg += L"\n\nRemoved " + plural((int)r.removedThreads.size(), L"plot thread", L"plot threads") + L" the plan doesn't list: " +
+               listOf(r.removedThreads) + L".";
+    if (!o.removedStructure.empty())
+        msg += L"\n\nThe plan names no structure, so the book no longer follows " + w(o.removedStructure) +
+               L" (add a \u201CBook structure:\u201D line to keep one).";
     if (!o.unknownViewpoints.empty()) msg += L"\n\nNo character of that name, so no viewpoint was set: " + listOf(o.unknownViewpoints) + L".";
     if (!o.unknownBeats.empty()) msg += L"\n\nNot beats of the book's structure: " + listOf(o.unknownBeats) + L".";
     if (o.datesRead)

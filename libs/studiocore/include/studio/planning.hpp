@@ -146,6 +146,8 @@ struct OutlineImport {
     // "Chapter title: the words"), kept as words for when it happens and not put on the timeline.
     int datesRead = 0;
     std::vector<std::string> unreadDates;
+    // The book's structure when the plan names none (0.83): cleared, like a blank chapter detail; its name here.
+    std::string removedStructure;
 };
 // The plan replaces the book's plan (0.62). Parts, chapters and scenes already in the book are matched rather than added
 // again: a part by its title, a chapter by its title or its key (matchKey: numbers, "Chapter 3:" and symbols aside),
@@ -172,6 +174,9 @@ struct PlanningImport {
     bool bookTypeSet = false;      // "Book type: Novella" (0.76)
     int placements = 0;            // "Series: The Alvora Chronicles, Book 2.5, set during The Envoy" lines applied (0.76)
     std::vector<std::string> unknownSeries;   // series or books a Series: line names that this library doesn't have
+    // A plan with an outline replaces the book's plan (0.83): threads it doesn't list (by a Thread: block or a chapter's
+    // Threads: line) are removed, with their tags; their names here.
+    std::vector<std::string> removedThreads;
     bool any() const;
 };
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out);

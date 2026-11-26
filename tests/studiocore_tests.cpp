@@ -4761,6 +4761,40 @@ static void testPlanCalendarDates() {
     fs::remove_all(dir);
 }
 
+// A plan replaces the book's threads and structure too (0.83): threads it doesn't list go, and the structure when it
+// names none, both named in the import.
+static void testPlanReplacesThreads() {
+    const std::string dir = tempLibrary("planthreads");
+    auto lib = openOk(dir);
+    const Id w = lib->createWorld("Alvora");
+    const Id b = lib->createBook("Alvora: The Fall of Valona", w);
+    plan::PlanningImport first;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w,
+                               "Book structure: Three acts\nChapter: One\nThreads: Ash, Crown, Sea\nBeat: Setup\nChapter: Two\nThreads: Crown\n"
+                               "Thread: Ash\nThread: Crown\nThread: Sea\nThread: Embers\n", first));
+    CHECK(plan::threadsOf(*lib, b).threads.size() == 4 && plan::bookStructure(*lib, b).templateId == "three-act");
+    // The second plan lists Crown (on a chapter) and Dawn (a Thread: block), and names no structure.
+    plan::PlanningImport second;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w, "Chapter: One\nThreads: Crown\nChapter: Two\nThread: Dawn\nAbout: A new day.\n", second));
+    std::vector<std::string> removed = second.removedThreads;
+    std::sort(removed.begin(), removed.end());
+    CHECK((removed == std::vector<std::string>{"Ash", "Embers", "Sea"}));
+    CHECK(second.outline.removedStructure == "Three acts");
+    const plan::Threads th = plan::threadsOf(*lib, b);
+    CHECK(th.threads.size() == 2 && th.named("Crown") && th.named("Dawn") && !th.named("Ash"));
+    for (auto& [node, ids] : th.nodes) for (auto& id : ids) CHECK(th.find(id) != nullptr);   // no tags left to removed threads
+    CHECK(plan::bookStructure(*lib, b).templateId.empty() && plan::bookStructure(*lib, b).beats.empty());
+    // A plan naming the structure keeps it; a text of threads alone (no outline) removes nothing.
+    plan::PlanningImport third;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w, "Book structure: Three acts\nChapter: One\nThreads: Crown, Dawn\nChapter: Two\n", third));
+    CHECK(third.removedThreads.empty() && third.outline.removedStructure.empty() && plan::bookStructure(*lib, b).templateId == "three-act");
+    plan::PlanningImport fourth;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w, "Thread: Storm\nAbout: Weather.\n", fourth));
+    CHECK(fourth.removedThreads.empty() && plan::threadsOf(*lib, b).threads.size() == 3 && plan::bookStructure(*lib, b).templateId == "three-act");
+    lib.reset();
+    fs::remove_all(dir);
+}
+
 int main() {
     testPlanReplaces();
     testWorldSync();
@@ -4806,6 +4840,7 @@ int main() {
     testCalendarTimes();
     testExcerpts();
     testPlanCalendarDates();
+    testPlanReplacesThreads();
     testMoving();
     testTrash();
     testBlobsExportAndSafety();

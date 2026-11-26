@@ -415,6 +415,15 @@ with small arrows at the edges instead of scroll bars. Every long pop-up list in
   editor on Windows: the right-click menu, and the editor's keys reaching the app.
 
 
+## 0.83.0: a plan replaces threads and structure too (26 Nov 2026)
+
+CJ: importing a plan replaced chapters but kept the book's old threads and structure when the plan had none (Alvora: The Fall of Valona kept ten threads and the Scion's journey from an earlier import under a plan with three threads and no structure line). Clear them like blank chapter details, and name what went.
+
+- `plan::importOutline`: an outline with chapters and no "Book structure:" line clears the book's structure (template, beats and notes); its name is `OutlineImport::removedStructure`.
+- `plan::importPlanning`: when the text has an outline, threads it doesn't list (a chapter's Threads: line or a Thread: block) are removed after the import, with their tags; their names are `PlanningImport::removedThreads`. A text of threads or structures alone removes nothing. `any()` counts both.
+- App: the Import planning question says threads the plan doesn't list and an unnamed structure are removed; the note names the removed threads and the structure, with how to keep one ("Book structure:").
+- Tested: studiocore 2160 checks (`testPlanReplacesThreads`: four threads and Three acts, then a plan listing Crown on a chapter and Dawn in a block: Ash, Embers and Sea removed with no tags left, the structure cleared and named; a plan naming the structure keeps it; threads alone remove nothing). In Wine on The Grey Wanderer: the question, and the note naming two removed threads and My structure.
+
 ## 0.82.0: excerpts from Planning's chapters only; plan dates read in the calendar, again when it changes; the target book named (26 Nov 2026)
 
 CJ: excerpts only from the chapters Planning puts a character in; a plan's When dates ("4 Bloomtide 2033 TA" in the Alvoran Reckoning) showed as Day 0 after importing the calendar and the plan; read them in any form the calendar reads, read them again when the calendar is imported or changed later, keep unreadable ones as words and say so; and Import planning once went into the wrong book, so name the book and warn when the plan's chapter titles mostly don't match.

@@ -940,6 +940,13 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
             bsChanged = true;
         } else out.unknownStructure = true;
     }
+    // An outline with no "Book structure:" line replaces the book's structure with none (0.83), as blank details clear.
+    if (structureName.empty() && !items.empty() && !bs.templateId.empty()) {
+        const Structure* had = findStructure(structures, bs.templateId);
+        out.removedStructure = had ? had->name : bs.templateId;
+        bs = BookStructure{};
+        bsChanged = true;
+    }
     const Structure* st = findStructure(structures, bs.templateId);
     if (items.empty()) {
         if (bsChanged) setBookStructure(lib, book, bs);
@@ -1236,7 +1243,8 @@ std::string structureScope(const Library& lib, const Id& book) {
 }
 
 bool PlanningImport::any() const {
-    return !outline.made.empty() || !outline.updated.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced || bookTypeSet || placements;
+    return !outline.made.empty() || !outline.updated.empty() || !outline.structure.empty() || threads.added || threads.updated || threads.tagged || structuresAdded || structuresReplaced || bookTypeSet || placements ||
+           !removedThreads.empty() || !outline.removedStructure.empty();
 }
 
 bool importPlanning(Library& lib, const Id& book, const std::string& scope, const std::string& text, PlanningImport& out) {
@@ -1342,6 +1350,32 @@ bool importPlanning(Library& lib, const Id& book, const std::string& scope, cons
             std::string v, t = trim(l);
             while (!t.empty() && (t[0] == '#' || t[0] == '-' || t[0] == '*')) t = trim(t.substr(1));
             if (field(t, {"thread", "plot thread", "subplot"}, v) && had.count(lower(v))) ++out.threads.updated;
+        }
+    }
+    // A plan with an outline replaces the book's plan (0.83): threads it doesn't list go, with their tags.
+    if (!trim(outline).empty() && !parseOutline(outline).empty()) {
+        std::set<std::string> listed;
+        for (auto& it : parseOutline(outline)) for (auto& t : it.threads) listed.insert(lower(trim(t)));
+        for (const std::string& l : lines(threads)) {
+            std::string v, t = trim(l);
+            while (!t.empty() && (t[0] == '#' || t[0] == '-' || t[0] == '*')) t = trim(t.substr(1));
+            if (field(t, {"thread", "plot thread", "subplot"}, v)) listed.insert(lower(trim(v)));
+        }
+        Threads th = threadsOf(lib, book);
+        std::set<std::string> gone;
+        std::vector<Thread> keep;
+        for (auto& t : th.threads) {
+            if (listed.count(lower(trim(t.name)))) keep.push_back(t);
+            else { gone.insert(t.id); out.removedThreads.push_back(t.name); }
+        }
+        if (!gone.empty()) {
+            th.threads = keep;
+            for (auto it = th.nodes.begin(); it != th.nodes.end();) {
+                auto& v = it->second;
+                v.erase(std::remove_if(v.begin(), v.end(), [&](const std::string& id) { return gone.count(id) > 0; }), v.end());
+                it = v.empty() ? th.nodes.erase(it) : std::next(it);
+            }
+            setThreads(lib, book, th);
         }
     }
     return out.any();

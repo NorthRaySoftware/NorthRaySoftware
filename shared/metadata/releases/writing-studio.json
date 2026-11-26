@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.83.0",
+      "date": "2026-11-26",
+      "notes": [
+        "A plan now replaces the book's plot threads and structure too: threads the plan doesn't list are removed, and the book's structure is cleared when the plan names none. The note after importing names what was removed. A text of threads alone removes nothing."
+      ]
+    },
+    {
       "version": "0.82.0",
       "date": "2026-11-26",
       "notes": [
