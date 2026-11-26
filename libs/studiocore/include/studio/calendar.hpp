@@ -162,6 +162,10 @@ std::int64_t plainYear(const Calendar& c, std::int64_t year, const std::string& 
 
 std::string formatDate(const Calendar& c, const Date& d, bool withEra = true);   // "3 Frostmoon 1204 AL"
 std::string formatYear(const Calendar& c, std::int64_t year);                    // "1204 AL"
+// A date in a chosen style (0.85), for typeset books and the shared bible: `form` "words" (4 Bloomtide 2033),
+// "numbers" (04/04/2033, in the calendar's order and separator) or "" (as the calendar writes it); `era` "abbr", "name",
+// "none" or "" (the calendar's choice).
+std::string formatDateStyled(const Calendar& c, const Date& d, const std::string& form, const std::string& era);
 std::string formatTime(const Calendar& c, int minutes);                          // "14:05" (minutes into the day)
 std::optional<int> parseTime(const Calendar& c, const std::string& s);
 

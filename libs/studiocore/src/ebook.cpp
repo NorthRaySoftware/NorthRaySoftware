@@ -226,6 +226,8 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             int number = 0;
             if (!t.special && sec.matter == 0) number = t.number ? (chapterNo = t.number) : ++chapterNo;
             heading = chapterHeading(sec.title, number, t.word, t.rest, style);
+            if (style.chapterDates && sec.dated && !src.calendar.empty())
+                heading += "<p class=\"chapdate\">" + escape(cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, sec.calendarDay), style.dateForm, style.dateEra)) + "</p>\n";
             if (sec.matter == 0) body = markOpening(body, style);   // a prologue opens like a chapter too
         }
         ch.html = std::string("<section class=\"") + (ch.part ? "part" : "chapter") + "\">\n" + heading + body + "</section>\n";
@@ -264,6 +266,9 @@ Style styleFrom(const typeset::Design& d) {
     s.hyphenate = d.hyphenate;
     s.indentEm = d.indentEm;
     s.sceneBreak = d.sceneBreak.empty() ? std::string("* * *") : d.sceneBreak;
+    s.chapterDates = d.chapterDates;
+    s.dateForm = d.dateForm;
+    s.dateEra = d.dateEra;
     return s;
 }
 
@@ -380,6 +385,7 @@ figure.pic img { max-width: 100%; }
 figcaption { font-style: italic; font-size: 0.9em; margin-top: 0.4em; text-align: center; }
 a { color: inherit; }
 h1 span.chapnum { display: block; font-size: 0.6em; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 1em; }
+p.chapdate { text-align: center; text-indent: 0; font-style: italic; margin: -1em 0 2em; }
 h1 span.numeral { display: block; font-size: 2.6em; line-height: 1; margin-bottom: 0.25em; }
 h1 span.chaptitle { display: block; }
 h1.numeral span.chaptitle { font-style: italic; font-size: 0.85em; }

@@ -607,6 +607,77 @@ static void testImportLinesAndPreview() {
     }
 }
 
+static std::string planSnapshot(Library& lib, const Id& book){
+  std::string o;
+  auto th=plan::threadsOf(lib,book); auto pl=plan::nodePlaces(lib,book); auto cs=plan::nodeCast(lib,book);
+  auto name=[&](const Id& id){auto e=lib.entry(id);return e?e->name:std::string("?");};
+  for(auto* n: lib.manuscriptOf(book)){
+    o+="N "+std::to_string((int)n->kind)+" ["+n->title+"] st"+std::to_string((int)n->status)+" t"+std::to_string(n->targetWords)+" m"+std::to_string(n->matter)+" pov="+(n->povId.empty()?"":name(n->povId))+" syn=["+n->synopsis+"]";
+    if(pl.count(n->id)) o+=" place="+name(pl[n->id]);
+    if(cs.count(n->id)) for(auto&c:cs[n->id]) o+=" cast="+name(c);
+    if(th.nodes.count(n->id)) for(auto&t:th.nodes[n->id]) o+=" th="+(th.find(t)?th.find(t)->name:"?");
+    o+=" parent="+(n->parentId.empty()?std::string("-"):lib.node(n->parentId)->title)+"\n";
+  }
+  for(auto&t:th.threads) o+="T "+t.name+" "+t.colour+" ["+t.about+"]\n";
+  auto bs=plan::bookStructure(lib,book); o+="S "+bs.templateId+"\n";
+  for(auto&[b,ns]:bs.beats){o+=" beat "+b+":"; for(auto&n:ns) o+=lib.node(n)?lib.node(n)->title+",":"?,"; o+="\n";}
+  for(auto&[b,t]:bs.notes) o+=" note "+b+"="+t+"\n";
+  auto tl=nlohmann::json::parse(lib.setting("timeline:"+book).empty()?"{}":lib.setting("timeline:"+book));
+  if(tl.contains("nodes")) for(auto&[k,v]:tl["nodes"].items()){auto n=lib.node(k); auto x=v; x.erase("date"); o+="TL "+(n?n->title:k)+" "+x.dump()+"\n";}
+  for(auto&[k,v]:tl.items()) if(k!="nodes") o+="TLK "+k+"="+v.dump()+"\n";
+  o+="type="+lib.book(book)->type+"\n";
+  return o;
+}
+
+// Export the plan, change nothing, import it again: the book's plan is as it was, Writing's changes included (0.85).
+static void testPlanRoundTrip() {
+    const std::string dir = tempLibrary("planroundtrip");
+    auto lib = openOk(dir);
+    if (!lib) return;
+  Id w=lib->createWorld("Alvora"); Id s=lib->createSeries("Chron",w);
+  Id b1=lib->createBook("One",{},s), b=lib->createBook("Two",{},s);
+  studio::cal::Calendar c=studio::cal::fromText("Calendar: R\nMonths:\n- Frostmoon: 30\n- Thaw: 30\nEra: Age of Light (AL) from year 1\n");
+  studio::cal::saveWorldCalendar(*lib,w,c);
+  lib->createEntry(w,{},"character","Tom Smith"); lib->createEntry(w,{},"character","Ana"); lib->createEntry(w,{},"place","Highcliff");
+  std::string text=
+   "Book type: Novella\nSeries: Chron, Book 1.5, set during One\nBook structure: Three acts\n\n"
+   "Part: Beginnings\n\n"
+   "Chapter: Prologue\nStatus: Outline\nA dark night.\n\n"
+   "Chapter: The Forge\nViewpoint: Tom Smith\nStatus: Draft\nTarget: 3000\nPlace: Highcliff\nCharacters: Tom Smith, Ana\nThreads: Crown, Ash\nBeat: Setup\nWhen: 3 Frostmoon 1204 AL; the night of the storm\nTime: 14:30\nTom works late.\nHe is tired.\n\n"
+   "Scene: Sparks\nStatus: Revised\nTime: dawn\nWhen: 4 Frostmoon 1204 AL\nSparks fly.\n\n"
+   "Chapter: The Wall\nWhen: 10 Thaw 1204\nTime: at dusk\nThreads: Ash\n\n"
+   "Thread: Crown\nColour: #aa3344\nAbout: Who rules.\n\nThread: Ash\nAbout: The fire.\n";
+  plan::PlanningImport pi; plan::importPlanning(*lib,b,"world:"+w,text,pi);
+  // Changes in Writing after the import
+  for(auto* n: lib->manuscriptOf(b)){ ManuscriptNode x=*n;
+    if(x.title=="The Wall"){x.title="The Great Wall"; x.synopsis="Rewritten.\n\nSecond paragraph."; x.status=NodeStatus::Final; lib->updateNode(x);}
+    if(x.title=="Prologue"){x.matter=1; lib->updateNode(x);} }
+  lib->createNode(b,{},NodeKind::Chapter,"Epilogue");
+  auto bs=plan::bookStructure(*lib,b); bs.notes[bs.beats.begin()->first]="A note on the beat."; plan::setBookStructure(*lib,b,bs);
+    const std::string before = planSnapshot(*lib, b);
+    const std::string out = plan::planningText(*lib, b, "world:" + w);
+    CHECK(out.find("End of part\n\nChapter: Epilogue") != std::string::npos);
+    CHECK(out.find("Matter: front") != std::string::npos);
+    plan::PlanningImport again;
+    CHECK(plan::importPlanning(*lib, b, "world:" + w, out, again));
+    CHECK(planSnapshot(*lib, b) == before);
+    CHECK(plan::planningText(*lib, b, "world:" + w) == out);
+    // Into a book with nothing in it, the same outline, front matter and a chapter outside the part.
+    const Id fresh = lib->createBook("Three", w);
+    plan::PlanningImport into;
+    CHECK(plan::importPlanning(*lib, fresh, "world:" + w, out, into));
+    std::string a = planSnapshot(*lib, fresh), x = before;
+    auto noBookLines = [](std::string s) {
+        std::vector<std::string> v; std::istringstream in(s);
+        for (std::string l; std::getline(in, l);) v.push_back(l);
+        std::sort(v.begin(), v.end());   // the timeline's nodes come in the order of their ids
+        std::string o;
+        for (auto& l : v) o += l + "\n";
+        return o;
+    };
+    CHECK(noBookLines(a) == noBookLines(x));
+}
+
 static void testPlanDates() {
     using namespace studio::cal;
     const std::string dir = tempLibrary("plandates");
@@ -1588,6 +1659,42 @@ static void testTypeset() {
         dr.frontRoman = false;
         auto tr = typesetBook(*lib, book, dr, res);
         CHECK(tr.ok && tr.pages[2].folio.empty());       // arabic throughout: no number printed on the contents page
+    }
+    // Each chapter's date under its heading (0.85), from the timeline in the book's calendar, in the style chosen.
+    {
+        const studio::cal::Calendar cc = studio::cal::fromText(
+            "Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Bloomtide: 30\nEra: The Third Age (TA) from year 1\nDates: dd/mm/yyyy | era name\n");
+        CHECK(studio::cal::saveBookCalendar(*lib, book, cc));
+        const auto start = studio::cal::toDay(cc, {2033, 1, 4});
+        CHECK(lib->setSetting("timeline:" + book, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", start},
+                                                                  {"nodes", {{c1, {{"day", 0}}}, {c2, {{"day", 30}}}}}}.dump()));
+        CHECK(studio::cal::formatDateStyled(cc, {2033, 1, 4}, "", "") == "04/02/2033 The Third Age");
+        CHECK(studio::cal::formatDateStyled(cc, {2033, 1, 4}, "words", "abbr") == "4 Bloomtide 2033 TA");
+        CHECK(studio::cal::formatDateStyled(cc, {2033, 1, 4}, "numbers", "none") == "04/02/2033");
+        const Source src = snapshot(*lib, book);
+        CHECK(src.sections.size() == 2 && src.sections[0].dated && src.sections[1].dated);
+        auto openings = [&](const Design& dd) {
+            auto t = typesetBook(*lib, book, dd, res);
+            std::string o;
+            for (auto& p : t.pages)
+                if (p.kind == Page::ChapterOpening) { for (auto& r : p.runs) for (auto g : r.glyphs) o += t.fonts[r.font].toUnicode[g]; o += "|"; }
+            return o;
+        };
+        Design dd = preset("classic").design;
+        CHECK(openings(dd).find("2033") == std::string::npos);   // off by default
+        dd.chapterDates = true;
+        const std::string on = openings(dd);
+        // (Spaces aren't glyphs, so the page's text runs together.)
+        CHECK(on.find("4Bloomtide2033TA") != std::string::npos && on.find("4Frostmoon2034TA") != std::string::npos);
+        dd.dateForm = "numbers";
+        dd.dateEra = "name";
+        CHECK(openings(dd).find("04/02/2033TheThirdAge") != std::string::npos);
+        const Design back = designFromJson(designToJson(dd));
+        CHECK(back.chapterDates && back.dateForm == "numbers" && back.dateEra == "name");
+        // The ebook, the same.
+        const auto content = ebook::build(src, {}, ebook::styleFrom(dd));
+        CHECK(!content.chapters.empty() && content.chapters[0].html.find("<p class=\"chapdate\">04/02/2033 The Third Age</p>") != std::string::npos);
+        lib->setSetting("timeline:" + book, "");
     }
     // Print-ready PDF/X-1a: PDF 1.3, black text, no RGB, an output intent, trim and bleed boxes.
     {
@@ -4729,6 +4836,21 @@ static void testExcerpts() {
     const auto tomEx = bible::excerptsOf(*lib, view, *lib->entry(tom), texts);
     CHECK(tomEx.size() == 2 && tomEx[0].where == "Arrival" && tomEx[0].text == "Tom saw Maren at the dock. He waved.");
     CHECK(tomEx.size() == 2 && tomEx[1].where == "Flood" && tomEx[1].text == "Rain all day. The roads flooded.");
+    // Book One's choice to take chapters with nobody chosen by their text (0.85): Night ("Holt", her last name) and
+    // Morning name her, so they join in reading order, three a book; Arrival (Tom chosen) still doesn't. Two is unchanged.
+    CHECK(!bible::excerptsFromText(*lib, one));
+    CHECK(bible::setExcerptsFromText(*lib, one, true) && bible::excerptsFromText(*lib, one));
+    {
+        std::map<Id, std::string> tt;
+        const auto fx = bible::excerptsOf(*lib, view, *lib->entry(maren), tt);
+        CHECK(fx.size() == 4);
+        if (fx.size() == 4) {
+            CHECK(fx[0].where == "The Storm" && fx[1].where == "Night" && fx[2].where == "Morning" && fx[3].bookTitle == "Two");
+        }
+        // Bluebolt, named in The Storm (where only Maren is chosen), still has none.
+        CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), tt).empty());
+    }
+    CHECK(bible::setExcerptsFromText(*lib, one, false) && !bible::excerptsFromText(*lib, one));
     // Nobody chose the creature or the place.
     CHECK(bible::excerptsOf(*lib, view, *lib->entry(wyrm), texts).empty());
     CHECK(bible::excerptsOf(*lib, view, *lib->entry(town), texts).empty());
@@ -4930,6 +5052,7 @@ int main() {
     testSubBooks();
     testCalendar();
     testPlanDates();
+    testPlanRoundTrip();
     testImportLinesAndPreview();
     testCalendarTimes();
     testExcerpts();

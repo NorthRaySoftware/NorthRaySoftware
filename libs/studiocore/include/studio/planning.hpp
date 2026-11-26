@@ -121,6 +121,10 @@ struct OutlineItem {
     std::vector<std::string> beats;   // "Beat: Midpoint": beats of the book's structure this chapter carries
     std::vector<std::string> cast;    // "Characters: Tom, Sarrah": who's present (0.59)
     std::string time;                 // "Time: 14:30": the time of day, in the world's calendar's hours (0.75)
+    // 0.85, so an exported plan comes back as it was: "Matter: front" / "back" / "story" (-1 when not given), and a
+    // chapter after an "End of part" line, which stands outside any part.
+    int matter = -1;
+    bool outsidePart = false;
 };
 // `structure`, if given, gets the "Book structure:" line (the structure the book follows, by name).
 std::vector<OutlineItem> parseOutline(const std::string& text, std::string* structure = nullptr);

@@ -1,6 +1,17 @@
 {
   "releases": [
     {
+      "version": "0.85.0",
+      "date": "2026-11-26",
+      "notes": [
+        "Export the plan now gives back exactly the same plan when imported again, Writing's changes included: chapters after a part come back outside it (an \"End of part\" line), front and back matter keep their place (\"Matter: front\"), and each beat's notes travel too (\"Beat note: Setup: …\").",
+        "Plan tools has a per-book choice for the shared bible's quotes: only from chapters that Who's there or the viewpoint puts a character in, or also from chapters with nobody chosen whose text names them.",
+        "Typesetting can print each chapter's date from Planning's timeline under its heading, with month names or numbers and the era short, in full or left off. The ebook gets the same. Share the bible has the same choices for the dates in its plans.",
+        "Typesetting's design card and Preview's reader's settings scroll with the wheel again, so everything below the window's foot can be reached.",
+        "When a calendar is saved after a plan, the timeline now starts at the plan's earliest date rather than whichever date it happened to read first."
+      ]
+    },
+    {
       "version": "0.84.0",
       "date": "2026-11-26",
       "notes": [

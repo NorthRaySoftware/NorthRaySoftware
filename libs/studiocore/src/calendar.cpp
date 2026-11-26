@@ -237,6 +237,14 @@ std::string padded(std::int64_t n, int width) {
 }
 }  // namespace
 
+std::string formatDateStyled(const Calendar& cIn, const Date& d, const std::string& form, const std::string& era) {
+    Calendar c = cIn;
+    if (form == "words") c.numeric = false;
+    else if (form == "numbers") c.numeric = true;
+    if (era == "abbr" || era == "name" || era == "none") c.eraStyle = era;
+    return formatDate(c, d);
+}
+
 std::string formatYear(const Calendar& c, std::int64_t year) {
     const EraYear e = eraYear(c, year);
     std::string s = std::to_string(e.year);
@@ -1536,6 +1544,7 @@ int rereadPlanDates(Library& lib, const Id& book) {
     json tl = json::parse(lib.setting("timeline:" + book), nullptr, false);
     if (!tl.is_object() || !tl.contains("nodes") || !tl["nodes"].is_object()) return 0;
     int changed = 0;
+    std::vector<std::pair<json*, std::int64_t>> read;   // each node read as a date, and its day
     for (auto& [id, v] : tl["nodes"].items()) {
         if (!v.is_object()) continue;
         std::string date = v.value("date", "");
@@ -1559,12 +1568,19 @@ int rereadPlanDates(Library& lib, const Id& book) {
                 }
         }
         if (!d) continue;
-        const std::int64_t abs = toDay(c, *d);
-        if (!tl.value("calendar", false)) {
-            tl["calendar"] = true;
-            if (!tl.contains("start") || !tl["start"].is_number()) tl["start"] = abs;
-            tl["unit"] = "day";
-        }
+        read.push_back({&v, toDay(c, *d)});
+    }
+    // The timeline goes into calendar dates starting at the earliest of them (0.85: it took whichever came first in
+    // the stored order, so the first chapter could land before day 0).
+    if (!read.empty() && !tl.value("calendar", false)) {
+        std::int64_t first = read.front().second;
+        for (auto& r : read) first = std::min(first, r.second);
+        tl["calendar"] = true;
+        if (!tl.contains("start") || !tl["start"].is_number()) tl["start"] = first;
+        tl["unit"] = "day";
+    }
+    for (auto& [vp, abs] : read) {
+        json& v = *vp;
         const double day = (double)(abs - (std::int64_t)std::floor(tl["start"].get<double>()));
         if (!v.contains("day") || !v["day"].is_number() || v["day"].get<double>() != day) {
             v["day"] = day;

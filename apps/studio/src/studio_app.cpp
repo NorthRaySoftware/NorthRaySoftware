@@ -1724,6 +1724,9 @@ bool StudioApp::onRightClick(float x, float y) {
 bool StudioApp::onWheel(float x, float y, float lines) {
     if (ws_ == Workspace::Preview) {
         if (sideRect_.contains(x, y)) pv_.sideScroll = std::clamp(pv_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pv_.sideContent - sideRect_.h));
+        // The reader's settings drawn as a card at the right (0.71) scroll there (0.85).
+        else if (sideRect_.w <= 0 && panelRect_.contains(x, y))
+            pv_.sideScroll = std::clamp(pv_.sideScroll + lines * 20, 0.0f, std::max(0.0f, pv_.sideContent - panelRect_.h));
         invalidate();
         return true;
     }
@@ -1782,6 +1785,10 @@ bool StudioApp::onWheel(float x, float y, float lines) {
     }
     if (ws_ == Workspace::Typesetting) {
         if (sideRect_.contains(x, y)) ts_.sideScroll = std::clamp(ts_.sideScroll + lines * 20, 0.0f, std::max(0.0f, ts_.sideContent - sideRect_.h));
+        // The design drawn as a card at the right (0.71) scrolls there (0.85: it couldn't, so the switches and margins
+        // below the window's foot were out of reach).
+        else if (sideRect_.w <= 0 && panelRect_.contains(x, y))
+            ts_.sideScroll = std::clamp(ts_.sideScroll + lines * 20, 0.0f, std::max(0.0f, ts_.sideContent - panelRect_.h));
         else if (panelRect_.contains(x, y)) ts_.panelScroll = std::clamp(ts_.panelScroll + lines * 20, 0.0f, std::max(0.0f, ts_.panelContent - panelRect_.h));
         else if (pageRect_.contains(x, y)) {
             if (ts_.zoom > 0) {

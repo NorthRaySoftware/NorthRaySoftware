@@ -254,6 +254,9 @@ std::string excerptAround(const std::string& t, size_t start, size_t end, int ma
     return out;
 }
 
+bool excerptsFromText(const Library& lib, const Id& book) { return lib.setting("excerpts-from-text:" + book) == "1"; }
+bool setExcerptsFromText(Library& lib, const Id& book, bool on) { return lib.setSetting("excerpts-from-text:" + book, on ? "1" : ""); }
+
 std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts) {
     std::vector<Excerpt> out;
     if (e.kind != "character" && e.kind != "creature") return out;
@@ -268,6 +271,7 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
         const Book* book = lib.book(bk);
         if (!book) continue;
         const auto cast = plan::nodeCast(lib, bk);
+        const bool fromText = excerptsFromText(lib, bk);
         int taken = 0;
         std::map<Id, std::string> chapterOf;
         for (const ManuscriptNode* n : lib.manuscriptOf(bk)) {
@@ -276,11 +280,14 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
             // Only chapters and scenes Planning puts them in (0.82): Who's there, or the viewpoint.
             const auto c = cast.find(n->id);
             const bool inIt = n->povId == e.id || (c != cast.end() && std::find(c->second.begin(), c->second.end(), e.id) != c->second.end());
-            if (!inIt) continue;
+            // With the book's choice, one with nobody chosen counts when its text names them (0.85).
+            const bool nobody = n->povId.empty() && (c == cast.end() || c->second.empty());
+            if (!inIt && !(fromText && nobody)) continue;
             auto t = texts.find(n->id);
             if (t == texts.end()) t = texts.emplace(n->id, doc::plainText(lib.nodeContent(n->id))).first;
             // The passage that first names them there, or, when the text doesn't name them, its opening lines.
             const auto spans = findNames(t->second, just);
+            if (!inIt && spans.empty()) continue;
             size_t from = 0;
             while (from < t->second.size() && std::isspace((unsigned char)t->second[from])) ++from;
             const std::string passage = spans.empty() ? excerptAround(t->second, from, from)
@@ -541,7 +548,7 @@ struct BookPlan {
     bool empty() const { return rows.empty(); }
 };
 
-BookPlan planOf(const Library& lib, const Id& book) {
+BookPlan planOf(const Library& lib, const Id& book, const std::string& dateForm = {}, const std::string& dateEra = {}) {
     using nlohmann::json;
     BookPlan p;
     const Book* b = lib.book(book);
@@ -607,7 +614,9 @@ BookPlan planOf(const Library& lib, const Id& book) {
         if (tl.is_object() && tl.contains("nodes") && tl["nodes"].is_object() && tl["nodes"].contains(n->id)) {
             const json& v = tl["nodes"][n->id];
             if (v.contains("day") && v["day"].is_number()) {
-                if (inDates) r.when = cal::formatDate(calendar, cal::fromDay(calendar, span.start + (std::int64_t)std::floor(v["day"].get<double>())));
+                if (inDates)
+                    r.when = cal::formatDateStyled(calendar, cal::fromDay(calendar, span.start + (std::int64_t)std::floor(v["day"].get<double>())),
+                                                   dateForm, dateEra);
                 else {
                     char buf[32];
                     std::snprintf(buf, sizeof buf, "%g", v["day"].get<double>());
@@ -632,7 +641,7 @@ std::vector<BookPlan> plansOf(const Library& lib, const Options& options) {
     std::vector<BookPlan> out;
     if (!options.plans || options.readersGuide) return out;   // plans hold everything to come: never in a reader's guide
     for (const Id& b : booksInOrder(lib, options.worldId, options.bookId)) {
-        BookPlan p = planOf(lib, b);
+        BookPlan p = planOf(lib, b, options.dateForm, options.dateEra);
         if (!p.empty()) out.push_back(std::move(p));
     }
     return out;

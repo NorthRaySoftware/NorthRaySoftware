@@ -1005,6 +1005,30 @@ Source snapshot(const Library& lib, const Id& bookId) {
         }
         s.sections.push_back(std::move(sec));
     }
+    // Each chapter's date (0.85), when the timeline counts in the calendar's dates: its own, else its first placed scene's.
+    if (const cal::StorySpan span = cal::storySpan(lib, bookId); span.on) {
+        s.calendar = cal::calendarOfBook(lib, bookId);
+        const json tl = json::parse(lib.setting("timeline:" + bookId), nullptr, false);
+        if (!s.calendar.empty() && tl.is_object() && tl.contains("nodes") && tl["nodes"].is_object()) {
+            const json& nodes = tl["nodes"];
+            auto dayOf = [&](const Id& id) -> std::optional<std::int64_t> {
+                if (!nodes.contains(id) || !nodes[id].is_object() || !nodes[id].contains("day") || !nodes[id]["day"].is_number()) return std::nullopt;
+                return span.start + (std::int64_t)std::floor(nodes[id]["day"].get<double>());
+            };
+            size_t i = 0;
+            const auto all = lib.manuscriptOf(bookId);
+            for (const ManuscriptNode* n : all) {
+                Source::Section& sec = s.sections[i++];
+                if (n->kind != NodeKind::Chapter) continue;
+                std::optional<std::int64_t> day = dayOf(n->id);
+                if (!day)
+                    for (const ManuscriptNode* m : all)
+                        if (m->parentId == n->id && m->kind == NodeKind::Scene)
+                            if ((day = dayOf(m->id))) break;
+                if (day) { sec.dated = true; sec.calendarDay = *day; }
+            }
+        }
+    }
     return s;
 }
 
@@ -1037,6 +1061,11 @@ Design designFromJson(const std::string& text) {
     d.chapterSinkLines = std::clamp(j.value("chapterSinkLines", d.chapterSinkLines), 0, 20);
     d.sceneBreak = j.value("sceneBreak", d.sceneBreak);
     d.comicScript = j.value("comicScript", d.comicScript);
+    d.chapterDates = j.value("chapterDates", d.chapterDates);
+    d.dateForm = j.value("dateForm", d.dateForm);
+    if (d.dateForm != "numbers") d.dateForm = "words";
+    d.dateEra = j.value("dateEra", d.dateEra);
+    if (d.dateEra != "name" && d.dateEra != "none") d.dateEra = "abbr";
     return d;
 }
 
@@ -1045,7 +1074,8 @@ std::string designToJson(const Design& d) {
                 {"marginBottom", d.marginBottom}, {"marginInside", d.marginInside}, {"marginOutside", d.marginOutside},
                 {"indentEm", d.indentEm}, {"justify", d.justify}, {"hyphenate", d.hyphenate}, {"titlePage", d.titlePage}, {"copyrightPage", d.copyrightPage}, {"contents", d.contents}, {"leadIn", d.leadIn}, {"dropCap", d.dropCap}, {"frontRoman", d.frontRoman}, {"chapterStyle", d.chapterStyle},
                 {"chaptersOnRecto", d.chaptersOnRecto}, {"runningHeads", d.runningHeads}, {"chapterSinkLines", d.chapterSinkLines},
-                {"sceneBreak", d.sceneBreak}, {"comicScript", d.comicScript}}
+                {"sceneBreak", d.sceneBreak}, {"comicScript", d.comicScript}, {"chapterDates", d.chapterDates}, {"dateForm", d.dateForm},
+                {"dateEra", d.dateEra}}
         .dump();
 }
 
@@ -1289,6 +1319,17 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
                 auto tl = set.paragraph(t, true);
                 for (auto& l : tl) l.lines = 2;
                 addLines(std::move(tl), true);
+            }
+            // Its date, in the style chosen, under the heading (0.85).
+            if (d.chapterDates && n->dated && !src.calendar.empty()) {
+                space(1);
+                Block db;
+                db.align = Align::Center;
+                db.indent = false;
+                Span sp{cal::formatDateStyled(src.calendar, cal::fromDay(src.calendar, n->calendarDay), d.dateForm, d.dateEra)};
+                sp.italic = true;
+                db.spans.push_back(sp);
+                addLines(set.paragraph(db, true), true);
             }
             space(2);
             firstInChapter = true;

@@ -2,6 +2,7 @@
 // in the middle, contents and PDF export on the right. Pages are set on a
 // worker thread from a snapshot of the book, so editing never waits for it.
 #include "studio_app.hpp"
+#include "studio/calendar.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
@@ -334,6 +335,39 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
     check("side:ts:drop", L"Drop cap", ts_.design.dropCap, [this, changed] { ts_.design.dropCap = !ts_.design.dropCap; changed(); });
     check("side:ts:roman", L"Front matter in roman numerals", ts_.design.frontRoman,
           [this, changed] { ts_.design.frontRoman = !ts_.design.frontRoman; changed(); });
+    // Each chapter's date from Planning's timeline under its heading, in a chosen style (0.85).
+    check("side:ts:dates", L"Each chapter's date under its heading", ts_.design.chapterDates,
+          [this, changed] { ts_.design.chapterDates = !ts_.design.chapterDates; changed(); });
+    if (ts_.design.chapterDates) {
+        const cal::Calendar cc = cal::calendarOfBook(*lib_, ts_.book);
+        const cal::StorySpan sp = cal::storySpan(*lib_, ts_.book);
+        if (cc.empty() || !sp.on) {
+            gfx_.text(cc.empty() ? L"The book's world has no calendar yet, so there are no dates to show."
+                                 : L"Planning's timeline doesn't count in calendar dates yet (Timeline › Counts in), so there are no dates to show.",
+                      {tx0, y, cw, 44}, Font::Small, pal_.inkFaint, {Align::Left, false, true});
+            y += 50;
+        } else {
+            const cal::Date ex = cal::fromDay(cc, sp.any ? sp.first : sp.start);
+            label(L"Dates written");
+            segmented("side:ts:dform", {tx0, y, cw, 28},
+                      {w(cal::formatDateStyled(cc, ex, "words", "none")), w(cal::formatDateStyled(cc, ex, "numbers", "none"))},
+                      ts_.design.dateForm == "numbers" ? 1 : 0, [this, changed](int i) {
+                          ts_.design.dateForm = i == 1 ? "numbers" : "words";
+                          changed();
+                      });
+            y += 40;
+            label(L"The era");
+            segmented("side:ts:dera", {tx0, y, cw, 28}, {L"Short", L"Full name", L"None"},
+                      ts_.design.dateEra == "name" ? 1 : ts_.design.dateEra == "none" ? 2 : 0, [this, changed](int i) {
+                          ts_.design.dateEra = i == 1 ? "name" : i == 2 ? "none" : "abbr";
+                          changed();
+                      });
+            y += 36;
+            gfx_.text(L"For example: " + w(cal::formatDateStyled(cc, ex, ts_.design.dateForm, ts_.design.dateEra)), {tx0, y, cw, 22}, Font::Small,
+                      pal_.inkFaint, {Align::Left, false, true});
+            y += 30;
+        }
+    }
     // Margins.
     y += 14;
     gfx_.text(L"MARGINS", {tx0, y, cw, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});

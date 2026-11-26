@@ -773,9 +773,15 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
 
     std::vector<OutlineItem> out;
     bool blank = false;
+    bool endOfPart = false;   // "End of part": the next chapter stands outside any part (0.85)
     for (const std::string& raw : ls) {
         std::string l = trim(raw);
         if (l.empty()) { blank = true; continue; }
+        {
+            std::string k = lower(l);
+            while (!k.empty() && (k.back() == '.' || k.back() == ':')) k.pop_back();
+            if (k == "end of part" || k == "end of the part" || k == "(end of part)" || k == "no part") { endOfPart = true; blank = false; continue; }
+        }
         std::string v;
         std::optional<NodeKind> starts;
         std::string title;
@@ -794,6 +800,8 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             OutlineItem it;
             it.kind = *starts;
             it.title = title;
+            if (*starts == NodeKind::Chapter) { it.outsidePart = endOfPart; endOfPart = false; }
+            else if (*starts == NodeKind::Part) endOfPart = false;
             out.push_back(it);
             blank = false;
             continue;
@@ -818,6 +826,9 @@ std::vector<OutlineItem> parseOutline(const std::string& text, std::string* stru
             it.time = v;
         }
         else if (field(l, {"place", "where", "setting", "location"}, v)) it.place = v;
+        else if (it.kind == NodeKind::Chapter && field(l, {"matter"}, v) &&
+                 (lower(v) == "front" || lower(v) == "back" || lower(v) == "story" || lower(v) == "front matter" || lower(v) == "back matter"))
+            it.matter = lower(v).rfind("front", 0) == 0 ? 1 : lower(v).rfind("back", 0) == 0 ? 2 : 0;
         else if (field(l, {"characters", "characters present", "present", "cast", "who", "who's there", "in it", "creatures"}, v)) {
             for (auto& x : splitList(v)) it.cast.push_back(x);
         } else {
@@ -866,14 +877,27 @@ std::string outlineText(const Library& lib, const Id& book) {
                 out += line + "\n";
             }
     }
-    if (st) out += "Book structure: " + st->name + "\n";
+    if (st) {
+        out += "Book structure: " + st->name + "\n";
+        // Each beat's notes (0.85), a line each.
+        for (auto& b : st->beats)
+            if (auto nt = bs.notes.find(b.id); nt != bs.notes.end() && !trim(nt->second).empty())
+                for (auto& l : lines(nt->second))
+                    if (!trim(l).empty()) out += "Beat note: " + b.name + ": " + trim(l) + "\n";
+    }
+    bool inPart = false;
     for (const ManuscriptNode* n : lib.manuscriptOf(book)) {
         if (!out.empty()) out += "\n";
+        // A chapter at the top level after a part stands outside it (0.85).
+        if (n->kind == NodeKind::Part) inPart = true;
+        else if (n->kind == NodeKind::Chapter && n->parentId.empty() && inPart) { out += "End of part\n\n"; inPart = false; }
         out += std::string(n->kind == NodeKind::Part ? "Part: " : n->kind == NodeKind::Chapter ? "Chapter: " : "Scene: ") + n->title + "\n";
         if (!n->povId.empty())
             if (const Entry* e = lib.entry(n->povId)) out += "Viewpoint: " + e->name + "\n";
         if (n->kind != NodeKind::Part) out += std::string("Status: ") + label(n->status) + "\n";
         if (n->targetWords > 0) out += "Target: " + std::to_string(n->targetWords) + "\n";
+        if (n->kind == NodeKind::Chapter && n->matter == 1) out += "Matter: front\n";
+        if (n->kind == NodeKind::Chapter && n->matter == 2) out += "Matter: back\n";
         if (auto pl = places.find(n->id); pl != places.end())
             if (const Entry* e = lib.entry(pl->second); e && !e->deleted) out += "Place: " + e->name + "\n";
         if (auto cs = casts.find(n->id); cs != casts.end()) {
@@ -948,6 +972,28 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
         bsChanged = true;
     }
     const Structure* st = findStructure(structures, bs.templateId);
+    // "Beat note: Midpoint: …" lines (0.85): each beat's notes, replacing the beat's notes when given.
+    if (st) {
+        std::map<std::string, std::string> notes;
+        for (const std::string& raw : lines(text)) {
+            std::string v;
+            if (!field(trim(raw), {"beat note", "beat notes"}, v)) continue;
+            const size_t colon = v.find(':');
+            if (colon == std::string::npos) continue;
+            const std::string beat = lower(trim(v.substr(0, colon))), note = trim(v.substr(colon + 1));
+            for (auto& b : st->beats)
+                if (lower(b.name) == beat || lower(b.id) == beat) {
+                    std::string& n = notes[b.id];
+                    if (!note.empty()) n += (n.empty() ? "" : "\n") + note;
+                    break;
+                }
+        }
+        for (auto& [id, n] : notes) {
+            if (n.empty()) bs.notes.erase(id);
+            else bs.notes[id] = n;
+            bsChanged = true;
+        }
+    }
     if (items.empty()) {
         if (bsChanged) setBookStructure(lib, book, bs);
         return bsChanged;
@@ -1034,6 +1080,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
     Id part, chapter;
     for (const OutlineItem& it : items) {
         Id parent;
+        if (it.kind == NodeKind::Chapter && it.outsidePart) { part.clear(); chapter.clear(); }
         if (it.kind == NodeKind::Chapter) parent = part;
         else if (it.kind == NodeKind::Scene) parent = !chapter.empty() ? chapter : part;
         Id id;
@@ -1070,6 +1117,7 @@ bool importOutline(Library& lib, const Id& book, const std::string& text, Outlin
             else if (it.status.empty()) n.status = NodeStatus::Outline;
         }
         n.targetWords = it.target;
+        if (it.kind == NodeKind::Chapter && it.matter >= 0) n.matter = it.matter;
         n.povId.clear();
         if (!it.viewpoint.empty()) {
             n.povId = person(it.viewpoint);

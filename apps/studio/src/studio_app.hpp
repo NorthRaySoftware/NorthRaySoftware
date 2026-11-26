@@ -907,6 +907,7 @@ private:
         bool pdf = false, guide = false;
         Id upTo;
         bool pictures = true, family = true, languages = true, glossary = true, plans = true, excerpts = true;   // excerpts (0.81)
+        std::string dateForm, dateEra;   // how dates are written (0.85): "" = as the calendar writes them
         // plans (0.76): never in a reader's guide
         studio::bible::Look look;
         int preset = 0;

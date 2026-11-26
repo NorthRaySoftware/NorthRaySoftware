@@ -32,6 +32,9 @@ struct Options {
     // reader's guide (a tree would show people the guide keeps back).
     std::string treeFonts;
     std::string treeFolder;
+    // How dates are written (0.85): `dateForm` "words" (4 Bloomtide 2033), "numbers" (04/04/2033) or "" (as the
+    // calendar writes them); `dateEra` "abbr", "name", "none" or "" (the calendar's choice).
+    std::string dateForm, dateEra;
 };
 
 // How the website looks (0.38), chosen before it's made and kept with the world.
@@ -89,6 +92,10 @@ private:
 // them), cut to about 60 words. `texts` keeps each chapter's plain text between calls.
 struct Excerpt { Id book; std::string bookTitle; std::string where; std::string text; };
 std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entry& e, std::map<Id, std::string>& texts);
+// A book's choice (0.85, setting "excerpts-from-text:<book>"): when a chapter or scene has nobody in Who's there and no
+// viewpoint, its text decides: excerpts come from those that name the character. Off by default.
+bool excerptsFromText(const Library& lib, const Id& book);
+bool setExcerptsFromText(Library& lib, const Id& book, bool on);
 // The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.
 std::string excerptAround(const std::string& text, size_t start, size_t end, int maxWords = 60);
 

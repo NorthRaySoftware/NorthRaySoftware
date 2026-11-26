@@ -6,6 +6,7 @@
 // PDF, the design and typeface. The site's title, tagline and an own colour are written in the side panel. The
 // choices are kept with the world (setting "bible-share:world:<id>" or "bible-share:book:<id>").
 #include "studio_app.hpp"
+#include "studio/calendar.hpp"
 #include "cjui/dialog.hpp"
 #include "cjui/menu.hpp"
 
@@ -55,6 +56,8 @@ void StudioApp::loadShare() {
         s.glossary = j.value("glossary", true);
         s.plans = j.value("plans", true);
         s.excerpts = j.value("excerpts", true);
+        s.dateForm = j.value("dateForm", std::string());
+        s.dateEra = j.value("dateEra", std::string());
         s.preset = j.value("preset", 0);
         s.font = j.value("font", std::string());
         if (j.contains("look") && j["look"].is_object()) s.look = bible::lookFromJson(j["look"].dump());
@@ -65,7 +68,7 @@ void StudioApp::loadShare() {
 void StudioApp::saveShare() {
     const ShareState& s = wb_.shareState;
     json j{{"pdf", s.pdf}, {"upTo", s.upTo}, {"guide", s.guide}, {"pictures", s.pictures}, {"family", s.family}, {"languages", s.languages},
-           {"glossary", s.glossary}, {"plans", s.plans}, {"excerpts", s.excerpts}, {"preset", s.preset}, {"font", s.font}, {"look", json::parse(bible::toJson(s.look))}};
+           {"glossary", s.glossary}, {"plans", s.plans}, {"excerpts", s.excerpts}, {"dateForm", s.dateForm}, {"dateEra", s.dateEra}, {"preset", s.preset}, {"font", s.font}, {"look", json::parse(bible::toJson(s.look))}};
     lib_->setSetting(wb_.shareKey, j.dump());
     invalidate();
 }
@@ -269,6 +272,26 @@ void StudioApp::drawShare(const Rect& r) {
         if (!s.guide && s.plans)
             y += gfx_.text(L"Plans hold everything to come (outlines, dates, who's there), so keep this one for yourself and your team.",
                            {col.x, y - 4, col.w, 40}, Font::Small, pal_.inkFaint) + 10;
+    }
+
+    // How dates are written (0.85), when the world has a calendar.
+    if (const cal::Calendar cc = wb_.world.empty() ? cal::calendarOfBook(*lib_, wb_.book) : cal::calendarOfWorld(*lib_, wb_.world); !cc.empty()) {
+        label(L"DATES");
+        const cal::Date ex{cc.eras.empty() ? 1 : cc.eras.back().start + 32, std::min(1, (int)cc.months.size() - 1), 4};
+        segmented("share:dform", {col.x, y, std::min(560.0f, col.w), 32},
+                  {L"As the calendar writes them", w(cal::formatDateStyled(cc, ex, "words", "none")), w(cal::formatDateStyled(cc, ex, "numbers", "none"))},
+                  s.dateForm == "words" ? 1 : s.dateForm == "numbers" ? 2 : 0, [this](int i) {
+                      wb_.shareState.dateForm = i == 1 ? "words" : i == 2 ? "numbers" : "";
+                      saveShare();
+                  });
+        y += 42;
+        segmented("share:dera", {col.x, y, std::min(560.0f, col.w), 32}, {L"The calendar's era", L"Short", L"Full name", L"No era"},
+                  s.dateEra == "abbr" ? 1 : s.dateEra == "name" ? 2 : s.dateEra == "none" ? 3 : 0, [this](int i) {
+                      wb_.shareState.dateEra = i == 1 ? "abbr" : i == 2 ? "name" : i == 3 ? "none" : "";
+                      saveShare();
+                  });
+        y += 40;
+        y += gfx_.text(L"For example: " + w(cal::formatDateStyled(cc, ex, s.dateForm, s.dateEra)), {col.x, y, col.w, 22}, Font::Small, pal_.inkFaint) + 12;
     }
 
     if (!s.pdf) {
@@ -491,6 +514,8 @@ void StudioApp::makeSharedBible() {
     o.glossary = s.glossary;
     o.plans = s.plans && !s.guide;
     o.excerpts = s.excerpts;
+    o.dateForm = s.dateForm;
+    o.dateEra = s.dateEra;
     // Family trees as pictures (0.45): drawn with the app's fonts; the PDF's are written beside the app's state.
     o.treeFonts = narrow(exeDir() + L"\\fonts");
     o.treeFolder = narrow(stateDir() + L"\\family-trees");

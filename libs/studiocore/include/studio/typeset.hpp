@@ -10,6 +10,7 @@
 #pragma once
 
 #include "studio/artwork.hpp"
+#include "studio/calendar.hpp"
 #include "studio/library.hpp"
 
 #include <cstdint>
@@ -47,6 +48,10 @@ struct Design {
     // (PAGE ONE (four panels), Panel 1, numbered balloons), each comic page on a new page.
     bool comicScript = false;
     std::string sceneBreak = "* * *";
+    // A chapter's date from Planning's timeline under its heading (0.85), when the book's timeline counts in calendar
+    // dates: `dateForm` "words" (4 Bloomtide 2033) or "numbers" (04/04/2033), `dateEra` "abbr", "name" or "none".
+    bool chapterDates = false;
+    std::string dateForm = "words", dateEra = "abbr";
 };
 
 struct Preset {
@@ -117,7 +122,11 @@ struct Source {
         std::string title;
         std::string content;            // document JSON
         std::int64_t words = 0;
+        // Its day in the book's calendar (0.85): the chapter's own place on the timeline, else its first placed scene's.
+        bool dated = false;
+        std::int64_t calendarDay = 0;
     };
+    cal::Calendar calendar;             // the book's calendar, when its timeline counts in calendar dates (0.85)
     std::vector<Section> sections;
     std::map<std::string, std::string> picturePaths;              // blob -> file
     std::map<std::string, std::pair<int, int>> pictureSizes;      // blob -> pixels

@@ -3,6 +3,7 @@
 // length against its target, viewpoint character and the world's entries that
 // appear in it. The panel edits the selected card, or the book's word target.
 #include "studio_app.hpp"
+#include "studio/bible_export.hpp"
 #include "cjui/menu.hpp"
 #include "studio/planning.hpp"
 
@@ -294,6 +295,20 @@ std::vector<StudioApp::ToolItem> StudioApp::planTools() {
     t.push_back(ToolItem::heading(L"Planning as text"));
     t.push_back(ToolItem::item(L"Import planning…", [this] { importPlanText(); }));
     t.push_back(ToolItem::item(L"Export the plan…", [this] { exportPlanText(); }));
+    t.push_back(ToolItem::line());
+    // Where the shared bible's quotes come from in this book (0.85).
+    t.push_back(ToolItem::heading(L"Quotes in the shared bible"));
+    {
+        const bool on = bible::excerptsFromText(*lib_, pl_.book);
+        t.push_back(ToolItem::item(L"Only from chapters Who's there or the viewpoint puts them in", [this] {
+            bible::setExcerptsFromText(*lib_, pl_.book, false);
+            flash(L"Quotes come only from chapters where Who's there or the viewpoint puts the character.");
+        }, !on));
+        t.push_back(ToolItem::item(L"Also from chapters naming them, where nobody is chosen", [this] {
+            bible::setExcerptsFromText(*lib_, pl_.book, true);
+            flash(L"Chapters with nobody in Who's there and no viewpoint now give quotes for the characters their text names.");
+        }, on));
+    }
     t.push_back(ToolItem::line());
     t.push_back(ToolItem::item(L"Write this book", [this] { openWriting(pl_.book); }));
     t.push_back(ToolItem::item(L"The world's bible", [this] {
