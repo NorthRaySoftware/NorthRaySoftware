@@ -101,7 +101,7 @@ bool excerptsFromText(const Library& lib, const Id& book);
 bool setExcerptsFromText(Library& lib, const Id& book, bool on);
 // A chapter's words as excerpts quote them (0.94): paragraphs only, without headings, scene breaks, captions, draft
 // notes or date lines.
-std::string quotableText(const std::string& docJson);
+std::string quotableText(const std::string& docJson, const std::string& title = {});   // title: a typed repeat of it is skipped (0.108)
 // The passage that first names `names` (spans of the entry in `text`): its sentence and the next, at most `maxWords`.
 std::string excerptAround(const std::string& text, size_t start, size_t end, int maxWords = 60);
 

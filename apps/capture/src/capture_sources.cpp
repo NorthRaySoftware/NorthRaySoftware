@@ -205,7 +205,7 @@ void CaptureWindow::pushSnapshot() {
     if (const SceneItem* i = selectedItem()) s.selectedLocked = i->locked;
     s.guidesX = guidesX_;
     s.guidesY = guidesY_;
-    s.uiScale = gfx_.dpiScale() * interfaceZoom();   // handles and guides at the body's zoom (0.173)
+    s.uiScale = gfx_.dpiScale() * contentZoom();   // handles and guides at the body's zoom (0.173)
     const cjui::Color bg = pal_.dark ? cjui::hexColor("#05080F") : cjui::hexColor("#0B1120");
     s.background[0] = bg.r;
     s.background[1] = bg.g;

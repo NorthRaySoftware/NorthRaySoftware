@@ -155,6 +155,9 @@ struct Source {
         std::string dateLine, timeLine;
         // The same in styled parts with the format's look (5b, 0.106); a scene's only when it differs from its chapter's.
         dates::Lines dates;
+        // After each scene break in its text, in order (0.108): the scene's own date line where it differs from the chapter's.
+        // Printed when the line's look asks for scene dates (look.sceneDates).
+        std::vector<std::optional<dates::Lines>> breakDates;
         // The picture or ornament it opens with (0.89), resolved from its own, its viewpoint's and the book's defaults.
         bool hasHeader = false;
         headers::Header header;

@@ -211,7 +211,8 @@ void StudioApp::convertTypedDatesUi(const Id& bookId, const std::vector<Id>& onl
     if (editor_.ready()) editor_.send(R"({"type":"flush"})");   // the text as it is now
     const auto found = dt::findTypedDates(*lib_, bookId, only);
     if (found.empty()) {
-        flash(only.size() == 1 ? L"This chapter doesn't begin with a typed date line." : L"No chapter begins with a typed date line.");
+        flash(only.size() == 1 ? L"Neither this chapter nor its scenes begin with a typed date line."
+                               : L"No chapter or scene begins with a typed date line.");
         return;
     }
     std::wstring convert, left;
@@ -220,7 +221,7 @@ void StudioApp::convertTypedDatesUi(const Id& bookId, const std::vector<Id>& onl
         if (!t.readable) continue;
         ++n;
         if (++shown > 10) continue;
-        convert += L"\n   \u2022 " + w(t.title) + L": \u201C" + w(t.text) + L"\u201D \u2192 " + w(t.becomes) +
+        convert += L"\n   \u2022 " + w(t.title) + (t.breakIndex >= 0 ? L", scene " + std::to_wstring(t.scene) : L"") + L": \u201C" + w(t.text) + L"\u201D \u2192 " + w(t.becomes) +
                    (t.current.empty() || t.current == t.becomes ? L"" : L"  (it was " + w(t.current) + L")");
     }
     if (shown > 10) convert += L"\n   and " + std::to_wstring(shown - 10) + L" more";
@@ -228,29 +229,42 @@ void StudioApp::convertTypedDatesUi(const Id& bookId, const std::vector<Id>& onl
     for (const auto& t : found) {
         if (t.readable) continue;
         if (++notShown > 6) continue;
-        left += L"\n   \u2022 " + w(t.title) + L": \u201C" + w(t.text) + L"\u201D. " + w(t.why);
+        left += L"\n   \u2022 " + w(t.title) + (t.breakIndex >= 0 ? L", scene " + std::to_wstring(t.scene) : L"") + L": \u201C" + w(t.text) + L"\u201D. " + w(t.why);
     }
     if (notShown > 6) left += L"\n   and " + std::to_wstring(notShown - 6) + L" more";
     std::wstring text;
-    if (n) text = (n == 1 ? std::wstring(L"This typed date line becomes its chapter's date, and comes out of the text:")
-                          : std::to_wstring(n) + L" typed date lines become their chapters' dates, and come out of the text:") + convert;
+    // A line at a chapter's start becomes the chapter's date; one straight after a scene break, that scene's own (0.108).
+    if (n) text = (n == 1 ? std::wstring(L"This typed date line becomes its chapter's (or scene's) date, and comes out of the text:")
+                          : std::to_wstring(n) + L" typed date lines become their chapters' and scenes' dates, and come out of the text:") + convert;
     if (!left.empty()) text += (text.empty() ? L"" : L"\n\n") + std::wstring(L"Left as they are (not read as dates):") + left;
     if (!n) {
         cjui::messageBox(hwnd(), text.c_str(), L"Typed date lines", MB_OK | MB_ICONINFORMATION);
         return;
     }
-    text += L"\n\nThe dates go on Planning's timeline and show over each chapter as the book prints them. Undo puts the lines back.";
+    text += L"\n\nA chapter's date goes on Planning's timeline and shows over the chapter as the book prints it; a scene's goes on its "
+            L"scene break and shows under it. Undo puts the lines back.";
     const int c = cjui::choiceBox(hwnd(), text, L"Typed date lines", {n == 1 ? L"Convert it" : L"Convert " + std::to_wstring(n), L"Cancel"}, 0, MB_ICONQUESTION);
     if (c != 0) return;
     const dt::Converted done = dt::convertTypedDates(*lib_, bookId, found);
     if (!done.count) { flash(L"Nothing was converted: the chapters changed. Try again."); return; }
     if (!currentNode_.empty()) sendLoad();   // the open chapter, without its line
     sendHead(true);
+    sceneCache_.clear();
     if (ws_ == Workspace::Typesetting) designChanged();
-    flashUndo(done.count == 1 ? L"Converted 1 typed date line into its chapter's date."
-                              : L"Converted " + std::to_wstring(done.count) + L" typed date lines into chapter dates.",
+    // A scene now dated unlike its chapter, in a book that doesn't print scene dates yet: ask once (0.108).
+    if (done.scenes) {
+        bool differs = false;
+        for (const auto& [id, before] : done.contentBefore)
+            if (const ManuscriptNode* cn = lib_->node(id))
+                for (const auto& sc : dt::scenesOf(*lib_, *cn)) differs = differs || sc.differs;
+        if (differs) askSceneDatesSoon(bookId);
+    }
+    flashUndo(done.count == 1 ? (done.scenes ? L"Converted 1 typed date line into its scene's date." : L"Converted 1 typed date line into its chapter's date.")
+                              : L"Converted " + std::to_wstring(done.count) + L" typed date lines into dates" +
+                                    (done.scenes ? L" (" + std::to_wstring(done.scenes) + (done.scenes == 1 ? L" scene's)." : L" scenes').") : L"."),
               [this, bookId, done] {
                   studio::dates::undoConverted(*lib_, bookId, done);
+                  sceneCache_.clear();
                   if (!currentNode_.empty()) sendLoad();
                   sendHead(true);
                   if (ws_ == Workspace::Typesetting) designChanged();
@@ -730,8 +744,8 @@ void StudioApp::drawTypesetSidebar(const Rect& r) {
                            {tx0, y, cw, 44}, Font::Small, pal_.inkFaint) + 10;
             if (const int typed = typedDatesCount(ts_.book); typed > 0) {   // 5c (0.107)
                 linkText("side:ts:typed", tx0, y,
-                         typed == 1 ? L"1 chapter begins with a typed date line: convert it\u2026"
-                                    : std::to_wstring(typed) + L" chapters begin with a typed date line: convert them\u2026",
+                         typed == 1 ? L"1 typed date line in the text (a chapter's or scene's start): convert it\u2026"
+                                    : std::to_wstring(typed) + L" typed date lines in the text (chapters' and scenes' starts): convert them\u2026",
                          [this] { convertTypedDatesUi(ts_.book); });
                 y += 28;
             }
@@ -846,7 +860,7 @@ void StudioApp::drawTypesetPages(const Rect& r) {
 
     gfx_.pushClip(area.inset(-24));
     std::vector<std::wstring> keep;
-    const float dpi = gfx_.dpiScale() * interfaceZoom();   // the pages are drawn at the zoomed size too (0.98)
+    const float dpi = gfx_.dpiScale() * contentZoom();   // the pages are drawn at the zoomed size too (0.98)
     const auto& d = book->design;
     for (int side = 0; side < shownPages; ++side) {
         const int idx = ts_.single ? right : (side == 0 ? left : right);

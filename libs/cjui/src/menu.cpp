@@ -490,7 +490,7 @@ UINT showMenu(HWND owner, const std::vector<MenuItem>& items, POINT at, const Pa
     Session s;
     s.owner = owner;
     s.pal = pal;
-    s.dpi = GetDpiForWindow(owner);
+    s.dpi = uiDpiOf(owner);   // with the interface zoom when the whole window scales (0.185)
     if (!s.dpi) s.dpi = 96;
     s.scale = s.dpi / 96.0f;
     if (!s.open(items, at, anchor, -1, -1)) return 0;

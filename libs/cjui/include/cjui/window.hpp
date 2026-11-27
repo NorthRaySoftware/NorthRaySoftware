@@ -44,6 +44,9 @@ struct Hit {
 // Interface zoom (suite 0.172; the content only since 0.173): each NorthRay window's content, between its bars, can be
 // drawn larger or smaller, 50% to 200%, saved for that app on this PC. The bars, menus and message boxes stay as they are.
 float interfaceZoomOf(HWND window);
+// The DPI a window's menus and message boxes are drawn at (0.185): the display's, times the interface zoom when the
+// window's "Also scale the bars, menus and messages" is on.
+UINT uiDpiOf(HWND window);
 const std::vector<float>& zoomSteps();   // 50%, 67%, 75%, 80%, 90%, 100%, 110%, 125%, 150%, 175%, 200%
 
 struct WindowSpec {
@@ -117,6 +120,16 @@ protected:
     void toArea(float& x, float& y) const { mapPoint(x, y); }
     float interfaceZoom() const { return zoom_; }
     void setInterfaceZoom(float zoom, bool announce = true);
+    // Whole-window scaling (suite 0.185; off by default): the interface size also reaches the bars along the top and side,
+    // menus and message boxes, as in 0.96. Then the whole window is drawn at the display's DPI times the zoom and the zoom
+    // area adds nothing more (contentZoom() is 1). Kept for this app on this PC, beside the size.
+    bool scalesWholeWindow() const { return whole_; }
+    void setScaleWholeWindow(bool on);
+    // The zoom the zoom area adds on top of gfx's DPI: the interface zoom, or 1 when the whole window scales. Anything
+    // drawn at "display scale × zoom" by hand (pages, handles) uses gfx_.dpiScale() * contentZoom().
+    // The words beside its tick box in zoomControl, in the app's own names for its bars ("the top bar, rail, menus...").
+    void setWholeWindowLabel(std::wstring s) { wholeLabel_ = std::move(s); }
+    float contentZoom() const { return whole_ ? 1.0f : zoom_; }
     void zoomStep(int direction);   // +1 larger, -1 smaller, 0 back to 100%
     // A place under the pointer with a Ctrl+wheel zoom of its own (a timeline, typeset pages): the wheel is the app's.
     virtual bool ownZoomAt(float x, float y) { (void)x; (void)y; return false; }
@@ -244,6 +257,9 @@ private:
     Rect zoomArea_{}, lastZoomArea_{};
     float areaZoom_ = 1.0f, lastAreaZoom_ = 1.0f;
     bool inZoom_ = false;
+    bool whole_ = false;
+    std::wstring wholeLabel_;   // whole-window scaling (0.185)
+    void applyDpi();
     float rawMouseX_ = 0, rawMouseY_ = 0;   // window DIPs, for what's drawn over everything (the tooltip)
     void mapPoint(float& x, float& y) const;
     Rect maxButton_{};

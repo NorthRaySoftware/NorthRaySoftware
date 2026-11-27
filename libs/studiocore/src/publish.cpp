@@ -15,6 +15,7 @@
 #include "studio/chapter_dates.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -803,7 +804,9 @@ struct Docx {
         return out;
     }
 
+    std::function<void()> afterSceneBreak;   // the scene's own date (0.108), set for each section
     void sceneBreak() {
+        struct After { Docx& x; ~After() { if (x.afterSceneBreak) x.afterSceneBreak(); } } after{*this};
         const typeset::Design& d = opt.design;
         if (!d.sceneBreakBlob.empty()) {
             int w = 0, h = 0;
@@ -1061,6 +1064,14 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
     int chapterNo = 0;
     bool firstSection = true;
     for (const auto& sec : src.sections) {
+        // After each of its own scene breaks, the scene's date where it differs and the format asks (0.108).
+        x.afterSceneBreak = nullptr;
+        size_t breakNo = 0;
+        auto ownBreaks = [&, s = &sec] {
+            if (breakNo < s->breakDates.size() && s->breakDates[breakNo] && d.chapterDates && s->breakDates[breakNo]->look.sceneDates)
+                dateParas(*s->breakDates[breakNo]);
+            ++breakNo;
+        };
         const nlohmann::json doc = nlohmann::json::parse(sec.kind == NodeKind::Chapter ? typeset::withOpening(sec.content) : sec.content, nullptr, false);
         const nlohmann::json content = doc.is_object() ? doc.value("content", nlohmann::json::array()) : nlohmann::json::array();
         bool first = true;
@@ -1070,11 +1081,13 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
             x.sceneBreak();
             // Its own date after the break, where it differs from its chapter's and the format asks (5b, 0.106).
             if (d.chapterDates && !sec.dateLine.empty() && sec.dates.look.sceneDates) dateParas(sec.dates);
+            x.afterSceneBreak = ownBreaks;
             x.blocks(content, first, 0);
             continue;
         }
         if (sec.kind == NodeKind::Part) {
             x.para("PartTitle", Docx::run(sec.title), newPage);
+            x.afterSceneBreak = ownBreaks;
             x.blocks(content, first, 0);
             continue;
         }
@@ -1134,8 +1147,10 @@ DocxResult buildDocx(const typeset::Source& src, const DocxOptions& options) {
             x.para("Heading1", titled(sec.title, hs), headBefore);
         if (dated && datePlace == "under") dateParas(sec.dates);
         if (dated && datePlace == "above") { x.para("ChapterDate", "", "<w:spacing w:before=\"240\"/>"); dateParas(sec.dates); }
+        x.afterSceneBreak = ownBreaks;
         x.blocks(content, first, 0);
     }
+    x.afterSceneBreak = nullptr;
     if (d.povIcon && d.povKey == "back") key();
 
     // Page size and margins (mirrored, like the book), and page numbers at the foot.

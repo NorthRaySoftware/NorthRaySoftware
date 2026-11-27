@@ -131,6 +131,7 @@ void StudioApp::loadSettings() {
     cjui::setLabelStyle(settings_.labels == "icons" ? cjui::LabelStyle::IconsOnly : settings_.labels == "words" ? cjui::LabelStyle::WordsOnly
                                                                                                               : cjui::LabelStyle::Both);
     settings_.writingDetails = cj::valueOr(j, "writingDetails", false);
+    settings_.outlineScenes = cj::valueOr(j, "outlineScenes", true);
     settings_.typesetDesign = cj::valueOr(j, "typesetDesign", true);
     settings_.previewChoices = cj::valueOr(j, "previewChoices", true);
     if (j.contains("recentBooks") && j["recentBooks"].is_array())
@@ -174,6 +175,7 @@ void StudioApp::saveSettings() {
     j["entryList"] = settings_.entryList;
     j["labels"] = settings_.labels;
     j["writingDetails"] = settings_.writingDetails;
+    j["outlineScenes"] = settings_.outlineScenes;
     j["typesetDesign"] = settings_.typesetDesign;
     j["previewChoices"] = settings_.previewChoices;
     {
@@ -310,6 +312,7 @@ void StudioApp::applyTheme() {
     }
     // (The UI pass's contrast, 0.64, is in the shared palette now: every app has it.)
     setCalmControls(true);
+    setWholeWindowLabel(L"Also scale the top bar, rail, menus and messages");   // Interface size (0.108)
     applyPalette(p);
     if (fieldBrush_) DeleteObject(fieldBrush_);
     const Color s = pal_.surface;
@@ -1429,6 +1432,7 @@ void StudioApp::onTimer(UINT_PTR id) {
         if (!node.empty()) showTools(headerTools(node), (float)mouseX(), (float)mouseY());
         return;
     }
+    if (id == kSceneAskTimer) { KillTimer(hwnd(), kSceneAskTimer); askSceneDates(); return; }
     if (id == kBackupTimer) { backupTick(); return; }
     if (id == kSyncTimer) { syncTick(); return; }
     if (id == kTickTimer) {   // the summary for NorthRay Launcher and Capture (every 2 s, written only when it changed)
@@ -2136,6 +2140,8 @@ void StudioApp::loadFields() {
             setFieldText(FDescription, withCrLf(x->description));
             setFieldText(FNotes, withCrLf(x->notes));
         }
+    } else if (focus_.kind == Focus::Node && breakFocused()) {
+        loadBreakFields();   // a scene's own date at its break (0.108)
     } else if (focus_.kind == Focus::Node) {
         if (const ManuscriptNode* n = lib_->node(focus_.id)) {
             setFieldText(FName, n->title);
@@ -2361,6 +2367,8 @@ void StudioApp::commitFields() {
             n.notes = fieldText(FNotes);
             ok = lib_->updateArtwork(n);
         }
+    } else if (f.kind == Focus::Node && f.contextSeries.rfind("break:", 0) == 0) {
+        commitBreakFields();   // a scene's own date at its break (0.108)
     } else if (f.kind == Focus::Node) {
         if (const ManuscriptNode* x = lib_->node(f.id)) {
             ManuscriptNode n = *x;

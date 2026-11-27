@@ -242,6 +242,24 @@ static std::string dateHtml(const dates::Lines& ln) {
     return out;
 }
 
+// The scenes' own dates after their breaks (0.108): after the n-th <hr class="scene"/> of a text's HTML (the only place
+// that tag comes from: words are escaped), where the scene's date differs from its chapter's and the format asks.
+static std::string withBreakDates(std::string html, const typeset::Source::Section& sec, bool on) {
+    if (!on || sec.breakDates.empty()) return html;
+    static const std::string hr = "<hr class=\"scene\"/>\n";
+    size_t at = 0, n = 0;
+    while ((at = html.find(hr, at)) != std::string::npos) {
+        at += hr.size();
+        if (n < sec.breakDates.size() && sec.breakDates[n] && sec.breakDates[n]->look.sceneDates) {
+            const std::string d = dateHtml(*sec.breakDates[n]);
+            html.insert(at, d);
+            at += d.size();
+        }
+        ++n;
+    }
+    return html;
+}
+
 Content buildWith(const typeset::Source& src, const Pictures& url, const Style& style) {
     Content c;
     c.title = src.title;
@@ -255,7 +273,7 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
             c.chapters.back().html += "<hr class=\"scene\"/>\n";
             // Its own date after the break, where it differs from its chapter's and the format asks (5b, 0.106).
             if (style.chapterDates && !sec.dateLine.empty() && sec.dates.look.sceneDates) c.chapters.back().html += dateHtml(sec.dates);
-            c.chapters.back().html += docHtml(sec.content, url);
+            c.chapters.back().html += withBreakDates(docHtml(sec.content, url), sec, style.chapterDates);
             c.chapters.back().words += sec.words;
             continue;
         }
@@ -263,7 +281,8 @@ Content buildWith(const typeset::Source& src, const Pictures& url, const Style& 
         ch.title = sec.title;
         ch.part = sec.kind == NodeKind::Part;
         ch.words = sec.words;
-        std::string body = docHtml(sec.kind == NodeKind::Chapter ? typeset::withOpening(sec.content) : sec.content, url);
+        std::string body = withBreakDates(docHtml(sec.kind == NodeKind::Chapter ? typeset::withOpening(sec.content) : sec.content, url), sec,
+                                          style.chapterDates);
         std::string heading = "<h1>" + escape(sec.title) + "</h1>\n";
         auto withHeader = [&](const std::string& h) {
             if (!sec.hasHeader) return h;

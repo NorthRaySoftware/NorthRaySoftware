@@ -6425,7 +6425,151 @@ static void testTypedDates107() {
     fs::remove_all(dir);
 }
 
+// 0.108: excerpts skip typed scene-break marks, headings, title repeats and bold heading lines, as imported books have them.
+void testQuotableProse108() {
+    auto para = [](const std::string& t, bool bold = false) {
+        nlohmann::json x = {{"type", "text"}, {"text", t}};
+        if (bold) x["marks"] = nlohmann::json::array({{{"type", "strong"}}});
+        return nlohmann::json{{"type", "paragraph"}, {"content", nlohmann::json::array({x})}};
+    };
+    nlohmann::json d = {{"type", "doc"}, {"content", nlohmann::json::array({
+        para("CHAPTER THREE"), para("The Harbour"), para("13/03/1450 | The Second Era"),
+        para("The tide came in slowly."), para("* * *"), para("\xE2\x81\x82"), para("#"),
+        para("Chapter 4: Ash"), para("A Bold Heading", true), para("He was 12."),
+        para("THEY RAN."), para("\xCE\x9D\xCE\xB1\xCE\xB9"), para("Late spring, the year of the long frost, she left.")})}};
+    const std::string q = studio::bible::quotableText(d.dump(), "The Harbour");
+    CHECK(q.find("The tide came in slowly.") != std::string::npos);
+    CHECK(q.find("He was 12.") != std::string::npos);
+    CHECK(q.find("THEY RAN.") != std::string::npos);
+    CHECK(q.find("she left.") != std::string::npos);
+    CHECK(q.find("\xCE\x9D\xCE\xB1\xCE\xB9") != std::string::npos);   // a short Greek line is words, not a mark
+    CHECK(q.find("CHAPTER") == std::string::npos);
+    CHECK(q.find("The Harbour") == std::string::npos);
+    CHECK(q.find("1450 |") == std::string::npos);
+    CHECK(q.find("*") == std::string::npos);
+    CHECK(q.find("#") == std::string::npos);
+    CHECK(q.find("\xE2\x81\x82") == std::string::npos);
+    CHECK(q.find("Ash") == std::string::npos);
+    CHECK(q.find("Bold Heading") == std::string::npos);
+}
+
+// 0.108: a scene's own date on its scene break: typed lines after breaks converted, kept through the sanitiser, listed as
+// scenes, printed after the break in the book, ebook and Word document when the format asks, and undone.
+static void testSceneDates108() {
+    namespace dt = studio::dates;
+    namespace cal = studio::cal;
+    using namespace studio::typeset;
+    const std::string dir = tempLibrary("scenes108");
+    auto lib = openOk(dir);
+    if (!lib) return;
+    const Id book = lib->createBook("Scenes", {});
+    const Id c1 = lib->createNode(book, {}, NodeKind::Chapter, "The Harbour");
+    auto para = [](const std::string& t) { return nlohmann::json{{"type", "paragraph"}, {"content", {{{"type", "text"}, {"text", t}}}}}; };
+    const nlohmann::json brk = {{"type", "scene_break"}};
+    nlohmann::json content = nlohmann::json::array({para("1 Frostmoon 2033 TA"), para("Rain on the slates."), brk, para("4 Frostmoon 2033 TA"),
+                                                    para("The bells."), brk, para("1 Frostmoon 2033 TA"), para("Same day again."), brk,
+                                                    para("Gulls over the water.")});
+    lib->saveNodeContent(c1, nlohmann::json{{"type", "doc"}, {"content", content}}.dump());
+    const cal::Calendar cc = cal::fromText("Calendar: Reckoning\nMonths:\n- Frostmoon: 30\n- Bloomtide: 30\nEra: The Third Age (TA) from year 1\n");
+    CHECK(cal::saveBookCalendar(*lib, book, cc));
+    CHECK(lib->setSetting("timeline:" + book, nlohmann::json{{"unit", "day"}, {"calendar", true}, {"start", cal::toDay(cc, {2033, 0, 1})},
+                                                             {"nodes", nlohmann::json::object()}}.dump()));
+    // Undated breaks: scenes listed, none dated.
+    {
+        const auto sc = dt::scenesOf(*lib, *lib->node(c1));
+        CHECK(sc.size() == 4 && sc[0].number == 1 && sc[3].number == 4 && !sc[1].dated);
+    }
+    auto f = dt::findTypedDates(*lib, book);
+    CHECK(f.size() == 3);   // the chapter's opening and the lines after the first two breaks
+    if (f.size() != 3) return;
+    CHECK(f[0].breakIndex == -1 && f[0].scene == 1 && f[0].readable);
+    CHECK(f[1].breakIndex == 2 && f[1].scene == 2 && f[1].readable && f[1].date.day == 4);
+    CHECK(f[2].breakIndex == 5 && f[2].scene == 3 && f[2].readable);
+    const std::string before = lib->nodeContent(c1), tlBefore = lib->setting("timeline:" + book);
+    const dt::Converted done = dt::convertTypedDates(*lib, book, f);
+    CHECK(done.count == 3 && done.scenes == 2);
+    const std::string after = lib->nodeContent(c1);
+    CHECK(after.find("Frostmoon") == std::string::npos && after.find("The bells.") != std::string::npos && after.find("\"sid\"") != std::string::npos);
+    {
+        const auto sc = dt::scenesOf(*lib, *lib->node(c1));
+        CHECK(sc.size() == 4);
+        if (sc.size() == 4) {
+            CHECK(sc[0].line && sc[0].line->date.find("1 Frostmoon 2033") != std::string::npos);
+            CHECK(sc[1].dated && sc[1].differs && sc[1].line && sc[1].line->date.find("4 Frostmoon 2033") != std::string::npos && !sc[1].sid.empty());
+            CHECK(sc[2].dated && !sc[2].differs);   // the chapter's own day: not printed again
+            CHECK(!sc[3].dated && sc[1].sid != sc[2].sid);
+        }
+        const auto bl = dt::breakLines(*lib, *lib->node(c1), after);
+        CHECK(bl.size() == 3 && bl[0] && !bl[1] && !bl[2]);
+        CHECK(dt::breakLine(*lib, *lib->node(c1), R"({"day":9,"time":600})")->date.find("10 Frostmoon") != std::string::npos);
+        CHECK(!dt::breakLine(*lib, *lib->node(c1), R"({"sid":"abc"})"));
+    }
+    // The sanitiser keeps a break's id and date, and drops what isn't one.
+    {
+        nlohmann::json d = {{"type", "doc"}, {"content", {{{"type", "scene_break"}, {"attrs", {{"sid", "Bad id!"}, {"day", 3}, {"part", "dawn"}, {"x", 1}}}}, para("x")}}};
+        lib->saveNodeContent(c1, d.dump());
+        const auto j = nlohmann::json::parse(lib->nodeContent(c1));
+        const auto& a = j["content"][0]["attrs"];
+        CHECK(!a.contains("sid") && a["day"] == 3 && a["part"] == "dawn" && !a.contains("x"));
+        lib->saveNodeContent(c1, after);
+    }
+    // Asked once; the setting reaches every chapter's own format.
+    CHECK(!dt::askedSceneDates(*lib, book));
+    dt::setAskedSceneDates(*lib, book);
+    CHECK(dt::askedSceneDates(*lib, book));
+    dt::setChapterFormat(*lib, book, c1, dt::Format{});
+    CHECK(!dt::printsSceneDates(*lib, book));
+    const Resources res{appFolder("fonts"), appFolder("hyphenation")};
+    Design d = preset("classic").design;
+    d.chapterDates = true;
+    auto pagesText = [&](const Source& s) {
+        const auto tb = typesetBook(s, d, res);
+        std::string o;
+        for (auto& p : tb.pages) {
+            std::vector<const GlyphRun*> rs;
+            for (auto& r : p.runs) rs.push_back(&r);
+            std::stable_sort(rs.begin(), rs.end(), [](const GlyphRun* a, const GlyphRun* b) { return a->y < b->y; });
+            for (auto* r : rs)
+                for (auto g : r->glyphs) if (auto it = tb.fonts[r->font].toUnicode.find(g); it != tb.fonts[r->font].toUnicode.end()) o += it->second;
+        }
+        return o;
+    };
+    {
+        const std::string o = pagesText(snapshot(*lib, book));
+        CHECK(o.find("4 Frostmoon") == std::string::npos);   // not asked for
+    }
+    dt::setPrintsSceneDates(*lib, book, true);
+    CHECK(dt::printsSceneDates(*lib, book) && dt::formatFor(*lib, book, c1).look.sceneDates);
+    {
+        const Source src = snapshot(*lib, book);
+        CHECK(src.sections.size() == 1 && src.sections[0].breakDates.size() == 3);
+        const std::string o = pagesText(src);
+        const size_t bells = o.find("bells"), date = o.find("4 Frostmoon"), rain = o.find("slates");
+        CHECK(date != std::string::npos && rain < date && date < bells);   // after the first break, before its scene
+        CHECK(o.find("1 Frostmoon") == o.rfind("1 Frostmoon"));            // the chapter's day isn't repeated at the third scene
+        const auto content2 = studio::ebook::build(src, {}, studio::ebook::styleFrom(d));
+        std::string all;
+        for (auto& ch : content2.chapters) all += ch.html;
+        const size_t hr = all.find("<hr class=\"scene\"/>"), ed = all.find("4 Frostmoon"), eb = all.find("The bells");
+        CHECK(hr != std::string::npos && ed != std::string::npos && hr < ed && ed < eb);
+        studio::publish::DocxOptions o2;
+        o2.design = d;
+        o2.resources = res;
+        const auto dx = studio::publish::buildDocx(src, o2);
+        CHECK(dx.ok);
+        std::string xml;
+        for (auto& sct : studio::import::readDocx(dx.bytes, "d.docx").sections) xml += sct.content;
+        const size_t wd = xml.find("4 Frostmoon"), wb = xml.find("The bells");
+        CHECK(wd != std::string::npos && wd < wb);
+    }
+    dt::undoConverted(*lib, book, done);
+    CHECK(lib->nodeContent(c1) == before && lib->setting("timeline:" + book) == tlBefore);
+    fs::remove_all(dir);
+}
+
 int main() {
+    testSceneDates108();
+    testQuotableProse108();
     testTypedDates107();
     testDateLook106();
     testChapterDates105();

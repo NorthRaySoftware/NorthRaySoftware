@@ -118,6 +118,9 @@ void StudioApp::ensureEditor() {
         // Words chosen as a note to yourself (0.94): never printed or exported. Again on a note takes it off.
         if (!selection.empty())
             items.push_back({L"Draft note (not printed)", [this] { editor_.send(R"({"type":"command","name":"draftNote"})"); }});
+        // On a scene break (0.108): its scene's own date, in the details card.
+        if (!contextBreak_.sid.empty())
+            items.push_back({L"Set this scene's date\u2026", [this, b = contextBreak_] { openBreakWhen(b); }});
         // The chapter's header picture (0.92), whatever is under the pointer.
         if (lib_)
             if (const ManuscriptNode* cn = lib_->node(currentNode_); cn && cn->kind != NodeKind::Scene)
@@ -194,6 +197,10 @@ void StudioApp::sendLoad() {
     if (!pendingFind_.empty()) {
         editor_.send(json{{"type", "find"}, {"words", pendingFind_}}.dump());
         pendingFind_.clear();
+    }
+    if (pendingScene_ > 0) {   // a scene row in the outline (0.108)
+        editor_.send(json{{"type", "goToScene"}, {"scene", pendingScene_}}.dump());
+        pendingScene_ = 0;
     }
     liveWords_ = n->wordCount;
     selectionWords_ = 0;
@@ -283,6 +290,11 @@ void StudioApp::editorMessage(const std::string& text) {
     } else if (type == "contextWord") {
         contextWord_ = m.value("text", "");
         return;
+    } else if (type == "contextBreak") {   // a right-click, on a scene break or not (0.108)
+        contextBreak_ = breakFrom(m);
+        return;
+    } else if (type == "breakWhen") {      // its date under the break clicked (0.108)
+        openBreakWhen(breakFrom(m));
     } else if (type == "editWhen") {
         editWhenInWriting();
     } else if (type == "entry") {
@@ -785,6 +797,11 @@ void StudioApp::drawBinder(const Rect& r) {
 
     // (Back to the Library is on the rail now: the book's page.)
     gfx_.text(L"MANUSCRIPT", {tx0, y, wd - 24, 16}, Font::Label, pal_.inkFaint, {Align::Left, false});
+    {   // The scenes under each chapter, shown or not (0.108; shown by default).
+        const std::wstring t = settings_.outlineScenes ? L"Hide scenes" : L"Show scenes";
+        const float tw = gfx_.measureWidth(t, Font::Small);
+        linkText("side:scenes", x + wd - tw - 6, y - 2, t, [this] { settings_.outlineScenes = !settings_.outlineScenes; saveSettings(); invalidate(); });
+    }
     y += 20;
     y += gfx_.text(w(b->title), {tx0, y, wd - 24, 90}, Font::SerifTitle, pal_.ink) + 2;
     gfx_.text(wordsLabel(lib_->bookWordCount(b->id)), {tx0, y, wd - 24, 18}, Font::Small, pal_.inkMuted, {Align::Left, false});
@@ -819,6 +836,19 @@ void StudioApp::drawBinder(const Rect& r) {
     std::vector<Id> order;
     for (auto* n : all) order.push_back(n->id);
     bool first = true;
+    // Each chapter's scenes under it (0.108): from the scene breaks in its text, with each scene's date where it differs.
+    const std::size_t datesKey = std::hash<std::string>{}(lib_->setting("timeline:" + b->id) + "\x1F" + lib_->setting("dates:" + b->id) + "\x1F" +
+                                                          lib_->setting("calendar:" + b->id));
+    auto scenesFor = [&](const ManuscriptNode& n) -> const std::vector<studio::dates::Scene>& {
+        SceneRows& r = sceneCache_[n.id];
+        if (r.modified != (std::int64_t)n.modified || r.key != datesKey || !r.filled) {
+            r.filled = true;
+            r.modified = (std::int64_t)n.modified;
+            r.key = datesKey;
+            r.scenes = studio::dates::scenesOf(*lib_, n);
+        }
+        return r.scenes;
+    };
     for (const ManuscriptNode* n : all) {
         const int d = depth(n);
         if (n->kind == NodeKind::Part && !first) y += 8;  // a little air above each part
@@ -871,6 +901,31 @@ void StudioApp::drawBinder(const Rect& r) {
         }
         if (focused(id)) focusRing(rr);
         y += rh + 2;
+        if (settings_.outlineScenes && n->kind == NodeKind::Chapter) {
+            const auto& scenes = scenesFor(*n);
+            for (const auto& sc : scenes) {
+                const float sh = 24.0f;
+                const Rect sr{x, y, wd, sh};
+                const std::string sid = "scene:" + n->id + ":" + std::to_string(sc.number);
+                addHit(sid, sr, [this, nid = n->id, k = sc.number] {
+                    if (nid != currentNode_) { selectNode(nid); pendingScene_ = k; }
+                    else if (editor_.ready()) editor_.send(json{{"type", "goToScene"}, {"scene", k}}.dump());
+                });
+                const float shv = hoverAmount(sid);
+                if (shv > 0.01f) gfx_.fillRounded(sr, 6, pal_.surface.withAlpha(0.6f * shv));
+                const float sx = tx + 14 + 12;
+                std::wstring when = sc.number > 1 && sc.differs && sc.line ? w(sc.line->date) : L"";
+                const float ww = when.empty() ? 0 : std::min(gfx_.measureWidth(when, Font::Small) + 6, (sr.right() - sx) * 0.62f);
+                gfx_.text(L"Scene " + std::to_wstring(sc.number), {sx, sr.y, sr.right() - sx - ww - 8, sh}, Font::Small,
+                          pal_.inkMuted.mix(pal_.ink, 0.2f * shv), {Align::Left, false, true, true});
+                if (!when.empty())
+                    gfx_.text(when, {sr.right() - ww - 4, sr.y, ww, sh}, Font::Small, pal_.inkFaint, {Align::Right, false, true, true});
+                tooltip(sid, L"Go to scene " + std::to_wstring(sc.number) + (sc.line ? L"  \u00B7  " + w(sc.line->date) : L""));
+                if (focused(sid)) focusRing(sr);
+                y += sh;
+            }
+            if (!scenes.empty()) y += 2;
+        }
     }
     if (all.empty()) {
         y += gfx_.text(L"No chapters yet.", {tx0, y, wd - 24, 40}, Font::Small,
@@ -912,7 +967,12 @@ void StudioApp::drawNodePanel(const Rect& r, const Rect& c, float& y) {
     (void)r;
     const ManuscriptNode* n = lib_->node(focus_.id);
     if (!n) return;
+    if (breakFocused()) { drawBreakPanel(c, y, *n); return; }   // a scene in the text (0.108)
     std::wstring kicker = w(label(n->kind));
+    // A scene page: "Scene 2 of The Harbour" (0.108).
+    if (n->kind == NodeKind::Scene)
+        if (const ManuscriptNode* p = lib_->node(n->parentId); p && sceneNumberOf(*n) > 0)
+            kicker = L"Scene " + std::to_wstring(sceneNumberOf(*n)) + L" of " + nodeLabel(*p);
     CharUpperBuffW(kicker.data(), (DWORD)kicker.size());
     panelHeading(c, y, kicker, true);
     y = panelField(c, y, L"Title", FName);

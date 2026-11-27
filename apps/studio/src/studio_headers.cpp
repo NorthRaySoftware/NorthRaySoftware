@@ -270,6 +270,18 @@ nlohmann::json StudioApp::chapterHeadJson(const ManuscriptNode& n) {
         if (line) put(*line);
         else j["dated"] = false;
     }
+    // Its scenes' own dates (0.108), by "day|time|part", for the lines under their breaks.
+    {
+        nlohmann::json sl = nlohmann::json::object();
+        for (const auto& sc : studio::dates::scenesOf(*lib_, n)) {
+            if (sc.number == 1 || !sc.dated) continue;
+            nlohmann::json a = {{"day", sc.day}};
+            if (sc.time.minutes >= 0) a["time"] = sc.time.minutes;
+            else if (!sc.time.part.empty()) a["part"] = sc.time.part;
+            sl[sceneKey(sc.day, sc.time.minutes, sc.time.part)] = sceneLineJson(n, a.dump());
+        }
+        if (!sl.empty()) j["sceneLines"] = sl;
+    }
     // Whose eyes it's seen through: their portrait, else their symbol, else initials, ringed in their colour.
     Id pov = n.povId;
     if (pov.empty() && n.kind == NodeKind::Chapter)
@@ -352,4 +364,195 @@ void StudioApp::editWhenInWriting() {
     invalidate();
 }
 
+// ------------------------------------------------- a scene's own date at its break (0.108)
+
+std::string StudioApp::sceneKey(double day, int minutes, const std::string& part) {
+    // As the editor writes it: String(day) | String(time) | part.
+    char d[40];
+    std::snprintf(d, sizeof d, "%.15g", day);
+    return std::string(d) + "|" + (minutes >= 0 ? std::to_string(minutes) : std::string()) + "|" + (minutes >= 0 ? std::string() : part);
+}
+
+nlohmann::json StudioApp::sceneLineJson(const ManuscriptNode& n, const std::string& attrsJson) {
+    nlohmann::json j = nlohmann::json::object();
+    if (const auto ln = studio::dates::breakLine(*lib_, n, attrsJson)) {
+        j["date"] = ln->date;
+        auto segs = [&](const std::vector<studio::dates::Seg>& v) {
+            nlohmann::json a = nlohmann::json::array();
+            for (const auto& sg : v) {
+                const studio::dates::PartLook& pl = sg.part == 1 ? ln->look.era : sg.part == 2 ? ln->look.time : ln->look.date;
+                a.push_back({{"t", sg.text}, {"b", pl.bold}, {"i", pl.italic}, {"c", pl.caps}});
+            }
+            return a;
+        };
+        j["dateParts"] = segs(ln->dateSegs);
+        j["timeParts"] = segs(ln->timeSegs);
+        j["align"] = ln->look.align;
+        return j;
+    }
+    // A timeline in story days: "Day 12", as the timeline writes it.
+    const nlohmann::json a = nlohmann::json::parse(attrsJson, nullptr, false);
+    if (a.is_object() && a.contains("day") && a["day"].is_number()) j["date"] = narrow(storyDayText(n.bookId, a["day"].get<double>()));
+    return j;
+}
+
+StudioApp::BreakAt StudioApp::breakFrom(const nlohmann::json& m) {
+    BreakAt b;
+    b.sid = m.value("sid", "");
+    b.scene = m.value("scene", 0);
+    if (m.contains("day") && m["day"].is_number()) {
+        b.dated = true;
+        b.day = m["day"].get<double>();
+        if (m.contains("time") && m["time"].is_number_integer()) b.minutes = m["time"].get<int>();
+        else if (m.contains("part") && m["part"].is_string()) b.part = m["part"].get<std::string>();
+    }
+    return b;
+}
+
+// "Set this scene's date…" or its date under the break clicked: the details card shows the scene ("Scene 2 of The
+// Harbour") with the same Date and Time of day fields as a chapter's, ready to type in.
+void StudioApp::openBreakWhen(const BreakAt& b) {
+    if (currentNode_.empty() || b.sid.empty()) return;
+    commitFields();
+    breakAt_ = b;
+    loadedFocus_ = {Focus::None, "-", ""};   // loaded again, even for the same break
+    setFocus({Focus::Node, currentNode_, "break:" + b.sid});
+    settings_.writingDetails = true;
+    saveSettings();
+    focusFieldSoon_ = FStoryDay;
+    invalidate();
+}
+
+int StudioApp::sceneNumberOf(const ManuscriptNode& n) const {
+    if (n.kind != NodeKind::Scene) return 0;
+    int k = 0;
+    for (const ManuscriptNode* s : lib_->childrenOf(n.bookId, n.parentId)) {
+        if (s->kind != NodeKind::Scene) continue;
+        ++k;
+        if (s->id == n.id) return k;
+    }
+    return 0;
+}
+
+void StudioApp::drawBreakPanel(const Rect& c, float& y, const ManuscriptNode& n) {
+    std::wstring kicker = L"Scene " + std::to_wstring(std::max(2, breakAt_.scene)) + L" of " + nodeLabel(n);
+    CharUpperBuffW(kicker.data(), (DWORD)kicker.size());
+    panelHeading(c, y, kicker, true);
+    y += gfx_.text(L"Its own date, when it happens on another day (or at another time) than the chapter's. "
+                   L"Writing shows it under the scene break.", {c.x, y, c.w, 60}, Font::Small, pal_.inkMuted) + 10;
+    panelHeading(c, y, L"WHEN IN THE STORY", false);
+    const bool inCal = timelineInCalendar(n.bookId);
+    y = panelField(c, y, inCal ? L"Date (blank: the chapter's)" : L"Story day (blank: the chapter's)", FStoryDay);
+    if (inCal) y = panelField(c, y, L"Time of day (14:30, dawn, evening)", FTimeOfDay);
+    if (const auto ch = studio::dates::lineFor(*lib_, n))
+        y += gfx_.text(L"The chapter's: " + w(ch->date) + (ch->time.empty() ? L"" : L", " + w(ch->time)), {c.x, y, c.w, 40}, Font::Small,
+                       pal_.inkFaint) + 6;
+    {
+        const bool on = studio::dates::printsSceneDates(*lib_, n.bookId);
+        y += gfx_.text(on ? L"Printed under its scene break when it differs from the chapter's."
+                          : L"Not printed: Typesetting › Chapter dates turns on “A scene's own date at its scene break”.",
+                       {c.x, y, c.w, 60}, Font::Small, pal_.inkFaint) + 8;
+    }
+    float bx = c.x, bw = 0;
+    if (breakAt_.dated) {
+        smallButton("break:clear", bx, y, L"No date of its own", [this] {
+            setFieldText(FStoryDay, "");
+            setFieldText(FTimeOfDay, "");
+            dirty_ = true;
+            commitFields();
+            loadedFocus_ = {Focus::None, "-", ""};
+        }, &bw);
+        bx += bw + 8;
+    }
+    smallButton("break:chapter", bx, y, L"The chapter's details", [this] { setFocus({Focus::Node, currentNode_, {}}); }, &bw);
+    y += 40;
+}
+
+void StudioApp::loadBreakFields() {
+    const ManuscriptNode* n = lib_->node(focus_.id);
+    if (!n || !breakAt_.dated) return;
+    if (timelineInCalendar(n->bookId)) {
+        setFieldText(FStoryDay, narrow(storyDayText(n->bookId, breakAt_.day)));
+        if (breakAt_.minutes >= 0 || !breakAt_.part.empty()) {
+            const studio::cal::Calendar cc = studio::cal::calendarOfBook(*lib_, n->bookId);
+            setFieldText(FTimeOfDay, studio::cal::timeOfDayText(cc.empty() ? studio::cal::gregorian() : cc, {breakAt_.minutes, breakAt_.part}));
+        }
+    } else {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%g", breakAt_.day);
+        setFieldText(FStoryDay, buf);
+    }
+}
+
+void StudioApp::commitBreakFields() {
+    const ManuscriptNode* n = lib_->node(loadedFocus_.id);
+    if (!n || loadedFocus_.contextSeries != "break:" + breakAt_.sid) return;
+    BreakAt b = breakAt_;
+    const std::string d = fieldText(FStoryDay), tm = fieldText(FTimeOfDay);
+    if (d.empty()) { b.dated = false; b.minutes = -1; b.part.clear(); }
+    else {
+        char* end = nullptr;
+        const double v = std::strtod(d.c_str(), &end);
+        const bool number = end && *end == 0 && std::isfinite(v);
+        if (timelineInCalendar(n->bookId)) {
+            const studio::cal::Calendar c = studio::cal::calendarOfBook(*lib_, n->bookId);
+            if (const auto dt = studio::cal::parseDate(c, d)) {
+                b.dated = true;
+                b.day = (double)(studio::cal::toDay(c, *dt) - studio::cal::storySpan(*lib_, n->bookId).start);
+            } else if (number) { b.dated = true; b.day = v; }
+            else if (!breakAt_.dated || d != narrow(storyDayText(n->bookId, breakAt_.day)))
+                flash(L"That isn't a date in the world's calendar (try 3 Frostmoon 1204).", 5);
+            if (tm.empty()) { b.minutes = -1; b.part.clear(); }
+            else if (const auto tt = studio::cal::parseTimeOfDay(c, tm)) { b.minutes = tt->minutes; b.part = tt->part; }
+            else if (tm != studio::cal::timeOfDayText(c, {breakAt_.minutes, breakAt_.part}))
+                flash(L"That isn't a time of day: try 14:30, 2:30 pm, or one of the calendar's times (dawn, evening…).", 5);
+        } else if (number) { b.dated = true; b.day = v; }
+    }
+    if (b.dated == breakAt_.dated && b.day == breakAt_.day && b.minutes == breakAt_.minutes && b.part == breakAt_.part) return;
+    breakAt_ = b;
+    nlohmann::json attrs = nlohmann::json::object();
+    if (b.dated) {
+        attrs["day"] = b.day;
+        if (b.minutes >= 0) attrs["time"] = b.minutes;
+        else if (!b.part.empty()) attrs["part"] = b.part;
+    }
+    nlohmann::json msg = {{"type", "breakDate"}, {"sid", b.sid}, {"attrs", attrs}};
+    if (b.dated) {
+        msg["key"] = sceneKey(b.day, b.minutes, b.part);
+        msg["line"] = sceneLineJson(*n, attrs.dump());
+    }
+    if (editor_.ready() && n->id == currentNode_) editor_.send(msg.dump());
+    // A date unlike its chapter's, in a book that doesn't print scene dates yet: ask once (0.108).
+    if (b.dated) {
+        const auto own = studio::dates::breakLine(*lib_, *n, attrs.dump());
+        const auto ch = studio::dates::lineFor(*lib_, *n);
+        if (own && (!ch || ch->date != own->date || ch->time != own->time)) askSceneDatesSoon(n->bookId);
+    }
+    sceneCache_.clear();
+}
+
+void StudioApp::askSceneDatesSoon(const Id& book) {
+    if (studio::dates::printsSceneDates(*lib_, book) || studio::dates::askedSceneDates(*lib_, book)) return;
+    pendingSceneAsk_ = book;
+    SetTimer(hwnd(), kSceneAskTimer, 300, nullptr);
+}
+
+void StudioApp::askSceneDates() {
+    const Id book = pendingSceneAsk_;
+    pendingSceneAsk_.clear();
+    if (book.empty() || !lib_ || studio::dates::printsSceneDates(*lib_, book) || studio::dates::askedSceneDates(*lib_, book)) return;
+    studio::dates::setAskedSceneDates(*lib_, book);
+    const int r = cjui::messageBox(hwnd(),
+        L"This scene's date is different from its chapter's. The book, ebook and Word document can print a scene's own date "
+        L"under its scene break, in the chapter's date format.\n\nYou can change this later in Typesetting › Chapter dates "
+        L"(“A scene's own date at its scene break”).",
+        L"Print scene dates at their breaks?", MB_YESNO | MB_ICONQUESTION);
+    if (r == IDYES) {
+        studio::dates::setPrintsSceneDates(*lib_, book, true);
+        flash(L"Scene dates print at their breaks. Typesetting › Chapter dates can turn it off.", 5);
+    }
+    invalidate();
+}
+
 }  // namespace nrs
+

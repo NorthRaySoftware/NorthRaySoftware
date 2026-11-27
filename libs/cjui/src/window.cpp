@@ -73,6 +73,7 @@ LRESULT CALLBACK AppWindow::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 namespace {
 const wchar_t* kZoomProp = L"NorthRay.InterfaceZoom";   // on the window, in thousandths, for its menus and boxes
+const wchar_t* kWholeProp = L"NorthRay.ScaleWholeWindow";   // set when the bars, menus and boxes scale too (0.185)
 
 // %LOCALAPPDATA%\NorthRay\interface.ini: [Zoom] <window class>=1.25. Per app, on this PC only.
 std::wstring zoomFile() {
@@ -100,6 +101,34 @@ float interfaceZoomOf(HWND window) {
     return v > 0 ? clampZoom(v / 1000.0f) : 1.0f;
 }
 
+UINT uiDpiOf(HWND window) {
+    UINT d = window ? GetDpiForWindow(window) : 0;
+    if (!d) d = 96;
+    if (!window) return d;
+    const HWND root = GetAncestor(window, GA_ROOT);
+    if (!GetPropW(root ? root : window, kWholeProp)) return d;
+    return (UINT)std::lround(d * interfaceZoomOf(window));
+}
+
+void AppWindow::applyDpi() {
+    const UINT d = displayDpi();
+    gfx_.setDpi(whole_ ? d * zoom_ : (float)d);
+}
+
+void AppWindow::setScaleWholeWindow(bool on) {
+    if (on == whole_) return;
+    whole_ = on;
+    if (hwnd_) {
+        if (on) SetPropW(hwnd_, kWholeProp, reinterpret_cast<HANDLE>(1));
+        else RemovePropW(hwnd_, kWholeProp);
+        if (const std::wstring f = zoomFile(); !f.empty())
+            WritePrivateProfileStringW(L"WholeWindow", spec_.className, on ? L"1" : L"0", f.c_str());
+        applyDpi();
+        onInterfaceZoomChanged();
+        invalidate();
+    }
+}
+
 UINT AppWindow::displayDpi() const {
     const UINT d = hwnd_ ? GetDpiForWindow(hwnd_) : 0;
     return d ? d : 96;
@@ -125,7 +154,7 @@ void AppWindow::setInterfaceZoom(float zoom, bool announce) {
         GetClientRect(hwnd_, &cr);
         MONITORINFO mi{sizeof mi};
         GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi);
-        const float s = gfx_.dpiScale() * zoom_;
+        const float s = displayDpi() / 96.0f * zoom_;
         const int needW = (int)std::lround(spec_.minWidth * s), needH = (int)std::lround(spec_.minHeight * s);
         if (!maximized() && (cr.right < needW || cr.bottom < needH)) {
             const int w = std::min<int>(std::max<int>(wr.right - wr.left, needW + (wr.right - wr.left - cr.right)), mi.rcWork.right - mi.rcWork.left);
@@ -134,6 +163,7 @@ void AppWindow::setInterfaceZoom(float zoom, bool announce) {
             SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
+    if (whole_) applyDpi();
     onInterfaceZoomChanged();
     if (announce) flash(L"Interface size " + std::to_wstring((int)std::lround(zoom_ * 100)) + L"%. " +
                         (ctrlZoomKeysAreApps() ? L"Ctrl+Alt+0" : L"Ctrl+0") + L" goes back to 100%.", 3);
@@ -169,8 +199,28 @@ float AppWindow::zoomControl(const std::string& id, float x, float y, float w) {
     y += 34;
     const std::wstring keys = ctrlZoomKeysAreApps() ? L"Ctrl+Alt and + or − change it too, and Ctrl+Alt+0 goes back to 100%."
                                                     : L"Ctrl and + or −, or Ctrl with the mouse wheel, change it too; Ctrl+0 goes back to 100%.";
-    y += gfx_.text(keys + L" It sizes what's in the window; the bars along the top and side stay as they are. Kept for this app on this PC.", {x, y, w, 60}, Font::Small,
-                   pal_.inkFaint, {Align::Left, false, true}) + 4;
+    y += gfx_.text(keys + (whole_ ? L" It sizes the whole window, menus and messages too. Kept for this app on this PC."
+                                  : L" It sizes what's in the window; the bars along the top and side stay as they are. Kept for this app on this PC."),
+                   {x, y, w, 60}, Font::Small, pal_.inkFaint, {Align::Left, false, true}) + 8;
+    // Whole-window scaling (0.185), off by default.
+    {
+        const std::string cid = id + ":whole";
+        const std::wstring label = wholeLabel_.empty() ? L"Also scale the bars along the top and side, menus and messages" : wholeLabel_;
+        const float th = std::max(22.0f, gfx_.measureHeight(label, w - 30, Font::Body));
+        const Rect r{x, y, w, th + 4};
+        addHit(cid, r, [this] { setScaleWholeWindow(!whole_); });
+        const float hv = hovered(cid) ? 1.0f : 0.0f;
+        const Rect b{x, y + 3, 18, 18};
+        if (whole_) gfx_.fillRounded(b, 4, pal_.ribbon);
+        gfx_.strokeRounded(b, 4, whole_ ? pal_.ribbon : pal_.inkMuted.mix(pal_.ink, hv), 1.5f);
+        if (whole_) {
+            gfx_.line(b.x + 4, b.y + 9, b.x + 8, b.y + 14, pal_.paper, 2);
+            gfx_.line(b.x + 8, b.y + 14, b.x + 15, b.y + 4, pal_.paper, 2);
+        }
+        gfx_.text(label, {x + 30, y + 1, w - 30, th}, Font::Body, pal_.ink, {Align::Left, false, true});
+        if (focused(cid)) focusRing(r);
+        y += th + 10;
+    }
     return y - y0;
 }
 
@@ -178,9 +228,10 @@ Rect AppWindow::beginZoomArea(const Rect& area) {
     if (inZoom_) endZoomArea();
     inZoom_ = true;
     zoomArea_ = area;
-    areaZoom_ = zoom_;
-    gfx_.beginZoom(area, zoom_);
-    return {area.x, area.y, area.w / zoom_, area.h / zoom_};
+    const float z = contentZoom();
+    areaZoom_ = z;
+    gfx_.beginZoom(area, z);
+    return {area.x, area.y, area.w / z, area.h / z};
 }
 
 void AppWindow::endZoomArea() {
@@ -234,8 +285,11 @@ bool AppWindow::createWindow(const WindowSpec& spec) {
         }
         zoom_ = clampZoom(z);
         SetPropW(hwnd_, kZoomProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(std::lround(zoom_ * 1000))));
+        if (const std::wstring f = zoomFile(); !f.empty())
+            whole_ = GetPrivateProfileIntW(L"WholeWindow", spec.className, 0, f.c_str()) != 0;
+        if (whole_) SetPropW(hwnd_, kWholeProp, reinterpret_cast<HANDLE>(1));
     }
-    gfx_.setDpi(GetDpiForWindow(hwnd_));
+    applyDpi();
     readAnimationSetting();
     captionHeight_ = spec.captionHeight;
     // Recalculate the frame now that WM_NCCALCSIZE is handled: the title bar goes.
@@ -955,7 +1009,7 @@ LRESULT AppWindow::handle(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             invalidate();
             return 0;
         case WM_DPICHANGED: {
-            gfx_.setDpi(HIWORD(wp));
+            gfx_.setDpi(whole_ ? HIWORD(wp) * zoom_ : (float)HIWORD(wp));
             const RECT* r = reinterpret_cast<RECT*>(lp);
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);

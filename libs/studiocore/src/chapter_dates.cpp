@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <functional>
+#include <map>
 #include <nlohmann/json.hpp>
 
 namespace studio::dates {
@@ -245,6 +248,120 @@ std::optional<Lines> lineFor(const Library& lib, const ManuscriptNode& n) {
     return format(c, cal::fromDay(c, day), t, formatFor(lib, n.bookId, chapter));
 }
 
+// ------------------------------------------- a scene's own date at its break (0.108)
+
+namespace {
+const ManuscriptNode* chapterOf(const Library& lib, const ManuscriptNode& n) {
+    if (n.kind == NodeKind::Scene) if (const ManuscriptNode* p = lib.node(n.parentId)) return p;
+    return &n;
+}
+bool readWhen(const json& a, double& day, cal::TimeOfDay& t) {
+    if (!a.is_object() || !a.contains("day") || !a["day"].is_number()) return false;
+    day = a["day"].get<double>();
+    if (!std::isfinite(day)) return false;
+    t = {};
+    if (a.contains("time") && a["time"].is_number_integer()) t.minutes = a["time"].get<int>();
+    else if (a.contains("part") && a["part"].is_string()) t.part = a["part"].get<std::string>();
+    return true;
+}
+void eachBreak(const json& n, const std::function<void(const json&)>& f) {
+    if (!n.is_object()) return;
+    if (n.value("type", "") == "scene_break") { f(n.contains("attrs") ? n["attrs"] : json::object()); return; }
+    if (n.contains("content") && n["content"].is_array())
+        for (const json& c : n["content"]) eachBreak(c, f);
+}
+}  // namespace
+
+namespace {
+std::optional<Lines> breakLineOf(const Library& lib, const ManuscriptNode& n, const json& attrs) {
+    double day = 0;
+    cal::TimeOfDay t;
+    if (!readWhen(attrs, day, t)) return std::nullopt;
+    const cal::StorySpan span = cal::storySpan(lib, n.bookId);
+    if (!span.on) return std::nullopt;
+    const cal::Calendar c = cal::calendarOfBook(lib, n.bookId);
+    if (c.empty()) return std::nullopt;
+    const std::int64_t d = span.start + (std::int64_t)std::floor(day);
+    return format(c, cal::fromDay(c, d), t, formatFor(lib, n.bookId, chapterOf(lib, n)->id));
+}
+}  // namespace
+
+std::optional<Lines> breakLine(const Library& lib, const ManuscriptNode& n, const std::string& attrsJson) {
+    return breakLineOf(lib, n, json::parse(attrsJson, nullptr, false));
+}
+
+std::vector<Scene> scenesOf(const Library& lib, const ManuscriptNode& n, const std::string& content) {
+    std::vector<Scene> out;
+    const json doc = json::parse(content.empty() ? lib.nodeContent(n.id) : content, nullptr, false);
+    std::vector<json> breaks;
+    eachBreak(doc, [&](const json& a) { breaks.push_back(a); });
+    if (breaks.empty()) return out;
+    const auto own = lineFor(lib, n);
+    Scene first;
+    first.line = own;
+    out.push_back(first);
+    for (const json& a : breaks) {
+        Scene s;
+        s.number = (int)out.size() + 1;
+        if (a.is_object() && a.contains("sid") && a["sid"].is_string()) s.sid = a["sid"].get<std::string>();
+        s.dated = readWhen(a, s.day, s.time);
+        if (s.dated) {
+            s.line = breakLineOf(lib, n, a);
+            s.differs = s.line && (!own || own->date != s.line->date || own->time != s.line->time);
+        }
+        out.push_back(s);
+    }
+    return out;
+}
+
+std::vector<std::optional<Lines>> breakLines(const Library& lib, const ManuscriptNode& n, const std::string& content) {
+    std::vector<std::optional<Lines>> out;
+    for (const Scene& s : scenesOf(lib, n, content)) {
+        if (s.number == 1) continue;
+        out.push_back(s.differs ? s.line : std::nullopt);
+    }
+    return out;
+}
+
+std::string newBreakId() {
+    static const char* digits = "abcdefghijklmnopqrstuvwxyz0123456789";
+    static std::uint64_t counter = 0;
+    std::uint64_t x = (std::uint64_t)std::chrono::steady_clock::now().time_since_epoch().count() ^ (0x9E3779B97F4A7C15ull * ++counter) ^
+                      (std::uint64_t)(uintptr_t)&counter;
+    std::string s;
+    for (int i = 0; i < 12; ++i) {
+        x ^= x >> 33; x *= 0xff51afd7ed558ccdull; x ^= x >> 33;
+        s += digits[x % 36];
+    }
+    return s;
+}
+
+bool printsSceneDates(const Library& lib, const Id& book) { return bookFormat(lib, book).look.sceneDates; }
+
+void setPrintsSceneDates(Library& lib, const Id& book, bool on) {
+    Format f = bookFormat(lib, book);
+    f.look.sceneDates = on;
+    setBookFormat(lib, book, f);
+    json j = settingOf(lib, book);
+    if (j.contains("chapters") && j["chapters"].is_object()) {
+        for (auto& [id, v] : j["chapters"].items()) {
+            if (!v.is_object()) continue;
+            Format cf = Format::fromJson(v.dump());
+            cf.look.sceneDates = on;
+            v = json::parse(cf.toJson());
+        }
+        lib.setSetting("dates:" + book, j.dump());
+    }
+}
+
+bool askedSceneDates(const Library& lib, const Id& book) { return settingOf(lib, book).value("askedSceneDates", false); }
+
+void setAskedSceneDates(Library& lib, const Id& book) {
+    json j = settingOf(lib, book);
+    j["askedSceneDates"] = true;
+    lib.setSetting("dates:" + book, j.dump());
+}
+
 // ------------------------------------------- typed date lines (5c, 0.107)
 
 namespace {
@@ -278,37 +395,51 @@ std::vector<TypedDate> findTypedDates(const Library& lib, const Id& book, const 
         const json doc = json::parse(lib.nodeContent(n->id), nullptr, false);
         if (!doc.is_object() || !doc.contains("content") || !doc["content"].is_array()) continue;
         const json& content = doc["content"];
-        // The first block with words in it: a typed date line, or nothing to do.
-        for (size_t i = 0; i < content.size(); ++i) {
-            const json& b = content[i];
-            if (b.value("type", "") != "paragraph") break;
-            const std::string text = trimmed(paragraphText(b));
-            if (text.empty()) continue;
-            if (!typeset::looksLikeDateLine(text)) break;
-            TypedDate t;
-            t.chapter = n->id;
-            t.title = n->title;
-            t.index = (int)i;
-            t.text = text;
-            if (const auto now = lineFor(lib, *n)) t.current = now->date;
-            if (c.empty()) t.why = "The book's world has no calendar.";
-            else if (!span.on) t.why = "Planning's timeline doesn't count in calendar dates.";
-            else {
-                // A weekday at the start ("Tuesday, ...") says nothing the date doesn't.
-                std::string s = text;
-                for (const std::string& wd : c.weekdays)
-                    if (!wd.empty() && lowerAscii(s).rfind(lowerAscii(wd), 0) == 0) { s = trimmed(s.substr(wd.size())); if (!s.empty() && s[0] == ',') s = trimmed(s.substr(1)); break; }
-                if (const auto dt = cal::parseDateTime(c, s)) {
-                    t.readable = true;
-                    t.date = dt->date;
-                    t.time = dt->time;
-                    t.becomes = format(c, t.date, t.time, formatFor(lib, book, n->id)).date;
-                } else
-                    t.why = "It doesn't read as a date in the calendar.";
+        const auto scenes = scenesOf(lib, *n, doc.dump());
+        // The first paragraph with words in it from `from`: a typed date line, or nothing to do.
+        auto look = [&](size_t from, int breakIndex, int scene) {
+            for (size_t i = from; i < content.size(); ++i) {
+                const json& b = content[i];
+                if (b.value("type", "") != "paragraph") return;
+                const std::string text = trimmed(paragraphText(b));
+                if (text.empty()) continue;
+                if (!typeset::looksLikeDateLine(text)) return;
+                TypedDate t;
+                t.chapter = n->id;
+                t.title = n->title;
+                t.index = (int)i;
+                t.text = text;
+                t.breakIndex = breakIndex;
+                t.scene = scene;
+                if (breakIndex < 0) {
+                    if (const auto now = lineFor(lib, *n)) t.current = now->date;
+                } else if (scene - 1 < (int)scenes.size() && scenes[(size_t)scene - 1].line) {
+                    t.current = scenes[(size_t)scene - 1].line->date;
+                }
+                if (c.empty()) t.why = "The book's world has no calendar.";
+                else if (!span.on) t.why = "Planning's timeline doesn't count in calendar dates.";
+                else {
+                    // A weekday at the start ("Tuesday, ...") says nothing the date doesn't.
+                    std::string s = text;
+                    for (const std::string& wd : c.weekdays)
+                        if (!wd.empty() && lowerAscii(s).rfind(lowerAscii(wd), 0) == 0) { s = trimmed(s.substr(wd.size())); if (!s.empty() && s[0] == ',') s = trimmed(s.substr(1)); break; }
+                    if (const auto dt = cal::parseDateTime(c, s)) {
+                        t.readable = true;
+                        t.date = dt->date;
+                        t.time = dt->time;
+                        t.becomes = format(c, t.date, t.time, formatFor(lib, book, n->id)).date;
+                    } else
+                        t.why = "It doesn't read as a date in the calendar.";
+                }
+                out.push_back(std::move(t));
+                return;
             }
-            out.push_back(std::move(t));
-            break;
-        }
+        };
+        look(0, -1, 1);
+        // Straight after each scene break (0.108): its scene's date.
+        int scene = 1;
+        for (size_t i = 0; i < content.size(); ++i)
+            if (content[i].value("type", "") == "scene_break") look(i + 1, (int)i, ++scene);
     }
     return out;
 }
@@ -322,12 +453,39 @@ Converted convertTypedDates(Library& lib, const Id& book, const std::vector<Type
     json tl = json::parse(done.timelineBefore, nullptr, false);
     if (!tl.is_object()) return done;
     if (!tl.contains("nodes") || !tl["nodes"].is_object()) tl["nodes"] = json::object();
-    for (const TypedDate& t : found) {
+    // Within a chapter, the later lines first, so taking one out doesn't move the others (0.108).
+    std::vector<TypedDate> order(found.begin(), found.end());
+    std::map<Id, size_t> firstAt;
+    for (size_t i = 0; i < order.size(); ++i) firstAt.emplace(order[i].chapter, i);
+    std::stable_sort(order.begin(), order.end(), [&](const TypedDate& a, const TypedDate& b) {
+        const size_t fa = firstAt[a.chapter], fb = firstAt[b.chapter];
+        return fa != fb ? fa < fb : a.index > b.index;
+    });
+    for (const TypedDate& t : order) {
         if (!t.readable) continue;
         const std::string before = lib.nodeContent(t.chapter);
         json doc = json::parse(before, nullptr, false);
         if (!doc.is_object() || !doc.contains("content") || !doc["content"].is_array() || t.index < 0 || t.index >= (int)doc["content"].size()) continue;
         if (trimmed(paragraphText(doc["content"][(size_t)t.index])) != t.text) continue;   // the text changed since it was found
+        if (t.breakIndex >= 0) {
+            // A scene's (0.108): the date on its break, and the line out of the text.
+            if (t.breakIndex >= t.index || doc["content"][(size_t)t.breakIndex].value("type", "") != "scene_break") continue;
+            json& br = doc["content"][(size_t)t.breakIndex];
+            json a = br.contains("attrs") && br["attrs"].is_object() ? br["attrs"] : json::object();
+            if (!a.contains("sid") || !a["sid"].is_string() || a["sid"].get<std::string>().empty()) a["sid"] = newBreakId();
+            a["day"] = (double)(cal::toDay(c, t.date) - span.start);
+            a.erase("time");
+            a.erase("part");
+            if (t.time.minutes >= 0) a["time"] = t.time.minutes;
+            else if (!t.time.part.empty()) a["part"] = t.time.part;
+            br["attrs"] = a;
+            doc["content"].erase((size_t)t.index);
+            done.contentBefore.push_back({t.chapter, before});
+            lib.saveNodeContent(t.chapter, doc.dump());
+            ++done.count;
+            ++done.scenes;
+            continue;
+        }
         doc["content"].erase((size_t)t.index);
         if (doc["content"].empty()) doc["content"].push_back({{"type", "paragraph"}});
         // Its day on the timeline (and its time), the chapter's own.
@@ -347,7 +505,7 @@ Converted convertTypedDates(Library& lib, const Id& book, const std::vector<Type
 }
 
 void undoConverted(Library& lib, const Id& book, const Converted& c) {
-    for (const auto& [id, text] : c.contentBefore) lib.saveNodeContent(id, text);
+    for (auto it = c.contentBefore.rbegin(); it != c.contentBefore.rend(); ++it) lib.saveNodeContent(it->first, it->second);   // the earliest last
     if (c.count) lib.setSetting("timeline:" + book, c.timelineBefore);
 }
 

@@ -201,7 +201,24 @@ json cleanBlock(const json& n, std::vector<std::string>* problems, int depth, bo
         if (!c.empty()) h["content"] = c;
         return h;
     }
-    if (t == "scene_break") return {{"type", "scene_break"}};
+    if (t == "scene_break") {
+        // Its id and its scene's own date (0.108): {sid, day, time | part}.
+        json out = {{"type", "scene_break"}};
+        json a = json::object();
+        if (attrs.contains("sid") && attrs["sid"].is_string()) {
+            const std::string sid = attrs["sid"].get<std::string>();
+            if (!sid.empty() && sid.size() <= 32 && sid.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789") == std::string::npos) a["sid"] = sid;
+        }
+        if (attrs.contains("day") && attrs["day"].is_number() && std::isfinite(attrs["day"].get<double>())) {
+            a["day"] = attrs["day"].get<double>();
+            if (attrs.contains("time") && attrs["time"].is_number_integer() && attrs["time"].get<int>() >= 0 && attrs["time"].get<int>() < 1440)
+                a["time"] = attrs["time"].get<int>();
+            else if (attrs.contains("part") && attrs["part"].is_string() && !attrs["part"].get<std::string>().empty() && attrs["part"].get<std::string>().size() <= 60)
+                a["part"] = attrs["part"].get<std::string>();
+        }
+        if (!a.empty()) out["attrs"] = a;
+        return out;
+    }
     if (t == "image") {
         const std::string blob = attrs.value("blob", "");
         if (blob.size() != 64 || blob.find_first_not_of("0123456789abcdef") != std::string::npos) {

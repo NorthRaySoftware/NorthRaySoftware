@@ -42,7 +42,7 @@ The full list is in `shared/metadata/apps/capture.json` (features) and the relea
 
 ### Implemented
 
-- **Interface size** (0.21.3; since 0.21.4 the body only, the top bar and the bottom strip keeping their size): 50–200%, from Settings › Appearance (presets and a slider) or Ctrl with + / − / 0 and Ctrl with the wheel. Kept on this PC (cjui).
+- **Interface size** (0.21.3; since 0.21.4 the body only, the top bar and the bottom strip keeping their size): 50–200%, from Settings › Appearance (presets and a slider) or Ctrl with + / − / 0 and Ctrl with the wheel. "Also scale the bars along the top and side, menus and messages" (0.22.1, off by default) makes it cover the whole window. Kept on this PC (cjui).
 - **Panels that follow the window** (0.22): when the panels under the preview can't each have about 230 points across (200 in compact layout), they go into rows, filled evenly in their order, and the panel area grows to give each row room (up to 70% of the space). Dividers show only in a single row; in rows, dragging a panel's title onto another swaps them.
 **Video sources**
 - A whole display: Desktop Duplication, with Windows Graphics Capture and a compatibility mode as fallbacks.

@@ -1247,6 +1247,7 @@ Source snapshot(const Library& lib, const Id& bookId) {
             const auto all = lib.manuscriptOf(bookId);
             for (const ManuscriptNode* n : all) {
                 Source::Section& sec = s.sections[i++];
+                sec.breakDates = dates::breakLines(lib, *n, sec.content);   // its breaks' scene dates (0.108)
                 if (n->kind == NodeKind::Scene) {   // a scene's own date, where it differs from its chapter's (5b, 0.106)
                     const ManuscriptNode* ch = lib.node(n->parentId);
                     const auto own = dates::lineFor(lib, *n);
@@ -1928,9 +1929,18 @@ Book typesetBook(const Source& src, const Design& design, const Resources& res) 
             }
             afterBreak = true;
         }
+        size_t breakNo = 0;
         for (const Block& b : blocks) {
             if (b.type == Block::SceneBreak) {
                 addSceneBreak(title);
+                // The scene's own date after it, where it differs from its chapter's and the format asks (0.108).
+                if (breakNo < n->breakDates.size() && n->breakDates[breakNo] && d.chapterDates && n->breakDates[breakNo]->look.sceneDates) {
+                    Source::Section at;
+                    at.dates = *n->breakDates[breakNo];
+                    addDate(at);
+                    space(1);
+                }
+                ++breakNo;
                 afterBreak = true;
                 continue;
             }

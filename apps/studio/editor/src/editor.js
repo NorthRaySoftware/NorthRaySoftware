@@ -80,8 +80,10 @@ export const schema = new Schema({
       toDOM: (n) => ["ol", n.attrs.start === 1 ? {} : { start: n.attrs.start }, 0],
     },
     list_item: { content: "paragraph block*", defining: true, parseDOM: [{ tag: "li" }], toDOM: () => ["li", 0] },
+    // A scene break can carry its scene's own date (0.108): sid (its id), day (from the timeline's start), time or part.
     scene_break: {
       group: "block", atom: true, selectable: true,
+      attrs: { sid: { default: null }, day: { default: null }, time: { default: null }, part: { default: null } },
       parseDOM: [{ tag: "hr" }], toDOM: () => ["div", { class: "scene-break", contenteditable: "false" }, ["span", "*  *  *"]],
     },
     image: {
@@ -178,6 +180,142 @@ class ImageView {
   }
   stopEvent() { return false; }
   ignoreMutation() { return true; }
+}
+
+// A scene break (0.108): its mark, and under it the scene's own date when it has one, written as the book prints it (the
+// app sends the lines in the chapter's head, by "day|time|part"). Clicking the date opens its date in the app.
+const breakViews = new Set();
+const sceneKey = (a) => (a.day == null ? "" : String(a.day) + "|" + (a.time == null ? "" : String(a.time)) + "|" + (a.part == null ? "" : String(a.part)));
+function newSid() {
+  const c = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let s = "";
+  const r = new Uint32Array(12);
+  (window.crypto || { getRandomValues: (a) => a.map(() => Math.random() * 4294967296) }).getRandomValues(r);
+  for (const v of r) s += c[v % 36];
+  return s;
+}
+// The n-th break (1-based) and its scene's number (n + 1), with its id given now if it had none.
+function breakInfo(pos) {
+  if (!view || pos == null) return null;
+  let node = view.state.doc.nodeAt(pos);
+  if (!node || node.type !== schema.nodes.scene_break) return null;
+  if (!node.attrs.sid && !readOnly) {
+    view.dispatch(view.state.tr.setNodeMarkup(pos, null, { ...node.attrs, sid: newSid() }).setMeta("addToHistory", false));
+    node = view.state.doc.nodeAt(pos);
+  }
+  let n = 0;
+  view.state.doc.descendants((x, p) => {
+    if (x.type === schema.nodes.scene_break && p <= pos) n++;
+    return !x.isTextblock;
+  });
+  const a = node.attrs;
+  return { sid: a.sid || "", scene: n + 1, day: a.day, time: a.time, part: a.part };
+}
+class BreakView {
+  constructor(node, v, getPos) {
+    this.getPos = getPos;
+    this.dom = document.createElement("div");
+    this.dom.className = "scene-break";
+    this.dom.contentEditable = "false";
+    const mark = document.createElement("span");
+    mark.textContent = "*  *  *";
+    this.date = document.createElement("div");
+    this.date.className = "sdate";
+    this.date.title = "This scene's own date: click to change it";
+    this.date.addEventListener("mousedown", (e) => e.preventDefault());
+    this.date.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const i = breakInfo(this.getPos());
+      if (i) { flush(); send({ type: "breakWhen", ...i }); }
+    });
+    this.dom.append(mark, this.date);
+    breakViews.add(this);
+    this.update(node);
+  }
+  update(node) {
+    if (node.type !== schema.nodes.scene_break) return false;
+    this.node = node;
+    this.render();
+    return true;
+  }
+  render() {
+    const a = this.node.attrs, line = a.day == null ? null : chapterHead && chapterHead.sceneLines && chapterHead.sceneLines[sceneKey(a)];
+    this.date.replaceChildren();
+    this.date.hidden = !line;
+    if (!line) return;
+    const parts = (list) => {
+      const s = document.createElement("span");
+      s.className = "cline";
+      for (const p of Array.isArray(list) ? list : []) {
+        const x = document.createElement("span");
+        x.textContent = String(p.t || "");
+        x.style.fontWeight = p.b ? "700" : "400";
+        x.style.fontStyle = p.i === false ? "normal" : "italic";
+        if (p.c === "small") x.style.fontVariant = "small-caps";
+        else if (p.c === "upper") x.style.textTransform = "uppercase";
+        s.append(x);
+      }
+      return s;
+    };
+    if (Array.isArray(line.dateParts) && line.dateParts.length) this.date.append(parts(line.dateParts));
+    else { const s = document.createElement("span"); s.className = "cline"; s.textContent = String(line.date || ""); this.date.append(s); }
+    if (Array.isArray(line.timeParts) && line.timeParts.length) { const t = parts(line.timeParts); t.classList.add("ctime"); this.date.append(t); }
+    this.date.style.textAlign = ["left", "center", "right"].includes(line.align) ? line.align : "center";
+  }
+  destroy() { breakViews.delete(this); }
+  stopEvent(e) { return !!(e.target.closest && e.target.closest(".sdate")); }
+  ignoreMutation() { return true; }
+}
+function renderBreaks() { for (const b of breakViews) b.render(); }
+// Every break keeps an id of its own: one pasted or copied in a second time gets a new one (its date goes with it).
+const breakIds = new Plugin({
+  appendTransaction(trs, _old, state) {
+    if (!trs.some((t) => t.docChanged)) return null;
+    const seen = new Set();
+    let tr = null;
+    state.doc.descendants((x, p) => {
+      if (x.type === schema.nodes.scene_break && x.attrs.sid) {
+        if (seen.has(x.attrs.sid)) { tr = tr || state.tr; tr.setNodeMarkup(p, null, { ...x.attrs, sid: newSid() }); }
+        else seen.add(x.attrs.sid);
+      }
+      return !x.isTextblock;
+    });
+    return tr ? tr.setMeta("addToHistory", false) : null;
+  },
+});
+// The app set a scene's date (0.108): on the break with that id, and its line for showing.
+function setBreakDate(msg) {
+  if (!view || readOnly) return;
+  if (msg.key && msg.line && chapterHead) { chapterHead.sceneLines = chapterHead.sceneLines || {}; chapterHead.sceneLines[msg.key] = msg.line; }
+  let at = -1;
+  view.state.doc.descendants((x, p) => {
+    if (at < 0 && x.type === schema.nodes.scene_break && x.attrs.sid === msg.sid) at = p;
+    return at < 0 && !x.isTextblock;
+  });
+  if (at < 0) return;
+  const node = view.state.doc.nodeAt(at);
+  const a = msg.attrs || {};
+  view.dispatch(view.state.tr.setNodeMarkup(at, null, { ...node.attrs, day: typeof a.day === "number" ? a.day : null,
+    time: Number.isInteger(a.time) ? a.time : null, part: typeof a.part === "string" && a.part ? a.part : null }));
+  renderBreaks();
+}
+// The outline's scene row: the n-th scene's start, in view.
+function goToScene(n) {
+  if (!view) return;
+  const scroller = document.getElementById("scroller");
+  if (!(n > 1)) { scroller.scrollTo({ top: 0, behavior: "smooth" }); view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc))); view.focus(); return; }
+  let k = 0, at = -1;
+  view.state.doc.descendants((x, p) => {
+    if (at < 0 && x.type === schema.nodes.scene_break && ++k === n - 1) at = p;
+    return at < 0 && !x.isTextblock;
+  });
+  if (at < 0) return;
+  const dom = view.nodeDOM(at);
+  const after = Math.min(view.state.doc.content.size, at + view.state.doc.nodeAt(at).nodeSize + 1);
+  try { view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(after)))); } catch (e) { /* the end */ }
+  if (dom && dom.scrollIntoView) dom.scrollIntoView({ block: "start", behavior: "smooth" });
+  view.focus();
 }
 
 // ------------------------------------------------------------------- words
@@ -844,7 +982,7 @@ function setHead(h) {
   meta.replaceChildren();
   dateLine.hidden = true;
   dateLine.replaceChildren();
-  if (!chapterHead) return;
+  if (!chapterHead) { renderBreaks(); return; }
   const hd = chapterHead.header;
   const pick = (v, list, d) => (list.includes(v) ? v : d);
   if (hd && typeof hd.blob === "string" && /^[0-9a-f]{64}$/.test(hd.blob)) {
@@ -921,6 +1059,7 @@ function setHead(h) {
     dateLine.hidden = false;
   }
   if (chips.length) { meta.append(...chips); meta.hidden = false; }
+  renderBreaks();   // the scenes' own dates under their breaks (0.108)
   requestAnimationFrame(() => placeCaret());   // the text moved down or up
   img.onload = () => placeCaret();
 }
@@ -1549,7 +1688,7 @@ function parseDoc(json) {
 function makeState(docJSON, id) {
   let doc = parseDoc(docJSON);
   if (!doc) doc = schema.node("doc", null, [schema.node("paragraph")]);
-  const plugins = [rules, keymap(keys), keymap(baseKeymap), history({ depth: 200 }), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, placeholder, commentLook, focusLook, hereLook, lookups, foundLook, comicLook];
+  const plugins = [rules, keymap(keys), keymap(baseKeymap), history({ depth: 200 }), dropCursor({ color: "var(--accent)" }), gapCursor(), watcher, breakIds, placeholder, commentLook, focusLook, hereLook, lookups, foundLook, comicLook];
   // Earlier versions kept from before: start from the oldest and step forward to the text as it is now.
   const older = (id ? store.get(UNDO_PREFIX + id, []) : []).map(parseDoc).filter(Boolean).filter((d) => !d.eq(doc));
   if (!older.length) return EditorState.create({ doc, plugins });
@@ -1585,7 +1724,7 @@ function load(msg) {
       state,
       editable: () => !readOnly,
       attributes: { spellcheck: viewSettings.spellcheck ? "true" : "false", "aria-label": "Manuscript text" },
-      nodeViews: { image: (node) => new ImageView(node) },
+      nodeViews: { image: (node) => new ImageView(node), scene_break: (node, v, getPos) => new BreakView(node, v, getPos) },
       handleDOMEvents: {
         blur: () => { flush(); requestAnimationFrame(placeCaret); return false; },
         focus: () => { requestAnimationFrame(placeCaret); return false; },
@@ -1761,6 +1900,8 @@ function receive(msg) {
   else if (msg.type === "title") { document.getElementById("title").textContent = msg.title || ""; setChapName(msg.title); }
   else if (msg.type === "theme") setTheme(!!msg.dark);
   else if (msg.type === "head") setHead(msg.head);
+  else if (msg.type === "breakDate") setBreakDate(msg);
+  else if (msg.type === "goToScene") goToScene(msg.scene | 0);
   else if (msg.type === "image") insertImage(msg.blob, msg.alt, msg.width);
   else if (msg.type === "setPicture") setPicture(msg.pos, msg.attrs || {});
   else if (msg.type === "removePicture") removePicture(msg.pos);
@@ -1919,6 +2060,13 @@ setTheme(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").
 // opens can offer "Add “Maren” to the bible".
 document.addEventListener("mousedown", (e) => {
   if (e.button !== 2 || !view || !view.dom.contains(e.target)) return;
+  // On a scene break (0.108): the menu offers "Set this scene's date…".
+  {
+    const b = e.target.closest && e.target.closest(".scene-break");
+    let info = null;
+    if (b) for (const v of breakViews) if (v.dom === b) { info = breakInfo(v.getPos()); break; }
+    send({ type: "contextBreak", ...(info || { sid: "" }) });
+  }
   let text = "";
   const sel = view.state.selection;
   const hit = view.posAtCoords({ left: e.clientX, top: e.clientY });

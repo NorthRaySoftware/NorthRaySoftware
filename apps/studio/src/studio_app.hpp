@@ -10,6 +10,7 @@
 
 #include "cjui/window.hpp"
 #include "cjui/icons.hpp"
+#include "studio/chapter_dates.hpp"
 #include "studio/conlang.hpp"
 #include "studio/cover.hpp"
 #include "studio/ebook.hpp"
@@ -102,6 +103,7 @@ struct Settings {
     std::string lastBook, lastNode;
     bool lastInWriting = false;
     bool writingDetails = false;
+    bool outlineScenes = true;    // Writing's outline lists each chapter's scenes under it, with their dates (0.108)
     bool typesetDesign = true;    // Typesetting's design choices shown in a card (0.71)
     bool previewChoices = true;   // Preview's device and reader's settings shown in a card (0.71)   // Writing shows the chapter's details in a card (0.70; F4)
     bool entryList = false;   // Worldbuilding shows entries as a list of rows rather than cards (0.59)
@@ -570,6 +572,28 @@ private:
     std::string lastHead_;
     std::vector<ToolItem> headerTools(const Id& node);
     void editWhenInWriting();
+    // A scene's own date at its scene break (0.108, studio_headers.cpp). The break right-clicked in the text, and the one
+    // whose date is open in the details card (focus: the chapter, contextSeries "break:<sid>").
+    struct BreakAt { std::string sid; int scene = 0; bool dated = false; double day = 0; int minutes = -1; std::string part; };
+    BreakAt contextBreak_, breakAt_;
+    Id pendingSceneAsk_;                 // the book to ask, once, about printing scene dates
+    static constexpr UINT_PTR kSceneAskTimer = 13;
+    // The outline's scene rows (0.108): each chapter's scenes, kept until its text, the timeline or the dates change.
+    struct SceneRows { bool filled = false; std::int64_t modified = 0; std::size_t key = 0; std::vector<studio::dates::Scene> scenes; };
+    std::map<Id, SceneRows> sceneCache_;
+    int pendingScene_ = 0;               // a scene row clicked in another chapter: shown once its text has loaded
+    bool breakFocused() const { return focus_.kind == Focus::Node && focus_.contextSeries.rfind("break:", 0) == 0; }
+    static BreakAt breakFrom(const nlohmann::json& m);
+    nlohmann::json sceneLineJson(const studio::ManuscriptNode& n, const std::string& attrsJson);
+    static std::string sceneKey(double day, int minutes, const std::string& part);
+    void openBreakWhen(const BreakAt& b);
+    void drawBreakPanel(const Rect& c, float& y, const studio::ManuscriptNode& n);
+    void loadBreakFields();
+    void commitBreakFields();
+    void askSceneDatesSoon(const Id& book);
+    void askSceneDates();
+    // The number of a scene page (an import's) among its chapter's scenes, for "Scene 2 of The Harbour".
+    int sceneNumberOf(const studio::ManuscriptNode& n) const;
     // A moon's disc lit by its phase (0 new, 0.5 full): waxing lit from the right, waning from the left.
     void drawMoonDisc(float cx, float cy, float rad, double phase);
     // A small calendar page: the month's name over the day, for a date on a card (0.87).

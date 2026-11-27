@@ -1842,3 +1842,7 @@ Phase 2c of the director's combined request (responsive layouts), Capture's part
 - `ncap::Layout::arrange(w, h, gap, minW)` (capturecore, unit-tested): one row at the panels' widths while each gets `minW`; otherwise as many per row as fit at `minW`, the rows filled evenly in order, sharing the height, and each row's panels sharing its width by their widths. A lone panel never wraps.
 - `drawFrame` decides in the zoomed body: `minW` 230 (200 compact). With more than one row the dock grows to `rows × 200` (170 compact) plus gaps, at most 70% of the space, taking the room from the preview; the saved `dockHeight` is unchanged. Dividers (`vSplits_`) only in one row. `dockWrapped_`: dragging a header over another panel swaps them (`Layout::move` by the index difference) instead of the left/right rule.
 - Tested: capturecore tests (arrange: one row, two rows of two, one per row, five as 3 + 2, a lone panel, an empty dock); cross-compiled. Not run on Windows.
+
+## 71. 0.22.1: Interface size for the whole window (suite 0.185.0, 27 Nov 2026)
+
+Settings › Interface size gains cjui's "Also scale the bars along the top and side, menus and messages" tick box (in `zoomControl`). The preview's handles and guides take `gfx_.dpiScale() * contentZoom()`, so they aren't scaled twice when it's on. Cross-compiled; not run on Windows.

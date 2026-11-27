@@ -1,6 +1,13 @@
 {
   "releases": [
     {
+      "version": "0.22.1",
+      "date": "2026-11-27",
+      "notes": [
+        "Settings › Interface size has a new option, off by default: “Also scale the bars along the top and side, menus and messages”. With it on, the size you choose covers the whole window, its menus and its messages."
+      ]
+    },
+    {
       "version": "0.22.0",
       "date": "2026-11-26",
       "notes": [

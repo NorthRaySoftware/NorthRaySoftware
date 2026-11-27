@@ -538,3 +538,10 @@ article { max-width: var(--page-width, 44rem); margin: 36px auto 120px; backgrou
 
 /* Calmer hints (0.49): thinner, and not shown at all in the paragraph you're writing in (spelling stays). */
 .ProseMirror .here .hint:not(.hint-spell) { text-decoration-line: none; }
+
+/* A scene's own date under its break (0.108): as the book prints it; click to change it. */
+.ProseMirror .scene-break .sdate { letter-spacing: normal; color: var(--ink, inherit); margin-top: .5em; cursor: pointer; font-size: .95em; }
+.ProseMirror .scene-break .sdate[hidden] { display: none; }
+.ProseMirror .scene-break .sdate .cline { display: block; }
+.ProseMirror .scene-break .sdate .ctime { display: block; font-size: .9em; opacity: .85; }
+.ProseMirror .scene-break .sdate:hover { color: var(--accent); }

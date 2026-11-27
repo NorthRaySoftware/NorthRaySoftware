@@ -1446,6 +1446,9 @@ void BrowserWindow::showMenu() {
             for (size_t i = 0; i < steps.size(); ++i)
                 z.push_back(MenuItem::item(std::to_wstring((int)std::lround(steps[i] * 100)) + L"%" + (steps[i] == 1.0f ? L" (default)" : L""),
                                            CmdZoomBase + (UINT)i, i == 5 ? L"Ctrl+Alt+0" : L"", true, std::fabs(steps[i] - interfaceZoom()) < 0.005f));
+            // Suite 0.185: the tab strip, address bar, menus and messages too (off by default).
+            z.push_back(MenuItem::sep());
+            z.push_back(MenuItem::item(L"Also scale the tabs, address bar, menus and messages", CmdZoomBase + 50, {}, true, scalesWholeWindow()));
             return z;
         }()),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
@@ -1466,6 +1469,7 @@ void BrowserWindow::showMenu() {
     const UINT cmd = cjui::showMenu(hwnd(), items, pt, pal_, cjui::MenuAnchor::TopRight);
     const std::wstring& settingsPath = settingsPath_;
     if (cmd >= CmdZoomBase && cmd < CmdZoomBase + (UINT)cjui::zoomSteps().size()) { setInterfaceZoom(cjui::zoomSteps()[cmd - CmdZoomBase]); return; }
+    if (cmd == CmdZoomBase + 50) { setScaleWholeWindow(!scalesWholeWindow()); return; }
     if (cmd == CmdNewTab) newTab(L"", true, false);
     else if (cmd == CmdReopen) reopenClosedTab();
     else if (cmd == CmdHistory) showHistoryPage();

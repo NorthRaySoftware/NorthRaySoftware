@@ -279,9 +279,69 @@ std::vector<std::pair<std::string, std::string>> agesOfEntry(const Library& lib,
 }
 
 namespace {
+// Paragraphs that aren't the story's words though they're typed as paragraphs (0.108), as books imported from elsewhere
+// have them: a scene-break mark ("* * *", "#", "~", "⁂": no letters or digits), the chapter's own title again, a
+// heading ("CHAPTER THREE", "Chapter 3", "Prologue", "Part Two: Ash"; short, with no sentence's end), or a line in bold alone.
+std::string lowerAscii(std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; }
+std::string trimmedText(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && std::isspace((unsigned char)s[a])) ++a;
+    while (b > a && std::isspace((unsigned char)s[b - 1])) --b;
+    return s.substr(a, b - a);
+}
+bool notStory(const nlohmann::json& para, const std::string& line, const std::string& title) {
+    const std::string t = trimmedText(line);
+    // Only marks: spaces, ASCII punctuation and symbol or ornament characters (U+2000–2BFF, U+2E00–2E7F, U+3000–303F),
+    // so a short line in Greek or Japanese still counts as words.
+    bool onlyMarks = !t.empty();
+    for (size_t i = 0; i < t.size() && onlyMarks;) {
+        const unsigned char c = (unsigned char)t[i];
+        if (c < 0x80) { if (std::isalnum(c)) onlyMarks = false; ++i; continue; }
+        uint32_t cp = 0; int n = 0;
+        if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 1; } else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 2; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 3; }
+        for (int k = 1; k <= n && i + k < t.size(); ++k) cp = (cp << 6) | ((unsigned char)t[i + k] & 0x3F);
+        i += n + 1;
+        const bool mark = (cp >= 0x2000 && cp <= 0x2BFF) || (cp >= 0x2E00 && cp <= 0x2E7F) || (cp >= 0x3000 && cp <= 0x303F) ||
+                          cp == 0xA0 || cp == 0xA7 || cp == 0xB6 || cp == 0xB7 || (cp >= 0x1F300 && cp <= 0x1FAFF);
+        if (!mark) onlyMarks = false;
+    }
+    if (onlyMarks && t.size() <= 40) return true;
+    if (!title.empty() && lowerAscii(t) == lowerAscii(trimmedText(title))) return true;
+    const bool endsSentence = !t.empty() && (t.back() == '.' || t.back() == '!' || t.back() == '?' || t.back() == '"' ||
+                                             t.compare(t.size() >= 3 ? t.size() - 3 : 0, 3, "\xE2\x80\x9D") == 0);
+    size_t words = 0;
+    for (size_t i = 0; i < t.size();) {
+        while (i < t.size() && t[i] == ' ') ++i;
+        if (i < t.size()) ++words;
+        while (i < t.size() && t[i] != ' ') ++i;
+    }
+    if (t.size() <= 60 && !endsSentence) {
+        const std::string l = lowerAscii(t);
+        for (const char* w : {"chapter ", "chapter\t", "prologue", "epilogue", "part ", "book ", "interlude", "act "})
+            if (l.rfind(w, 0) == 0) return true;
+        bool upper = false, lower = false;
+        for (unsigned char c : t) { if (std::isupper(c)) upper = true; if (std::islower(c)) lower = true; }
+        if (upper && !lower && words <= 8) return true;   // CHAPTER THREE, THE HARBOUR
+    }
+    // A short line all in bold (a heading typed as bold text).
+    if (words <= 12 && !endsSentence && para.contains("content") && para["content"].is_array() && !para["content"].empty()) {
+        bool allBold = true;
+        for (const auto& x : para["content"]) {
+            if (x.value("type", "") != "text") continue;
+            bool bold = false;
+            if (x.contains("marks") && x["marks"].is_array())
+                for (const auto& m : x["marks"]) if (m.value("type", "") == "strong") bold = true;
+            if (!bold && x.value("text", "").find_first_not_of(" ") != std::string::npos) { allBold = false; break; }
+        }
+        if (allBold) return true;
+    }
+    return false;
+}
+
 // A chapter's text as excerpts may quote it (0.94): its paragraphs only, one per line, without headings, scene-break
 // marks, picture captions, draft notes or date lines ("12 Harvestmoon 1450"), so a passage is always the story's words.
-void quotableParas(const nlohmann::json& n, std::string& out) {
+void quotableParas(const nlohmann::json& n, std::string& out, const std::string& title = {}) {
     const std::string t = n.value("type", "");
     if (t == "paragraph") {
         std::string line;
@@ -291,22 +351,22 @@ void quotableParas(const nlohmann::json& n, std::string& out) {
             if (x.contains("content") && x["content"].is_array()) for (const auto& c : x["content"]) text(c);
         };
         text(n);
-        if (line.find_first_not_of(" \t") == std::string::npos || typeset::looksLikeDateLine(line)) return;
+        if (line.find_first_not_of(" \t") == std::string::npos || typeset::looksLikeDateLine(line) || notStory(n, line, title)) return;
         if (!out.empty()) out += "\n\n";
         out += line;
     } else if (t == "heading" || t == "scene_break" || t == "image") {
         return;
     } else if (n.contains("content") && n["content"].is_array()) {
-        for (const auto& c : n["content"]) quotableParas(c, out);
+        for (const auto& c : n["content"]) quotableParas(c, out, title);
     }
 }
 }  // namespace
 
-std::string quotableText(const std::string& docJson) {
+std::string quotableText(const std::string& docJson, const std::string& title) {
     const nlohmann::json d = nlohmann::json::parse(doc::withoutDraftNotes(docJson), nullptr, false);
     std::string out;
     if (d.is_object() && d.contains("content") && d["content"].is_array())
-        for (const auto& c : d["content"]) quotableParas(c, out);
+        for (const auto& c : d["content"]) quotableParas(c, out, title);
     return out;
 }
 
@@ -340,7 +400,7 @@ std::vector<Excerpt> excerptsOf(const Library& lib, const View& view, const Entr
             const bool nobody = n->povId.empty() && (c == cast.end() || c->second.empty());
             if (!inIt && !(fromText && nobody)) continue;
             auto t = texts.find(n->id);
-            if (t == texts.end()) t = texts.emplace(n->id, quotableText(lib.nodeContent(n->id))).first;
+            if (t == texts.end()) t = texts.emplace(n->id, quotableText(lib.nodeContent(n->id), n->title)).first;
             // The passage that first names them there, or, when the text doesn't name them, its opening lines.
             const auto spans = findNames(t->second, just);
             if (!inIt && spans.empty()) continue;

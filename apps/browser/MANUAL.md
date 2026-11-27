@@ -38,7 +38,7 @@ Status labels used in this manual:
 
 ### Implemented (0.1 to 0.9.4)
 
-- **Interface size** (0.9.3; the browser's own pages only since 0.9.4, the tabs, toolbar and bookmarks bar keeping their size): 50–200%, from the menu's Interface size or Ctrl+Alt with + / − / 0; Ctrl with + / − / 0 still zoom the web page. Kept on this PC (cjui).
+- **Interface size** (0.9.3; the browser's own pages only since 0.9.4, the tabs, toolbar and bookmarks bar keeping their size): 50–200%, from the menu's Interface size or Ctrl+Alt with + / − / 0; Ctrl with + / − / 0 still zoom the web page. The menu's "Also scale the tabs, address bar, menus and messages" (0.9.6, off by default) makes it cover the whole window. Kept on this PC (cjui).
 - **Pages that follow the window** (0.9.5): the browser's own pages keep to one column with grids that add columns as they widen; Bookmarks hides its folder tree under 760 points and, when narrow, puts Export, Import and New folder on a row under the title.
 **Tabs and windows**
 - Open, close and reopen tabs; middle-click closes. The wheel over the strip switches tabs.

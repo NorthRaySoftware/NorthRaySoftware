@@ -238,7 +238,7 @@ int runBox(Dialog& d, HWND /*owner*/, const std::wstring& /*text*/, const std::w
         return fallback();
     }
     SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
-    UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
+    UINT dpi = d.owner ? uiDpiOf(d.owner) : 96;   // (0.185)
     if (!dpi) dpi = 96;
     d.scale = dpi / 96.0f;
     // Drawn at the display's scale, so what's seen is where clicks land (without this, at 125% or 150%
@@ -362,7 +362,7 @@ bool askText(HWND owner, const std::wstring& title, const std::wstring& text, st
     d.hwnd = CreateWindowExW(0, L"CJUIAskText", title.c_str(), WS_POPUP, 0, 0, 10, 10, d.owner, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!d.hwnd || !d.gfx.init(d.hwnd)) { if (d.hwnd) DestroyWindow(d.hwnd); return false; }
     SetWindowLongPtrW(d.hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&d));
-    UINT dpi = d.owner ? GetDpiForWindow(d.owner) : 96;
+    UINT dpi = d.owner ? uiDpiOf(d.owner) : 96;   // (0.185)
     if (!dpi) dpi = 96;
     d.scale = dpi / 96.0f;
     d.gfx.setDpi(dpi);

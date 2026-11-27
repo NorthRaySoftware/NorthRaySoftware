@@ -35,7 +35,7 @@ Status labels used in this manual:
 
 ### Implemented (0.1 to 0.9.4)
 
-- **Interface size** (0.9.3; since 0.9.4 the panes and preview only, the sidebar and toolbar keeping their size): 50–200%, from the menu's Interface size, Ctrl with + / − / 0, or Ctrl and the wheel away from the files (over the files in Icons and Gallery it still sizes the tiles). Kept on this PC (cjui).
+- **Interface size** (0.9.3; since 0.9.4 the panes and preview only, the sidebar and toolbar keeping their size): 50–200%, from the menu's Interface size, Ctrl with + / − / 0, or Ctrl and the wheel away from the files (over the files in Icons and Gallery it still sizes the tiles). The menu's "Also scale the bars, menus and messages" (0.9.5, off by default) makes it cover the whole window. Kept on this PC (cjui).
 - **Panes that follow the window**: the sidebar shows from 760 points across; in the zoomed panes the preview needs 760 and two panes 700, otherwise they give way to the files; Details drops columns that don't fit.
 **Browsing**
 - Sidebar: Home, Desktop, Documents, Downloads, Pictures, Music, Videos, This PC, pinned folders, the Recycle Bin, collections and labels. It can be resized.

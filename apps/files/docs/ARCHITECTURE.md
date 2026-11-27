@@ -328,3 +328,7 @@ and drag and drop with File Explorer. The Shell context menu (`IContextMenu`) be
 
 (Updated for 0.5.0.), thumbnails in Icons view only (none in Details), no network locations
 in the sidebar, no column resizing, no drag and drop to or from other apps, and no UI Automation for screen readers.
+
+## Interface size for the whole window (0.9.5, suite 0.185.0)
+
+The menu's Interface size ends with "Also scale the bars, menus and messages" (`kCmdZoomBase + 50`), toggling cjui's whole-window scaling. Cross-compiled; not run on Windows.

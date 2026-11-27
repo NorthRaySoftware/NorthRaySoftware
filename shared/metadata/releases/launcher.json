@@ -1,6 +1,14 @@
 {
   "releases": [
     {
+      "version": "0.185.0",
+      "date": "2026-11-27",
+      "notes": [
+        "Brings Writing Studio 0.108.0: scene dates, set by right-clicking a scene break or converted from typed date lines, shown under the break in Writing, listed in the outline and printed if you choose. Bible quotes use the story's words only.",
+        "Brings NorthRay Capture 0.22.1, NorthRay Browser 0.9.6 and NorthRay Files 0.9.5: Interface size can also scale the bars, menus and messages (off by default). The Launcher's own Settings has the same option."
+      ]
+    },
+    {
       "version": "0.184.0",
       "date": "2026-11-26",
       "notes": [

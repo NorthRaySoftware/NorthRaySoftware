@@ -37,7 +37,7 @@ Status labels used in this manual:
 
 ### Implemented
 
-- **Interface size** (0.172; the page only since 0.174, the nav and top strip keeping their size): 50–200%, from Settings › Appearance or Ctrl with + / − / 0 and the wheel. Kept on this PC. The same engine is in every app (cjui).
+- **Interface size** (0.172; the page only since 0.174, the nav and top strip keeping their size): 50–200%, from Settings › Appearance or Ctrl with + / − / 0 and the wheel. "Also scale the bars along the top and side, menus and messages" (0.185, off by default) makes it cover the whole window. Kept on this PC. The same engine is in every app (cjui).
 - **A page that follows the window** (0.176): app cards put their buttons underneath under 700 points; the library's banner puts its counts and Update all under its words under 640; an app's page puts Uninstall under its buttons there, and shows screenshots one to a row under 560, two under 860.
 **Library (home page)**
 - Big app cards: art, version, Open and Update. They show "updated <date>" from the installed program's file date, and an update badge on the art's corner.

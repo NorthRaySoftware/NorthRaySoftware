@@ -237,3 +237,7 @@ The roadmap's "sync: none, local only (export/import file)".
 ## 12. Narrow pages (0.9.5, suite 0.176.0)
 
 Phase 2c (responsive layouts). The browser's own pages were already one column (Start 900, History and Downloads 960, Bookmarks 1080, reference boards 1180 across) with tile and board grids working out their columns, and Bookmarks drops its folder tree under 760. New: when the title, "Bookmarks", and the three actions don't fit on one line, the actions go on a row under the count (`actionsUnder`). Cross-compiled; not run on Windows.
+
+## 13. Interface size for the whole window (0.9.6, suite 0.185.0)
+
+The menu's Interface size ends with "Also scale the tabs, address bar, menus and messages" (`CmdZoomBase + 50`, ticked from `scalesWholeWindow()`), which toggles cjui's whole-window scaling. The address bar's font already follows `gfx_.dpiScale()`, so it scales with it. Cross-compiled; not run on Windows.

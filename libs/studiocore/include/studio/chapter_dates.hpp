@@ -68,6 +68,34 @@ Format formatFor(const Library& lib, const Id& book, const Id& chapter);   // it
 // day, else its first placed scene's). A scene's carries its chapter's format.
 std::optional<Lines> lineFor(const Library& lib, const ManuscriptNode& n);
 
+// ------------------------------------------- a scene's own date at its break (0.108)
+
+// A scene break in the text can carry its scene's date: attrs {"sid": its id, "day": days from the timeline's start (as
+// the timeline counts), "time": minutes or "part": a part of the day}. The scenes of a chapter (or any text) with breaks:
+// scene 1 opens it, scene n + 1 follows the n-th break (in the order they come, lists and quotes included).
+struct Scene {
+    int number = 1;
+    std::string sid;                    // the break's id ("" for scene 1, or a break saved before 0.108)
+    bool dated = false;                 // the break has a date of its own
+    std::optional<Lines> line;          // its date line (scene 1: the chapter's)
+    bool differs = false;               // dated, and not the chapter's date and time
+    double day = 0;                     // when dated: as stored
+    cal::TimeOfDay time;
+};
+// The scenes of `n`'s text (`content`, else its saved text). Empty when the text has no scene breaks.
+std::vector<Scene> scenesOf(const Library& lib, const ManuscriptNode& n, const std::string& content = {});
+// A break's date line from its attrs, written in its chapter's format (nullopt: undated, or no calendar dates).
+std::optional<Lines> breakLine(const Library& lib, const ManuscriptNode& n, const std::string& attrsJson);
+// The date lines to print after each break of a text, in order: set where the scene's date differs from its chapter's.
+std::vector<std::optional<Lines>> breakLines(const Library& lib, const ManuscriptNode& n, const std::string& content);
+std::string newBreakId();               // a fresh break id (12 lower-case letters and digits)
+// "A scene's own date at its scene break": the book's format's look, and every chapter's own format's.
+bool printsSceneDates(const Library& lib, const Id& book);
+void setPrintsSceneDates(Library& lib, const Id& book, bool on);
+// Whether the writer has been asked once to print scene dates (remembered with the book's dates).
+bool askedSceneDates(const Library& lib, const Id& book);
+void setAskedSceneDates(Library& lib, const Id& book);
+
 // ------------------------------------------- typed date lines (5c, 0.107)
 
 // A chapter whose text opens with a date line typed into it ("12 Harvestmoon 1450 SE", "Tuesday, 3 Frostmoon 1204, at
@@ -76,6 +104,9 @@ struct TypedDate {
     Id chapter;
     std::string title;
     int index = -1;                     // the paragraph, in the document's top-level content
+    // 0.108: a date line straight after a scene break: the break's top-level index and its scene's number (else -1, 1).
+    int breakIndex = -1;
+    int scene = 1;
     std::string text;
     bool readable = false;
     cal::Date date;
@@ -84,13 +115,15 @@ struct TypedDate {
     std::string current;                // the chapter's date on the timeline now ("" none)
     std::string why;                    // not readable: why
 };
-// Every chapter's (or those in `only`) typed opening date line. Readable only when the book's timeline counts in its
+// Every chapter's (or those in `only`) typed opening date line, and (0.108) each typed line straight after a scene break. Readable only when the book's timeline counts in its
 // calendar's dates.
 std::vector<TypedDate> findTypedDates(const Library& lib, const Id& book, const std::vector<Id>& only = {});
-// Puts each readable one's date (and time) on the timeline as the chapter's own and takes the line out of its text.
+// Puts each readable one's date (and time) on the timeline as the chapter's own (or on its break as the scene's) and takes
+// the line out of its text.
 // What it changed, for undoing.
 struct Converted {
     int count = 0;
+    int scenes = 0;                     // of them, scenes' dates on their breaks (0.108)
     std::string timelineBefore;
     std::vector<std::pair<Id, std::string>> contentBefore;
 };

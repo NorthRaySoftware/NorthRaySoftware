@@ -1230,6 +1230,9 @@ void FilesWindow::showMenu() {
             for (size_t i = 0; i < steps.size(); ++i)
                 z.push_back(MenuItem::item(std::to_wstring((int)std::lround(steps[i] * 100)) + L"%" + (steps[i] == 1.0f ? L" (default)" : L""),
                                            kCmdZoomBase + (UINT)i, i == 5 ? L"Ctrl+0" : L"", true, std::fabs(steps[i] - interfaceZoom()) < 0.005f));
+            // Suite 0.185: the bars, menus and messages too (off by default).
+            z.push_back(MenuItem::sep());
+            z.push_back(MenuItem::item(L"Also scale the bars, menus and messages", kCmdZoomBase + 50, {}, true, scalesWholeWindow()));
             return z;
         }()),
         MenuItem::sub(L"Theme", {MenuItem::item(L"As Windows", CmdThemeSystem, {}, true, settings_.theme == Theme::System),
@@ -1285,6 +1288,7 @@ void FilesWindow::showMenu() {
         default:
             // Interface size (suite 0.172).
             if (cmd >= kCmdZoomBase && cmd < kCmdZoomBase + (UINT)cjui::zoomSteps().size()) setInterfaceZoom(cjui::zoomSteps()[cmd - kCmdZoomBase]);
+            else if (cmd == kCmdZoomBase + 50) setScaleWholeWindow(!scalesWholeWindow());
             break;
     }
     invalidate();

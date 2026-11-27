@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.108.0",
+      "date": "2026-11-27",
+      "notes": [
+        "A scene can have its own date. Right-click a scene break in Writing and choose Set this scene's date…: the details card shows “Scene 2 of” its chapter, with the same Date and Time of day boxes as a chapter's. Once set, the date shows under the break, written as the book prints it, and clicking it opens the date again.",
+        "Typed date lines straight after a scene break (“13/03/1450 | The Second Era”) are found too, beside the ones at the start of chapters. The same preview lists each with its scene, and Undo puts the lines back.",
+        "The first time a scene gets a date that isn't its chapter's, Writing Studio asks once whether to print scene dates at their breaks. Typesetting › Chapter dates keeps the setting. When it's on, the book, ebook and Word document print the scene's date under its break.",
+        "Writing's outline lists each chapter's scenes under it, with each scene's date when it differs from the chapter's. Clicking a scene goes to it. Hide scenes, at the top of the outline, puts them away.",
+        "The details card of a scene page says which it is: “Scene 2 of The Harbour”.",
+        "Quotes in the bible's “In the books” use the story's words only. They now skip scene-break marks typed as text (“* * *”, “#”, “⁂”), headings typed as paragraphs (“CHAPTER THREE”, “Chapter 4: Ash”, a line in bold), the chapter's title typed again, and date lines.",
+        "Settings › Interface size has a new option, “Also scale the top bar, rail, menus and messages”. It's off by default, so only the page and panels change size until you turn it on."
+      ]
+    },
+    {
       "version": "0.107.0",
       "date": "2026-11-26",
       "notes": [
